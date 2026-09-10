@@ -1332,6 +1332,14 @@ export interface CurrentUser {
  * reads as the dependency it is.
  */
 export abstract class AuthService {
+  /**
+   * Called once by the application initialiser. On the web it completes a
+   * pending code flow; on native it restores a refresh token from secure
+   * storage. It is on the interface rather than on each strategy because the
+   * initialiser must call it without knowing which one it got — a cast there
+   * would defeat the one-interface property §4 rests on.
+   */
+  abstract initialize(): Promise<void>;
   abstract signIn(): Promise<void>;
   abstract signOut(): Promise<void>;
   /** Null when signed out. Callers attach it; nobody stores it. */
@@ -1895,9 +1903,8 @@ describe('permissionGuard', () => {
 `src/app/core/auth/auth.providers.ts`:
 
 ```ts
-import { APP_INITIALIZER, EnvironmentProviders, inject, makeEnvironmentProviders } from '@angular/core';
-import { Capacitor } from '@capacitor/core';
-import { OAuthService, provideOAuthClient } from 'angular-oauth2-oidc';
+import { EnvironmentProviders, inject, makeEnvironmentProviders, provideAppInitializer } from '@angular/core';
+import { provideOAuthClient } from 'angular-oauth2-oidc';
 import { AuthService } from './auth.service';
 import { WebAuthStrategy } from './web-auth.strategy';
 
@@ -1905,27 +1912,19 @@ import { WebAuthStrategy } from './web-auth.strategy';
  * The one place the application asks which platform it is on (spec §4). Every
  * screen, guard and interceptor below this line sees only AuthService.
  *
- * NativeAuthStrategy is wired in Task 19; until then a native build resolves
- * to the web strategy, which is honest — the mobile-app realm client does not
- * exist yet either.
+ * There is no platform test here YET, and its absence is deliberate rather
+ * than an oversight: NativeAuthStrategy arrives in plan Task 19, against a
+ * `mobile-app` realm client that does not exist either. A branch whose two
+ * arms are identical would read as a bug to everyone who met it in between.
  */
 export function provideAuth(): EnvironmentProviders {
   return makeEnvironmentProviders([
     provideOAuthClient(),
-    OAuthService,
     WebAuthStrategy,
-    {
-      provide: AuthService,
-      useFactory: () => (Capacitor.isNativePlatform() ? inject(WebAuthStrategy) : inject(WebAuthStrategy)),
-    },
-    {
-      provide: APP_INITIALIZER,
-      multi: true,
-      useFactory: () => {
-        const strategy = inject(AuthService) as WebAuthStrategy;
-        return () => strategy.initialize();
-      },
-    },
+    { provide: AuthService, useExisting: WebAuthStrategy },
+    // The initialiser sees only AuthService — no cast — which is what putting
+    // initialize() on the interface buys.
+    provideAppInitializer(() => inject(AuthService).initialize()),
   ]);
 }
 ```
@@ -2250,11 +2249,16 @@ describe('OrderingApi', () => {
   it('sends no customerId — the subject is bound from the principal', () => {
     api.place(command).subscribe();
 
-    const body = controller.expectOne('http://localhost:5000/api/v1/orders').request.body;
-    expect(Object.keys(body)).toEqual(['commandId', 'items', 'shippingAddress', 'currency']);
+    const request = controller.expectOne('http://localhost:5000/api/v1/orders');
 
-    controller.expectNone(() => false);
-    controller.verify({ ignoreCancelled: true });
+    // Exactly four keys. A customerId here would be a field any authenticated
+    // caller sets to somebody else's GUID; PlaceOrderCommand omits it on
+    // purpose and the client must not offer one back.
+    expect(Object.keys(request.request.body)).toEqual([
+      'commandId', 'items', 'shippingAddress', 'currency',
+    ]);
+
+    request.flush('33333333-3333-3333-3333-333333333333', { status: 200, statusText: 'OK' });
   });
 
   it('cancels with the reason in the body and accepts a 204', () => {
@@ -2342,7 +2346,7 @@ git commit -m "feat(api): catalog, checkout and ordering clients with exact wire
 - Consumes: `ProductSummary` (Task 3).
 - Produces:
   - `interface CartLine { productId: string; name: string; amount: number; currency: string; quantity: number }`
-  - `CartStore.lines: Signal<readonly CartLine[]>`, `.count: Signal<number>`, `.isEmpty: Signal<boolean>`
+  - `CartStore.lines: Signal<readonly CartLine[]>`, `.count: Signal<number>`, `.isEmpty: Signal<boolean>`, `.productIds: Signal<readonly string[]>`
   - `CartStore.add(product: ProductSummary): void`, `.setQuantity(productId: string, quantity: number): void`, `.remove(productId: string): void`, `.clear(): void`, `.restore(): Promise<void>`
   - `CartPersistence.read(): Promise<readonly CartLine[]>`, `.write(lines: readonly CartLine[]): Promise<void>`
 
@@ -2620,7 +2624,7 @@ Spec §5.3 is the one place the client holds state across requests on purpose. I
 
 **Interfaces:**
 - Consumes: `DisplayError` (Task 4).
-- Produces: `class CommandIdentity { readonly current: Signal<string>; onFailure(error: DisplayError): void; onEdit(): void; onSuccess(): void; }`
+- Produces: `class CommandIdentity { readonly current: Signal<string>; readonly isSpent: Signal<boolean>; onFailure(error: DisplayError): void; onEdit(): void; onSuccess(): void; }` and `const ALREADY_COMMITTED = 'already-committed'` (the sentinel order id, here rather than on a page so two features can share it).
 
 - [ ] **Step 1: Write the failing state-machine test**
 
@@ -2749,6 +2753,15 @@ import { DisplayError } from '@core/errors/error-mapper';
  * once per FORM, not once per click — and the difference between the two is
  * the difference between a replay and a second order.
  */
+/**
+ * The order id the placed page is given when the platform answered
+ * `command.already_committed`: the order exists, but no id came back and there
+ * is no endpoint to read one from. It lives here rather than on the checkout
+ * page because two features need it and a feature never imports another
+ * feature (spec §3) — the ESLint rule and the boundary test both enforce that.
+ */
+export const ALREADY_COMMITTED = 'already-committed';
+
 export class CommandIdentity {
   private readonly id = signal(crypto.randomUUID());
   private readonly spent = signal(false);
@@ -3823,12 +3836,9 @@ import { OrderingApi } from '@core/api/ordering.api';
 import { PlaceOrderCommand } from '@core/api/types';
 import { CartStore } from '@core/cart/cart.store';
 import { CheckoutHandoff } from '@core/cart/checkout-handoff';
-import { CommandIdentity } from '@core/commands/command-id';
+import { ALREADY_COMMITTED, CommandIdentity } from '@core/commands/command-id';
 import { DisplayError, mapError } from '@core/errors/error-mapper';
 import { ErrorBannerComponent } from '@shared/error-banner.component';
-
-/** Sentinel id for the placed page when the platform said the command already committed. */
-export const ALREADY_COMMITTED = 'already-committed';
 
 /**
  * Spec §5.3. The address form mirrors AddressDto's five fields with the same
@@ -4075,8 +4085,8 @@ import {
 import { OrderingApi } from '@core/api/ordering.api';
 import { CANCEL_REASONS, CancelReason, PERMISSIONS } from '@core/api/types';
 import { DisplayError, mapError } from '@core/errors/error-mapper';
+import { ALREADY_COMMITTED } from '@core/commands/command-id';
 import { ErrorBannerComponent } from '@shared/error-banner.component';
-import { ALREADY_COMMITTED } from '@features/checkout/checkout.page';
 
 /**
  * Spec §5.4. The page states, in one sentence, that the platform exposes no
@@ -4177,9 +4187,9 @@ export class OrderPlacedPage {
 }
 ```
 
-> **Boundary note.** `ALREADY_COMMITTED` is imported from `@features/checkout/checkout.page`, which the Task 1 ESLint rule forbids and the boundary test would fail. Move the constant to `src/app/core/commands/command-id.ts` and import it from `@core/commands/command-id` in both pages. Do this before running the tests.
+- [ ] **Step 3: Run the tests and the boundary check**
 
-- [ ] **Step 3: Move the constant, then run**
+`ALREADY_COMMITTED` comes from `@core/commands/command-id` in both this page and the checkout page — never from the other feature. The boundary run below is what proves it.
 
 Run: `npm test -- order-placed && npm test -- boundaries && npm run lint`
 Expected: all pass.
@@ -5108,18 +5118,20 @@ describe('NativeAuthStrategy', () => {
 
 - [ ] **Step 3: Wire the factory**
 
-In `auth.providers.ts`, replace the placeholder ternary:
+In `auth.providers.ts`, replace the unconditional `useExisting` Task 5 left with the platform test — this is the moment the second arm becomes real:
 
 ```ts
+    WebAuthStrategy,
     NativeAuthStrategy,
     {
       provide: AuthService,
       useFactory: () =>
         Capacitor.isNativePlatform() ? inject(NativeAuthStrategy) : inject(WebAuthStrategy),
     },
+    provideAppInitializer(() => inject(AuthService).initialize()),
 ```
 
-and make the `APP_INITIALIZER` call `initialize()` on whichever was chosen. Both strategies expose it; nothing else in the application asks which platform it is on.
+The initialiser is unchanged: `initialize()` is on the interface, so it calls whichever strategy the factory chose without a cast and without asking. This factory is the only place in the application that asks which platform it is on (spec §4).
 
 - [ ] **Step 4: Run the tests**
 
