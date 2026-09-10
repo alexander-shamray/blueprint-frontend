@@ -1640,10 +1640,39 @@ Expected: PASS, 3 tests.
 
 ```ts
 import { Injectable, Signal, computed, inject, signal } from '@angular/core';
-import { AuthConfig, OAuthService } from 'angular-oauth2-oidc';
+import { AuthConfig, OAuthService, OAuthStorage } from 'angular-oauth2-oidc';
 import { environment } from '@core/config/environment';
 import { AuthService, CurrentUser } from './auth.service';
 import { decodeUser } from './current-user';
+
+/** The only three values that must survive the sign-in redirect. */
+const TRANSIENT_STORAGE_KEYS = new Set(['PKCE_verifier', 'nonce', 'requested_route']);
+
+/**
+ * sessionStorage for the transient keys, memory for everything else — every
+ * token and every piece of session bookkeeping. sessionStorage rather than
+ * localStorage because it dies with the tab, which is closer to the posture
+ * the realm chose.
+ */
+export class HybridOAuthStorage implements OAuthStorage {
+  private readonly memory = new Map<string, string>();
+
+  getItem(key: string): string | null {
+    return TRANSIENT_STORAGE_KEYS.has(key)
+      ? sessionStorage.getItem(key)
+      : this.memory.get(key) ?? null;
+  }
+
+  setItem(key: string, data: string): void {
+    if (TRANSIENT_STORAGE_KEYS.has(key)) sessionStorage.setItem(key, data);
+    else this.memory.set(key, data);
+  }
+
+  removeItem(key: string): void {
+    if (TRANSIENT_STORAGE_KEYS.has(key)) sessionStorage.removeItem(key);
+    else this.memory.delete(key);
+  }
+}
 
 /**
  * The browser half of spec §4.1.
@@ -1693,14 +1722,28 @@ export class WebAuthStrategy extends AuthService {
     };
 
     this.oauth.configure(config);
-    this.oauth.setStorage({
-      getItem: () => null,
-      removeItem: () => undefined,
-      setItem: () => undefined,
-      length: 0,
-      clear: () => undefined,
-      key: () => null,
-    } as Storage);
+    // NOT MemoryStorage, and not a no-op stub. Both lose the PKCE verifier.
+    //
+    // initCodeFlow()'s default openUri is `location.href = uri` — a real
+    // top-level navigation. createLoginUrl writes PKCE_verifier to this
+    // storage BEFORE navigating; the navigation destroys the JS heap; the
+    // app boots fresh; and getTokenFromCode then finds no verifier, warns,
+    // and sends the code exchange WITHOUT code_verifier. A realm requiring
+    // PKCE S256 rejects that, so sign-in fails after a successful login.
+    //
+    // So the storage routes by key, on an ALLOWLIST of the three
+    // flow-transient values. The allowlist direction is the load-bearing
+    // part: a key a future library version adds falls to memory, which is
+    // safe, where a denylist would default it to sessionStorage — a
+    // credential leak arriving through an unreviewed upgrade.
+    //
+    // The spec says "nothing is written to localStorage or sessionStorage".
+    // Read literally that is unimplementable for a redirect flow, because
+    // something must survive exactly one navigation. What it protects is
+    // preserved: no credential is readable from web storage and a reload
+    // still signs the user out. A PKCE verifier is a single-use,
+    // non-identifying nonce, worthless without the matching code.
+    this.oauth.setStorage(new HybridOAuthStorage());
 
     await this.oauth.loadDiscoveryDocumentAndTryLogin();
 
