@@ -37,6 +37,7 @@ Every task's requirements implicitly include this section. Values are copied ver
   | `vitest` | `4.1.11` — **not 5.x.** `@angular/build@22.1.8` peers `vitest ^4.0.8`, so the published 5.0.0 is incompatible with the builder. Every task writing test code targets Vitest **4**. Verified against the registry 2026-09-11. |
   | `@playwright/test` | `1.63.0` |
 
+- **Ionic 9 imports come from `@ionic/angular`, NOT `@ionic/angular/standalone`.** That subpath does not exist in `@ionic/angular@9.0.3` — its `exports` map has no `./standalone` entry, because the package root itself now resolves to `./dist/standalone/index.js`. The `/standalone` convention was Ionic 7-8. The root re-exports `provideIonicAngular`, `IonTabs`, `IonBackButton` and, via `export * from './directives/proxies'`, every other `Ion*` component these tasks use. Importing the old path fails `TS2307` and cascades into `NG1010`.
 - **`.gitattributes` is `* text=auto eol=lf`** — already committed, do not change.
 - **Citation rule (spec §1, property 2).** Every interface in `core/api/types.ts` and every constant mirroring a backend vocabulary carries a one-line comment naming the backend file and symbol. No error text, permission name, reason code or DTO field name is authored on the client. The only client-authored strings are the six generic banners named in spec §6.
 - **A feature never imports another feature.** Enforced by ESLint `no-restricted-imports`, not by convention (Task 1).
@@ -1196,7 +1197,7 @@ Expected: PASS, 15 tests.
 
 ```ts
 import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
-import { IonIcon, IonNote, IonText } from '@ionic/angular/standalone';
+import { IonIcon, IonNote, IonText } from '@ionic/angular';
 import { DisplayError, ErrorKind } from '@core/errors/error-mapper';
 
 /**
@@ -2915,7 +2916,7 @@ Expected: FAIL — cannot resolve `./tabs.page`.
 
 ```ts
 import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
-import { IonBadge, IonIcon, IonLabel, IonTabBar, IonTabButton, IonTabs } from '@ionic/angular/standalone';
+import { IonBadge, IonIcon, IonLabel, IonTabBar, IonTabButton, IonTabs } from '@ionic/angular';
 import { PERMISSIONS } from '@core/api/types';
 import { AuthService } from '@core/auth/auth.service';
 import { CartStore } from '@core/cart/cart.store';
@@ -3038,7 +3039,7 @@ import {
 } from '@angular/core';
 import { provideHttpClient, withInterceptors } from '@angular/common/http';
 import { provideRouter } from '@angular/router';
-import { provideIonicAngular } from '@ionic/angular/standalone';
+import { provideIonicAngular } from '@ionic/angular';
 import { routes } from './app.routes';
 import { authInterceptor } from '@core/auth/auth.interceptor';
 import { provideAuth } from '@core/auth/auth.providers';
@@ -3064,7 +3065,7 @@ Each of the six feature pages gets a minimal standalone component now, replaced 
 
 ```ts
 import { Component } from '@angular/core';
-import { IonContent, IonHeader, IonTitle, IonToolbar } from '@ionic/angular/standalone';
+import { IonContent, IonHeader, IonTitle, IonToolbar } from '@ionic/angular';
 
 @Component({
   selector: 'app-products',
@@ -3223,7 +3224,7 @@ import { HttpErrorResponse } from '@angular/common/http';
 import {
   IonContent, IonHeader, IonInfiniteScroll, IonInfiniteScrollContent, IonItem, IonLabel,
   IonList, IonNote, IonThumbnail, IonTitle, IonToolbar, IonButton,
-} from '@ionic/angular/standalone';
+} from '@ionic/angular';
 import { CatalogApi } from '@core/api/catalog.api';
 import { ProductSummary } from '@core/api/types';
 import { CartStore } from '@core/cart/cart.store';
@@ -3500,7 +3501,7 @@ import { Router } from '@angular/router';
 import {
   IonButton, IonContent, IonHeader, IonItem, IonLabel, IonList, IonNote, IonSelect,
   IonSelectOption, IonTitle, IonToolbar,
-} from '@ionic/angular/standalone';
+} from '@ionic/angular';
 import { CheckoutApi } from '@core/api/checkout.api';
 import { QuoteResponse } from '@core/api/types';
 import { AuthService } from '@core/auth/auth.service';
@@ -3847,7 +3848,7 @@ import { Router } from '@angular/router';
 import {
   IonBackButton, IonButton, IonButtons, IonContent, IonHeader, IonInput, IonItem, IonNote,
   IonTitle, IonToolbar,
-} from '@ionic/angular/standalone';
+} from '@ionic/angular';
 import { OrderingApi } from '@core/api/ordering.api';
 import { PlaceOrderCommand } from '@core/api/types';
 import { CartStore } from '@core/cart/cart.store';
@@ -4097,7 +4098,7 @@ import { ActivatedRoute } from '@angular/router';
 import {
   IonBackButton, IonButton, IonButtons, IonContent, IonHeader, IonItem, IonLabel, IonNote,
   IonSelect, IonSelectOption, IonText, IonTitle, IonToolbar,
-} from '@ionic/angular/standalone';
+} from '@ionic/angular';
 import { OrderingApi } from '@core/api/ordering.api';
 import { CANCEL_REASONS, CancelReason, PERMISSIONS } from '@core/api/types';
 import { DisplayError, mapError } from '@core/errors/error-mapper';
@@ -4332,7 +4333,7 @@ import { FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angula
 import { Router } from '@angular/router';
 import {
   IonButton, IonContent, IonHeader, IonInput, IonItem, IonNote, IonTitle, IonToolbar,
-} from '@ionic/angular/standalone';
+} from '@ionic/angular';
 import { CatalogApi } from '@core/api/catalog.api';
 import { PERMISSIONS, PublishProductCommand } from '@core/api/types';
 import { CommandIdentity } from '@core/commands/command-id';
@@ -4549,7 +4550,7 @@ import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@a
 import { ActivatedRoute } from '@angular/router';
 import {
   IonButton, IonChip, IonContent, IonHeader, IonItem, IonLabel, IonNote, IonTitle, IonToolbar,
-} from '@ionic/angular/standalone';
+} from '@ionic/angular';
 import { AuthService } from '@core/auth/auth.service';
 
 /** Spec §5.6. */
