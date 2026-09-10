@@ -117,8 +117,9 @@ Files that change together live together. Each file has one responsibility and i
 | File | Responsibility | Task |
 |---|---|---|
 | `.nvmrc`, `package.json`, `angular.json`, `eslint.config.js`, `tsconfig.json` | Toolchain, exact pins, port 5173, import boundaries | 1 |
-| `src/app/core/config/environment.ts` | Production config shape and values | 2 |
-| `src/app/core/config/environment.development.ts` | Development values: gateway 5000, Keycloak 8080 | 2 |
+| `src/app/core/config/environment.model.ts` | The `Environment` interface, and its ONLY export site | 2 |
+| `src/app/core/config/environment.ts` | Production values | 2 |
+| `src/app/core/config/environment.development.ts` | Development values: gateway 5000, Keycloak 8080. Replaces `environment.ts` wholesale under `fileReplacements` | 2 |
 | `src/app/core/api/types.ts` | Every wire type, one per backend record, each citing its owner | 3 |
 | `src/app/core/errors/problem-details.ts` | The RFC 9457 body shape plus the backend's extensions | 4 |
 | `src/app/core/errors/error-mapper.ts` | The only place an `HttpErrorResponse` becomes a display model | 4 |
@@ -492,16 +493,30 @@ git commit -m "chore: scaffold Angular 22 + Ionic 9 app with pinned versions and
 ## Task 2: Configuration
 
 **Files:**
-- Create: `src/app/core/config/environment.ts`
-- Create: `src/app/core/config/environment.development.ts`
+- Create: `src/app/core/config/environment.model.ts` — the `Environment` interface
+- Create: `src/app/core/config/environment.ts` — production values
+- Create: `src/app/core/config/environment.development.ts` — development values
 - Modify: `angular.json` — file replacement for the development configuration
+
+> **Three files, not two, and the reason is `fileReplacements`.** Under the
+> development configuration Angular replaces `environment.ts` *wholesale* with
+> `environment.development.ts`. So the development file cannot import the
+> `Environment` interface from `./environment` — that import resolves to
+> itself and fails `TS2724`. The interface therefore lives in a third file
+> outside the replacement, and **that file is its only export site**: neither
+> `environment.ts` nor `environment.development.ts` re-exports the type. An
+> asymmetric re-export compiles under the production build and fails under
+> `ng serve`, which is the one build a developer runs all day.
+>
+> Consumers import the *value* from `@core/config/environment` and, on the rare
+> occasion they need the *type*, from `@core/config/environment.model`.
 
 **Interfaces:**
 - Produces: `environment: { production: boolean; gatewayBaseUrl: string; auth: { issuer: string; webClientId: string; nativeClientId: string; redirectUri: string; nativeRedirectUri: string; scope: string } }`
 
-- [ ] **Step 1: Write the production config**
+- [ ] **Step 1: Write the interface and the production config**
 
-`src/app/core/config/environment.ts`:
+The interface goes in `src/app/core/config/environment.model.ts` and the `environment` constant below it in `src/app/core/config/environment.ts`, which imports the type with `import type { Environment } from './environment.model';` and does **not** re-export it:
 
 ```ts
 /**
@@ -555,7 +570,7 @@ export const environment: Environment = {
 `src/app/core/config/environment.development.ts`:
 
 ```ts
-import { Environment } from './environment';
+import type { Environment } from './environment.model';
 
 /**
  * Every value here is read from the backend's Compose stack rather than chosen:
