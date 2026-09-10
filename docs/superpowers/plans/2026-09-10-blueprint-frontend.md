@@ -2774,8 +2774,11 @@ const failure = (kind: ErrorKind): DisplayError => ({ kind, title: '', detail: n
 
 describe('CommandIdentity', () => {
   it('mints an id when the form is entered', () => {
+    // Pins the v4 version nibble and the RFC 4122 variant nibble, not merely
+    // the 8-4-4-4-12 grouping — which a v1 UUID, or any correctly grouped
+    // random hex, would also satisfy.
     expect(new CommandIdentity().current()).toMatch(
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
     );
   });
 
@@ -2904,7 +2907,15 @@ export class CommandIdentity {
 
   readonly current: Signal<string> = this.id.asReadonly();
 
-  /** True once the platform has said this id already committed. Do not resubmit it. */
+  /**
+   * True once the platform has said this id already committed.
+   *
+   * This is a RECORD of the fact, not an enforcement of it. `current` keeps
+   * returning a usable id, and nothing here refuses to hand it out — a page
+   * holding a spent identity must read this and disable its own submit. The
+   * class cannot do it for them without making `current()` throw, which would
+   * move the failure somewhere far worse than a disabled button.
+   */
   readonly isSpent: Signal<boolean> = this.spent.asReadonly();
 
   onFailure(error: DisplayError): void {
@@ -2924,6 +2935,14 @@ export class CommandIdentity {
    * to prevent.
    */
   onEdit(): void {
+    // Spent is sticky, and this guard is why. onFailure() records the LATEST
+    // kind only, so `alreadyCommitted` followed by `validation` leaves the id
+    // spent while setting the validation flag — and without this line the next
+    // edit would mint, handing back a live id for a command the platform has
+    // already applied. That is a second order. Only onSuccess() clears spent,
+    // because only a completed submission legitimately begins a new one.
+    if (this.spent()) return;
+
     if (!this.failedValidationOnly) return;
 
     this.mint();
