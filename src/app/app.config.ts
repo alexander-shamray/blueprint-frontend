@@ -1,5 +1,6 @@
 import {
   ApplicationConfig,
+  provideBrowserGlobalErrorListeners,
   provideZonelessChangeDetection,
   inject,
   provideAppInitializer,
@@ -15,6 +16,12 @@ import { CartStore } from '@core/cart/cart.store';
 export const appConfig: ApplicationConfig = {
   providers: [
     provideZonelessChangeDetection(),
+    // Funnels window.onerror / unhandledrejection into Angular's
+    // ErrorHandler. Present in the CLI scaffold's original app.config.ts;
+    // Task 9's brief omitted it from its app.config.ts snippet without
+    // recording that as deliberate, so it is restored here rather than
+    // treated as superseded.
+    provideBrowserGlobalErrorListeners(),
     provideIonicAngular(),
     provideRouter(routes),
     provideHttpClient(withInterceptors([authInterceptor])),
