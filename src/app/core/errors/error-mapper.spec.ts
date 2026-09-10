@@ -145,6 +145,46 @@ describe('mapError', () => {
     expect(result.retryAfterIsFallback).toBe(true);
   });
 
+  it('429 falls back when Retry-After is present but empty', () => {
+    const result = mapError(
+      problem(429, { title: 'Too many requests', status: 429 }, { 'Retry-After': '' }),
+    );
+
+    expect(result.retryAfterSeconds).toBe(RATE_LIMIT_FALLBACK_SECONDS);
+    expect(result.retryAfterIsFallback).toBe(true);
+  });
+
+  it('429 falls back when Retry-After is whitespace-only', () => {
+    const result = mapError(
+      problem(429, { title: 'Too many requests', status: 429 }, { 'Retry-After': '   ' }),
+    );
+
+    expect(result.retryAfterSeconds).toBe(RATE_LIMIT_FALLBACK_SECONDS);
+    expect(result.retryAfterIsFallback).toBe(true);
+  });
+
+  it('429 falls back when Retry-After is non-numeric', () => {
+    const result = mapError(
+      problem(429, { title: 'Too many requests', status: 429 }, { 'Retry-After': 'soon' }),
+    );
+
+    expect(result.retryAfterSeconds).toBe(RATE_LIMIT_FALLBACK_SECONDS);
+    expect(result.retryAfterIsFallback).toBe(true);
+  });
+
+  it('429 falls back when Retry-After is an HTTP-date (out of contract; the gateway only sends seconds)', () => {
+    const result = mapError(
+      problem(
+        429,
+        { title: 'Too many requests', status: 429 },
+        { 'Retry-After': 'Wed, 21 Oct 2026 07:28:00 GMT' },
+      ),
+    );
+
+    expect(result.retryAfterSeconds).toBe(RATE_LIMIT_FALLBACK_SECONDS);
+    expect(result.retryAfterIsFallback).toBe(true);
+  });
+
   it('503 becomes unavailable', () => {
     expect(mapError(problem(503, { title: 'Service Unavailable', status: 503 })).kind).toBe(
       'unavailable',

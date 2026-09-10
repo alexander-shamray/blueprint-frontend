@@ -99,8 +99,14 @@ export function mapError(
       return { ...base, kind: 'rule' };
 
     case 429: {
+      // `header` can be missing, empty, whitespace-only, or non-numeric (HTTP
+      // allows an HTTP-date form of Retry-After; the gateway only ever sends
+      // seconds, so a date is out of contract here and — like every other
+      // unreadable value — must fall back rather than be trusted as `NaN`
+      // seconds or, worse, `Number('')` coercing to a false-fact zero).
       const header = error.headers?.get('Retry-After');
-      const parsed = header === null || header === undefined ? Number.NaN : Number(header);
+      const trimmed = header?.trim();
+      const parsed = trimmed ? Number(trimmed) : Number.NaN;
       const readable = Number.isFinite(parsed) && parsed >= 0;
 
       return {

@@ -78,10 +78,16 @@ const GENERIC: Readonly<Record<ErrorKind, string | null>> = {
 export class ErrorBannerComponent {
   readonly error = input.required<DisplayError | null>();
 
-  /** The backend's title wins whenever it sent one; the generic is the fallback. */
-  protected readonly heading = computed(
-    () => this.error()?.title || GENERIC[this.error()!.kind] || 'Something went wrong.',
-  );
+  /**
+   * The backend's title wins whenever it sent one; the generic is the
+   * fallback. `error` is a required input typed `DisplayError | null`, so
+   * `null` is a legal value here — not just a template guard upstream — and
+   * must not be assumed away with a non-null assertion.
+   */
+  protected readonly heading = computed(() => {
+    const e = this.error();
+    return e ? e.title || GENERIC[e.kind] || 'Something went wrong.' : 'Something went wrong.';
+  });
 
   protected readonly fieldEntries = computed(() => Object.entries(this.error()?.fields ?? {}));
 }
