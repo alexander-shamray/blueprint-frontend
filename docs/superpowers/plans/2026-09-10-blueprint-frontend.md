@@ -2534,7 +2534,10 @@ describe('CartStore', () => {
 
   it('persists on every change', async () => {
     store.add(product('p1'));
-    await Promise.resolve();
+    // TestBed.tick() — NOT `await Promise.resolve()`. The scheduler uses
+    // scheduleCallbackWithRafRace, so a bare microtask does not reliably
+    // flush and the test would pass or fail on timing luck.
+    TestBed.tick();
 
     expect(write).toHaveBeenCalledWith([
       { productId: 'p1', name: 'Thing', amount: 10, currency: 'EUR', quantity: 1 },
@@ -2561,7 +2564,7 @@ describe('CartStore', () => {
   it('clear empties the cart and persists the emptiness', async () => {
     store.add(product('p1'));
     store.clear();
-    await Promise.resolve();
+    TestBed.tick();
 
     expect(store.lines()).toEqual([]);
     expect(write).toHaveBeenLastCalledWith([]);
@@ -2644,7 +2647,23 @@ export interface CartLine {
 export class CartStore {
   private readonly persistence = inject(CartPersistence);
   private readonly state = signal<readonly CartLine[]>([]);
-  private restoring = false;
+
+  /**
+   * The exact array reference `restore()` last wrote, or null.
+   *
+   * NOT a boolean. A `restoring = true / finally restoring = false` flag is
+   * structurally a no-op here: effects are SCHEDULED under zoneless change
+   * detection, never run inside the signal write, and `restore()`'s finally
+   * block runs synchronously in the same call stack as `state.set()` — so the
+   * flag is always back to false before any flush can read it, and `restore()`
+   * writes back exactly what it just read.
+   *
+   * Comparing references works because a genuine mutation afterwards replaces
+   * the array with a DIFFERENT one, so it still persists. Suppressing by
+   * staleness instead would swallow that write, which is the worse bug and a
+   * silent one.
+   */
+  private pendingRestore: readonly CartLine[] | null = null;
 
   readonly lines = this.state.asReadonly();
   readonly count = computed(() => this.state().reduce((total, line) => total + line.quantity, 0));
@@ -2654,19 +2673,24 @@ export class CartStore {
   constructor() {
     effect(() => {
       const lines = this.state();
-      // Not while restoring: writing back what was just read is a wasted round
-      // trip, and on a slow device it can race the read it followed.
-      if (!this.restoring) void this.persistence.write(lines);
+
+      // Skip only the write for the restore that produced THIS exact array.
+      // Anything else — including a change made after the restore but before
+      // this effect flushed — is a real change and must persist.
+      if (lines === this.pendingRestore) {
+        this.pendingRestore = null;
+        return;
+      }
+
+      void this.persistence.write(lines);
     });
   }
 
   async restore(): Promise<void> {
-    this.restoring = true;
-    try {
-      this.state.set(await this.persistence.read());
-    } finally {
-      this.restoring = false;
-    }
+    const restored = await this.persistence.read();
+
+    this.pendingRestore = restored;
+    this.state.set(restored);
   }
 
   add(product: ProductSummary): void {
@@ -3148,6 +3172,16 @@ export const appConfig: ApplicationConfig = {
     provideAuth(),
     // The cart survives a restart on every platform (spec §3). Restoring it
     // before the first render keeps the tab badge from flashing zero.
+    //
+    // RETURN the promise — do not fire and forget. Angular waits on a returned
+    // promise before bootstrapping, and that wait is what closes a real race:
+    // CartStore's persistence effect is scheduled once at construction with the
+    // initial EMPTY state. If a slow Preferences.get() — a native bridge round
+    // trip, not web localStorage — let that first flush land before restore()
+    // resolved, it would persist `[]`, and the pendingRestore guard would then
+    // suppress the write that should have corrected it. The cart would come
+    // back empty, silently. Blocking bootstrap on the read keeps the empty
+    // state from ever being the one that flushes.
     provideAppInitializer(() => inject(CartStore).restore()),
   ],
 };
