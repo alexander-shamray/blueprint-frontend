@@ -28,7 +28,16 @@ export class CommandIdentity {
 
   readonly current: Signal<string> = this.id.asReadonly();
 
-  /** True once the platform has said this id already committed. Do not resubmit it. */
+  /**
+   * True once the platform has said this id already committed. Do not resubmit it.
+   *
+   * This is a *record* of the fact, not an enforcement: `current()` returns a
+   * usable id regardless of this signal's value. A page holding a spent identity
+   * must check `isSpent()` and disable submit, rather than relying on this class
+   * to refuse the id. This design — a signal meant to be read by callers — is
+   * acceptable, but the guarantee lives entirely in the two pages that consume
+   * this class, each of which must enforce it.
+   */
   readonly isSpent: Signal<boolean> = this.spent.asReadonly();
 
   onFailure(error: DisplayError): void {
@@ -48,6 +57,13 @@ export class CommandIdentity {
    * to prevent.
    */
   onEdit(): void {
+    // A spent id is permanent: the platform has told us this id committed, and
+    // resubmitting under a fresh id is the second order the whole mechanism
+    // exists to prevent. No edit — not even after a validation failure — may
+    // release it. Only onSuccess() may clear spent, because only a completed
+    // submission starts a new form entry.
+    if (this.spent()) return;
+
     if (!this.failedValidationOnly) return;
 
     this.mint();
