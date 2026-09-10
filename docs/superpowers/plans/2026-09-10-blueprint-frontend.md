@@ -25,7 +25,8 @@ Every task's requirements implicitly include this section. Values are copied ver
   | Package | Version |
   |---|---|
   | `@angular/core`, `@angular/common`, `@angular/forms`, `@angular/router`, `@angular/platform-browser` | `22.1.6` |
-  | `@angular/cli`, `@angular/build`, `@angular/compiler-cli` | `22.1.8` |
+  | `@angular/cli`, `@angular/build` | `22.1.8` |
+  | `@angular/compiler-cli` | `22.1.6` — tracks `@angular/core`, NOT the CLI. There is no 22.1.7 or 22.1.8; 22.1.6 is the last 22.1.x published. Verified against the registry 2026-09-11. |
   | `@ionic/angular` | `9.0.3` |
   | `@capacitor/core`, `@capacitor/cli`, `@capacitor/android`, `@capacitor/ios` | `8.5.1` |
   | `@capacitor/browser` | `8.0.4` |
@@ -33,7 +34,7 @@ Every task's requirements implicitly include this section. Values are copied ver
   | `@capacitor/preferences` | `8.0.1` |
   | `@aparajita/capacitor-secure-storage` | `8.0.0` |
   | `angular-oauth2-oidc` | `22.0.2` |
-  | `vitest` | `5.0.0` |
+  | `vitest` | `4.1.11` — **not 5.x.** `@angular/build@22.1.8` peers `vitest ^4.0.8`, so the published 5.0.0 is incompatible with the builder. Every task writing test code targets Vitest **4**. Verified against the registry 2026-09-11. |
   | `@playwright/test` | `1.63.0` |
 
 - **`.gitattributes` is `* text=auto eol=lf`** — already committed, do not change.
