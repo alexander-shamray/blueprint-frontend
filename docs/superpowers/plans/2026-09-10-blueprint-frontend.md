@@ -1162,8 +1162,20 @@ export function mapError(
       return { ...base, kind: 'rule' };
 
     case 429: {
+      // Gated on the trimmed string being non-empty, NOT on the parsed
+      // number being truthy. Number('') and Number('   ') are both 0, so a
+      // present-but-empty header would otherwise pass `isFinite(0) && 0 >= 0`
+      // and be reported as a real zero-second countdown — the exact lie
+      // retryAfterIsFallback exists to prevent. A genuine '0' is still
+      // readable, because a non-empty string is truthy: the gateway can send
+      // zero when a bucket has under a second left.
+      //
+      // A non-numeric value, including the HTTP-date form the spec allows and
+      // this gateway never sends, becomes NaN and falls back. That is why no
+      // date parsing appears here.
       const header = error.headers?.get('Retry-After');
-      const parsed = header === null || header === undefined ? Number.NaN : Number(header);
+      const trimmed = header?.trim();
+      const parsed = trimmed ? Number(trimmed) : Number.NaN;
       const readable = Number.isFinite(parsed) && parsed >= 0;
 
       return {
@@ -1276,10 +1288,18 @@ const GENERIC: Readonly<Record<ErrorKind, string | null>> = {
 export class ErrorBannerComponent {
   readonly error = input.required<DisplayError | null>();
 
-  /** The backend's title wins whenever it sent one; the generic is the fallback. */
-  protected readonly heading = computed(
-    () => this.error()?.title || GENERIC[this.error()!.kind] || 'Something went wrong.',
-  );
+  /**
+   * The backend's title wins whenever it sent one; the generic is the fallback.
+   *
+   * Branches on null explicitly rather than asserting it away. `error` is a
+   * required input typed `DisplayError | null`, so null is a legal value, and
+   * a non-null assertion here is a TypeError waiting for the first caller that
+   * reads this outside the template's `@if` guard.
+   */
+  protected readonly heading = computed(() => {
+    const e = this.error();
+    return e ? e.title || GENERIC[e.kind] || 'Something went wrong.' : 'Something went wrong.';
+  });
 
   protected readonly fieldEntries = computed(() => Object.entries(this.error()?.fields ?? {}));
 }
