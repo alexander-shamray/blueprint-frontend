@@ -1,6 +1,6 @@
 import { Injectable } from '@angular/core';
 import { Preferences } from '@capacitor/preferences';
-import { CartLine } from './cart.store';
+import type { CartLine } from './cart.store';
 
 /**
  * Capacitor Preferences on every platform, which on the web is localStorage

@@ -116,6 +116,31 @@ describe('CartStore', () => {
     expect(write).not.toHaveBeenCalled();
   });
 
+  it('a genuine change made after restore but before the effect flushes still persists', async () => {
+    // This is the case the reference-identity guard exists for: restore()
+    // sets `pendingRestore` to the array it just read, but a real mutation
+    // made before that array is ever observed by the (deferred) effect must
+    // still be written — the guard must suppress only the restore's own
+    // echo, not everything that happens to be pending when it flushes.
+    const stored = [{ productId: 'p9', name: 'Restored', amount: 3, currency: 'GBP', quantity: 4 }];
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      providers: [
+        CartStore,
+        { provide: CartPersistence, useValue: { read: async () => stored, write } },
+      ],
+    });
+
+    const restored = TestBed.inject(CartStore);
+    await restored.restore();
+    // Deliberately no TestBed.tick() here: the restore's own write-back must
+    // still be pending (unflushed) when the genuine mutation below happens.
+    restored.setQuantity('p9', 7);
+    TestBed.tick();
+
+    expect(write).toHaveBeenCalledWith([{ ...stored[0], quantity: 7 }]);
+  });
+
   it('clear empties the cart and persists the emptiness', () => {
     store.add(product('p1'));
     store.clear();
