@@ -39,6 +39,7 @@ Every task's requirements implicitly include this section. Values are copied ver
 
 - **Ionic 9 imports come from `@ionic/angular`, NOT `@ionic/angular/standalone`.** That subpath does not exist in `@ionic/angular@9.0.3` — its `exports` map has no `./standalone` entry, because the package root itself now resolves to `./dist/standalone/index.js`. The `/standalone` convention was Ionic 7-8. The root re-exports `provideIonicAngular`, `IonTabs`, `IonBackButton` and, via `export * from './directives/proxies'`, every other `Ion*` component these tasks use. Importing the old path fails `TS2307` and cascades into `NG1010`.
 - **A dependency is installed by the task that first imports it**, with `npm install --save-exact` so no `^` or `~` reaches `package.json`. `angular-oauth2-oidc` arrives in Task 5; `@capacitor/core` and `@capacitor/preferences` in Task 7, because the cart persists on the web too; the remaining Capacitor packages in Tasks 18 and 21. The scaffold in Task 1 installs none of them.
+- **Every `ion-icon` name must be registered with `addIcons`**, once, at module scope in `src/main.ts`. `@ionic/angular`'s exports map resolves to the standalone build, where icons are tree-shaken and there is NO lazy network fetch to fall back on — an unregistered name renders nothing, deterministically, on every platform, and produces no build error. Register the string name exactly as the template spells it: `addIcons` maps a kebab-case name to an imported constant, so `{ gridOutline }` shorthand registers `gridOutline` and the template's `name="grid-outline"` still fails. A task adding a new icon adds it there.
 - **`.gitattributes` is `* text=auto eol=lf`** — already committed, do not change.
 - **Citation rule (spec §1, property 2).** Every interface in `core/api/types.ts` and every constant mirroring a backend vocabulary carries a one-line comment naming the backend file and symbol. No error text, permission name, reason code or DTO field name is authored on the client. The only client-authored strings are the six generic banners named in spec §6.
 - **A feature never imports another feature.** Enforced by ESLint `no-restricted-imports`, not by convention (Task 1).
@@ -137,7 +138,7 @@ Files that change together live together. Each file has one responsibility and i
 | `src/app/core/cart/cart.store.ts` | Signals store of cart lines | 7 |
 | `src/app/core/cart/cart.persistence.ts` | Capacitor Preferences read/write | 7 |
 | `src/app/core/commands/command-id.ts` | The command-id lifecycle state machine | 8 |
-| `src/app/app.routes.ts`, `src/app/app.component.ts`, `src/app/tabs/*` | Shell, tabs, routing, permission-gated fourth tab | 9 |
+| `src/app/app.routes.ts`, `src/app/app.ts`, `src/app/tabs/*` | Shell, tabs, routing, permission-gated fourth tab | 9 |
 | `src/app/features/products/products.page.ts` | Spec §5.1 | 10 |
 | `src/app/features/cart/cart.page.ts` | Spec §5.2 | 11 |
 | `src/app/features/checkout/checkout.page.ts` | Spec §5.3 | 12 |
@@ -2978,7 +2979,7 @@ git commit -m "feat(commands): command-id lifecycle as a tested state machine"
 
 **Files:**
 - Create: `src/app/tabs/tabs.page.ts`
-- Modify: `src/app/app.component.ts`, `src/app/app.routes.ts`, `src/app/app.config.ts`, `src/main.ts`
+- Modify: `src/app/app.ts` (**not** `app.component.ts` — Angular 22 scaffolds suffix-less: `app.ts`, `app.html`, `app.spec.ts`), `src/app/app.routes.ts`, `src/app/app.config.ts`, `src/main.ts`
 - Test: `src/app/tabs/tabs.page.spec.ts`
 
 **Interfaces:**
