@@ -38,6 +38,7 @@ Every task's requirements implicitly include this section. Values are copied ver
   | `@playwright/test` | `1.63.0` |
 
 - **Ionic 9 imports come from `@ionic/angular`, NOT `@ionic/angular/standalone`.** That subpath does not exist in `@ionic/angular@9.0.3` — its `exports` map has no `./standalone` entry, because the package root itself now resolves to `./dist/standalone/index.js`. The `/standalone` convention was Ionic 7-8. The root re-exports `provideIonicAngular`, `IonTabs`, `IonBackButton` and, via `export * from './directives/proxies'`, every other `Ion*` component these tasks use. Importing the old path fails `TS2307` and cascades into `NG1010`.
+- **A dependency is installed by the task that first imports it**, with `npm install --save-exact` so no `^` or `~` reaches `package.json`. `angular-oauth2-oidc` arrives in Task 5; `@capacitor/core` and `@capacitor/preferences` in Task 7, because the cart persists on the web too; the remaining Capacitor packages in Tasks 18 and 21. The scaffold in Task 1 installs none of them.
 - **`.gitattributes` is `* text=auto eol=lf`** — already committed, do not change.
 - **Citation rule (spec §1, property 2).** Every interface in `core/api/types.ts` and every constant mirroring a backend vocabulary carries a one-line comment naming the backend file and symbol. No error text, permission name, reason code or DTO field name is authored on the client. The only client-authored strings are the six generic banners named in spec §6.
 - **A feature never imports another feature.** Enforced by ESLint `no-restricted-imports`, not by convention (Task 1).
@@ -1340,7 +1341,21 @@ git commit -m "feat(errors): map every backend status to one display model"
   - `permissionGuard(permission: string): CanActivateFn`
   - `provideAuth(): EnvironmentProviders`
 
-- [ ] **Step 1: Write the interface**
+- [ ] **Step 1: Install the OIDC library**
+
+Nothing before this task needs it, so it arrives here rather than in the
+scaffold — a dependency installed by the task that first imports it is a
+dependency whose reason is visible in one place.
+
+```bash
+npm install --save-exact angular-oauth2-oidc@22.0.2
+```
+
+`--save-exact` because the plan pins every version with no `^` or `~`. Confirm
+afterwards that `package.json` records `"angular-oauth2-oidc": "22.0.2"` with no
+range prefix.
+
+- [ ] **Step 2: Write the interface**
 
 `src/app/core/auth/auth.service.ts`:
 
@@ -2387,7 +2402,23 @@ git commit -m "feat(api): catalog, checkout and ordering clients with exact wire
   - `CartStore.add(product: ProductSummary): void`, `.setQuantity(productId: string, quantity: number): void`, `.remove(productId: string): void`, `.clear(): void`, `.restore(): Promise<void>`
   - `CartPersistence.read(): Promise<readonly CartLine[]>`, `.write(lines: readonly CartLine[]): Promise<void>`
 
-- [ ] **Step 1: Write the failing store test**
+- [ ] **Step 1: Install Capacitor's core and Preferences**
+
+`cart.persistence.ts` imports `@capacitor/preferences`, so it arrives here —
+NOT in Task 18. Task 18 adds the native platforms and the plugins only a native
+shell needs; Preferences is used by the web build too, because on the web it is
+`localStorage` behind the same interface. Deferring it to Task 18 would leave
+Tasks 7 through 17 unable to build.
+
+```bash
+npm install --save-exact @capacitor/core@8.5.1 @capacitor/preferences@8.0.1
+```
+
+`--save-exact` for the same reason as everywhere else. Task 18 installs
+`@capacitor/cli`, `@capacitor/android`, `@capacitor/ios`, `@capacitor/app` and
+`@capacitor/browser` on top of these two and must not reinstall or re-pin them.
+
+- [ ] **Step 2: Write the failing store test**
 
 `src/app/core/cart/cart.store.spec.ts`:
 
@@ -4956,10 +4987,13 @@ git commit -m "ci: lint, test, build and the Compose-backed smoke; document the 
 - [ ] **Step 1: Initialise Capacitor**
 
 ```bash
-npm install @capacitor/core@8.5.1 @capacitor/app@8.1.1 @capacitor/browser@8.0.4 @capacitor/preferences@8.0.1
-npm install --save-dev @capacitor/cli@8.5.1
+# @capacitor/core and @capacitor/preferences are already installed and pinned
+# by Task 7, which is where the cart's persistence first needed them. Do not
+# reinstall or re-pin them here.
+npm install --save-exact @capacitor/app@8.1.1 @capacitor/browser@8.0.4
+npm install --save-dev --save-exact @capacitor/cli@8.5.1
 npx cap init "Blueprint" "dev.ashamray.blueprint" --web-dir=dist/blueprint-frontend/browser
-npm install @capacitor/android@8.5.1
+npm install --save-exact @capacitor/android@8.5.1
 npx cap add android
 ```
 
@@ -5211,7 +5245,7 @@ git add -A && git commit -m "fix(native): host origins and callback handling on 
 - [ ] **Step 1: Generate the iOS project**
 
 ```bash
-npm install @capacitor/ios@8.5.1
+npm install --save-exact @capacitor/ios@8.5.1
 npx cap add ios
 ```
 
