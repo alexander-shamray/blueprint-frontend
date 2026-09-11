@@ -44,11 +44,43 @@ async function signIn(page: import('@playwright/test').Page, username: string, p
   await page.getByRole('tab', { name: 'Account' }).click();
 }
 
+/**
+ * Publishes a product through the UI and returns its name.
+ *
+ * The catalogue starts EMPTY on a clean stack, and nothing else in this suite
+ * puts anything in it that the order test can rely on. A developer's machine
+ * hides that: it accumulates products from every previous run and every manual
+ * check, so `getByRole('button', { name: 'Add' })` always found something
+ * locally. On CI's fresh Compose stack it found nothing, and the order test
+ * failed at its first assertion — before it could even reach the step that was
+ * already known to be blocked locally.
+ *
+ * So a test that needs products creates them. `demo` holds `catalog:write`,
+ * which is the whole reason that realm user exists.
+ */
+async function publishProduct(page: import('@playwright/test').Page, amount: string) {
+  const name = `Smoke ${amount} ${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+  await page.getByRole('tab', { name: 'Publish' }).click();
+  await page.getByLabel('Name').fill(name);
+  await page.getByLabel('Amount').fill(amount);
+  await page.getByLabel('Currency').fill('EUR');
+  await page.getByRole('button', { name: 'Publish' }).click();
+  await expect(page.getByText('Published as')).toBeVisible();
+
+  return name;
+}
+
 test('demo browses, quotes, orders and cancels', async ({ page }) => {
   await signIn(page, 'demo', 'demo');
 
   await expect(page.getByText('demo')).toBeVisible();
   await expect(page.getByText('catalog:write')).toBeVisible();
+
+  // Two products, in EUR, because the quote below asks for EUR and a product
+  // priced in another currency comes back in `Unpriced` rather than as a line.
+  await publishProduct(page, '12.50');
+  await publishProduct(page, '4.00');
 
   // Browse a page of products and add two.
   await page.getByRole('tab', { name: 'Products' }).click();
