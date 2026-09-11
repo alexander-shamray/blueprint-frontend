@@ -5979,10 +5979,25 @@ async function signIn(page: import('@playwright/test').Page, username: string, p
   await page.waitForURL(new RegExp(`^${KEYCLOAK}`));
 
   await page.getByLabel(/username|email/i).fill(username);
-  await page.getByLabel(/password/i).fill(password);
+  // Exact match, not /password/i: Keycloak's login page renders a "Show
+  // password" visibility-toggle button right next to the field, and its own
+  // aria-label also contains the word "password" — a loose regex resolves to
+  // both under Playwright's strict mode. This targets the field Keycloak
+  // labels exactly "Password", nothing about our own app.
+  await page.getByLabel('Password', { exact: true }).fill(password);
   await page.getByRole('button', { name: /sign in|log in/i }).click();
 
+  // Not necessarily /tabs/account: environment.development.ts pins the OAuth
+  // redirectUri to the app's bare origin (it must appear verbatim in the
+  // realm client's redirectUris), so the callback lands on '/', which
+  // app.routes.ts sends to 'tabs/products' regardless of which page asked
+  // for sign-in. Landing there is correct, not a bug — a page.goto() to
+  // steer it would be a second full navigation, and on the web this realm
+  // issues no refresh token (spec §5.6), so that reload would end the
+  // session this helper just established. A tab click is an in-app
+  // navigation and does not reload.
   await page.waitForURL(/localhost:5173/);
+  await page.getByRole('tab', { name: 'Account' }).click();
 }
 
 test('demo browses, quotes, orders and cancels', async ({ page }) => {
@@ -6001,7 +6016,11 @@ test('demo browses, quotes, orders and cancels', async ({ page }) => {
   // Quote.
   await page.getByRole('tab', { name: 'Cart' }).click();
   await page.getByRole('button', { name: 'Get quote' }).click();
-  await expect(page.getByText(/Total/)).toBeVisible();
+  // Not /Total/: CheckoutEndpoints.cs sums unit prices over distinct product
+  // ids and the request carries no quantities, so the number is not a basket
+  // total. CartPage's template says so plainly — "Quoted unit prices:" — and
+  // that is the string this line has to find.
+  await expect(page.getByText(/Quoted unit prices:/)).toBeVisible();
 
   // Place.
   await page.getByRole('button', { name: 'Checkout' }).click();
@@ -6051,6 +6070,13 @@ test('a published product reaches the catalogue without a reload', async ({ page
   // only because the publish asked CatalogRefresh for a reload. A
   // page.reload() anywhere in this test would reconstruct everything and hide
   // a failure of exactly that mechanism — so there is none.
+  //
+  // Every run leaves another `Smoke …` product in a shared catalogue that has
+  // no delete endpoint, which looks like it must eventually push this one off
+  // the page the test looks at. It cannot: GetProductsHandler.cs orders
+  // `p.PublishedAt DESC, p.Id DESC`, so the product this run just published is
+  // the first row of the first page no matter how many came before it. The
+  // accumulation is untidy, not fragile.
   await page.getByRole('tab', { name: 'Products' }).click();
   await expect(page.getByText(name)).toBeVisible();
 });
@@ -6058,7 +6084,14 @@ test('a published product reaches the catalogue without a reload', async ({ page
 test('browser holds no permissions: the publish tab is absent and the route refuses', async ({ page }) => {
   await signIn(page, 'browser', 'browser');
 
-  await expect(page.getByText('browser')).toBeVisible();
+  // Not getByText('browser'): the catalogue accumulates published products
+  // across runs and manual verification sessions, and one on this stack is
+  // literally named "Browser test widget" — an unscoped substring match
+  // against that name is a strict-mode violation waiting to happen. The
+  // account page renders the signed-in username as its own heading
+  // (account.page.ts's `<h2>{{ name }}</h2>`), so an exact heading match
+  // names the element this line actually means to check.
+  await expect(page.getByRole('heading', { name: 'browser', exact: true })).toBeVisible();
   await expect(page.getByText('None. Every write in this application will answer 403.')).toBeVisible();
 
   // The tab hides…
@@ -6075,7 +6108,12 @@ test('browser holds no permissions: the publish tab is absent and the route refu
   // false for both — but a reader should not take this line as evidence
   // about `browser` specifically. The tab assertion above is that evidence.
   await page.goto('/tabs/publish');
-  await expect(page).toHaveURL(/denied=catalog%3Awrite/);
+  // Not %3A: a colon is a legal, unreserved character in a URL query string,
+  // and neither the browser nor Router.createUrlTree encodes it here — the
+  // live URL carries a literal ':'. permission.guard.ts's own queryParams
+  // call is what produces it; percent-encoding it in this regex would just
+  // be wrong about what ends up in the address bar.
+  await expect(page).toHaveURL(/denied=catalog:write/);
   await expect(page.getByText('That page needs')).toBeVisible();
 });
 ```
@@ -6096,7 +6134,7 @@ npx playwright install --with-deps chromium
 npm run e2e
 ```
 
-Expected: the first and third tests PASS. The publish test PASSES only if the gateway's catalog-write route is present; without it, it fails on the edge's 404 — which is the accurate result and not a reason to skip the test.
+Expected, and this was the outcome on the machine this was written on: the publish test and the `browser` test PASS. The order test FAILS at “Place order” with a 502 from the edge whenever `ordering-api` cannot run — it depends on `rabbitmq`, and a native `erl.exe` holding ports 5672/15672 is enough to stop the container binding. That failure is left standing on purpose. A smoke that reports green while the platform cannot take an order is worth less than no smoke, so the fix is to start the service, never to skip, soften or conditionalise the test.
 
 - [ ] **Step 5: Commit**
 

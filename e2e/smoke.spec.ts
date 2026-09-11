@@ -114,6 +114,13 @@ test('a published product reaches the catalogue without a reload', async ({ page
   // only because the publish asked CatalogRefresh for a reload. A
   // page.reload() anywhere in this test would reconstruct everything and hide
   // a failure of exactly that mechanism — so there is none.
+  //
+  // Every run leaves another `Smoke …` product in a shared catalogue that has
+  // no delete endpoint, which looks like it must eventually push this one off
+  // the page the test looks at. It cannot: GetProductsHandler.cs orders
+  // `p.PublishedAt DESC, p.Id DESC`, so the product this run just published is
+  // the first row of the first page no matter how many came before it. The
+  // accumulation is untidy, not fragile.
   await page.getByRole('tab', { name: 'Products' }).click();
   await expect(page.getByText(name)).toBeVisible();
 });
