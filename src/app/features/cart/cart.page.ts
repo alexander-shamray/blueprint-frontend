@@ -6,7 +6,7 @@ import {
   IonSelectOption, IonTitle, IonToolbar,
 } from '@ionic/angular';
 import { CheckoutApi } from '@core/api/checkout.api';
-import { QuoteResponse } from '@core/api/types';
+import { QuoteLine, QuoteResponse } from '@core/api/types';
 import { AuthService } from '@core/auth/auth.service';
 import { CartStore } from '@core/cart/cart.store';
 import { CheckoutHandoff } from '@core/cart/checkout-handoff';
@@ -36,9 +36,10 @@ import { ErrorBannerComponent } from '@shared/error-banner.component';
               <ion-note>
                 Listing price {{ line.amount }} {{ line.currency }} — the quote is the price that counts
               </ion-note>
-              @if (quotedPrices()[line.productId] !== undefined) {
+              @if (quotedLines()[line.productId]; as quoted) {
                 <ion-note>
-                  Quoted {{ quotedPrices()[line.productId] }} {{ currency() }} each, quantity {{ line.quantity }}
+                  {{ quoted.quantity }} × {{ quoted.amount }} {{ currency() }} =
+                  {{ quoted.lineTotal }} {{ currency() }}
                 </ion-note>
               }
               @if (isUnpriced(line.productId)) {
@@ -69,11 +70,7 @@ import { ErrorBannerComponent } from '@shared/error-banner.component';
       @if (quote(); as q) {
         <ion-item>
           <ion-label>
-            <strong>Quoted unit prices: {{ q.total }} {{ q.currency }}</strong>
-            <ion-note>
-              One unit of each product. The platform prices products, not baskets —
-              the amount charged is computed when the order is placed.
-            </ion-note>
+            <strong>Total: {{ q.total }} {{ q.currency }}</strong>
           </ion-label>
         </ion-item>
       }
@@ -144,24 +141,30 @@ export class CartPage {
   }
 
   /**
-   * Quoted price of ONE unit, by product id. Empty before a quote exists.
+   * The quoted lines by product id, so a cart line can find its own. Empty
+   * before a quote exists.
    *
-   * Shown beside the quantity rather than multiplied by it. CheckoutEndpoints.cs
-   * totals `lines.Sum(line => line.Amount)` over `productId.Distinct()`, and the
-   * request carries no quantities at all, so the reply's `total` is the sum of
-   * one unit of each distinct product — NOT the basket. Spec 5.2's rule that the
-   * client never sums money stands; what was wrong was calling that number a
-   * basket total. Multiplying here would be the client computing money, which is
-   * exactly what QuoteResponse.cs computes Total server-side to prevent.
+   * Every number in "2 × 12.50 = 25.00" is read off the reply and none of them
+   * is computed here: `amount` is the unit price, `quantity` is what this
+   * request asked for, and `lineTotal` is their product as the BFF worked it
+   * out. The rule that the client never computes money has not moved — spec
+   * §5.2, and QuoteResponse.cs's own reason for totalling server-side, that
+   * "two clients computing a total is two places to get rounding wrong". What
+   * has moved is that the platform now supplies the numbers the screen needs:
+   * the request carries quantities, so `lineTotal` and `total` are the
+   * basket's, and multiplying here would be the client doing arithmetic the
+   * reply already contains.
    *
-   * A record rather than a method, and the template tests `!== undefined` rather
-   * than truthiness: a price of zero is legal (PublishProductValidator.cs allows
-   * `GreaterThanOrEqualTo(0)`), and `@if (price; as p)` would hide a free product
-   * as though it had never been quoted.
+   * A record of LINES rather than of amounts, and that is what makes the
+   * template's `@if (…; as quoted)` safe. A price of zero is legal
+   * (PublishProductValidator.cs allows `GreaterThanOrEqualTo(0)`), so a record
+   * of numbers had to be tested with `!== undefined` — truthiness would hide a
+   * free product as though it had never been quoted. A line object is never
+   * falsy, so the lookup missing is the only thing the guard can mean.
    */
-  readonly quotedPrices = computed<Readonly<Record<string, number>>>(() => {
+  readonly quotedLines = computed<Readonly<Record<string, QuoteLine>>>(() => {
     const lines = this.quote()?.lines ?? [];
-    return Object.fromEntries(lines.map((line) => [line.productId, line.amount]));
+    return Object.fromEntries(lines.map((line) => [line.productId, line]));
   });
 
   setQuantity(productId: string, quantity: number): void {
@@ -177,7 +180,17 @@ export class CartPage {
   getQuote(): void {
     const generation = this.generation;
 
-    this.checkoutApi.quote(this.store.productIds(), this.currency()).subscribe({
+    // The cart's lines, quantities and all — the endpoint prices a basket
+    // now, not a set of products. Mapped down to the two members the request
+    // has rather than passed whole: a CartLine also carries the LISTING price
+    // and the currency it was listed in, and the pricing endpoint has no
+    // business being told what this client thought a product cost. The same
+    // narrowing CheckoutPage does when it builds PlaceOrderItem.
+    const lines = this.store
+      .lines()
+      .map((line) => ({ productId: line.productId, quantity: line.quantity }));
+
+    this.checkoutApi.quote(lines, this.currency()).subscribe({
       next: (quote) => {
         // Superseded by an invalidateQuote() (a quantity or currency change)
         // that started a new generation while this request was in flight.

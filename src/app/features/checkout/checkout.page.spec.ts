@@ -40,7 +40,9 @@ describe('CheckoutPage', () => {
     // where the two disagree. A same-currency fixture would pass just as
     // well with a hard-coded 'EUR' or a `?? 'EUR'` fallback.
     TestBed.inject(CheckoutHandoff).set({
-      currency: 'GBP', lines: [{ productId: 'p1', name: 'Widget', amount: 10 }], total: 10, unpriced: [],
+      currency: 'GBP',
+      lines: [{ productId: 'p1', name: 'Widget', amount: 10, quantity: 1, lineTotal: 10 }],
+      total: 10, unpriced: [],
     });
 
     navigate = vi.fn(async () => true);

@@ -9,17 +9,18 @@ odd, the oddity is downstream of a fact, and the fact is cited so a reader can
 check it at both ends.
 
 **What it was checked against.** The backend at
-`alexander-shamray/dotnet-ddd-blueprint`, branch `main`, commit `6c1e37c` (the
-merge of PR #200). Library behaviour was read out of this repository's own
+`alexander-shamray/dotnet-ddd-blueprint`, branch `main`, commit `0d76d27` (the
+merge of PR #201). Library behaviour was read out of this repository's own
 `node_modules`: `@ionic/angular@9.0.3`, `@angular/core@22.1.6`,
 `@angular/build@22.1.8`, `angular-oauth2-oidc@22.0.2`. Where a claim depends on
 a version, the version is named.
 
-**One moving part.** Section 12's first deviation — the quote's total — is
-being corrected in the backend as this is written, on the unmerged branch
-`feat(bff)/checkout-quote-quantities`. That section says what this client does
-today, against `main`, and what changes when the branch lands. Nothing else
-here is known to be in flight.
+**The one part that was moving has landed.** Section 12's first deviation —
+the quote's total — was a deviation because the endpoint could not price a
+basket. Backend PR #201 (ADR-045, "The checkout quote takes quantities")
+changed that contract and is on `main`; this client speaks the new one, and
+that section now records what the old contract was, what the client did about
+it, and what replaced it. Nothing here is known to be in flight.
 
 This client's own spec is
 `docs/superpowers/specs/2026-09-10-blueprint-frontend-design.md`; references of
@@ -318,8 +319,13 @@ quote means nothing priced this basket in any currency. The non-null assertion
 is safe because `quoteGuard` refuses the route without a quote, which is the
 reason that guard exists.
 
-One thing this rule does *not* let the client do today is show a basket total.
-Section 12 explains why, and what is being done about it.
+The rule now buys the screen a basket total rather than costing it one.
+`QuoteResponse.Total` is the sum of the line totals, `QuoteLine.LineTotal` is
+`Amount * Quantity`, and both arrive computed — so the cart renders
+"2 × 12.50 = 25.00" with all three of those numbers read off the reply, and its
+total as `Total: <total> <currency>`. The client multiplies nothing, which is
+the same rule it followed when the arithmetic was not on offer. Section 12
+records what it did then, and why.
 
 ## 10. `Retry-After`, the correlation id, and what CORS lets a browser see
 
@@ -420,38 +426,68 @@ changed would be a client the backend has to accommodate, which is backwards.
 Each of these is written as the claim that turned out to be wrong, what is
 actually true, and where in this client the truth shows.
 
-### The quote's total is not the basket's total
+### The quote's total was not the basket's total, and now it is
 
 *The claim.* `QuoteResponse.Total` is the price of the cart, so the cart renders
 it as one.
 
-*What is true today.* On backend `main`, `GET /bff/v1/checkout/quote` takes
+*What was true, and why the claim failed.* `GET /bff/v1/checkout/quote` took
 repeated `productId` query parameters and one `currency`, and nothing else. The
-request carries no quantities. `CheckoutEndpoints.cs` deduplicates the ids
-(`productId.Distinct()`), asks Catalog for one price each, and returns
+request carried no quantities. `CheckoutEndpoints.cs` deduplicated the ids
+(`productId.Distinct()`), asked Catalog for one price each, and returned
 `lines.Sum(line => line.Amount)` as `Total`, where `QuoteLine.Amount` is the
-price of one unit. For two of product A and one of B, the total is `A + B`.
+price of one unit. For two of product A and one of B, the total was `A + B`.
 Correct against its own contract, and not the basket.
 
-*Where it shows.* `CartPage` had two ways to present that number and both were
-refused. Multiplying the line prices by the cart's quantities would be the
-client computing money, which is precisely what section 9 forbids and what the
-BFF computes server-side to prevent. Labelling the figure "Total" would be a
-false statement about the customer's basket. So the cart labels it for what it
-is — **"Quoted unit prices"**, with a note that the platform prices products
-rather than baskets — and shows each line's quoted unit price beside its
-quantity (`CartPage.quotedPrices`). The e2e smoke asserts that exact string
-rather than the word "Total", which is how the mismatch was first caught.
+*What the client did about it.* `CartPage` had two ways to present that number
+and both were refused. Multiplying the line prices by the cart's quantities
+would have been the client computing money, which is precisely what section 9
+forbids and what the BFF computes server-side to prevent. Labelling the figure
+"Total" would have been a false statement about the customer's basket. So the
+cart labelled it for what it was — **"Quoted unit prices"**, with a note that
+the platform prices products rather than baskets — and showed each line's
+quoted unit price beside its quantity. The e2e smoke asserted that exact string
+rather than the word "Total", which is how the mismatch was caught in the first
+place.
 
-*What changes.* The backend is fixing this now. The unmerged branch
-`feat(bff)/checkout-quote-quantities` (ADR-045, "The checkout quote takes
-quantities") moves the endpoint to `POST` with a body of quantified lines, gives
-`QuoteLine` a `Quantity` and a `LineTotal`, and makes `Total` the sum of the
-line totals — the basket. The ADR is explicit that the rule was right and the
-endpoint could not honour it, and it names this client's relabelling as the
-evidence. When that lands, `CheckoutApi.quote()` becomes a POST, `QuoteLine`
-gains two members, and the cart renders a real total and deletes the note. None
-of that is live yet, and nothing here should be read as though it were.
+*What is true now.* Backend PR #201 merged ADR-045, "The checkout quote takes
+quantities". The endpoint is `POST /bff/v1/checkout/quote` with a body of
+`{ currency, lines: [{ productId, quantity }] }` — a body rather than a
+`quantity` array beside the `productId` one, because ASP.NET binds two repeated
+parameters independently and nothing then enforces that the *n*th quantity
+belongs to the *n*th id. `QuoteLine` gained `Quantity`, echoed from the request
+so the reply stands alone, and `LineTotal`, which is `Amount * Quantity`
+computed by the BFF; `Amount` keeps its name and its meaning as the unit price,
+because a cart renders "£12.50 each" beside the line total. `Total` is the sum
+of the line totals — the basket. A product named by more than one line is
+**merged** rather than refused or dropped, because `Order.AddLine` merges the
+same basket one service over, and the reply echoes the summed `Quantity` so the
+merge is visible. The bounds moved to
+`Common.Contracts.Ordering.V1.OrderLimits` — `MinQuantity` 1, `MaxQuantity` 999
+checked against the *merged* quantity, `MaxLines` 100 — so that
+`PlaceOrderValidator` and the BFF's `QuoteRequestValidator` read the same
+numbers and a quote can never price a basket the order would refuse. `v1`
+changed in place; there is no `/v2`.
+
+*Where it shows now.* `CheckoutApi.quote()` takes the cart's lines and POSTs a
+`QuoteRequest`; `CartPage.getQuote()` hands it `{ productId, quantity }` per
+line — narrowed from `CartLine`, which also carries the listing price that the
+pricing endpoint has no business being told, the same narrowing `CheckoutPage`
+does when it builds `PlaceOrderItem`. Nothing deduplicates on the way out: the
+`new Set(productIds)` the old client used was right when a repeated id carried
+no information and would discard a quantity now. `CartPage.quotedLines` keys
+the reply's lines by product id and the template renders
+`{{ quantity }} × {{ amount }} = {{ lineTotal }}`, every figure read off the
+reply; the total is labelled **`Total:`**, which is what the e2e smoke now
+looks for. The bounds are not mirrored in `types.ts` and nothing here enforces
+them: past them the platform answers a field-keyed 400 that `mapError()`
+already surfaces, and a second copy of a limit is a copy that drifts from the
+one actually enforced — the same argument `CheckoutEndpoints.cs` makes for not
+re-checking Catalog's id ceiling.
+
+The client's own rule did not change; what the platform could offer did. That
+is the ADR's reading of it too — "the rule was right and the endpoint could not
+honour it" — and this client's relabelling is the evidence it cites.
 
 ### A product may cost nothing
 
@@ -463,11 +499,14 @@ is storage's — `PriceAmount` is `decimal(19,4)` — and the validator refuses 
 `999_999_999_999_999.995m` so that `Money.Of`'s half-to-even rounding cannot
 push a legal value into an overflow at `SaveChanges`.)
 
-*Where it shows.* `CartPage.quotedPrices` is a `Record<string, number>` and the
-template tests `quotedPrices()[line.productId] !== undefined` rather than
-truthiness. An `@if (price; as p)` would hide a free product as though it had
-never been quoted. The same reasoning appears one level down in the publish form
-— see `Validators.required`, below.
+*Where it shows.* `CartPage.quotedLines` is a `Record<string, QuoteLine>` — a
+record of *lines* rather than of amounts, and that is what makes the template's
+`@if (quotedLines()[line.productId]; as quoted)` safe: a line object is never
+falsy, so a missing lookup is the only thing the guard can mean. While the same
+record held numbers it had to be tested with `!== undefined`, because
+`@if (price; as p)` would hide a free product as though it had never been
+quoted. A test pins it — a line quoted at zero renders. The same reasoning
+appears one level down in the publish form — see `Validators.required`, below.
 
 ### A customer may not name the platform's reasons
 

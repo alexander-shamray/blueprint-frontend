@@ -92,11 +92,12 @@ test('demo browses, quotes, orders and cancels', async ({ page }) => {
   // Quote.
   await page.getByRole('tab', { name: 'Cart' }).click();
   await page.getByRole('button', { name: 'Get quote' }).click();
-  // Not /Total/: CheckoutEndpoints.cs sums unit prices over distinct product
-  // ids and the request carries no quantities, so the number is not a basket
-  // total. CartPage's template says so plainly — "Quoted unit prices:" — and
-  // that is the string this line has to find.
-  await expect(page.getByText(/Quoted unit prices:/)).toBeVisible();
+  // The basket, and labelled as one. The quote POSTs the cart's quantities and
+  // CheckoutEndpoints.cs totals the line totals, so "Total:" is a true
+  // statement about the customer's basket — which it was not under the old
+  // GET, where this line had to look for "Quoted unit prices:" instead
+  // (ADR-045).
+  await expect(page.getByText(/Total:/)).toBeVisible();
 
   // Place.
   await page.getByRole('button', { name: 'Checkout' }).click();

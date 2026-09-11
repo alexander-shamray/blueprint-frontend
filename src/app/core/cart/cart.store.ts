@@ -69,7 +69,6 @@ export class CartStore {
   readonly lines = this.state.asReadonly();
   readonly count = computed(() => this.state().reduce((total, line) => total + line.quantity, 0));
   readonly isEmpty = computed(() => this.state().length === 0);
-  readonly productIds = computed(() => this.state().map((line) => line.productId));
 
   constructor() {
     effect(() => {
