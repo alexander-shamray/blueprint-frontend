@@ -5713,31 +5713,48 @@ test('demo browses, quotes, orders and cancels', async ({ page }) => {
   await page.getByLabel('Country').fill('QA');
   await page.getByRole('button', { name: 'Place order' }).click();
 
-  await expect(page.getByText('Order')).toBeVisible();
+  // Not getByText('Order'): under Playwright's strict mode that resolves to
+  // the "Order placed" title and the "Place order" button as well, and a
+  // locator matching several elements fails for a reason that has nothing to
+  // do with what this line is checking.
+  await expect(page.getByRole('heading', { name: 'Order placed' })).toBeVisible();
   await expect(
     page.getByText('The platform exposes no endpoint that reads an order back'),
   ).toBeVisible();
 
-  // Cancel with the preselected reason.
+  // The page sends customer_request and offers no choice of reason: the
+  // other four codes in CANCEL_REASONS are facts the platform discovers,
+  // and this route stamps CommandOrigin.User regardless of the code sent.
   await page.getByRole('button', { name: 'Cancel order' }).click();
   await expect(page.getByText('The platform answered 204.')).toBeVisible();
 });
 
-test('demo publishes a product', async ({ page }) => {
+test('a published product reaches the catalogue without a reload', async ({ page }) => {
   // Requires the gateway's catalog-write route (plan Task 0). Before it lands
   // this fails with the edge's 404, which is the accurate result.
   await signIn(page, 'demo', 'demo');
 
+  const name = `Smoke ${Date.now()}`;
+
   await page.getByRole('tab', { name: 'Publish' }).click();
-  await page.getByLabel('Name').fill(`Smoke ${Date.now()}`);
+  await page.getByLabel('Name').fill(name);
   await page.getByLabel('Amount').fill('9.99');
   await page.getByLabel('Currency').fill('EUR');
   await page.getByRole('button', { name: 'Publish' }).click();
 
-  await expect(page.getByRole('tab', { name: 'Products' })).toHaveAttribute(
-    'aria-selected',
-    'true',
-  );
+  // The page stays put and shows the id the platform returned. It does not
+  // navigate: spec §5.5 asks that the products tab refresh, which is not the
+  // same as redirecting the person who published.
+  await expect(page.getByText('Published as')).toBeVisible();
+
+  // The assertion this whole test exists for. Ionic caches a tab's page and
+  // reuses its ComponentRef, so ProductsPage's constructor runs once per app
+  // session and a tab click alone loads nothing. The product is visible here
+  // only because the publish asked CatalogRefresh for a reload. A
+  // page.reload() anywhere in this test would reconstruct everything and hide
+  // a failure of exactly that mechanism — so there is none.
+  await page.getByRole('tab', { name: 'Products' }).click();
+  await expect(page.getByText(name)).toBeVisible();
 });
 
 test('browser holds no permissions: the publish tab is absent and the route refuses', async ({ page }) => {
@@ -5751,6 +5768,14 @@ test('browser holds no permissions: the publish tab is absent and the route refu
 
   // …and a direct navigation is refused, which is the other half. A hidden
   // button and a refused route are two different facts.
+  //
+  // Note what this does and does not prove. page.goto() is a full browser
+  // navigation, and on the web this realm issues no refresh token
+  // (spec §5.6), so the load ends the session: the guard below refuses an
+  // ANONYMOUS caller, not the signed-in `browser` user. That is still the
+  // guard doing its job — permissionGuard asks hasPermission(), which is
+  // false for both — but a reader should not take this line as evidence
+  // about `browser` specifically. The tab assertion above is that evidence.
   await page.goto('/tabs/publish');
   await expect(page).toHaveURL(/denied=catalog%3Awrite/);
   await expect(page.getByText('That page needs')).toBeVisible();
@@ -5773,7 +5798,7 @@ npx playwright install --with-deps chromium
 npm run e2e
 ```
 
-Expected: the first and third tests PASS. The second PASSES only if Task 0 has merged; without it, it fails on the gateway's 404 — which is the accurate result and not a reason to skip the test.
+Expected: the first and third tests PASS. The publish test PASSES only if the gateway's catalog-write route is present; without it, it fails on the edge's 404 — which is the accurate result and not a reason to skip the test.
 
 - [ ] **Step 5: Commit**
 
