@@ -110,6 +110,18 @@ export class WebAuthStrategy extends AuthService {
 
   private renewalTimer: ReturnType<typeof setTimeout> | null = null;
 
+  /**
+   * Set when `loadDiscoveryDocumentAndTryLogin()` rejects because discovery
+   * itself could not be fetched (Keycloak unreachable), not because a
+   * returning tryLogin() failed on a stale code (discovery succeeded in
+   * that case). Read only by signIn() below, to decide whether initCodeFlow()
+   * has an authorization endpoint to navigate to. This is deliberately not a
+   * signal: nothing renders it, it is consulted once per signIn() call, and
+   * the existing signals on this class (token) are reserved for state a
+   * template or computed() reads.
+   */
+  private discoveryFailed = false;
+
   /** Fraction of the token's life at which the silent renewal fires (spec §4.1). */
   private static readonly RENEW_AT = 0.75;
 
@@ -139,13 +151,73 @@ export class WebAuthStrategy extends AuthService {
     // enough on its own for the redirect-based sign-in path.
     this.oauth.setStorage(new HybridOAuthStorage());
 
-    await this.oauth.loadDiscoveryDocumentAndTryLogin();
+    try {
+      await this.oauth.loadDiscoveryDocumentAndTryLogin();
+    } catch {
+      // provideAppInitializer(() => inject(AuthService).initialize()) in
+      // auth.providers.ts returns this promise to Angular, and a rejected
+      // app initializer aborts bootstrap entirely — main.ts's
+      // bootstrapApplication(...).catch((err) => console.error(err)) only
+      // logs the failure, it does not recover from it, so the whole app
+      // would render a blank page. That is wrong here: spec §5.1 makes the
+      // product catalog the anonymous landing screen, and an identity
+      // provider being unreachable must not take that down too. Leave
+      // `token` at its default null (signed out) and resolve so bootstrap
+      // continues into that signed-out state instead of failing outright.
+      //
+      // The rejection covers two different failures and they are handled
+      // the same way here, but distinguished below for signIn()'s benefit:
+      //   - loadDiscoveryDocument() itself rejected (network/DNS failure
+      //     fetching .well-known/openid-configuration — Keycloak down).
+      //   - discovery succeeded but tryLogin() rejected while processing a
+      //     redirect back from Keycloak (angular-oauth2-oidc.mjs
+      //     tryLoginCodeFlow: a `code_error` query param, a nonce that
+      //     fails validateNonce, or getTokenFromCode() rejecting on a
+      //     stale/already-used authorization code). A user in this second
+      //     case just needs the signed-out screen, not a blank one.
+      // OAuthService#discoveryDocumentLoaded distinguishes them: the
+      // library sets it true only once loadDiscoveryDocument()'s success
+      // path runs (angular-oauth2-oidc.mjs:1331, "this.discoveryDocumentLoaded
+      // = true") and never clears it back to false, so it is true here
+      // exactly when discovery succeeded and tryLogin was what failed.
+      // Record a retry-worthy failure only for the discovery case — the
+      // tryLogin case has an authorization endpoint waiting for signIn()
+      // already.
+      this.discoveryFailed = !this.oauth.discoveryDocumentLoaded;
+      return;
+    }
 
     const token = this.oauth.getAccessToken();
     if (token) this.adopt(token);
   }
 
   async signIn(): Promise<void> {
+    if (this.discoveryFailed) {
+      // initCodeFlow() (angular-oauth2-oidc.mjs:2899-2907) navigates to
+      // `this.oauth`'s `loginUrl`, which loadDiscoveryDocument() populates
+      // from the discovery document's authorization_endpoint
+      // (angular-oauth2-oidc.mjs:1321). If discovery never succeeded,
+      // loginUrl is still its initial '' and initCodeFlow() takes its other
+      // branch instead of navigating: it subscribes to a
+      // 'discovery_document_loaded' event and returns immediately, having
+      // done nothing — and because discovery already failed once, nothing
+      // will ever fire that event. Without this retry, signIn() would be a
+      // button that silently does nothing forever, which is a worse bug
+      // than the blank-app one this file was written to fix. Retry
+      // discovery here instead: if the identity provider is back, the
+      // retry succeeds and initCodeFlow() below has a real endpoint to
+      // navigate to; if it is still unreachable, this await rejects and
+      // that rejection propagates out of signIn() uncaught — visible to
+      // the caller rather than swallowed. Existing call sites do
+      // `void this.auth.signIn()` (see the plan's Task 11 cart page), so
+      // today that rejection becomes an unhandled promise rejection rather
+      // than an in-UI error; that is a call-site concern for whichever task
+      // adds the first `signIn()` caller, not something this strategy can
+      // fix by itself without inventing UI state this class has no business
+      // owning.
+      await this.oauth.loadDiscoveryDocument();
+      this.discoveryFailed = false;
+    }
     this.oauth.initCodeFlow();
   }
 

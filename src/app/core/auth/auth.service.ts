@@ -28,6 +28,17 @@ export abstract class AuthService {
    * storage. It is on the interface rather than on each strategy because the
    * initialiser must call it without knowing which one it got — a cast there
    * would defeat the one-interface property §4 rests on.
+   *
+   * Must never reject. `provideAuth()` (auth.providers.ts) hands this promise
+   * to `provideAppInitializer`, which Angular awaits before finishing
+   * bootstrap — a rejection there aborts the whole app, not just the
+   * signed-in parts of it, and `main.ts`'s `bootstrapApplication(...).catch`
+   * only logs the failure rather than recovering from it. The identity
+   * provider being unreachable (WebAuthStrategy: Keycloak down) or a stored
+   * credential being invalid (the native strategy's equivalent, against
+   * secure storage) is exactly the kind of failure an implementation must
+   * catch, record for itself, and resolve past — the caller finds out by
+   * staying signed out, not by this rejecting.
    */
   abstract initialize(): Promise<void>;
   abstract signIn(): Promise<void>;

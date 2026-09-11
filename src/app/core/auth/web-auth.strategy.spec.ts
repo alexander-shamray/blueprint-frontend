@@ -11,12 +11,24 @@ function jwt(payload: Record<string, unknown>): string {
 
 class FakeOAuth {
   token: string | null = null;
+  // Mirrors the real OAuthService: starts false, and the fixture for each
+  // test sets it the way loadDiscoveryDocument() would have left it (see
+  // angular-oauth2-oidc.mjs:974 and :1331 — set true only once discovery's
+  // own success path runs, never cleared back to false).
+  discoveryDocumentLoaded = false;
   silentRefresh = vi.fn(async () => undefined);
   logOut = vi.fn();
   initCodeFlow = vi.fn();
   configure = vi.fn();
   setStorage = vi.fn();
-  loadDiscoveryDocumentAndTryLogin = vi.fn(async () => true);
+  loadDiscoveryDocument = vi.fn(async () => {
+    this.discoveryDocumentLoaded = true;
+    return {} as unknown;
+  });
+  loadDiscoveryDocumentAndTryLogin = vi.fn(async () => {
+    this.discoveryDocumentLoaded = true;
+    return true;
+  });
   getAccessToken = () => this.token;
 }
 
@@ -98,6 +110,73 @@ describe('WebAuthStrategy', () => {
   it('says the session ends on reload, because the realm issues no refresh token', () => {
     expect(strategy.sessionEndsOnReload).toBe(true);
   });
+
+  it(
+    'resolves rather than rejecting when the identity provider is unreachable, leaving the user signed out',
+    async () => {
+      // Regression test for the defect this task fixes: an unhandled
+      // rejection here propagates through provideAppInitializer and aborts
+      // Angular bootstrap entirely (auth.providers.ts), blanking the whole
+      // app — including the anonymous product catalog that needs no token.
+      oauth.loadDiscoveryDocumentAndTryLogin.mockRejectedValueOnce(new Error('ERR_CONNECTION_REFUSED'));
+
+      await expect(strategy.initialize()).resolves.toBeUndefined();
+
+      expect(strategy.accessToken()).toBeNull();
+      expect(strategy.user()()).toBeNull();
+    },
+  );
+
+  it(
+    'retries discovery on signIn() after a failed initialize(), and only then starts the code flow',
+    async () => {
+      // Against the unfixed code, signIn() calls initCodeFlow()
+      // unconditionally and never touches loadDiscoveryDocument — this
+      // assertion is what catches that: initCodeFlow() would have nothing to
+      // navigate to (loginUrl is still '' because discovery never
+      // succeeded), silently doing nothing forever.
+      oauth.loadDiscoveryDocumentAndTryLogin.mockRejectedValueOnce(new Error('ERR_CONNECTION_REFUSED'));
+      await strategy.initialize();
+
+      await strategy.signIn();
+
+      expect(oauth.loadDiscoveryDocument).toHaveBeenCalledOnce();
+      expect(oauth.initCodeFlow).toHaveBeenCalledOnce();
+    },
+  );
+
+  it(
+    'surfaces a second discovery failure from signIn() instead of swallowing it',
+    async () => {
+      // Against the unfixed code this never rejects — signIn() is
+      // `async signIn(): Promise<void> { this.oauth.initCodeFlow(); }`, which
+      // always resolves regardless of whether the identity provider is
+      // reachable. That is the silent no-op the brief calls a worse bug than
+      // the blank-app one.
+      oauth.loadDiscoveryDocumentAndTryLogin.mockRejectedValueOnce(new Error('ERR_CONNECTION_REFUSED'));
+      await strategy.initialize();
+      oauth.loadDiscoveryDocument.mockRejectedValueOnce(new Error('ERR_CONNECTION_REFUSED'));
+
+      await expect(strategy.signIn()).rejects.toThrow('ERR_CONNECTION_REFUSED');
+
+      expect(oauth.initCodeFlow).not.toHaveBeenCalled();
+    },
+  );
+
+  it(
+    'does not retry discovery on signIn() when initialize() succeeded, even signed out',
+    async () => {
+      // discoveryDocumentLoaded is true here (initialize()'s happy path ran),
+      // so signIn() must call initCodeFlow() straight away — an unnecessary
+      // retry would just be a slower version of the same button.
+      await strategy.initialize();
+
+      await strategy.signIn();
+
+      expect(oauth.loadDiscoveryDocument).not.toHaveBeenCalled();
+      expect(oauth.initCodeFlow).toHaveBeenCalledOnce();
+    },
+  );
 });
 
 /**
