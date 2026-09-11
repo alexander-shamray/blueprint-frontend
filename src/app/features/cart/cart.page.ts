@@ -223,7 +223,13 @@ export class CartPage {
     // The quote travels through core rather than through a route parameter: a
     // QuoteResponse does not belong in a URL, and a feature never imports
     // another feature (spec §3).
-    this.handoff.quote.set(this.quote());
+    //
+    // Asserted non-null: the template only enables this button behind
+    // canCheckout(), which requires a quote to exist. CheckoutHandoff.set()
+    // takes QuoteResponse rather than QuoteResponse | null on purpose —
+    // quoteGuard treats "a quote was set" as the route-reachability fact, and
+    // a nullable setter would let that fact be asserted falsely.
+    this.handoff.set(this.quote()!);
     void this.router.navigate(['/tabs/cart/checkout']);
   }
 

@@ -20,7 +20,7 @@ describe('quoteGuard', () => {
   });
 
   it('lets a checkout with a quote through', () => {
-    TestBed.inject(CheckoutHandoff).quote.set({
+    TestBed.inject(CheckoutHandoff).set({
       currency: 'GBP', lines: [{ productId: 'p1', name: 'Widget', amount: 10 }],
       total: 10, unpriced: [],
     });

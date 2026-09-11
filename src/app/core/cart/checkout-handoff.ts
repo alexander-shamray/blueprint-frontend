@@ -19,9 +19,22 @@ import { QuoteResponse } from '@core/api/types';
  */
 @Injectable({ providedIn: 'root' })
 export class CheckoutHandoff {
-  readonly quote = signal<QuoteResponse | null>(null);
+  // Private-writable, public asReadonly() — the convention CartStore.lines,
+  // CommandIdentity.current and CatalogRefresh.current all use. quoteGuard
+  // now makes this signal a route-reachability decision, not just a data
+  // carrier, so `readonly` alone (which guards the field binding, not
+  // `.set()`) is no longer enough: the guard's guarantee is only as strong
+  // as the write contract, and the write contract belongs in the type, not
+  // in this comment.
+  private readonly quoteState = signal<QuoteResponse | null>(null);
+
+  readonly quote = this.quoteState.asReadonly();
+
+  set(quote: QuoteResponse): void {
+    this.quoteState.set(quote);
+  }
 
   clear(): void {
-    this.quote.set(null);
+    this.quoteState.set(null);
   }
 }
