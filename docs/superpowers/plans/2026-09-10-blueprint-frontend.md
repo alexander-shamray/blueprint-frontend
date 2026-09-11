@@ -3224,7 +3224,96 @@ import { IonContent, IonHeader, IonTitle, IonToolbar } from '@ionic/angular';
     <ion-content></ion-content>
   `,
 })
-export class ProductsPage {}
+export class ProductsPage {
+  private readonly catalog = inject(CatalogApi);
+  private readonly cart = inject(CartStore);
+  private cursor: string | null = null;
+
+  /**
+   * Bumped by `reload()`. `load()` captures the generation it was called
+   * under and checks it again when the response lands; a response whose
+   * generation no longer matches was superseded by a later `reload()` and is
+   * dropped rather than applied. Without this, a `loadMore()` in flight when
+   * Task 14's publish page calls `reload()` lands AFTER the fresh first page
+   * and appends its items onto — and overwrites `cursor` from — a pagination
+   * sequence that `reload()` already discarded. A `switchMap` would hide that
+   * drop rather than state it, and `load()` is called from three call sites
+   * (constructor, `reload()`, `loadMore()`) with different completion
+   * semantics that a shared pipeline operator would have to paper over.
+   */
+  private generation = 0;
+
+  private readonly productsSignal = signal<readonly ProductSummary[]>([]);
+  private readonly errorSignal = signal<DisplayError | null>(null);
+  /** Null nextCursor is the last page (CursorPage.cs). Nothing asks past it. */
+  private readonly hasMoreSignal = signal(true);
+
+  // Writable only inside this class — CartStore.lines and CommandIdentity's
+  // current/isSpent make the same choice, for the same reason: Task 14 holds
+  // a reference to this instance and `readonly` on the field only stops
+  // reassignment, not `.set()` from outside.
+  readonly products: Signal<readonly ProductSummary[]> = this.productsSignal.asReadonly();
+  readonly error: Signal<DisplayError | null> = this.errorSignal.asReadonly();
+  readonly hasMore: Signal<boolean> = this.hasMoreSignal.asReadonly();
+
+  constructor() {
+    this.load();
+  }
+
+  /** Called by the publish page after a success (spec §5.5). */
+  reload(): void {
+    this.generation++;
+    this.cursor = null;
+    this.productsSignal.set([]);
+    this.hasMoreSignal.set(true);
+    this.load();
+  }
+
+  loadMore(event?: { target: { complete: () => void } }): void {
+    this.load(() => event?.target.complete());
+  }
+
+  addToCart(product: ProductSummary): void {
+    // Local only. The backend has no cart, so there is nothing to call.
+    this.cart.add(product);
+  }
+
+  private load(done?: () => void): void {
+    const generation = this.generation;
+
+    this.catalog.products(this.cursor).subscribe({
+      next: (page) => {
+        // The ion-infinite-scroll element that triggered this call (if any)
+        // is not destroyed by reload() — only the signals are reset — so its
+        // internal `isLoading` flag survives a reload and must still be
+        // cleared here even when the response itself is discarded below.
+        // Ionic's own InfiniteScroll never fires `ionInfinite` again while
+        // `isLoading` stays true, so skipping this on the stale branch would
+        // reintroduce the hang this component exists to avoid.
+        done?.();
+
+        // Superseded by a reload() that started a new pagination sequence
+        // while this request was in flight. Applying it now would append
+        // onto the fresh list and overwrite `cursor` with a value computed
+        // against the sequence reload() already discarded.
+        if (generation !== this.generation) return;
+
+        this.errorSignal.set(null);
+        this.productsSignal.update((existing) => [...existing, ...page.items]);
+        this.cursor = page.nextCursor;
+        this.hasMoreSignal.set(page.nextCursor !== null);
+      },
+      error: (failure: HttpErrorResponse) => {
+        done?.();
+        if (generation !== this.generation) return;
+
+        this.errorSignal.set(mapError(failure));
+        // Stop asking. Retrying into a 429 is how a rate limit becomes a loop.
+        this.hasMoreSignal.set(false);
+      },
+    });
+  }
+}
 ```
 
 Repeat with `CartPage`, `CheckoutPage`, `OrderPlacedPage`, `PublishPage`, `AccountPage` in their own folders, changing the selector, class name and title each time.
@@ -3367,7 +3456,7 @@ Expected: FAIL — `products()` is not a function on the placeholder.
 `src/app/features/products/products.page.ts`:
 
 ```ts
-import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, Signal, inject, signal } from '@angular/core';
 import { HttpErrorResponse } from '@angular/common/http';
 import {
   IonContent, IonHeader, IonInfiniteScroll, IonInfiniteScrollContent, IonItem, IonLabel,
@@ -3681,6 +3770,12 @@ import { ErrorBannerComponent } from '@shared/error-banner.component';
               <ion-note>
                 Listing price {{ line.amount }} {{ line.currency }} — the quote is the price that counts
               </ion-note>
+              @if (quotedPrices()[line.productId] !== undefined) {
+                <ion-note>
+                  Quoted {{ quotedPrices()[line.productId] }} {{ currency() }} each
+                  &times; {{ line.quantity }}
+                </ion-note>
+              }
               @if (isUnpriced(line.productId)) {
                 <ion-note color="warning">Not priced in {{ currency() }}</ion-note>
               }
@@ -3708,7 +3803,13 @@ import { ErrorBannerComponent } from '@shared/error-banner.component';
 
       @if (quote(); as q) {
         <ion-item>
-          <ion-label><strong>Total {{ q.total }} {{ q.currency }}</strong></ion-label>
+          <ion-label>
+            <strong>Quoted unit prices: {{ q.total }} {{ q.currency }}</strong>
+            <ion-note>
+              One unit of each product. The platform prices products, not baskets —
+              the amount charged is computed when the order is placed.
+            </ion-note>
+          </ion-label>
         </ion-item>
       }
 
@@ -3723,12 +3824,29 @@ export class CartPage {
   private readonly handoff = inject(CheckoutHandoff);
 
   protected readonly store = inject(CartStore);
+  /**
+   * A convenience selection, NOT a platform vocabulary — which is why it is
+   * three codes and not a mirrored constant. The backend constrains currency
+   * only as `^[A-Za-z]{3}\z` (Catalog PublishProductValidator.cs, Ordering
+   * PlaceOrderValidator.cs): any three letters are legal. Listing three without
+   * saying so would read as "the platform supports three currencies", which is
+   * false, and the citation rule exists to keep those two apart.
+   */
   protected readonly currencies = ['EUR', 'GBP', 'USD'] as const;
 
   readonly lines = this.store.lines;
-  readonly currency = signal<string>('EUR');
-  readonly quote = signal<QuoteResponse | null>(null);
-  readonly error = signal<DisplayError | null>(null);
+
+  // Writable privately, readonly to everyone else — the shape CartStore.lines
+  // and CommandId.current already use. `readonly` alone guards the field
+  // binding, not `.set()`, and the checkout page holds a reference to this
+  // service's neighbours.
+  private readonly currencyState = signal<string>('EUR');
+  private readonly quoteState = signal<QuoteResponse | null>(null);
+  private readonly errorState = signal<DisplayError | null>(null);
+
+  readonly currency = this.currencyState.asReadonly();
+  readonly quote = this.quoteState.asReadonly();
+  readonly error = this.errorState.asReadonly();
 
   /**
    * Enabled only when a quote exists and prices every line. The BFF names the
@@ -3745,26 +3863,47 @@ export class CartPage {
     return this.quote()?.unpriced.includes(productId) ?? false;
   }
 
+  /**
+   * Quoted price of ONE unit, by product id. Empty before a quote exists.
+   *
+   * Shown beside the quantity rather than multiplied by it. CheckoutEndpoints.cs
+   * totals `lines.Sum(line => line.Amount)` over `productId.Distinct()`, and the
+   * request carries no quantities at all, so the reply's `total` is the sum of
+   * one unit of each distinct product — NOT the basket. Spec 5.2's rule that the
+   * client never sums money stands; what was wrong was calling that number a
+   * basket total. Multiplying here would be the client computing money, which is
+   * exactly what QuoteResponse.cs computes Total server-side to prevent.
+   *
+   * A record rather than a method, and the template tests `!== undefined` rather
+   * than truthiness: a price of zero is legal (PublishProductValidator.cs allows
+   * `GreaterThanOrEqualTo(0)`), and `@if (price; as p)` would hide a free product
+   * as though it had never been quoted.
+   */
+  readonly quotedPrices = computed<Readonly<Record<string, number>>>(() => {
+    const lines = this.quote()?.lines ?? [];
+    return Object.fromEntries(lines.map((line) => [line.productId, line.amount]));
+  });
+
   setQuantity(productId: string, quantity: number): void {
     this.store.setQuantity(productId, quantity);
     this.invalidateQuote();
   }
 
   setCurrency(currency: string): void {
-    this.currency.set(currency);
+    this.currencyState.set(currency);
     this.invalidateQuote();
   }
 
   getQuote(): void {
     this.checkoutApi.quote(this.store.productIds(), this.currency()).subscribe({
       next: (quote) => {
-        this.error.set(null);
-        this.quote.set(quote);
+        this.errorState.set(null);
+        this.quoteState.set(quote);
       },
       error: (failure: HttpErrorResponse) => {
         const displayed = mapError(failure);
-        this.error.set(displayed);
-        this.quote.set(null);
+        this.errorState.set(displayed);
+        this.quoteState.set(null);
 
         // The quote requires sign-in; the button prompts for it (spec §5.2).
         if (displayed.kind === 'signIn') void this.auth.signIn();
@@ -3782,7 +3921,7 @@ export class CartPage {
 
   /** A quote describes a specific set of lines in a specific currency. Change either and it is stale. */
   private invalidateQuote(): void {
-    this.quote.set(null);
+    this.quoteState.set(null);
   }
 }
 ```
