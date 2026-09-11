@@ -26,8 +26,10 @@ export class OrderingApi {
   /**
    * Requires `orders:cancel`. Replies 204. An unknown reason code would be a
    * 400 keyed `Reason` — the backend refuses a code it does not know rather
-   * than defaulting, so CANCEL_REASONS is the whole vocabulary and the select
-   * is bound to it.
+   * than defaulting, so CANCEL_REASONS is the whole vocabulary and a caller
+   * may send nothing outside it. Which of the five a given caller may
+   * truthfully send is the caller's own question: the order-placed page
+   * answers it with `customer_request` and explains why.
    */
   cancel(orderId: string, reason: CancelReason): Observable<void> {
     const body: CancelOrderRequest = { reason };
