@@ -3958,14 +3958,104 @@ git commit -m "feat(cart): quantities, currency, BFF quote with unpriced lines n
 
 **Files:**
 - Modify: `src/app/features/checkout/checkout.page.ts`
+- Create: `src/app/core/cart/quote.guard.ts`
+- Modify: `src/app/app.routes.ts` — guard `cart/checkout`
 - Test: `src/app/features/checkout/checkout.page.spec.ts`
+- Test: `src/app/core/cart/quote.guard.spec.ts`
 
 **Interfaces:**
 - Consumes: `CommandIdentity` (Task 8), `OrderingApi.place` (Task 6), `CartStore` (Task 7), `CheckoutHandoff` (Task 11), `mapError` (Task 4).
 
-- [ ] **Step 1: Write the failing test**
+> **This route needs a guard, and without one the page orders in a currency
+> nobody chose.** `CheckoutHandoff` is an in-memory root signal; the cart is
+> persisted through Preferences. So a reload on `/tabs/cart/checkout` — or a
+> deep link, or a back-navigation after the handoff was cleared — arrives with
+> lines in the cart and `quote() === null`. Reading the currency as
+> `this.handoff.quote()?.currency ?? 'EUR'` then places a real order in EUR
+> for a basket the platform never priced. The fallback is not a default; it is
+> a guess about money.
+>
+> The guard sends that navigation back to `/tabs/cart`, where **Get quote**
+> is. With it in place the currency can be read from a quote that is known to
+> exist, and the page never has to invent one.
 
-`src/app/features/checkout/checkout.page.spec.ts`. The command-id lifecycle is the point of this page, so the tests are about the id:
+- [ ] **Step 1: Write the guard and its test**
+
+`src/app/core/cart/quote.guard.spec.ts`:
+
+```ts
+import { TestBed } from '@angular/core/testing';
+import { Router, UrlTree, provideRouter } from '@angular/router';
+import { beforeEach, describe, expect, it } from 'vitest';
+import { CheckoutHandoff } from './checkout-handoff';
+import { quoteGuard } from './quote.guard';
+
+describe('quoteGuard', () => {
+  const run = () =>
+    TestBed.runInInjectionContext(() => quoteGuard(null as never, null as never));
+
+  beforeEach(() => {
+    TestBed.configureTestingModule({ providers: [provideRouter([])] });
+  });
+
+  it('sends a checkout with no quote back to the cart', () => {
+    const result = run();
+
+    expect(result).toBeInstanceOf(UrlTree);
+    expect((result as UrlTree).toString()).toBe('/tabs/cart');
+  });
+
+  it('lets a checkout with a quote through', () => {
+    TestBed.inject(CheckoutHandoff).quote.set({
+      currency: 'GBP', lines: [{ productId: 'p1', name: 'Widget', amount: 10 }],
+      total: 10, unpriced: [],
+    });
+
+    expect(run()).toBe(true);
+  });
+});
+```
+
+`src/app/core/cart/quote.guard.ts`:
+
+```ts
+import { inject } from '@angular/core';
+import { CanActivateFn, Router } from '@angular/router';
+import { CheckoutHandoff } from './checkout-handoff';
+
+/**
+ * The checkout page may only be entered with a quote in hand.
+ *
+ * The handoff lives in memory; the cart lives in Preferences. A reload on
+ * /tabs/cart/checkout therefore arrives with lines but no quote, as does a
+ * deep link and a back-navigation after a placed order cleared the handoff.
+ * Sending that back to the cart is not defensive tidying — it is what lets the
+ * checkout page read the currency from the quote without a fallback, and a
+ * fallback currency is a guess about money.
+ *
+ * In core beside the handoff it reads, because a feature never imports another
+ * feature (spec §3).
+ */
+export const quoteGuard: CanActivateFn = () => {
+  if (inject(CheckoutHandoff).quote() !== null) return true;
+
+  // A UrlTree, not `false`. Returning false cancels the navigation and leaves
+  // the user on whatever was underneath — which, on a cold reload of this URL,
+  // is nothing at all. Redirecting states where they ended up and puts Get
+  // quote in front of them.
+  return inject(Router).createUrlTree(['/tabs/cart']);
+};
+```
+
+Then in `src/app/app.routes.ts`, add to the `cart/checkout` route:
+
+```ts
+        canActivate: [quoteGuard],
+```
+
+- [ ] **Step 2: Write the failing page test**
+
+`src/app/features/checkout/checkout.page.spec.ts`. The command-id lifecycle is the point of this page, so the tests are about the id. Every test seeds `CheckoutHandoff.quote` in `beforeEach`, because the guard now makes an unquoted checkout unreachable and a test that constructs one is testing a state the app cannot enter:
 
 ```ts
 import { provideHttpClient } from '@angular/common/http';
@@ -4121,7 +4211,7 @@ describe('CheckoutPage', () => {
 });
 ```
 
-- [ ] **Step 2: Run and watch it fail, then write the page**
+- [ ] **Step 3: Run and watch it fail, then write the page**
 
 Run: `npm test -- checkout.page` → FAIL.
 
@@ -4211,7 +4301,13 @@ export class CheckoutPage {
   });
 
   readonly error = signal<DisplayError | null>(null);
-  readonly currency = computed(() => this.handoff.quote()?.currency ?? 'EUR');
+  /**
+   * Carried from the quote, with no fallback — quoteGuard guarantees a quote
+   * exists before this page is reachable. A `?? 'EUR'` here would be a guess
+   * about money, and it would only ever be read on the path where the guess is
+   * certainly wrong: no quote means nothing priced this basket in any currency.
+   */
+  readonly currency = computed(() => this.handoff.quote()!.currency);
 
   constructor() {
     this.form.valueChanges.subscribe(() => this.identity.onEdit());
@@ -4272,11 +4368,11 @@ export class CheckoutPage {
 Run: `npm test -- checkout.page`
 Expected: PASS, 8 tests.
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 4: Commit**
 
 ```bash
-git add src/app/features/checkout
-git commit -m "feat(checkout): address form and the command-id lifecycle end to end"
+git add src/app/features/checkout src/app/core/cart/quote.guard.ts   src/app/core/cart/quote.guard.spec.ts src/app/app.routes.ts
+git commit -m "feat(checkout): address form, command-id lifecycle, and a guarded quote"
 ```
 
 ---
