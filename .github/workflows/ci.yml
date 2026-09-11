@@ -1,0 +1,66 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build
+
+  e2e:
+    runs-on: ubuntu-latest
+    # Needs Docker and the backend checkout. Not continue-on-error: a smoke
+    # that is allowed to fail is a smoke nobody reads.
+    steps:
+      - uses: actions/checkout@v4
+      # The backend is a separate public repository. If it is ever made
+      # private this step needs a token with read access to it; the failure
+      # mode is a checkout 404, which reads like a wrong repository name.
+      - uses: actions/checkout@v4
+        with:
+          repository: alexander-shamray/dotnet-ddd-blueprint
+          path: blueprint-backend
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+
+      - name: Start the platform
+        working-directory: blueprint-backend
+        run: docker compose -f deploy/compose/docker-compose.yml up -d --wait
+
+      - name: Wait for the gateway
+        run: |
+          for i in $(seq 1 60); do
+            curl -fsS http://localhost:5000/health/ready && exit 0
+            sleep 5
+          done
+          echo "The gateway never became ready." >&2
+          exit 1
+
+      - run: npm run e2e
+
+      - if: always()
+        working-directory: blueprint-backend
+        run: docker compose -f deploy/compose/docker-compose.yml logs --no-color > ../compose.log
+
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: failure-diagnostics
+          path: |
+            compose.log
+            test-results/
