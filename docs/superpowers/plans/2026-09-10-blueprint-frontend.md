@@ -4856,6 +4856,7 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { CatalogRefresh } from '@core/catalog/catalog-refresh';
 import { PublishPage } from './publish.page';
 
 describe('PublishPage', () => {
@@ -4918,14 +4919,48 @@ describe('PublishPage', () => {
   it('shows field errors from a 400 keyed as the validator keyed them', async () => {
     fixture.componentInstance.publish();
     controller.expectOne('http://localhost:5000/api/v1/catalog/products').flush(
-      { status: 400, errors: { Amount: ['Amount must be greater than zero.'] } },
+      { status: 400, errors: { Amount: ["'Amount' must be greater than or equal to '0'."] } },
       { status: 400, statusText: 'Bad Request' },
     );
     await fixture.whenStable();
 
     expect(fixture.componentInstance.error()?.fields).toEqual({
-      Amount: ['Amount must be greater than zero.'],
+      Amount: ["'Amount' must be greater than or equal to '0'."],
     });
+  });
+
+  it('asks the products tab to refresh rather than relying on navigation', async () => {
+    const refresh = TestBed.inject(CatalogRefresh);
+    const before = refresh.current();
+
+    fixture.componentInstance.publish();
+    controller
+      .expectOne('http://localhost:5000/api/v1/catalog/products')
+      .flush('55555555-5555-5555-5555-555555555555', { status: 200, statusText: 'OK' });
+    await fixture.whenStable();
+
+    // ProductsPage is constructed once per app session, so it cannot learn
+    // of this publish by being visited. If this assertion fails, a
+    // published product is invisible until the app restarts.
+    expect(refresh.current()).toBe(before + 1);
+  });
+
+  it('publishes a free product, because the backend allows an amount of zero', () => {
+    fixture.componentInstance.form.setValue({
+      name: 'A free widget', thumbnailUrl: '', amount: 0, currency: 'EUR',
+    });
+
+    // Validators.required treats 0 as present (isEmptyInputValue checks
+    // null and length, not falsiness), and PublishProductValidator.cs uses
+    // GreaterThanOrEqualTo(0). A client that refused 0 would refuse
+    // something the platform accepts.
+    expect(fixture.componentInstance.form.valid).toBe(true);
+
+    fixture.componentInstance.publish();
+
+    expect(
+      controller.expectOne('http://localhost:5000/api/v1/catalog/products').request.body.amount,
+    ).toBe(0);
   });
 
   it('names catalog:write on a 403', async () => {
@@ -4948,11 +4983,11 @@ describe('PublishPage', () => {
 import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
 import { HttpErrorResponse } from '@angular/common/http';
 import { FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
-import { Router } from '@angular/router';
 import {
   IonButton, IonContent, IonHeader, IonInput, IonItem, IonNote, IonTitle, IonToolbar,
 } from '@ionic/angular';
 import { CatalogApi } from '@core/api/catalog.api';
+import { CatalogRefresh } from '@core/catalog/catalog-refresh';
 import { PERMISSIONS, PublishProductCommand } from '@core/api/types';
 import { CommandIdentity } from '@core/commands/command-id';
 import { DisplayError, mapError } from '@core/errors/error-mapper';
@@ -4961,6 +4996,11 @@ import { ErrorBannerComponent } from '@shared/error-banner.component';
 /**
  * Spec §5.5, with the same command-id lifecycle as checkout — the backend
  * treats both commands identically, so the client must too.
+ *
+ * On success it asks CatalogRefresh for a catalogue reload rather than
+ * navigating to the products tab and hoping the visit refreshes it — Ionic
+ * caches that page, so a visit is not a construction and a construction is
+ * the only thing that loads.
  *
  * The gateway routes this POST only once plan Task 0 has landed;
  * `catalog-public` matches GET alone. Until then a real call answers 404 at
@@ -5001,7 +5041,7 @@ import { ErrorBannerComponent } from '@shared/error-banner.component';
 })
 export class PublishPage {
   private readonly catalog = inject(CatalogApi);
-  private readonly router = inject(Router);
+  private readonly catalogRefresh = inject(CatalogRefresh);
 
   readonly identity = new CommandIdentity();
 
@@ -5039,9 +5079,22 @@ export class PublishPage {
         this.publishedId.set(productId);
         this.identity.onSuccess();
         this.form.reset({ name: '', thumbnailUrl: '', amount: null, currency: '' });
-        // The products tab refreshes from the first page (spec §5.5). It
-        // reloads on construction, so navigating there is the refresh.
-        void this.router.navigate(['/tabs/products']);
+
+        // "On success the products tab refreshes from the first page"
+        // (spec §5.5). Navigation cannot deliver that: Ionic caches a tab's
+        // page in its stack and hands back the SAME ComponentRef on
+        // re-entry (StackController.getExistingView, via
+        // IonRouterOutlet.activateWith), so ProductsPage's constructor runs
+        // once per app session and a second visit re-shows the first
+        // visit's list. Asking explicitly is the only thing that works, and
+        // it is why CatalogRefresh exists.
+        //
+        // And we stay here rather than navigating: the spec asks for a
+        // refreshed tab, not a redirect. Staying keeps the returned id in
+        // front of the person who just published, keeps a second publish
+        // one form away, and avoids leaving a stale "Published as ..." note
+        // sitting on this cached page for the user's next visit.
+        this.catalogRefresh.request();
       },
       error: (failure: HttpErrorResponse) => {
         const displayed = mapError(failure, { permission: PERMISSIONS.catalogWrite });
@@ -5054,7 +5107,7 @@ export class PublishPage {
 ```
 
 Run: `npm test -- publish.page`
-Expected: PASS, 5 tests.
+Expected: PASS, 7 tests.
 
 - [ ] **Step 3: Commit**
 
