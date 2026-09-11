@@ -95,4 +95,47 @@ describe('ProductsPage', () => {
 
     expect(fixture.componentInstance.error()?.kind).toBe('rateLimited');
   });
+
+  it('drops a stale loadMore() response that lands after reload() started a new sequence', async () => {
+    controller
+      .expectOne((r) => r.url === 'http://localhost:5000/api/v1/catalog/products')
+      .flush(page(20, 'cursor-2'));
+    await fixture.whenStable();
+
+    // A loadMore() is in flight, requesting page 2 with cursor-2...
+    fixture.componentInstance.loadMore();
+    const stale = controller.expectOne(
+      (r) =>
+        r.url === 'http://localhost:5000/api/v1/catalog/products' &&
+        r.params.get('cursor') === 'cursor-2',
+    );
+
+    // ...when the publish page (Task 14) calls reload() mid-flight.
+    fixture.componentInstance.reload();
+    const fresh = controller.expectOne(
+      (r) =>
+        r.url === 'http://localhost:5000/api/v1/catalog/products' && !r.params.has('cursor'),
+    );
+
+    // The fresh first page lands first...
+    fresh.flush(page(3, 'cursor-fresh'));
+    await fixture.whenStable();
+
+    // ...then the stale page-2 response lands late, from a sequence reload()
+    // already discarded. It must not be applied.
+    stale.flush(page(5, 'cursor-stale-next'));
+    await fixture.whenStable();
+
+    expect(fixture.componentInstance.products()).toHaveLength(3);
+    expect(fixture.componentInstance.hasMore()).toBe(true);
+
+    // The next page must continue the reloaded sequence's cursor, not the
+    // one the dropped stale response tried to install.
+    fixture.componentInstance.loadMore();
+    const next = controller.expectOne(
+      (r) => r.url === 'http://localhost:5000/api/v1/catalog/products',
+    );
+    expect(next.request.params.get('cursor')).toBe('cursor-fresh');
+    next.flush(page(0, null));
+  });
 });

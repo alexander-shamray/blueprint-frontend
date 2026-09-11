@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, Signal, inject, signal } from '@angular/core';
 import { HttpErrorResponse } from '@angular/common/http';
 import {
   IonContent, IonHeader, IonInfiniteScroll, IonInfiniteScrollContent, IonItem, IonLabel,
@@ -59,10 +59,32 @@ export class ProductsPage {
   private readonly cart = inject(CartStore);
   private cursor: string | null = null;
 
-  readonly products = signal<readonly ProductSummary[]>([]);
-  readonly error = signal<DisplayError | null>(null);
+  /**
+   * Bumped by `reload()`. `load()` captures the generation it was called
+   * under and checks it again when the response lands; a response whose
+   * generation no longer matches was superseded by a later `reload()` and is
+   * dropped rather than applied. Without this, a `loadMore()` in flight when
+   * Task 14's publish page calls `reload()` lands AFTER the fresh first page
+   * and appends its items onto — and overwrites `cursor` from — a pagination
+   * sequence that `reload()` already discarded. A `switchMap` would hide that
+   * drop rather than state it, and `load()` is called from three call sites
+   * (constructor, `reload()`, `loadMore()`) with different completion
+   * semantics that a shared pipeline operator would have to paper over.
+   */
+  private generation = 0;
+
+  private readonly productsSignal = signal<readonly ProductSummary[]>([]);
+  private readonly errorSignal = signal<DisplayError | null>(null);
   /** Null nextCursor is the last page (CursorPage.cs). Nothing asks past it. */
-  readonly hasMore = signal(true);
+  private readonly hasMoreSignal = signal(true);
+
+  // Writable only inside this class — CartStore.lines and CommandIdentity's
+  // current/isSpent make the same choice, for the same reason: Task 14 holds
+  // a reference to this instance and `readonly` on the field only stops
+  // reassignment, not `.set()` from outside.
+  readonly products: Signal<readonly ProductSummary[]> = this.productsSignal.asReadonly();
+  readonly error: Signal<DisplayError | null> = this.errorSignal.asReadonly();
+  readonly hasMore: Signal<boolean> = this.hasMoreSignal.asReadonly();
 
   constructor() {
     this.load();
@@ -70,9 +92,10 @@ export class ProductsPage {
 
   /** Called by the publish page after a success (spec §5.5). */
   reload(): void {
+    this.generation++;
     this.cursor = null;
-    this.products.set([]);
-    this.hasMore.set(true);
+    this.productsSignal.set([]);
+    this.hasMoreSignal.set(true);
     this.load();
   }
 
@@ -86,19 +109,37 @@ export class ProductsPage {
   }
 
   private load(done?: () => void): void {
+    const generation = this.generation;
+
     this.catalog.products(this.cursor).subscribe({
       next: (page) => {
-        this.error.set(null);
-        this.products.update((existing) => [...existing, ...page.items]);
-        this.cursor = page.nextCursor;
-        this.hasMore.set(page.nextCursor !== null);
+        // The ion-infinite-scroll element that triggered this call (if any)
+        // is not destroyed by reload() — only the signals are reset — so its
+        // internal `isLoading` flag survives a reload and must still be
+        // cleared here even when the response itself is discarded below.
+        // Ionic's own InfiniteScroll never fires `ionInfinite` again while
+        // `isLoading` stays true, so skipping this on the stale branch would
+        // reintroduce the hang this component exists to avoid.
         done?.();
+
+        // Superseded by a reload() that started a new pagination sequence
+        // while this request was in flight. Applying it now would append
+        // onto the fresh list and overwrite `cursor` with a value computed
+        // against the sequence reload() already discarded.
+        if (generation !== this.generation) return;
+
+        this.errorSignal.set(null);
+        this.productsSignal.update((existing) => [...existing, ...page.items]);
+        this.cursor = page.nextCursor;
+        this.hasMoreSignal.set(page.nextCursor !== null);
       },
       error: (failure: HttpErrorResponse) => {
-        this.error.set(mapError(failure));
-        // Stop asking. Retrying into a 429 is how a rate limit becomes a loop.
-        this.hasMore.set(false);
         done?.();
+        if (generation !== this.generation) return;
+
+        this.errorSignal.set(mapError(failure));
+        // Stop asking. Retrying into a 429 is how a rate limit becomes a loop.
+        this.hasMoreSignal.set(false);
       },
     });
   }
