@@ -5043,20 +5043,25 @@ git commit -m "feat(order-placed): order id, cancellation vocabulary, and the mi
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { provideRouter } from '@angular/router';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { Router, provideRouter } from '@angular/router';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { ALREADY_COMMITTED } from '@core/commands/command-id';
 import { CatalogRefresh } from '@core/catalog/catalog-refresh';
 import { PublishPage } from './publish.page';
 
 describe('PublishPage', () => {
   let fixture: ComponentFixture<PublishPage>;
   let controller: HttpTestingController;
+  let navigate: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     TestBed.configureTestingModule({
       imports: [PublishPage],
       providers: [provideRouter([]), provideHttpClient(), provideHttpClientTesting()],
     });
+
+    navigate = vi.fn(async () => true);
+    vi.spyOn(TestBed.inject(Router), 'navigate').mockImplementation(navigate as never);
 
     fixture = TestBed.createComponent(PublishPage);
     controller = TestBed.inject(HttpTestingController);
@@ -5069,15 +5074,23 @@ describe('PublishPage', () => {
 
   afterEach(() => controller.verify());
 
-  it('sends a PublishProductCommand with a null thumbnail when blank', () => {
+  it('sends a PublishProductCommand with a null thumbnail when blank', async () => {
     fixture.componentInstance.publish();
 
-    const body = controller.expectOne('http://localhost:5000/api/v1/catalog/products').request.body;
+    const request = controller.expectOne('http://localhost:5000/api/v1/catalog/products');
+    const body = request.request.body;
 
     expect(body).toMatchObject({
       name: 'A widget', thumbnailUrl: null, amount: 12.5, currency: 'EUR',
     });
     expect(body.commandId).toMatch(/^[0-9a-f-]{36}$/);
+
+    // Not left dangling — see "reuses the commandId across a retried 503"
+    // below for what an unflushed request would hide: expectOne() removes it
+    // from the testing backend's open list, so afterEach's verify() cannot
+    // catch a request this test itself forgot to answer.
+    request.flush('55555555-5555-5555-5555-555555555555', { status: 200, statusText: 'OK' });
+    await fixture.whenStable();
   });
 
   it('reuses the commandId across a retried 503', async () => {
@@ -5092,9 +5105,10 @@ describe('PublishPage', () => {
 
     expect(second.request.body.commandId).toBe(firstId);
     second.flush('55555555-5555-5555-5555-555555555555', { status: 200, statusText: 'OK' });
+    await fixture.whenStable();
   });
 
-  it('mints a fresh commandId after a success', async () => {
+  it('mints a fresh commandId after a success and resets the form so a second click cannot resubmit the same product', async () => {
     fixture.componentInstance.publish();
     const first = controller.expectOne('http://localhost:5000/api/v1/catalog/products');
     const firstId = first.request.body.commandId;
@@ -5103,6 +5117,68 @@ describe('PublishPage', () => {
 
     expect(fixture.componentInstance.identity.current()).not.toBe(firstId);
     expect(fixture.componentInstance.publishedId()).toBe('55555555-5555-5555-5555-555555555555');
+
+    // The line the page's "no null-quote-style window" reasoning rests on:
+    // identity.isSpent() alone is false again after onSuccess(), so without
+    // form.reset() making form.invalid true in the same synchronous
+    // callback, the submit button would re-enable over a form still holding
+    // the product just published — one click from a duplicate.
+    expect(fixture.componentInstance.form.invalid).toBe(true);
+  });
+
+  it('mints a new commandId after the form is edited following a validation failure', async () => {
+    fixture.componentInstance.publish();
+    const first = controller.expectOne('http://localhost:5000/api/v1/catalog/products');
+    const firstId = first.request.body.commandId;
+    first.flush(
+      { status: 400, errors: { Amount: ["'Amount' must be greater than or equal to '0'."] } },
+      { status: 400, statusText: 'Bad Request' },
+    );
+    await fixture.whenStable();
+
+    fixture.componentInstance.form.controls.amount.setValue(5);
+    fixture.componentInstance.publish();
+
+    const second = controller.expectOne('http://localhost:5000/api/v1/catalog/products');
+    expect(second.request.body.commandId).not.toBe(firstId);
+    second.flush('55555555-5555-5555-5555-555555555555', { status: 200, statusText: 'OK' });
+    await fixture.whenStable();
+  });
+
+  it('treats command.already_committed as success and leaves the page usable', async () => {
+    const refresh = TestBed.inject(CatalogRefresh);
+    const before = refresh.current();
+
+    fixture.componentInstance.publish();
+    const first = controller.expectOne('http://localhost:5000/api/v1/catalog/products');
+    const firstId = first.request.body.commandId;
+    first.flush(
+      { status: 409, code: 'command.already_committed', detail: 'Already applied.' },
+      { status: 409, statusText: 'Conflict' },
+    );
+    await fixture.whenStable();
+
+    // The product exists — the platform just no longer holds the result to
+    // hand an id back for — so this is the "success" note, not an error.
+    expect(fixture.componentInstance.publishedId()).toBe(ALREADY_COMMITTED);
+    expect(fixture.componentInstance.error()).toBeNull();
+    expect(refresh.current()).toBe(before + 1);
+
+    // Unlike checkout — which escapes a spent identity by navigating away
+    // and being rebuilt — this page never navigates, so if the id stayed
+    // spent here the Publish tab would be dead for the rest of the session.
+    expect(fixture.componentInstance.identity.isSpent()).toBe(false);
+    expect(fixture.componentInstance.form.invalid).toBe(true);
+
+    fixture.componentInstance.form.setValue({
+      name: 'Another widget', thumbnailUrl: '', amount: 3, currency: 'EUR',
+    });
+    fixture.componentInstance.publish();
+
+    const second = controller.expectOne('http://localhost:5000/api/v1/catalog/products');
+    expect(second.request.body.commandId).not.toBe(firstId);
+    second.flush('66666666-6666-6666-6666-666666666666', { status: 200, statusText: 'OK' });
+    await fixture.whenStable();
   });
 
   it('shows field errors from a 400 keyed as the validator keyed them', async () => {
@@ -5132,9 +5208,13 @@ describe('PublishPage', () => {
     // of this publish by being visited. If this assertion fails, a
     // published product is invisible until the app restarts.
     expect(refresh.current()).toBe(before + 1);
+
+    // The other half of the test's own name: a page that both navigated AND
+    // refreshed would still pass the assertion above.
+    expect(navigate).not.toHaveBeenCalled();
   });
 
-  it('publishes a free product, because the backend allows an amount of zero', () => {
+  it('publishes a free product, because the backend allows an amount of zero', async () => {
     fixture.componentInstance.form.setValue({
       name: 'A free widget', thumbnailUrl: '', amount: 0, currency: 'EUR',
     });
@@ -5147,9 +5227,11 @@ describe('PublishPage', () => {
 
     fixture.componentInstance.publish();
 
-    expect(
-      controller.expectOne('http://localhost:5000/api/v1/catalog/products').request.body.amount,
-    ).toBe(0);
+    const request = controller.expectOne('http://localhost:5000/api/v1/catalog/products');
+    expect(request.request.body.amount).toBe(0);
+
+    request.flush('55555555-5555-5555-5555-555555555555', { status: 200, statusText: 'OK' });
+    await fixture.whenStable();
   });
 
   it('names catalog:write on a 403', async () => {
@@ -5161,6 +5243,38 @@ describe('PublishPage', () => {
 
     expect(fixture.componentInstance.error()?.permission).toBe('catalog:write');
   });
+
+  it('does nothing when publish() is called on an invalid form', () => {
+    fixture.componentInstance.form.controls.name.setValue('');
+
+    fixture.componentInstance.publish();
+
+    controller.expectNone('http://localhost:5000/api/v1/catalog/products');
+  });
+
+  it('clears a stale publishedId when a new attempt starts', async () => {
+    fixture.componentInstance.publish();
+    controller
+      .expectOne('http://localhost:5000/api/v1/catalog/products')
+      .flush('55555555-5555-5555-5555-555555555555', { status: 200, statusText: 'OK' });
+    await fixture.whenStable();
+    expect(fixture.componentInstance.publishedId()).not.toBeNull();
+
+    fixture.componentInstance.form.setValue({
+      name: 'Another widget', thumbnailUrl: '', amount: 3, currency: 'EUR',
+    });
+    fixture.componentInstance.publish();
+
+    // Cleared the moment the new attempt starts, not only once its response
+    // lands — an error banner for THIS attempt must never sit under a
+    // "Published as ..." note left over from the LAST one.
+    expect(fixture.componentInstance.publishedId()).toBeNull();
+
+    controller
+      .expectOne('http://localhost:5000/api/v1/catalog/products')
+      .flush('66666666-6666-6666-6666-666666666666', { status: 200, statusText: 'OK' });
+    await fixture.whenStable();
+  });
 });
 ```
 
@@ -5170,7 +5284,6 @@ describe('PublishPage', () => {
 
 ```ts
 import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
-import { HttpErrorResponse } from '@angular/common/http';
 import { FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
 import {
   IonButton, IonContent, IonHeader, IonInput, IonItem, IonNote, IonTitle, IonToolbar,
@@ -5178,7 +5291,7 @@ import {
 import { CatalogApi } from '@core/api/catalog.api';
 import { CatalogRefresh } from '@core/catalog/catalog-refresh';
 import { PERMISSIONS, PublishProductCommand } from '@core/api/types';
-import { CommandIdentity } from '@core/commands/command-id';
+import { ALREADY_COMMITTED, CommandIdentity } from '@core/commands/command-id';
 import { DisplayError, mapError } from '@core/errors/error-mapper';
 import { ErrorBannerComponent } from '@shared/error-banner.component';
 
@@ -5190,6 +5303,34 @@ import { ErrorBannerComponent } from '@shared/error-banner.component';
  * navigating to the products tab and hoping the visit refreshes it — Ionic
  * caches that page, so a visit is not a construction and a construction is
  * the only thing that loads.
+ *
+ * Unlike checkout, this page never navigates away on success, and it reads
+ * no external signal analogous to CheckoutHandoff.quote() in its template or
+ * in publish(). Checkout's null-quote guard exists because router.navigate()
+ * is async: between handoff.clear() and the navigation resolving, the still-
+ * mounted page could see isSpent() cleared and the form still valid while
+ * currency() asserted a quote that was already gone. Here the entire success
+ * handler — onSuccess() (which clears isSpent()) and form.reset() (which
+ * makes the form invalid again, since name/amount/currency are all
+ * required) — runs synchronously in one callback with no navigation and no
+ * `await` in between, and zoneless CD only re-renders after that callback
+ * returns. So there is no tick in which a user could click while the button
+ * is enabled but the state behind it is gone: by the time anything repaints,
+ * the button is already disabled again (form.invalid is true). No guard is
+ * added here for that reason — publish.page.spec.ts's "resets the form to
+ * invalid so a second click cannot resubmit the same product" assertion is
+ * the coverage that would fail if this reasoning were wrong.
+ *
+ * command.already_committed is handled unlike checkout handles it, and for a
+ * reason specific to this page: checkout escapes a spent identity by
+ * navigating away — the placed page is a different component, and a later
+ * visit to checkout gets a freshly constructed CommandIdentity. This page
+ * never navigates and Ionic caches its ComponentRef for the app session, so
+ * a spent identity here is not escaped by anything — it is permanent, and
+ * the Publish tab would be dead for the rest of the session. The publish DID
+ * commit, though: the platform is saying the product exists and it no
+ * longer holds the result to hand back an id for. So this branch does what
+ * a success does, minus the id.
  *
  * The gateway routes this POST only once plan Task 0 has landed;
  * `catalog-public` matches GET alone. Until then a real call answers 404 at
@@ -5223,7 +5364,17 @@ import { ErrorBannerComponent } from '@shared/error-banner.component';
       </form>
 
       @if (publishedId(); as id) {
-        <ion-item><ion-note>Published as <code>{{ id }}</code>.</ion-note></ion-item>
+        @if (id === alreadyCommitted) {
+          <ion-item>
+            <ion-note>
+              The platform reported that this command id had already been applied, and it no
+              longer holds the result. The product was published; its id is not recoverable
+              from here.
+            </ion-note>
+          </ion-item>
+        } @else {
+          <ion-item><ion-note>Published as <code>{{ id }}</code>.</ion-note></ion-item>
+        }
       }
     </ion-content>
   `,
@@ -5233,6 +5384,9 @@ export class PublishPage {
   private readonly catalogRefresh = inject(CatalogRefresh);
 
   readonly identity = new CommandIdentity();
+
+  /** Read by the template to tell "committed, id unknown" apart from a real id. */
+  protected readonly alreadyCommitted = ALREADY_COMMITTED;
 
   readonly form = new FormGroup({
     name: new FormControl('', { nonNullable: true, validators: Validators.required }),
@@ -5249,6 +5403,20 @@ export class PublishPage {
   }
 
   publish(): void {
+    // (ngSubmit) is not the only way in — this method is public and directly
+    // callable — so the guard the template's [disabled] binding expresses
+    // must also live here, the same precedent checkout's placeOrder() sets
+    // for its own non-null assertion below. Without this, value.amount!
+    // would assert over a null the required validator was supposed to have
+    // ruled out.
+    if (this.form.invalid) return;
+
+    // Cleared at the START of every attempt, not just on the branches that
+    // change it: a "Published as ..." (or already-committed) note from a
+    // PRIOR success must not keep sitting under an error banner from THIS
+    // attempt, implying the thing that just failed actually succeeded.
+    this.publishedId.set(null);
+
     const value = this.form.getRawValue();
 
     const command: PublishProductCommand = {
@@ -5285,10 +5453,36 @@ export class PublishPage {
         // sitting on this cached page for the user's next visit.
         this.catalogRefresh.request();
       },
-      error: (failure: HttpErrorResponse) => {
+      // `unknown`, not HttpErrorResponse: mapError()'s parameter is `unknown`
+      // on purpose (see its own comment on the branch that handles a bare
+      // string rejection from WebAuthStrategy.signIn(), added for cart.page.ts's
+      // sign-in retry) and it re-narrows internally. Annotating this as
+      // HttpErrorResponse costs nothing at runtime here because mapError()
+      // never trusts the annotation either way — but it is still a claim
+      // this call site cannot back, which is reason enough not to make it.
+      error: (failure: unknown) => {
         const displayed = mapError(failure, { permission: PERMISSIONS.catalogWrite });
-        this.error.set(displayed);
         this.identity.onFailure(displayed);
+
+        if (displayed.kind === 'alreadyCommitted') {
+          // The submission committed — the platform is telling us the
+          // product exists and it no longer holds the result to hand an id
+          // back for. Checkout treats the same code as success-pending-
+          // confirmation and moves on because navigating away rebuilds its
+          // page with a fresh CommandIdentity; this page has no such escape
+          // (see the class doc comment), so it does the equivalent work
+          // itself: onSuccess() is the right call here too, because a
+          // completed submission — which this is — is exactly what its own
+          // doc comment says starts a new form entry.
+          this.error.set(null);
+          this.publishedId.set(ALREADY_COMMITTED);
+          this.identity.onSuccess();
+          this.form.reset({ name: '', thumbnailUrl: '', amount: null, currency: '' });
+          this.catalogRefresh.request();
+          return;
+        }
+
+        this.error.set(displayed);
       },
     });
   }
@@ -5296,7 +5490,7 @@ export class PublishPage {
 ```
 
 Run: `npm test -- publish.page`
-Expected: PASS, 7 tests.
+Expected: PASS, 11 tests.
 
 - [ ] **Step 3: Commit**
 
