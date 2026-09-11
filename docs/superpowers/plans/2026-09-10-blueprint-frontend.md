@@ -4550,12 +4550,18 @@ describe('OrderPlacedPage', () => {
 
   afterEach(() => controller?.verify());
 
-  it('offers the five reasons in the backend order with customer_request preselected', () => {
+  it('sends customer_request and offers no other reason', () => {
     const fixture = mount('44444444-4444-4444-4444-444444444444');
     controller = TestBed.inject(HttpTestingController);
 
-    expect(fixture.componentInstance.reasons).toEqual(CANCEL_REASONS);
-    expect(fixture.componentInstance.reason()).toBe('customer_request');
+    fixture.componentInstance.cancel();
+
+    // The other four codes are the platform's own findings - the saga's stock
+    // outcomes and Payments' results. A customer cannot truthfully assert any
+    // of them, and the endpoint stamps origin User whatever arrives.
+    expect(controller.expectOne((r) => r.url.endsWith('/cancel')).request.body)
+      .toEqual({ reason: 'customer_request' });
+    expect(CANCEL_REASONS).toContain('customer_request');
   });
 
   it('posts the reason and reports the 204', async () => {
@@ -4615,7 +4621,7 @@ import {
   IonSelect, IonSelectOption, IonText, IonTitle, IonToolbar,
 } from '@ionic/angular';
 import { OrderingApi } from '@core/api/ordering.api';
-import { CANCEL_REASONS, CancelReason, PERMISSIONS } from '@core/api/types';
+import { CancelReason, PERMISSIONS } from '@core/api/types';
 import { DisplayError, mapError } from '@core/errors/error-mapper';
 import { ALREADY_COMMITTED } from '@core/commands/command-id';
 import { ErrorBannerComponent } from '@shared/error-banner.component';
@@ -4672,12 +4678,9 @@ import { ErrorBannerComponent } from '@shared/error-banner.component';
 
       @if (canCancel()) {
         <ion-item>
-          <ion-select label="Reason" [value]="reason()"
-            (ionChange)="reason.set($any($event).detail.value)">
-            @for (code of reasons; track code) {
-              <ion-select-option [value]="code">{{ code }}</ion-select-option>
-            }
-          </ion-select>
+          <ion-note>
+            Cancelling here is recorded as the customer's own request.
+          </ion-note>
         </ion-item>
 
         <ion-button expand="block" [disabled]="cancelled()" (click)="cancel()">Cancel order</ion-button>
@@ -4694,10 +4697,28 @@ export class OrderPlacedPage {
   private readonly route = inject(ActivatedRoute);
 
   /** The frozen vocabulary from Commands.cs, in its declaration order. */
-  readonly reasons = CANCEL_REASONS;
+  /**
+   * The ONLY reason a cancellation from this screen can truthfully carry.
+   *
+   * `CANCEL_REASONS` mirrors the whole wire vocabulary
+   * (Common.Contracts/Ordering/V1/Commands.cs - `CancelReasons`) and that
+   * mirror is right, but four of the five are facts the PLATFORM discovers:
+   * out_of_stock and stock_timeout come from the fulfilment saga,
+   * payment_declined and payment_timeout from Payments. None of them is a
+   * choice a customer makes, and OrderEndpoints.cs stamps every cancellation
+   * from this route `CommandOrigin.User` regardless of the code sent.
+   *
+   * So offering the list would let a customer record "cancelled because
+   * payment was declined, origin user" - a statement about an incident that
+   * did not happen. It is not cosmetic: the backend's own comment notes that
+   * payment_declined and payment_timeout are one dimension value apart on the
+   * orders.cancelled metric and a different incident, so a mis-picked code
+   * lands in the data operators read during one.
+   */
+  private static readonly USER_REASON: CancelReason = 'customer_request';
 
   readonly orderId = signal(this.route.snapshot.paramMap.get('id') ?? '');
-  readonly reason = signal<CancelReason>('customer_request');
+
   readonly cancelled = signal(false);
   readonly error = signal<DisplayError | null>(null);
 
@@ -4705,7 +4726,7 @@ export class OrderPlacedPage {
   readonly canCancel = computed(() => !this.alreadyCommitted() && this.orderId() !== '');
 
   cancel(): void {
-    this.ordering.cancel(this.orderId(), this.reason()).subscribe({
+    this.ordering.cancel(this.orderId(), OrderPlacedPage.USER_REASON).subscribe({
       next: () => {
         this.error.set(null);
         this.cancelled.set(true);
