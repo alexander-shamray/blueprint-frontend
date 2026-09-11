@@ -1,59 +1,94 @@
-# BlueprintFrontend
+# blueprint-frontend
 
-This project was generated using [Angular CLI](https://github.com/angular/angular-cli) version 22.1.8.
+The reference client for [`dotnet-ddd-blueprint`](https://github.com/alexander-shamray/dotnet-ddd-blueprint)
+— an Angular 22 / Ionic 9 / Capacitor application that consumes the platform
+rather than demonstrating a framework.
 
-## Development server
+It exists to answer a question the backend cannot answer about itself: *what
+does a client that takes this platform seriously actually have to do?* Anonymous
+browsing, permissions as claims, idempotent commands held across a failure,
+three different 409s that mean three different things, and a quote whose total
+the client is forbidden to recompute.
 
-To start a local development server, run:
+**Phase A (this branch) is the web client.** Phase B adds Capacitor, native
+auth and the mobile builds.
 
-```bash
-ng serve
-```
+## Running it
 
-Once the server is running, open your browser and navigate to `http://localhost:4200/`. The application will automatically reload whenever you modify any of the source files.
-
-## Code scaffolding
-
-Angular CLI includes powerful code scaffolding tools. To generate a new component, run:
-
-```bash
-ng generate component component-name
-```
-
-For a complete list of available schematics (such as `components`, `directives`, or `pipes`), run:
+The client talks only to the gateway, and the gateway is in the backend
+repository. Start the platform first:
 
 ```bash
-ng generate --help
+git clone https://github.com/alexander-shamray/dotnet-ddd-blueprint.git
+cd dotnet-ddd-blueprint
+docker compose -f deploy/compose/docker-compose.yml up -d --wait
 ```
 
-## Building
-
-To build the project run:
+Then, in this repository:
 
 ```bash
-ng build
+npm ci
+npm start
 ```
 
-This will compile your project and store the build artifacts in the `dist/` directory. By default, the production build optimizes your application for performance and speed.
+**Open `http://localhost:5173/`, not 4200.** The port is not a preference: it is
+the origin Keycloak's realm lists in `web-app`'s `redirectUris` and
+`webOrigins`, and the one the gateway allows through CORS. On any other port the
+application loads and sign-in fails, because the identity provider will not
+redirect back to an origin it does not know.
 
-## Running unit tests
+Sign in with either realm user:
 
-To execute unit tests with the [Vitest](https://vitest.dev/) test runner, use the following command:
+| User | Password | Holds |
+|---|---|---|
+| `demo` | `demo` | `catalog:write`, `orders:write`, `orders:cancel` |
+| `browser` | `browser` | nothing |
+
+`browser` is not a degraded account — it is the point of §4.3. The Publish tab
+is absent for it, and navigating to that route directly is refused with the
+permission named. A hidden button and a refused route are two different facts,
+and the client demonstrates both.
+
+## What talks to what
+
+| Piece | Where |
+|---|---|
+| Gateway (everything the client calls) | `http://localhost:5000` |
+| Keycloak | `http://localhost:8080/realms/commerce` |
+| This app | `http://localhost:5173` |
+
+Configuration lives in `src/app/core/config/`, and every value there carries a
+comment naming the backend file or realm setting that fixes it.
+
+## Testing
 
 ```bash
-ng test
+npm test                                        # 157 unit and component tests
+npm run lint
+npm run build
+npm run e2e                                     # Playwright, needs the stack up
 ```
 
-## Running end-to-end tests
+The e2e smoke runs against the real Compose stack and is never skipped when the
+platform is missing — it fails on connection instead. The backend's own rule is
+that a skip fails open, and a smoke that reports green with nothing running is
+worth less than no smoke.
 
-For end-to-end (e2e) testing, run:
+## Reading it
 
-```bash
-ng e2e
-```
+`docs/client-architecture.md` is the document to read after this one. It takes
+each backend decision the client can observe, cites the file or realm setting
+that forces it, and names where in this client it shows up. Its last section is
+the one worth your time if you already know the backend: the assumptions this
+client had to abandon, and what each cost.
 
-Angular CLI does not come with an end-to-end testing framework by default. You can choose one that suits your needs.
+Two examples of the shape of that list. The catalogue's listing is anonymous, so
+Products is the landing tab and works signed out — which sounds obvious until
+you notice that a client demanding a token there would be refusing to show what
+the platform publishes. And a product may legally cost nothing, so a client that
+tested a price for truthiness would hide a free product; this one tests for
+`undefined`.
 
-## Additional Resources
-
-For more information on using the Angular CLI, including detailed command references, visit the [Angular CLI Overview and Command Reference](https://angular.dev/tools/cli) page.
+`docs/superpowers/plans/2026-09-10-blueprint-frontend.md` is the implementation
+plan, kept in sync with what shipped. Where the plan was wrong, the commit that
+corrected it says so.
