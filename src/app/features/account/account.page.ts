@@ -88,6 +88,18 @@ export class AccountPage {
     { initialValue: this.route.snapshot.queryParamMap.get('denied') },
   );
 
+  /**
+   * Known, accepted open loop at a tab root. If `signIn()` rejects (banner
+   * shown) and the user switches to another tab and back, Ionic performs no
+   * teardown on Account — it is a tab root, never destroyed — so the stale
+   * banner is still there, unprompted by anything the user just did. Only
+   * the next `signIn()` click clears it, since that is the only thing that
+   * ever sets it. Left as-is deliberately, unlike Task 14's spent
+   * `CommandIdentity`: that loop was CLOSED (the one thing that could clear
+   * it was disabled). This one is open — the Sign in button that clears it
+   * is always enabled — so the residue is cosmetic, and arguably still
+   * true, rather than a stuck affordance.
+   */
   private readonly errorState = signal<DisplayError | null>(null);
   readonly error = this.errorState.asReadonly();
 
@@ -96,6 +108,15 @@ export class AccountPage {
    * statements about a realm decision rather than reassurance: `web-app`
    * carries `use.refresh.tokens: "false"`, so the browser genuinely cannot
    * survive a reload, and saying so is more useful than a silent sign-out.
+   *
+   * The `false` branch is not live on any strategy that exists today —
+   * `sessionEndsOnReload` is `true` in `WebAuthStrategy` and nothing else
+   * implements `AuthService` yet, since native auth is Phase B. It stays
+   * here because spec §5.6 mandates both sentences and spec §4's
+   * one-interface-two-implementations is the point of the abstraction: this
+   * is the contract Phase B's native strategy must satisfy, pinned now so it
+   * cannot drift before that strategy exists to honour it — not a
+   * description of anything this client does today.
    */
   readonly tokenPosture = computed(() =>
     this.auth.sessionEndsOnReload
@@ -125,6 +146,17 @@ export class AccountPage {
   }
 
   signOut(): void {
-    void this.auth.signOut();
+    // .catch(), matching signIn() — and here it matters even more than
+    // symmetry: a swallowed rejection leaves the user believing they are
+    // signed out when they are not, which is the one failure on this page
+    // worth being loud about. `WebAuthStrategy.signOut()` is async and
+    // `oauth.logOut()` can throw when `logoutUrl` is unset; in practice the
+    // Sign out button only renders once a token was adopted, which means
+    // discovery already succeeded and `logoutUrl` is populated, but nothing
+    // stops a future AuthService implementation from rejecting for a
+    // different reason.
+    this.auth.signOut().catch((failure: unknown) => {
+      this.errorState.set(mapError(failure));
+    });
   }
 }
