@@ -3906,7 +3906,19 @@ export class CartPage {
         this.quoteState.set(null);
 
         // The quote requires sign-in; the button prompts for it (spec §5.2).
-        if (displayed.kind === 'signIn') void this.auth.signIn();
+        //
+        // .catch(), not a bare `void`. signIn() rejects when the identity
+        // provider is unreachable: WebAuthStrategy retries the discovery
+        // document there, because initCodeFlow() with no loginUrl silently
+        // does nothing rather than navigating. Under `void` that rejection
+        // becomes an unhandled promise rejection and the user gets a sign-in
+        // button that appears to do nothing — the same class of bug as the
+        // blank app the initializer fix removed, one layer up.
+        if (displayed.kind === 'signIn') {
+          this.auth.signIn().catch((failure: HttpErrorResponse) => {
+            this.errorState.set(mapError(failure));
+          });
+        }
       },
     });
   }
@@ -4841,6 +4853,7 @@ git commit -m "feat(publish): product form behind catalog:write with the shared 
 `src/app/features/account/account.page.spec.ts`:
 
 ```ts
+import { HttpErrorResponse } from '@angular/common/http';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { ActivatedRoute, provideRouter } from '@angular/router';
 import { signal } from '@angular/core';
@@ -4916,6 +4929,20 @@ describe('AccountPage', () => {
     );
   });
 
+  it('shows an error when sign-in cannot reach the identity provider', async () => {
+    // signIn() rejects when discovery is unreachable — WebAuthStrategy retries
+    // it, because initCodeFlow() with no loginUrl does nothing at all. A bare
+    // `void` here would leave a button that looks broken and says nothing.
+    signIn.mockRejectedValueOnce(
+      new HttpErrorResponse({ status: 0, statusText: 'Unknown Error' }),
+    );
+
+    fixture.componentInstance.signIn();
+    await fixture.whenStable();
+
+    expect(fixture.componentInstance.error()).not.toBeNull();
+  });
+
   it('renders the permission a refused route needed', () => {
     const { fixture } = mount(demo, true, 'catalog:write');
 
@@ -4930,24 +4957,30 @@ describe('AccountPage', () => {
 
 ```ts
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import { HttpErrorResponse } from '@angular/common/http';
 import { ActivatedRoute } from '@angular/router';
 import {
   IonButton, IonChip, IonContent, IonHeader, IonItem, IonLabel, IonNote, IonTitle, IonToolbar,
 } from '@ionic/angular';
 import { AuthService } from '@core/auth/auth.service';
+import { DisplayError, mapError } from '@core/errors/error-mapper';
+import { ErrorBannerComponent } from '@shared/error-banner.component';
 
 /** Spec §5.6. */
 @Component({
   selector: 'app-account',
   standalone: true,
   imports: [
-    IonButton, IonChip, IonContent, IonHeader, IonItem, IonLabel, IonNote, IonTitle, IonToolbar,
+    IonButton, IonChip, IonContent, IonHeader, IonItem, IonLabel, IonNote, IonTitle,
+    IonToolbar, ErrorBannerComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <ion-header><ion-toolbar><ion-title>Account</ion-title></ion-toolbar></ion-header>
 
     <ion-content>
+      <app-error-banner [error]="error()" />
+
       @if (denied(); as permission) {
         <ion-item>
           <ion-label>
@@ -4991,6 +5024,9 @@ export class AccountPage {
   readonly permissions = computed(() => this.currentUser()?.permissions ?? []);
   readonly denied = signal(this.route.snapshot.queryParamMap.get('denied'));
 
+  private readonly errorState = signal<DisplayError | null>(null);
+  readonly error = this.errorState.asReadonly();
+
   /**
    * The platform's token posture in one line. Both sentences are true
    * statements about a realm decision rather than reassurance: `web-app`
@@ -5004,7 +5040,20 @@ export class AccountPage {
   );
 
   signIn(): void {
-    void this.auth.signIn();
+    this.errorState.set(null);
+
+    // .catch(), not a bare `void` — and this button matters more than the
+    // cart's, because it is the application's primary sign-in affordance.
+    // signIn() rejects when the identity provider is unreachable:
+    // WebAuthStrategy retries the discovery document there, since
+    // initCodeFlow() with no loginUrl returns having done nothing instead of
+    // navigating. Swallowed, that leaves a Sign in button which looks broken
+    // and says nothing — the same failure the initializer fix removed from
+    // the shell, reappearing on the one screen whose job is to explain the
+    // session.
+    this.auth.signIn().catch((failure: HttpErrorResponse) => {
+      this.errorState.set(mapError(failure));
+    });
   }
 
   signOut(): void {
@@ -5014,7 +5063,7 @@ export class AccountPage {
 ```
 
 Run: `npm test -- account.page`
-Expected: PASS, 5 tests.
+Expected: PASS, 6 tests.
 
 - [ ] **Step 3: Run the whole suite**
 
