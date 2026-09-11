@@ -1117,9 +1117,21 @@ const CONFLICT_KINDS: Readonly<Record<string, ErrorKind>> = {
 };
 
 export function mapError(
-  error: HttpErrorResponse,
+  error: unknown,
   context?: { readonly permission?: string },
 ): DisplayError {
+  if (!(error instanceof HttpErrorResponse)) {
+    // angular-oauth2-oidc's loadDiscoveryDocument() — and therefore
+    // WebAuthStrategy.signIn(), which awaits it — can reject with a bare
+    // string rather than an Error, let alone an HttpErrorResponse: there is
+    // no HTTP response here to read a status or a body from. Every call site
+    // before cart.page.ts's sign-in retry was an HttpClient error handler,
+    // where `HttpErrorResponse` was actually true; that caller breaks the
+    // assumption, so the parameter widens to `unknown` and this branch is
+    // what keeps it from a runtime TypeError reading `.status` off a string.
+    return { kind: 'retry', title: '', detail: null };
+  }
+
   const body: ProblemDetails = isProblemDetails(error.error) ? error.error : {};
   const title = body.title ?? '';
   const detail = body.detail ?? null;
@@ -3633,7 +3645,7 @@ git commit -m "feat(products): cursor-paged listing with add to cart"
 **Interfaces:**
 - Consumes: `CartStore` (Task 7), `CheckoutApi.quote` (Task 6), `AuthService` (Task 5), `mapError` (Task 4).
 - Produces: navigation to `/tabs/cart/checkout` carrying the quote through `CheckoutHandoff`.
-- Also create: `src/app/core/cart/checkout-handoff.ts` — `@Injectable({providedIn:'root'}) class CheckoutHandoff { readonly quote = signal<QuoteResponse | null>(null) }`. In core, because two features read it and a feature never imports another feature.
+- Also create: `src/app/core/cart/checkout-handoff.ts` - a root-provided `CheckoutHandoff` holding the quote the cart obtained, with `clear()` alongside the signal. In core because two features share it and a feature never imports another feature. Its LIFECYCLE is part of its contract, not an afterthought: the cart writes it at checkout and clears it whenever the basket or currency changes, the checkout page reads it and clears it once the order is placed, and Task 12's route guard decides reachability from it - a guard is only as good as the lifecycle of what it reads.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -3882,6 +3894,21 @@ export class CartPage {
    */
   protected readonly currencies = ['EUR', 'GBP', 'USD'] as const;
 
+  /**
+   * Bumped by `invalidateQuote()`. `getQuote()` captures the generation it
+   * was called under and checks it again in both the success and error
+   * branches when the response lands; a response whose generation no longer
+   * matches was superseded by a quantity or currency change that invalidated
+   * it, and is dropped rather than applied — the same shape, deliberately,
+   * as `ProductsPage.generation` guards a `loadMore()` in flight against a
+   * `reload()` that started a fresh sequence underneath it. Without this, a
+   * `getQuote()` in flight when the user taps `+` or switches currency lands
+   * AFTER `invalidateQuote()` has nulled the now-stale quote, and silently
+   * restores a quote priced for a basket or currency that no longer exists —
+   * exactly what `canCheckout()` exists to keep off screen.
+   */
+  private generation = 0;
+
   readonly lines = this.store.lines;
 
   // Writable privately, readonly to everyone else — the shape CartStore.lines
@@ -3943,12 +3970,22 @@ export class CartPage {
   }
 
   getQuote(): void {
+    const generation = this.generation;
+
     this.checkoutApi.quote(this.store.productIds(), this.currency()).subscribe({
       next: (quote) => {
+        // Superseded by an invalidateQuote() (a quantity or currency change)
+        // that started a new generation while this request was in flight.
+        // Applying it now would restore a quote for a basket or currency
+        // that no longer exists.
+        if (generation !== this.generation) return;
+
         this.errorState.set(null);
         this.quoteState.set(quote);
       },
       error: (failure: HttpErrorResponse) => {
+        if (generation !== this.generation) return;
+
         const displayed = mapError(failure);
         this.errorState.set(displayed);
         this.quoteState.set(null);
@@ -3962,8 +3999,14 @@ export class CartPage {
         // becomes an unhandled promise rejection and the user gets a sign-in
         // button that appears to do nothing — the same class of bug as the
         // blank app the initializer fix removed, one layer up.
+        //
+        // mapError() takes the rejection as `unknown`, not `HttpErrorResponse`:
+        // angular-oauth2-oidc's loadDiscoveryDocument(), which signIn() awaits,
+        // can reject with a bare string rather than an HTTP error — there is no
+        // response to type it as. See error-mapper.ts's non-HttpErrorResponse
+        // branch, added for exactly this call.
         if (displayed.kind === 'signIn') {
-          this.auth.signIn().catch((failure: HttpErrorResponse) => {
+          this.auth.signIn().catch((failure) => {
             this.errorState.set(mapError(failure));
           });
         }
@@ -3979,9 +4022,20 @@ export class CartPage {
     void this.router.navigate(['/tabs/cart/checkout']);
   }
 
-  /** A quote describes a specific set of lines in a specific currency. Change either and it is stale. */
+  /**
+   * A quote describes a specific set of lines in a specific currency; change
+   * either and it is stale. Nulling `quoteState` alone does not finish the
+   * job: a `getQuote()` issued before the change may still be in flight, and
+   * the checkout handoff may still hold what the stale quote produced.
+   * Bumping `generation` drops that in-flight response when it lands, the
+   * same way `ProductsPage.reload()` drops a superseded `loadMore()`;
+   * clearing the handoff keeps the checkout route guard from trusting a
+   * quote priced for a basket or currency that no longer exists.
+   */
   private invalidateQuote(): void {
+    this.generation++;
     this.quoteState.set(null);
+    this.handoff.clear();
   }
 }
 ```
@@ -3999,6 +4053,10 @@ import { QuoteResponse } from '@core/api/types';
 @Injectable({ providedIn: 'root' })
 export class CheckoutHandoff {
   readonly quote = signal<QuoteResponse | null>(null);
+
+  clear(): void {
+    this.quote.set(null);
+  }
 }
 ```
 
@@ -4400,6 +4458,13 @@ export class CheckoutPage {
         this.error.set(null);
         this.identity.onSuccess();
         this.cart.clear();
+        // Clear the handoff, not just the cart. quoteGuard reads it to
+        // decide whether this route is reachable at all, so a quote left
+        // behind lets the user navigate back into checkout with an
+        // emptied cart and be waved straight through. The cart page
+        // clears it whenever the basket or currency changes; this is the
+        // other half of that contract - the quote has now been spent.
+        this.handoff.clear();
         void this.router.navigate(['/tabs/cart/placed', orderId]);
       },
       error: (failure: HttpErrorResponse) => {
@@ -4413,6 +4478,13 @@ export class CheckoutPage {
         // the result and exposes no endpoint to read it back.
         if (displayed.kind === 'alreadyCommitted') {
           this.cart.clear();
+          // Clear the handoff, not just the cart. quoteGuard reads it to
+          // decide whether this route is reachable at all, so a quote left
+          // behind lets the user navigate back into checkout with an
+          // emptied cart and be waved straight through. The cart page
+          // clears it whenever the basket or currency changes; this is the
+          // other half of that contract - the quote has now been spent.
+          this.handoff.clear();
           void this.router.navigate(['/tabs/cart/placed', ALREADY_COMMITTED]);
         }
 
