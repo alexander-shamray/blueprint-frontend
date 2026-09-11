@@ -107,11 +107,21 @@ test('demo browses, quotes, orders and cancels', async ({ page }) => {
   await page.getByLabel('Country').fill('QA');
   await page.getByRole('button', { name: 'Place order' }).click();
 
-  // Not getByText('Order'): under Playwright's strict mode that resolves to
-  // the "Order placed" title and the "Place order" button as well, and a
-  // locator matching several elements fails for a reason that has nothing to
-  // do with what this line is checking.
-  await expect(page.getByRole('heading', { name: 'Order placed' })).toBeVisible();
+  // The page's only real heading is the <h2> "Order"; "Order placed" is the
+  // ion-title, which renders inside the toolbar's banner landmark and carries
+  // no heading role, so asking for it by that role finds nothing. (It was
+  // written that way to dodge a strict-mode collision — getByText('Order')
+  // also matches the title and the "Place order" button — and traded an
+  // ambiguous locator for one that could never match.)
+  //
+  // The substantive assertion is the one below it: the platform answered with
+  // an order id and the page is showing it. That is the whole output of
+  // POST /api/v1/orders, which replies 200 with a bare GUID and no Location
+  // header, so a rendered id is the only evidence the order exists.
+  await expect(page.getByRole('heading', { name: 'Order', exact: true })).toBeVisible();
+  await expect(page.locator('code')).toHaveText(
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+  );
   await expect(
     page.getByText('The platform exposes no endpoint that reads an order back'),
   ).toBeVisible();
