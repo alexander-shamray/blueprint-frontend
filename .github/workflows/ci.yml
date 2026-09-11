@@ -1,7 +1,12 @@
 name: ci
 
 on:
+  # Pushes to main only, not to every branch. A pull request already
+  # triggers the pull_request event, so an unqualified `push:` ran both
+  # jobs twice for every commit on a PR branch - observed on PR #1, which
+  # opened with two `web` and two `e2e` runs for one push.
   push:
+    branches: [main]
   pull_request:
 
 jobs:
