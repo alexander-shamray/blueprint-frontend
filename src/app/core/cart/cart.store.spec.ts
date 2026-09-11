@@ -149,4 +149,49 @@ describe('CartStore', () => {
     expect(store.lines()).toEqual([]);
     expect(write).toHaveBeenLastCalledWith([]);
   });
+
+  it('a bare flush with no restore() and no mutation must not persist', () => {
+    // This is the race from the bug report: the persistence effect is
+    // scheduled once at construction, with the signal still holding the
+    // value it was born with. If that first flush writes anything at all,
+    // it overwrites whatever a slow restore() has not yet had the chance to
+    // read back — the on-screen cart is fine, storage is gone. Nothing has
+    // happened here — no restore(), no add/setQuantity/remove/clear — so a
+    // flush of this state must be silent.
+    //
+    // TestBed.tick(), not `await Promise.resolve()`: under zoneless change
+    // detection the effect is scheduled through
+    // scheduleCallbackWithRafRace, not run synchronously on signal write,
+    // and a bare microtask does not reliably land after that scheduling —
+    // it would make this assertion pass or fail on timing luck rather than
+    // on the guard actually working. TestBed.tick() flushes synchronously.
+    TestBed.tick();
+
+    expect(write).not.toHaveBeenCalled();
+  });
+
+  it('a cart the user emptied via clear() still persists, even though it is value-identical to the state the store was born with', () => {
+    // Force the born-with flush to actually happen first, exactly as in the
+    // race test above, WITHOUT clearing the spy afterwards — the point is to
+    // count everything the effect ever wrote across both flushes. `[]` from
+    // being born with no cart yet read, and `[]` from the user emptying a
+    // cart via clear(), are equal in value and different only in identity.
+    // A guard written against value ("is this array empty?" or, worse, a
+    // `hydrated` boolean toggled by the born-with flush) would conflate the
+    // two and could suppress the clear() write as well — silently, so a
+    // deliberately emptied cart would come back full on the next reload.
+    // Pre-fix, this fails for the opposite reason: nothing suppresses the
+    // born-with flush, so it counts as a first (wrong) write and the total
+    // is 2, not 1. Only an identity check against the exact born-with
+    // object gets both halves right at once: the born-with flush silent,
+    // the clear() flush loud.
+    TestBed.tick();
+
+    store.add(product('p1'));
+    store.clear();
+    TestBed.tick();
+
+    expect(write).toHaveBeenCalledTimes(1);
+    expect(write).toHaveBeenCalledWith([]);
+  });
 });

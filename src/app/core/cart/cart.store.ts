@@ -22,8 +22,40 @@ export interface CartLine {
  */
 @Injectable({ providedIn: 'root' })
 export class CartStore {
+  // The exact array the signal is constructed with, kept by reference so the
+  // effect below can recognise "nothing has actually happened yet" and
+  // refuse to write it. Under zoneless change detection the persistence
+  // effect is SCHEDULED at construction, not run there — its first flush can
+  // land while `restore()` is still awaiting `persistence.read()`. At that
+  // moment `state()` is still this exact array, so without this guard the
+  // flush writes `[]` over whatever real cart storage was holding, `restore`
+  // then overwrites the in-memory state with the real cart a moment later,
+  // and the screen ends up correct while storage is gone — silently, until
+  // the NEXT restore reads the now-empty storage back.
+  //
+  // The distinction that matters is "not yet read from storage" versus
+  // "emptied by the user": both are an empty array, and only object identity
+  // tells them apart. `clear()` sets a FRESH `[]` literal, a different
+  // object from this one, so a genuinely emptied cart still persists — the
+  // guard below only ever matches the one array the store was born with.
+  //
+  // This is deliberately not a `hydrated` boolean flipped by `restore()`.
+  // Two reasons. First, the flag-in-a-finally-block version of that idea
+  // does not work at all: the effect is scheduled, not synchronous, so by
+  // the time it runs, a boolean set and then reset within `restore()` has
+  // already gone back to its "handled" state and the guard never fires — it
+  // is a structurally no-op guard, not a race-prone one. Second, even a
+  // correctly-wired boolean is worse than this: it gates persistence on
+  // "was restore() ever called", so any CartStore whose caller forgets to
+  // call `restore()` — including, quietly, a future test — would stop
+  // persisting entirely with no error and no signal that anything is wrong.
+  // Reference identity has no such failure mode: it answers a narrower
+  // question ("is this literally the value nothing has touched yet?") that
+  // stays correct whether or not `restore()` is ever called.
+  private static readonly INITIAL: readonly CartLine[] = [];
+
   private readonly persistence = inject(CartPersistence);
-  private readonly state = signal<readonly CartLine[]>([]);
+  private readonly state = signal<readonly CartLine[]>(CartStore.INITIAL);
   // Set to the exact array `restore()` just handed to `state.set`, so the
   // effect below can recognise "this run is the echo of a restore" and
   // suppress the write-back. A boolean flag cleared synchronously in a
@@ -42,6 +74,11 @@ export class CartStore {
   constructor() {
     effect(() => {
       const lines = this.state();
+      // Still the array the store was born with: nothing has been read from
+      // storage and nothing has been mutated, so there is nothing to write.
+      // Writing it anyway is exactly the data-loss bug this guard exists to
+      // close — see the comment on `INITIAL` above for the full mechanism.
+      if (lines === CartStore.INITIAL) return;
       // Not the echo of a restore: writing back what was just read is a
       // wasted round trip, and on a slow device it can race the read it
       // followed.

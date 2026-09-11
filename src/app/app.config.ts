@@ -29,15 +29,25 @@ export const appConfig: ApplicationConfig = {
     // The cart survives a restart on every platform (spec §3). Restoring it
     // before the first render keeps the tab badge from flashing zero.
     //
-    // RETURN the promise — do not fire and forget. Angular waits on a returned
-    // promise before bootstrapping, and that wait is what closes a real race:
-    // CartStore's persistence effect is scheduled once at construction with the
-    // initial EMPTY state. If a slow Preferences.get() — a native bridge round
-    // trip, not web localStorage — let that first flush land before restore()
-    // resolved, it would persist `[]`, and the pendingRestore guard would then
-    // suppress the write that should have corrected it. The cart would come
-    // back empty, silently. Blocking bootstrap on the read keeps the empty
-    // state from ever being the one that flushes.
+    // RETURN the promise — do not fire and forget. Angular waits on a
+    // returned promise before bootstrapping, so the first render sees the
+    // restored cart instead of one that starts at zero and jumps a moment
+    // later. That is the actual reason to return it here.
+    //
+    // It does NOT, on its own, close the race with CartStore's persistence
+    // effect. That effect is scheduled once at construction, not run
+    // synchronously, so under zoneless change detection its first flush can
+    // land while `restore()` below is still awaiting `persistence.read()` —
+    // Angular blocking bootstrap on this initializer's promise does not stop
+    // the effect scheduler from flushing during that await, because the
+    // scheduler is not gated on bootstrap at all. A flush that lands there
+    // would see the signal still holding the exact array it was constructed
+    // with and, without a guard against that, would persist `[]` over
+    // whatever the real cart was — silently, since the in-memory state gets
+    // corrected a moment later when `restore()` resolves and the screen ends
+    // up right even though storage does not. That race is closed inside
+    // CartStore itself, by refusing to ever persist the array the store was
+    // born with (see `CartStore.INITIAL`), not by anything here.
     provideAppInitializer(() => inject(CartStore).restore()),
   ],
 };
