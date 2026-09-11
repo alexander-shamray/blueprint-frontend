@@ -4018,7 +4018,11 @@ export class CartPage {
     // The quote travels through core rather than through a route parameter: a
     // QuoteResponse does not belong in a URL, and a feature never imports
     // another feature (spec §3).
-    this.handoff.quote.set(this.quote());
+    //
+    // Asserted non-null: the template only enables this button behind
+    // canCheckout(), which requires a quote to exist. The guard reads the
+    // very signal being asserted, so the two cannot disagree.
+    this.handoff.set(this.quote()!);
     void this.router.navigate(['/tabs/cart/checkout']);
   }
 
@@ -4052,10 +4056,29 @@ import { QuoteResponse } from '@core/api/types';
  */
 @Injectable({ providedIn: 'root' })
 export class CheckoutHandoff {
-  readonly quote = signal<QuoteResponse | null>(null);
+  // Private-writable, public asReadonly() — the convention CartStore.lines,
+  // CommandIdentity.current and CatalogRefresh.current all use. quoteGuard
+  // makes this signal a route-reachability decision, not just a data
+  // carrier, so `readonly` alone (which guards the field binding, not
+  // `.set()`) is not enough: the guard's guarantee is only as strong as
+  // the write contract, and the write contract belongs in the type rather
+  // than in a comment asking callers to behave.
+  private readonly quoteState = signal<QuoteResponse | null>(null);
+
+  readonly quote = this.quoteState.asReadonly();
+
+  /**
+   * Takes QuoteResponse, not QuoteResponse | null, on purpose: quoteGuard
+   * treats "a quote was set" as the route-reachability fact, and a
+   * nullable setter would let that fact be asserted falsely. Callers that
+   * have no quote call clear().
+   */
+  set(quote: QuoteResponse): void {
+    this.quoteState.set(quote);
+  }
 
   clear(): void {
-    this.quote.set(null);
+    this.quoteState.set(null);
   }
 }
 ```
@@ -4345,7 +4368,7 @@ import {
   IonTitle, IonToolbar,
 } from '@ionic/angular';
 import { OrderingApi } from '@core/api/ordering.api';
-import { PlaceOrderCommand } from '@core/api/types';
+import { PERMISSIONS, PlaceOrderCommand } from '@core/api/types';
 import { CartStore } from '@core/cart/cart.store';
 import { CheckoutHandoff } from '@core/cart/checkout-handoff';
 import { ALREADY_COMMITTED, CommandIdentity } from '@core/commands/command-id';
@@ -4388,13 +4411,15 @@ import { ErrorBannerComponent } from '@shared/error-banner.component';
           Reads the handoff directly, with optional chaining, rather than
           currency()'s non-null assertion. On success and on already_committed
           this component calls handoff.clear() before router.navigate()
-          resolves, and zoneless CD re-renders this still-mounted view in
-          between (the error and cart signals it also reads just changed) —
-          currency() would throw on the now-null quote in that window.
-          currency() itself stays asserted: every caller of it (placeOrder's
-          command, and this page's own tests) reads it before the handoff is
-          cleared, so the assertion there is never actually reached with a
-          null quote.
+          resolves, which nulls the signal currency() reads. That alone is
+          enough to mark it dirty — no other signal needs to change on the
+          same tick, because a computed re-evaluates whenever ITS OWN
+          dependency changes, not because something else in the template
+          did. Zoneless CD then re-renders the still-mounted view on the
+          next tick and currency() would throw on the now-null quote
+          unconditionally. currency() itself stays asserted: placeOrder()
+          reads the handoff directly too (see below) and returns before
+          ever calling currency() with a null quote.
         -->
         @if (handoff.quote(); as quote) {
           <ion-item>
@@ -4402,7 +4427,8 @@ import { ErrorBannerComponent } from '@shared/error-banner.component';
           </ion-item>
         }
 
-        <ion-button expand="block" type="submit" [disabled]="form.invalid || identity.isSpent()">
+        <ion-button expand="block" type="submit"
+          [disabled]="form.invalid || identity.isSpent() || !handoff.quote()">
           Place order
         </ion-button>
       </form>
@@ -4448,6 +4474,19 @@ export class CheckoutPage {
   }
 
   placeOrder(): void {
+    // Guards the same window the button's [disabled] binding guards, and for
+    // the same reason: after a success or an already_committed, handoff.clear()
+    // has run but router.navigate() has not resolved yet, identity.isSpent()
+    // may already be false again (onSuccess() clears it), and the form is
+    // still valid — so a click landing in that gap would otherwise reach
+    // currency()'s assertion with a null quote. This is deliberately NOT an
+    // in-flight guard: a double-click before any response lands still sends
+    // two requests under the same commandId, and the platform answering the
+    // second with request.in_progress is the idempotency mechanism working
+    // as designed, not a bug this method should suppress.
+    const quote = this.handoff.quote();
+    if (quote === null) return;
+
     const address = this.form.getRawValue();
 
     const command: PlaceOrderCommand = {
@@ -4466,25 +4505,20 @@ export class CheckoutPage {
         postalCode: address.postalCode,
         country: address.country,
       },
-      currency: this.currency(),
+      currency: quote.currency,
     };
 
     this.ordering.place(command).subscribe({
       next: (orderId) => {
         this.error.set(null);
         this.identity.onSuccess();
-        this.cart.clear();
-        // Clear the handoff, not just the cart. quoteGuard reads it to
-        // decide whether this route is reachable at all, so a quote left
-        // behind lets the user navigate back into checkout with an
-        // emptied cart and be waved straight through. The cart page
-        // clears it whenever the basket or currency changes; this is the
-        // other half of that contract - the quote has now been spent.
-        this.handoff.clear();
+        this.spendQuote();
         void this.router.navigate(['/tabs/cart/placed', orderId]);
       },
       error: (failure: HttpErrorResponse) => {
-        const displayed = mapError(failure);
+        // The permission comes from the route's own knowledge of what it
+        // needs, not from the response — the 403 deliberately names none.
+        const displayed = mapError(failure, { permission: PERMISSIONS.ordersWrite });
         this.error.set(displayed);
         this.identity.onFailure(displayed);
 
@@ -4493,14 +4527,7 @@ export class CheckoutPage {
         // — there is no order id to show, because the platform no longer holds
         // the result and exposes no endpoint to read it back.
         if (displayed.kind === 'alreadyCommitted') {
-          this.cart.clear();
-          // Clear the handoff, not just the cart. quoteGuard reads it to
-          // decide whether this route is reachable at all, so a quote left
-          // behind lets the user navigate back into checkout with an
-          // emptied cart and be waved straight through. The cart page
-          // clears it whenever the basket or currency changes; this is the
-          // other half of that contract - the quote has now been spent.
-          this.handoff.clear();
+          this.spendQuote();
           void this.router.navigate(['/tabs/cart/placed', ALREADY_COMMITTED]);
         }
 
@@ -4509,6 +4536,23 @@ export class CheckoutPage {
         // second order.
       },
     });
+  }
+
+  /**
+   * Both paths that end the checkout flow — a 200 and command.already_committed
+   * — need the same two writes, and for the same reason: the order exists (or,
+   * for already_committed, might as well), so the basket that produced it is
+   * spent. Clearing only the cart is half of that: quoteGuard reads the
+   * handoff to decide whether this route is reachable at all, so a quote left
+   * behind lets the user navigate back into checkout with an emptied cart and
+   * be waved straight through. CartPage clears the handoff whenever the
+   * basket or currency changes (invalidateQuote()); this is the other half of
+   * that same contract, for the path where the basket empties because the
+   * order was placed rather than edited.
+   */
+  private spendQuote(): void {
+    this.cart.clear();
+    this.handoff.clear();
   }
 }
 ```

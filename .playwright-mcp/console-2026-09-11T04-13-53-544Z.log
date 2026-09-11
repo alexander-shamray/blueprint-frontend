@@ -1,3 +1,0 @@
-[      67ms] [LOG] Angular is running in development mode. @ http://localhost:5173/@fs/C:/dev/ashamray/blueprint-frontend/.angular/cache/22.1.8/blueprint-frontend/vite/deps/core-BheicjZE.js?v=2041d9a6:13274
-[    8605ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://localhost:5000/bff/v1/checkout/quote?currency=EUR&productId=01a08cc6-aacf-7217-9762-8f44ff1582aa:0
-[    8701ms] [LOG] Angular is running in development mode. @ http://localhost:5173/@fs/C:/dev/ashamray/blueprint-frontend/.angular/cache/22.1.8/blueprint-frontend/vite/deps/core-BheicjZE.js?v=2041d9a6:13274
