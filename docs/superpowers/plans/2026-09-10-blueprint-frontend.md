@@ -4541,7 +4541,6 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { ActivatedRoute, provideRouter } from '@angular/router';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { CANCEL_REASONS } from '@core/api/types';
 import { OrderPlacedPage } from './order-placed.page';
 
 function mount(id: string): ComponentFixture<OrderPlacedPage> {
@@ -4572,12 +4571,17 @@ describe('OrderPlacedPage', () => {
 
     fixture.componentInstance.cancel();
 
-    // The other four codes are the platform's own findings - the saga's stock
+    // The other four codes are the platform's own findings — the saga's stock
     // outcomes and Payments' results. A customer cannot truthfully assert any
     // of them, and the endpoint stamps origin User whatever arrives.
     expect(controller.expectOne((r) => r.url.endsWith('/cancel')).request.body)
       .toEqual({ reason: 'customer_request' });
-    expect(CANCEL_REASONS).toContain('customer_request');
+
+    // The half of the name that the body assertion does not cover: no picker
+    // is rendered at all. Asserting CANCEL_REASONS contains customer_request
+    // would prove nothing here — that is a fact about a frozen constant, true
+    // whatever this page puts on screen.
+    expect(fixture.nativeElement.querySelector('ion-select')).toBeNull();
   });
 
   it('posts the reason and reports the 204', async () => {
@@ -4634,7 +4638,7 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { ActivatedRoute } from '@angular/router';
 import {
   IonBackButton, IonButton, IonButtons, IonContent, IonHeader, IonItem, IonLabel, IonNote,
-  IonSelect, IonSelectOption, IonText, IonTitle, IonToolbar,
+  IonText, IonTitle, IonToolbar,
 } from '@ionic/angular';
 import { OrderingApi } from '@core/api/ordering.api';
 import { CancelReason, PERMISSIONS } from '@core/api/types';
@@ -4653,7 +4657,7 @@ import { ErrorBannerComponent } from '@shared/error-banner.component';
   standalone: true,
   imports: [
     IonBackButton, IonButton, IonButtons, IonContent, IonHeader, IonItem, IonLabel, IonNote,
-    IonSelect, IonSelectOption, IonText, IonTitle, IonToolbar, ErrorBannerComponent,
+    IonText, IonTitle, IonToolbar, ErrorBannerComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -4712,7 +4716,6 @@ export class OrderPlacedPage {
   private readonly ordering = inject(OrderingApi);
   private readonly route = inject(ActivatedRoute);
 
-  /** The frozen vocabulary from Commands.cs, in its declaration order. */
   /**
    * The ONLY reason a cancellation from this screen can truthfully carry.
    *
@@ -4756,17 +4759,36 @@ export class OrderPlacedPage {
 }
 ```
 
-- [ ] **Step 3: Run the tests and the boundary check**
+- [ ] **Step 3: Correct the comment on the method this page calls**
+
+`src/app/core/api/ordering.api.ts` ends `cancel()`'s doc comment with "so
+CANCEL_REASONS is the whole vocabulary and the select is bound to it", written
+when this page was planned with a picker. There is no select. The first half of
+the sentence is still true and load-bearing — the backend 400s an unknown code
+rather than defaulting — so keep it and drop the clause about the select:
+
+```ts
+  /**
+   * Requires `orders:cancel`. Replies 204. An unknown reason code would be a
+   * 400 keyed `Reason` — the backend refuses a code it does not know rather
+   * than defaulting, so CANCEL_REASONS is the whole vocabulary and a caller
+   * may send nothing outside it. Which of the five a given caller may
+   * truthfully send is the caller's own question: the order-placed page
+   * answers it with `customer_request` and explains why.
+   */
+```
+
+- [ ] **Step 4: Run the tests and the boundary check**
 
 `ALREADY_COMMITTED` comes from `@core/commands/command-id` in both this page and the checkout page — never from the other feature. The boundary run below is what proves it.
 
 Run: `npm test -- order-placed && npm test -- boundaries && npm run lint`
 Expected: all pass.
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
-git add src/app/features/order-placed src/app/features/checkout src/app/core/commands
+git add src/app/features/order-placed src/app/core/api/ordering.api.ts
 git commit -m "feat(order-placed): order id, cancellation vocabulary, and the missing read stated"
 ```
 
