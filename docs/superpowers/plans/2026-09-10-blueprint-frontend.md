@@ -4103,7 +4103,7 @@ git commit -m "feat(cart): quantities, currency, BFF quote with unpriced lines n
 
 ```ts
 import { TestBed } from '@angular/core/testing';
-import { Router, UrlTree, provideRouter } from '@angular/router';
+import { UrlTree, provideRouter } from '@angular/router';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { CheckoutHandoff } from './checkout-handoff';
 import { quoteGuard } from './quote.guard';
@@ -4384,9 +4384,23 @@ import { ErrorBannerComponent } from '@shared/error-banner.component';
         <ion-item><ion-input label="Postal code" formControlName="postalCode" required></ion-input></ion-item>
         <ion-item><ion-input label="Country" formControlName="country" required></ion-input></ion-item>
 
-        <ion-item>
-          <ion-note>Ordering in {{ currency() }}, carried from the quote.</ion-note>
-        </ion-item>
+        <!--
+          Reads the handoff directly, with optional chaining, rather than
+          currency()'s non-null assertion. On success and on already_committed
+          this component calls handoff.clear() before router.navigate()
+          resolves, and zoneless CD re-renders this still-mounted view in
+          between (the error and cart signals it also reads just changed) —
+          currency() would throw on the now-null quote in that window.
+          currency() itself stays asserted: every caller of it (placeOrder's
+          command, and this page's own tests) reads it before the handoff is
+          cleared, so the assertion there is never actually reached with a
+          null quote.
+        -->
+        @if (handoff.quote(); as quote) {
+          <ion-item>
+            <ion-note>Ordering in {{ quote.currency }}, carried from the quote.</ion-note>
+          </ion-item>
+        }
 
         <ion-button expand="block" type="submit" [disabled]="form.invalid || identity.isSpent()">
           Place order
@@ -4398,7 +4412,9 @@ import { ErrorBannerComponent } from '@shared/error-banner.component';
 export class CheckoutPage {
   private readonly ordering = inject(OrderingApi);
   private readonly cart = inject(CartStore);
-  private readonly handoff = inject(CheckoutHandoff);
+  // Protected, not private: the template reads it directly (see the @if
+  // guard below), the same convention CartPage.store uses.
+  protected readonly handoff = inject(CheckoutHandoff);
   private readonly router = inject(Router);
 
   /**

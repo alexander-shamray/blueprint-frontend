@@ -1,0 +1,22 @@
+- generic [ref=f7e3]:
+  - generic [ref=f7e6]:
+    - banner [ref=f7e7]:
+      - generic [ref=f7e8]: Products
+    - main [ref=f7e13]:
+      - list [ref=f7e16]:
+        - listitem [ref=f7e17]:
+          - generic [ref=f7e19]:
+            - generic [ref=f7e21]:
+              - heading "Task 0 route check" [level=2] [ref=f7e22]
+              - generic: 9.99 EUR
+            - button "Add" [ref=f7e24] [cursor=pointer]
+  - tablist [ref=f7e26]:
+    - generic:
+      - tab "Products" [selected] [ref=f7e28] [cursor=pointer]
+      - tab "Cart 1" [ref=f7e39] [cursor=pointer]:
+        - generic [ref=f7e40]:
+          - generic:
+            - generic [ref=f7e48]: Cart
+            - generic [ref=f7e49]: "1"
+      - tab "Publish" [ref=f7e51] [cursor=pointer]
+      - tab "Account" [ref=f7e60] [cursor=pointer]

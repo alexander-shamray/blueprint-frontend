@@ -1,0 +1,8 @@
+[      79ms] [LOG] Angular is running in development mode. @ http://localhost:5173/@fs/C:/dev/ashamray/blueprint-frontend/.angular/cache/22.1.8/blueprint-frontend/vite/deps/core-BheicjZE.js?v=2041d9a6:13274
+[    6864ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://localhost:5000/bff/v1/checkout/quote?currency=EUR&productId=01a08cc6-aacf-7217-9762-8f44ff1582aa:0
+[    6952ms] [LOG] Angular is running in development mode. @ http://localhost:5173/@fs/C:/dev/ashamray/blueprint-frontend/.angular/cache/22.1.8/blueprint-frontend/vite/deps/core-BheicjZE.js?v=2041d9a6:13274
+[  123008ms] [LOG] Angular is running in development mode. @ http://localhost:5173/@fs/C:/dev/ashamray/blueprint-frontend/.angular/cache/22.1.8/blueprint-frontend/vite/deps/core-BheicjZE.js?v=b2a3f5aa:13274
+[  151123ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://localhost:5000/bff/v1/checkout/quote?currency=EUR&productId=01a08cc6-aacf-7217-9762-8f44ff1582aa:0
+[  151255ms] [LOG] Angular is running in development mode. @ http://localhost:5173/@fs/C:/dev/ashamray/blueprint-frontend/.angular/cache/22.1.8/blueprint-frontend/vite/deps/core-BheicjZE.js?v=b2a3f5aa:13274
+[  196684ms] [ERROR] Failed to load resource: the server responded with a status of 502 (Bad Gateway) @ http://localhost:5000/api/v1/orders:0
+[  221122ms] [ERROR] Failed to load resource: the server responded with a status of 502 (Bad Gateway) @ http://localhost:5000/api/v1/orders:0
