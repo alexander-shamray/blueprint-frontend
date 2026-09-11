@@ -5565,13 +5565,68 @@ const demo: CurrentUser = {
   expiresAt: 0,
 };
 
+/** Finds the `ion-button` whose visible text matches `label` exactly. */
+function findButton(fixture: ComponentFixture<AccountPage>, label: string): HTMLElement {
+  const button = [...fixture.nativeElement.querySelectorAll('ion-button')].find(
+    (el: HTMLElement) => el.textContent?.trim() === label,
+  ) as HTMLElement | undefined;
+  expect(button).toBeTruthy();
+  return button as HTMLElement;
+}
+
+/**
+ * The `code` inside the "Route refused" item, specifically — not the first
+ * `code` in document order. `app-error-banner` precedes it in the template
+ * and also renders `code` (for `permission` and `correlationId`), so an
+ * unscoped `querySelector('code')` would silently target the wrong element
+ * the moment `error()` is non-null in the same render.
+ */
+function deniedCode(fixture: ComponentFixture<AccountPage>): string | null | undefined {
+  const item = [...fixture.nativeElement.querySelectorAll('ion-item')].find(
+    (el: HTMLElement) => el.textContent?.includes('Route refused'),
+  ) as HTMLElement | undefined;
+  return item?.querySelector('code')?.textContent;
+}
+
 describe('AccountPage', () => {
-  it('offers sign-in when signed out', () => {
+  it('offers a Sign in button, which calls AuthService.signIn() when clicked', () => {
     const { fixture, signIn } = mount(null, true);
-    fixture.componentInstance.signIn();
+
+    // The rendered button, not a direct componentInstance.signIn() call —
+    // a direct call proves the method works but not that the page OFFERS
+    // it, and both the button and the @if/@else branch it lives in are
+    // deletable with a green suite otherwise (this branch's recurring
+    // defect class: df9bd25 fixed the same shape for the chips).
+    findButton(fixture, 'Sign in').click();
 
     expect(fixture.componentInstance.username()).toBeNull();
     expect(signIn).toHaveBeenCalledOnce();
+  });
+
+  it('offers a Sign out button, which calls AuthService.signOut() when clicked', () => {
+    const { fixture, signOut } = mount(demo, true);
+
+    // Zero coverage before this test: signOut(), the button and its click
+    // binding could all three be deleted and the suite would stay green.
+    // Spec §5.6 asks for sign in AND out.
+    findButton(fixture, 'Sign out').click();
+
+    expect(signOut).toHaveBeenCalledOnce();
+  });
+
+  it('surfaces a sign-out failure rather than leaving the user unsure whether they signed out', async () => {
+    // signOut() is .catch()'d for the same reason signIn() is, and this one
+    // matters more than symmetry: a swallowed rejection leaves the user
+    // believing they signed out when they did not.
+    const { fixture, signOut } = mount(demo, true);
+    signOut.mockRejectedValueOnce('signOut rejected');
+
+    findButton(fixture, 'Sign out').click();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.error()).not.toBeNull();
+    expect(fixture.nativeElement.textContent).toContain('Something went wrong.');
   });
 
   it('shows the username and every permission held as a chip', () => {
@@ -5601,16 +5656,27 @@ describe('AccountPage', () => {
     );
   });
 
-  it('states the web token posture', () => {
-    expect(mount(demo, true).fixture.componentInstance.tokenPosture()).toBe(
-      'Session ends on reload, no refresh token.',
-    );
+  it('states the web token posture, on screen', () => {
+    const { fixture } = mount(demo, true);
+    const sentence = 'Session ends on reload, no refresh token.';
+
+    expect(fixture.componentInstance.tokenPosture()).toBe(sentence);
+    // The computed alone is deletable with the template line gone; this is
+    // the live posture of the only AuthService that ships today.
+    expect(fixture.nativeElement.textContent).toContain(sentence);
   });
 
-  it('states the native token posture', () => {
-    expect(mount(demo, false).fixture.componentInstance.tokenPosture()).toBe(
-      'Refresh token in secure storage, rotated.',
-    );
+  it('pins the native token posture sentence — the Phase B contract, not behaviour this client runs today', () => {
+    // sessionEndsOnReload is `true` in WebAuthStrategy and nowhere else: no
+    // native strategy exists yet (Phase B). This sentence cannot be reached
+    // by any running configuration right now; pinning it is how the Phase B
+    // contract survives to the strategy that must satisfy it. A green test
+    // here is not evidence that secure-storage refresh-token rotation works.
+    const { fixture } = mount(demo, false);
+    const sentence = 'Refresh token in secure storage, rotated.';
+
+    expect(fixture.componentInstance.tokenPosture()).toBe(sentence);
+    expect(fixture.nativeElement.textContent).toContain(sentence);
   });
 
   it('shows an error when sign-in cannot reach the identity provider', async () => {
@@ -5622,12 +5688,18 @@ describe('AccountPage', () => {
     // HttpErrorResponse here would make this test agree with an annotation
     // the runtime does not honour, and pass even if mapError still
     // required one.
+    const { fixture, signIn } = mount(null, true);
     signIn.mockRejectedValueOnce('Error loading discovery document');
 
     fixture.componentInstance.signIn();
     await fixture.whenStable();
+    fixture.detectChanges();
 
     expect(fixture.componentInstance.error()).not.toBeNull();
+    // `<app-error-banner>` is deletable if only `error()` is checked — the
+    // banner must actually render. mapError() on a bare string returns kind
+    // 'retry', which ErrorBannerComponent's GENERIC map resolves to this text.
+    expect(fixture.nativeElement.textContent).toContain('Something went wrong.');
   });
 
   it('renders the permission a refused route needed', () => {
@@ -5635,7 +5707,7 @@ describe('AccountPage', () => {
 
     expect(fixture.componentInstance.denied()).toBe('catalog:write');
     expect(fixture.nativeElement.textContent).toContain('Route refused');
-    expect(fixture.nativeElement.querySelector('code')?.textContent).toBe('catalog:write');
+    expect(deniedCode(fixture)).toBe('catalog:write');
   });
 
   it('follows a later refusal on the same cached instance', async () => {
@@ -5651,7 +5723,7 @@ describe('AccountPage', () => {
     fixture.detectChanges();
 
     expect(fixture.componentInstance.denied()).toBe('orders:cancel');
-    expect(fixture.nativeElement.querySelector('code')?.textContent).toBe('orders:cancel');
+    expect(deniedCode(fixture)).toBe('orders:cancel');
   });
 });
 ```
@@ -5751,6 +5823,18 @@ export class AccountPage {
     { initialValue: this.route.snapshot.queryParamMap.get('denied') },
   );
 
+  /**
+   * Known, accepted open loop at a tab root. If `signIn()` rejects (banner
+   * shown) and the user switches to another tab and back, Ionic performs no
+   * teardown on Account — it is a tab root, never destroyed — so the stale
+   * banner is still there, unprompted by anything the user just did. Only
+   * the next `signIn()` click clears it, since that is the only thing that
+   * ever sets it. Left as-is deliberately, unlike Task 14's spent
+   * `CommandIdentity`: that loop was CLOSED (the one thing that could clear
+   * it was disabled). This one is open — the Sign in button that clears it
+   * is always enabled — so the residue is cosmetic, and arguably still
+   * true, rather than a stuck affordance.
+   */
   private readonly errorState = signal<DisplayError | null>(null);
   readonly error = this.errorState.asReadonly();
 
@@ -5759,6 +5843,15 @@ export class AccountPage {
    * statements about a realm decision rather than reassurance: `web-app`
    * carries `use.refresh.tokens: "false"`, so the browser genuinely cannot
    * survive a reload, and saying so is more useful than a silent sign-out.
+   *
+   * The `false` branch is not live on any strategy that exists today —
+   * `sessionEndsOnReload` is `true` in `WebAuthStrategy` and nothing else
+   * implements `AuthService` yet, since native auth is Phase B. It stays
+   * here because spec §5.6 mandates both sentences and spec §4's
+   * one-interface-two-implementations is the point of the abstraction: this
+   * is the contract Phase B's native strategy must satisfy, pinned now so it
+   * cannot drift before that strategy exists to honour it — not a
+   * description of anything this client does today.
    */
   readonly tokenPosture = computed(() =>
     this.auth.sessionEndsOnReload
@@ -5788,13 +5881,24 @@ export class AccountPage {
   }
 
   signOut(): void {
-    void this.auth.signOut();
+    // .catch(), matching signIn() — and here it matters even more than
+    // symmetry: a swallowed rejection leaves the user believing they are
+    // signed out when they are not, which is the one failure on this page
+    // worth being loud about. `WebAuthStrategy.signOut()` is async and
+    // `oauth.logOut()` can throw when `logoutUrl` is unset; in practice the
+    // Sign out button only renders once a token was adopted, which means
+    // discovery already succeeded and `logoutUrl` is populated, but nothing
+    // stops a future AuthService implementation from rejecting for a
+    // different reason.
+    this.auth.signOut().catch((failure: unknown) => {
+      this.errorState.set(mapError(failure));
+    });
   }
 }
 ```
 
 Run: `npm test -- account.page`
-Expected: PASS, 9 tests.
+Expected: PASS, 10 tests.
 
 - [ ] **Step 3: Run the whole suite**
 
