@@ -92,13 +92,14 @@ export class AccountPage {
    * Known, accepted open loop at a tab root. If `signIn()` rejects (banner
    * shown) and the user switches to another tab and back, Ionic performs no
    * teardown on Account — it is a tab root, never destroyed — so the stale
-   * banner is still there, unprompted by anything the user just did. Only
-   * the next `signIn()` click clears it, since that is the only thing that
-   * ever sets it. Left as-is deliberately, unlike Task 14's spent
-   * `CommandIdentity`: that loop was CLOSED (the one thing that could clear
-   * it was disabled). This one is open — the Sign in button that clears it
-   * is always enabled — so the residue is cosmetic, and arguably still
-   * true, rather than a stuck affordance.
+   * banner is still there, unprompted by anything the user just did. The two
+   * methods that can set it, `signIn()` and `signOut()`, are also the only
+   * two that clear it, and each clears it first thing. Left as-is
+   * deliberately, unlike the publish page's spent `CommandIdentity`: that
+   * loop was CLOSED (the one thing that could clear it was disabled). This
+   * one is open — whichever of the two buttons is on screen is enabled, and
+   * either clears the banner — so the residue is cosmetic, and arguably
+   * still true, rather than a stuck affordance.
    */
   private readonly errorState = signal<DisplayError | null>(null);
   readonly error = this.errorState.asReadonly();
@@ -146,6 +147,13 @@ export class AccountPage {
   }
 
   signOut(): void {
+    // Cleared first, exactly as signIn() does: a failed sign-in leaves a
+    // banner, and a sign-out that then succeeds would otherwise leave that
+    // banner sitting beside a signed-out shell, describing an attempt that is
+    // two states out of date. The banner belongs to the last thing this page
+    // tried, so every entry point clears it.
+    this.errorState.set(null);
+
     // .catch(), matching signIn() — and here it matters even more than
     // symmetry: a swallowed rejection leaves the user believing they are
     // signed out when they are not, which is the one failure on this page

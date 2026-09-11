@@ -121,8 +121,19 @@ export class OrderPlacedPage {
     { initialValue: this.route.snapshot.paramMap.get('id') ?? '' },
   );
 
-  readonly cancelled = signal(false);
-  readonly error = signal<DisplayError | null>(null);
+  // Private-writable, public `asReadonly()` — the convention `CartStore.lines`,
+  // `CommandIdentity.current`, `CatalogRefresh.current` and `CheckoutHandoff.quote`
+  // all state, and `cancelling` one line down already follows. `readonly` on the
+  // field stops reassignment, not `.set()` from outside, and these two are this
+  // page's record of what the PLATFORM answered for a specific order: a writer
+  // anywhere else could put "Cancelled. The platform answered 204." on screen
+  // for a cancellation that was never sent, which is the same false statement
+  // `cancel()`'s id check below exists to prevent.
+  private readonly cancelledState = signal(false);
+  private readonly errorState = signal<DisplayError | null>(null);
+
+  readonly cancelled = this.cancelledState.asReadonly();
+  readonly error = this.errorState.asReadonly();
 
   /** True while a `cancel()` request is outstanding. See `cancel()` below. */
   private readonly cancelling = signal(false);
@@ -140,12 +151,19 @@ export class OrderPlacedPage {
     // guard: an `effect()` runs once immediately on top of every signal it
     // reads, so the id seen right here — this construction's own initial
     // value — is remembered and skipped; only a LATER change (a different id
-    // landing on this same instance) resets the two signals.
+    // landing on this same instance) resets this page's state.
     const constructedForId = this.orderId();
     effect(() => {
       if (this.orderId() === constructedForId) return;
-      this.cancelled.set(false);
-      this.error.set(null);
+      this.cancelledState.set(false);
+      this.errorState.set(null);
+      // `cancelling` resets here too, and not only for tidiness: it is the
+      // in-flight guard, so a cancel still outstanding for the PRIOR order
+      // would otherwise leave the next order's Cancel button inert until that
+      // unrelated response landed. Releasing it is safe because the response
+      // it was guarding can no longer write anything — `cancel()` checks the
+      // id before it touches any state.
+      this.cancelling.set(false);
     });
   }
 
@@ -163,17 +181,32 @@ export class OrderPlacedPage {
     if (this.cancelling()) return;
     this.cancelling.set(true);
 
-    this.ordering.cancel(this.orderId(), OrderPlacedPage.USER_REASON).subscribe({
+    // The id this request is FOR, captured at issue time. `orderId` is
+    // reactive precisely because a reused instance can be handed a new `:id`
+    // (see its comment above), and the effect in the constructor resets this
+    // page's state when that happens — but it cannot reach a request already
+    // in flight. Without this check, a 204 for order A landing after the route
+    // handed this instance order B would put "Cancelled. The platform answered
+    // 204." under order B, for a cancellation nobody sent for it. Same purpose
+    // as `ProductsPage.generation` and `CartPage.generation`, keyed on the id
+    // the page already tracks rather than on a counter beside it: the response
+    // is dropped rather than applied, and it is dropped BEFORE `cancelling` is
+    // released, so a cancel the user has since started for B keeps its guard.
+    const issuedForId = this.orderId();
+
+    this.ordering.cancel(issuedForId, OrderPlacedPage.USER_REASON).subscribe({
       next: () => {
+        if (this.orderId() !== issuedForId) return;
         this.cancelling.set(false);
-        this.error.set(null);
-        this.cancelled.set(true);
+        this.errorState.set(null);
+        this.cancelledState.set(true);
       },
       error: (failure: HttpErrorResponse) => {
+        if (this.orderId() !== issuedForId) return;
         this.cancelling.set(false);
         // The permission comes from the route's own knowledge of what it
         // needs, not from the response — the 403 deliberately names none.
-        this.error.set(mapError(failure, { permission: PERMISSIONS.ordersCancel }));
+        this.errorState.set(mapError(failure, { permission: PERMISSIONS.ordersCancel }));
       },
     });
   }

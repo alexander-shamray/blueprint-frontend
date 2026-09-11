@@ -53,9 +53,23 @@ const GENERIC: Readonly<Record<ErrorKind, string | null>> = {
           @if (e.kind === 'rateLimited') {
             <p>
               Retry in {{ e.retryAfterSeconds }}s.
+              <!--
+                What the client can actually observe: it read no usable
+                Retry-After off this response. WHY it read none — absent,
+                empty, an HTTP-date, stripped in transit, an older gateway —
+                is not in the response, and naming one of those causes would
+                be the banner asserting a diagnosis it cannot make. Naming the
+                wrong one is worse than being vague: an earlier wording here
+                blamed CORS ("the gateway did not expose Retry-After to this
+                origin"), and the gateway's policy names the header explicitly
+                (Gateway.Api/Program.cs calls WithExposedHeaders("Retry-After",
+                ...)), so the single cause that text picked is the one cause
+                that has been ruled out. error-mapper.ts's constant lists what
+                remains.
+              -->
               @if (e.retryAfterIsFallback) {
                 <ion-note>
-                  The gateway did not expose Retry-After to this origin, so that is an estimate.
+                  The platform sent no readable Retry-After, so that is this app's own estimate.
                 </ion-note>
               }
             </p>

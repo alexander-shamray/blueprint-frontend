@@ -233,13 +233,13 @@ export class WebAuthStrategy extends AuthService {
       // retry succeeds and initCodeFlow() below has a real endpoint to
       // navigate to; if it is still unreachable, this await rejects and
       // that rejection propagates out of signIn() uncaught — visible to
-      // the caller rather than swallowed. Existing call sites do
-      // `void this.auth.signIn()` (see the plan's Task 11 cart page), so
-      // today that rejection becomes an unhandled promise rejection rather
-      // than an in-UI error; that is a call-site concern for whichever task
-      // adds the first `signIn()` caller, not something this strategy can
-      // fix by itself without inventing UI state this class has no business
-      // owning.
+      // the caller rather than swallowed. Both call sites take it from
+      // there: `AccountPage.signOut()`'s sibling `signIn()` and
+      // `CartPage.getQuote()`'s sign-in retry each `.catch()` it and render
+      // a banner. That division is deliberate and not a leftover — this
+      // class cannot show an error without inventing UI state it has no
+      // business owning, so the one thing it can do honestly is refuse to
+      // swallow the rejection.
       await this.oauth.loadDiscoveryDocument();
       this.discoveryFailed = false;
     }

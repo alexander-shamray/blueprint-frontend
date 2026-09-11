@@ -3,6 +3,7 @@ import { provideRouter } from '@angular/router';
 import { signal } from '@angular/core';
 import { describe, expect, it } from 'vitest';
 import { AuthService } from '@core/auth/auth.service';
+import { CartPersistence } from '@core/cart/cart.persistence';
 import { TabsPage } from './tabs.page';
 
 function mount(permissions: readonly string[]): ComponentFixture<TabsPage> {
@@ -18,6 +19,13 @@ function mount(permissions: readonly string[]): ComponentFixture<TabsPage> {
           user: () => signal(null),
         },
       },
+      // Stubbed like every other page spec. TabsPage injects the root
+      // CartStore for its badge count, and CartStore's constructor hydrates
+      // itself from CartPersistence — which is Capacitor Preferences, i.e.
+      // real localStorage under jsdom. It happens to work, because nothing
+      // here writes, but a spec that reads the machine's storage is one
+      // leftover key away from depending on the order the suite ran in.
+      { provide: CartPersistence, useValue: { read: async () => [], write: async () => undefined } },
     ],
   });
 

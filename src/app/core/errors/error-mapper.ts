@@ -41,12 +41,23 @@ export interface DisplayError {
  * Used when a 429 arrives with no readable `Retry-After`.
  *
  * The gateway exposes the header across origins — Gateway.Api/Program.cs
- * calls `WithExposedHeaders("Retry-After", ...)`, so CORS is no longer the
- * reason a browser cannot read it. What remains is narrower: the gateway
- * sets the header when the rejected lease carries the retry metadata, and a
- * rejection that carries none produces a 429 with nothing to read. This
- * constant is for that case only, and `retryAfterIsFallback` tells the
- * banner to say it is a guess rather than the platform's own number.
+ * calls `WithExposedHeaders("Retry-After", ...)` — so CORS on that gateway is
+ * not the reason a browser cannot read it, and neither is the limiter: both
+ * of the gateway's policies (a fixed window and a token bucket) leave
+ * `QueueProcessingOrder` at its default `OldestFirst`, and every rejection
+ * those two can produce carries `MetadataName.RetryAfter`. A metadata-less
+ * lease needs `NewestFirst`, which neither policy sets.
+ *
+ * What is left is everything between that gateway and this `switch`: a header
+ * that arrives empty, whitespace-only, non-numeric or in HTTP's date form; an
+ * intermediary that strips it; a deployment with `Cors__Enabled` off, where
+ * the header is sent and the browser is not allowed to read it; and a gateway
+ * older than the commit that added the exposure. Those are the five cases the
+ * 429 branch below handles and `error-mapper.spec.ts` pins one by one —
+ * unreadable is a fact about the response, and the client answers it the same
+ * way regardless of which of them produced it. `retryAfterIsFallback` tells
+ * the banner to say the number is this client's own estimate rather than the
+ * platform's.
  *
  * The limiter's real budget is 300 tokens per minute, so a minute is the
  * honest round number to wait rather than a tuned guess.

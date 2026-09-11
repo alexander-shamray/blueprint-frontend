@@ -2,6 +2,15 @@ import { Signal, signal } from '@angular/core';
 import { DisplayError } from '@core/errors/error-mapper';
 
 /**
+ * The order id the placed page is given when the platform answered
+ * `command.already_committed`: the order exists, but no id came back and there
+ * is no endpoint to read one from. It lives here rather than on the checkout
+ * page because two features need it and a feature never imports another
+ * feature (spec §3) — the ESLint rule and the boundary test both enforce that.
+ */
+export const ALREADY_COMMITTED = 'already-committed';
+
+/**
  * Spec §5.3's command-id lifecycle, as a state machine rather than as three
  * lines scattered through a page.
  *
@@ -12,15 +21,6 @@ import { DisplayError } from '@core/errors/error-mapper';
  * once per FORM, not once per click — and the difference between the two is
  * the difference between a replay and a second order.
  */
-/**
- * The order id the placed page is given when the platform answered
- * `command.already_committed`: the order exists, but no id came back and there
- * is no endpoint to read one from. It lives here rather than on the checkout
- * page because two features need it and a feature never imports another
- * feature (spec §3) — the ESLint rule and the boundary test both enforce that.
- */
-export const ALREADY_COMMITTED = 'already-committed';
-
 export class CommandIdentity {
   private readonly id = signal(crypto.randomUUID());
   private readonly spent = signal(false);

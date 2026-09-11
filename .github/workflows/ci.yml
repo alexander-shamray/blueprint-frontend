@@ -25,6 +25,14 @@ jobs:
 
   e2e:
     runs-on: ubuntu-latest
+    # `docker compose up -d --wait` builds roughly eight .NET images from
+    # source on a cold runner, and `--wait` blocks until every health check
+    # passes - so anything that never becomes healthy hangs here rather than
+    # failing. Without a limit that hang runs to the six-hour job default,
+    # holding a runner for a result nobody is going to read. Forty-five
+    # minutes is several times the ten to twenty this job needs cold, so it
+    # cannot trip on a slow build; it only ever fires on something stuck.
+    timeout-minutes: 45
     # Needs Docker and the backend checkout. Not continue-on-error: a smoke
     # that is allowed to fail is a smoke nobody reads.
     steps:

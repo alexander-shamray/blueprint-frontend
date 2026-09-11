@@ -115,6 +115,26 @@ describe('AccountPage', () => {
     expect(fixture.nativeElement.textContent).toContain('Something went wrong.');
   });
 
+  it('clears the banner when sign-out is attempted, exactly as sign-in does', async () => {
+    const { fixture, signOut } = mount(demo, true);
+
+    // A failed sign-out leaves a banner...
+    signOut.mockRejectedValueOnce('signOut rejected');
+    findButton(fixture, 'Sign out').click();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    expect(fixture.componentInstance.error()).not.toBeNull();
+
+    // ...and the next attempt, which succeeds, must not leave the failed
+    // one's banner sitting beside a signed-out shell. signIn() has cleared
+    // first thing since it was written; this is the other half of that pair.
+    findButton(fixture, 'Sign out').click();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.error()).toBeNull();
+  });
+
   it('shows the username and every permission held as a chip', () => {
     const { fixture } = mount(demo, true);
 

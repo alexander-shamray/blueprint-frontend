@@ -120,9 +120,25 @@ it every service refuses the token. The other is named `permission` — an
 `oidc-usermodel-client-role-mapper` with `"multivalued": "true"`,
 `"claim.name": "permission"`, `"jsonType.label": "String"` and
 `usermodel.clientRoleMapping.clientId` of `commerce-api`. The vocabulary it
-projects is four client roles — `catalog:write`, `orders:write`,
-`orders:cancel`, `inventory:admin` — and the realm's two users differ precisely
-there: `demo` holds the first three, `browser` holds none.
+projects is five client roles — `catalog:write`, `orders:write`,
+`orders:cancel`, `inventory:admin`, `orders:admin` — and the realm's two users
+differ precisely there: `demo` holds the first three, `browser` holds none.
+
+The fifth is the one that makes this section's title literal, so it is worth
+naming rather than leaving to a reader who checks. `orders:admin` is described
+in the realm as "Act on an order the caller does not own (§11.4). A claim
+`CancelOrderHandler` reads, never an endpoint policy. Grantable and granted to
+nobody" — and `Ordering.Api/OrderingPermissions.cs`, which holds `orders:write`
+and `orders:cancel` as constants, deliberately does not hold this one and
+spends a paragraph on why: it is "a *claim* that `CancelOrderHandler` checks
+against a loaded aggregate, not a *policy* an endpoint names — a question no
+endpoint could answer, because the order is not loaded when the policy runs."
+So the same realm role reaches the two hosts as two different kinds of thing:
+one an endpoint can require before it does any work, one only a handler can
+answer with the order in front of it. Nothing in this client reads it — no
+screen acts on an order the user does not own — but it is the sharpest
+illustration of what the `permission` claim is, which is why the count above
+has to be right.
 
 Roles go in; a claim comes out; the services read the claim. That is what
 `core/auth/current-user.ts` mirrors: `decodeUser()` reads `permission` and the
@@ -362,20 +378,41 @@ false-fact zero. When the value cannot be read, the client substitutes
 `RATE_LIMIT_FALLBACK_SECONDS` — 60, chosen because the authenticated policy is a
 token bucket of 300 tokens replenished 300 per minute, so a minute is the honest
 round number rather than a tuned guess — and sets `retryAfterIsFallback`, which
-the banner renders as "the gateway did not expose Retry-After to this origin, so
-that is an estimate". A countdown presented as fact when it is a guess is a lie
-the user cannot detect.
+the banner renders as "the platform sent no readable Retry-After, so that is
+this app's own estimate". A countdown presented as fact when it is a guess is a
+lie the user cannot detect. Note what that sentence does *not* do: it does not
+say why the value was unreadable. The response does not carry that, so naming a
+cause would be the banner asserting a diagnosis it cannot make — which an
+earlier wording did, blaming a CORS exposure that the next paragraph shows is in
+place.
 
 **What the backend's Task 0 changed.** That exposure is recent: it arrived with
 `27b54a7` ("feat(gateway): route catalog writes, expose Retry-After, add
 mobile-app client"), merged to `main` in PR #200, alongside the correlation-id
 exposure. Against a gateway at or after that commit, with `Cors__Enabled` set as
 `deploy/compose/services/gateway.yml` sets it, the countdown a user sees is the
-gateway's own number and the fallback is dead code on the happy path. It stays
-because an older gateway, a differently configured deployment, and a rejection
-whose lease carries no `RetryAfter` metadata all produce the same unreadable
-header — and the client's answer to all three is the same: say what you do not
-know.
+gateway's own number and the fallback is dead code on the happy path.
+
+It stays, and the reasons are worth stating precisely, because one plausible
+reason is not among them. A 429 from *this* gateway always carries the header:
+`OnRejected` reads `MetadataName.RetryAfter` off the lease, and both policies —
+a fixed window and a token bucket — leave `QueueProcessingOrder` at its default
+`OldestFirst`, under which every rejection those two can produce carries that
+metadata. The metadata-less lease the BCL can hand back needs `NewestFirst`,
+which neither policy sets. So "the limiter rejected without saying for how
+long" is not a case this client will meet, and the code comment on the constant
+says so rather than claiming it.
+
+What remains is everything between that gateway and `mapError`: a header that
+arrives empty, whitespace-only, non-numeric or in HTTP's date form; an
+intermediary that strips it; a deployment with `Cors__Enabled` off, where the
+header is sent and the browser is not permitted to read it; and a gateway older
+than `27b54a7`, which is every gateway before the exposure landed. The header
+forms are what `error-mapper.spec.ts` pins, one test each, alongside the header
+being absent altogether — five cases, which is every shape `mapError` can be
+handed. The client's answer to all of them is the same, and that is the point:
+*unreadable* is a fact about the response, and saying what you do not know does
+not require knowing why you do not know it.
 
 ## 11. The gateway is the only host the client calls — and Publish needed a route for that to stay true
 
@@ -402,10 +439,13 @@ It was refused for three reasons, in increasing order of seriousness. Those
 ports are a local debugging affordance and do not exist in a deployment where
 the gateway is the ingress. Only the gateway is configured for CORS
 (`Cors__Enabled` appears in `gateway.yml` and nowhere else under
-`deploy/compose/`), so a browser could not read the response in any case. And
-the edge is where the authorization policy, the rate limiter and the correlation
-id are applied — a client that goes around it is not exercising the platform, it
-is exercising one service with the platform switched off.
+`deploy/compose/`), so under this Compose configuration a browser could not
+read the response. (Scoped deliberately: the grep behind that parenthesis covers
+what Compose *configures*, and a service enabling CORS from its own `Program.cs`
+would not appear in it.) And the edge is where the authorization policy, the
+rate limiter and the correlation id are applied — a client that goes around it
+is not exercising the platform, it is exercising one service with the platform
+switched off.
 
 So `environment.model.ts` holds exactly one `gatewayBaseUrl`, and
 `auth.interceptor.ts` attaches the bearer to that origin and to nothing else.
@@ -699,8 +739,8 @@ field cannot submit zero.
 
 *What is true.* `@angular/forms`' `isEmptyInputValue` is
 `value == null || lengthOrSize(value) === 0`, and `lengthOrSize` returns a
-length only for strings, arrays, `Set`s and `Map`s — for the number `0` it
-returns `null`, so `0` is *present*, not empty.
+length only for strings, arrays and `Set`s — for the number `0` it returns
+`null`, so `0` is *present*, not empty.
 
 *Where it shows.* `PublishPage`'s amount control is
 `new FormControl<number | null>(null, { validators: Validators.required })`.

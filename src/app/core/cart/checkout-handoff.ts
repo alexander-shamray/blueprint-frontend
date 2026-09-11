@@ -12,10 +12,11 @@ import { QuoteResponse } from '@core/api/types';
  * a fact that would make this quote stale must call `clear()` in the same
  * beat, or the guard waves a stale quote through. `CartPage.invalidateQuote()`
  * is one such caller — a quote stale for the cart is stale for checkout too,
- * and the two must not be allowed to disagree. A later task's order
- * placement is expected to call `clear()` on success for the identical
- * reason: an emptied cart must not leave behind a quote priced for a basket
- * that no longer exists.
+ * and the two must not be allowed to disagree. `CheckoutPage.spendQuote()` is
+ * the other, for the identical reason from the opposite direction: a placed
+ * order empties the cart, and an emptied cart must not leave behind a quote
+ * priced for a basket that no longer exists — which the guard would then wave
+ * straight back into checkout.
  */
 @Injectable({ providedIn: 'root' })
 export class CheckoutHandoff {

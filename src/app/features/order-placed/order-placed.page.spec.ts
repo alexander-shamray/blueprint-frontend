@@ -156,6 +156,65 @@ describe('OrderPlacedPage', () => {
     ).toBe(false);
   });
 
+  it('drops a cancel reply for the prior order when the route hands this instance a new :id', async () => {
+    const { fixture, paramMap } = mount(GUID_A);
+    controller = TestBed.inject(HttpTestingController);
+
+    // A cancel is issued for order A and is still outstanding...
+    fixture.componentInstance.cancel();
+    const forA = controller.expectOne((r) => r.url.endsWith('/cancel'));
+    expect(forA.request.url).toContain(GUID_A);
+
+    // ...when the route reuses this SAME instance for order B. The reuse test
+    // below swaps the id only after A's response has landed, so it never
+    // reaches this window; this one lives entirely inside it.
+    paramMap.next(GUID_B);
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    // A's 204 lands late. Applied, it would put "Cancelled. The platform
+    // answered 204." under order B — a cancellation nobody sent for B, and one
+    // the user cannot tell from a real one.
+    forA.flush(null, { status: 204, statusText: 'No Content' });
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.cancelled()).toBe(false);
+    expect(fixture.nativeElement.textContent).not.toContain('Cancelled. The platform answered 204.');
+
+    // And B's Cancel button is live rather than silently inert: the in-flight
+    // guard was released when the id changed, not when A's reply arrived.
+    fixture.componentInstance.cancel();
+    const forB = controller.expectOne((r) => r.url.endsWith('/cancel'));
+    expect(forB.request.url).toContain(GUID_B);
+
+    forB.flush(null, { status: 204, statusText: 'No Content' });
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.cancelled()).toBe(true);
+  });
+
+  it('drops a cancel FAILURE for the prior order the same way, banner included', async () => {
+    const { fixture, paramMap } = mount(GUID_A);
+    controller = TestBed.inject(HttpTestingController);
+
+    fixture.componentInstance.cancel();
+    const forA = controller.expectOne((r) => r.url.endsWith('/cancel'));
+
+    paramMap.next(GUID_B);
+    await fixture.whenStable();
+
+    // Both branches of the subscribe check the id, not just the success one:
+    // a 403 about order A under order B's heading is the same false statement
+    // as a 204 about it, and it is the branch that names a permission.
+    forA.flush({ title: 'Forbidden', status: 403 }, { status: 403, statusText: 'Forbidden' });
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.error()).toBeNull();
+  });
+
   it('drives a new :id through the route and updates what a reused instance shows', async () => {
     const { fixture, paramMap } = mount(GUID_A);
     controller = TestBed.inject(HttpTestingController);

@@ -97,6 +97,53 @@ describe('ProductsPage', () => {
     expect(fixture.componentInstance.error()?.kind).toBe('rateLimited');
   });
 
+  it('offers a way back after a failed first load, and the retry starts from the first page', async () => {
+    // The landing tab's very first listing fails. Before the Try again
+    // control existed this was terminal for the session: load() sets hasMore
+    // false so the infinite scroll stops asking, and nothing else on the page
+    // could issue another request.
+    controller
+      .expectOne((r) => r.url === 'http://localhost:5000/api/v1/catalog/products')
+      .flush(
+        { title: 'Too many requests', status: 429 },
+        { status: 429, statusText: 'Too Many Requests' },
+      );
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.hasMore()).toBe(false);
+
+    const retry: HTMLElement = [...fixture.nativeElement.querySelectorAll('ion-button')].find(
+      (el: HTMLElement) => el.textContent?.trim() === 'Try again',
+    );
+    // Asserted through the DOM: a reload() the user cannot reach is not a
+    // retry affordance, which is exactly what the page had before.
+    expect(retry).toBeTruthy();
+
+    retry.click();
+    await fixture.whenStable();
+
+    const second = controller.expectOne(
+      (r) => r.url === 'http://localhost:5000/api/v1/catalog/products',
+    );
+    // The first page again, not a resumed cursor: after a failure the
+    // sequence is not resumable.
+    expect(second.request.params.has('cursor')).toBe(false);
+
+    second.flush(page(2, null));
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.products()).toHaveLength(2);
+    expect(fixture.componentInstance.error()).toBeNull();
+    // The control goes with the banner it belongs to.
+    expect(
+      [...fixture.nativeElement.querySelectorAll('ion-button')].some(
+        (el: HTMLElement) => el.textContent?.trim() === 'Try again',
+      ),
+    ).toBe(false);
+  });
+
   it('drops a stale loadMore() response that lands after reload() started a new sequence', async () => {
     controller
       .expectOne((r) => r.url === 'http://localhost:5000/api/v1/catalog/products')
@@ -111,7 +158,9 @@ describe('ProductsPage', () => {
         r.params.get('cursor') === 'cursor-2',
     );
 
-    // ...when the publish page (Task 14) calls reload() mid-flight.
+    // ...when reload() starts a fresh sequence mid-flight. Called directly
+    // here; the CatalogRefresh path a publish actually takes is the test
+    // below, and this one is about load()'s guard rather than the trigger.
     fixture.componentInstance.reload();
     const fresh = controller.expectOne(
       (r) =>

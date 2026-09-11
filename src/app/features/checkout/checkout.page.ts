@@ -99,7 +99,15 @@ export class CheckoutPage {
     country: new FormControl('', { nonNullable: true, validators: Validators.required }),
   });
 
-  readonly error = signal<DisplayError | null>(null);
+  // Private-writable, public `asReadonly()` — the convention `CartStore.lines`,
+  // `CommandIdentity.current`, `CatalogRefresh.current` and `CheckoutHandoff.quote`
+  // all state: `readonly` on the field stops reassignment, not `.set()` from
+  // outside. What this banner says about an order is decided by the response
+  // this page read, and by nothing else.
+  private readonly errorState = signal<DisplayError | null>(null);
+
+  readonly error = this.errorState.asReadonly();
+
   /**
    * Carried from the quote, with no fallback — quoteGuard guarantees a quote
    * exists before this page is reachable. A `?? 'EUR'` here would be a guess
@@ -149,14 +157,14 @@ export class CheckoutPage {
 
     this.ordering.place(command).subscribe({
       next: (orderId) => {
-        this.error.set(null);
+        this.errorState.set(null);
         this.identity.onSuccess();
         this.spendQuote();
         void this.router.navigate(['/tabs/cart/placed', orderId]);
       },
       error: (failure: HttpErrorResponse) => {
         const displayed = mapError(failure, { permission: PERMISSIONS.ordersWrite });
-        this.error.set(displayed);
+        this.errorState.set(displayed);
         this.identity.onFailure(displayed);
 
         // command.already_committed: the earlier submission won. Treat it as

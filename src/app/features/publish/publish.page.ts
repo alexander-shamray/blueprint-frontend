@@ -112,8 +112,17 @@ export class PublishPage {
     currency: new FormControl('', { nonNullable: true, validators: Validators.required }),
   });
 
-  readonly error = signal<DisplayError | null>(null);
-  readonly publishedId = signal<string | null>(null);
+  // Private-writable, public `asReadonly()` — the convention `CartStore.lines`,
+  // `CommandIdentity.current`, `CatalogRefresh.current` and `CheckoutHandoff.quote`
+  // all state: `readonly` on the field stops reassignment, not `.set()` from
+  // outside. `publishedId` is the stronger case of the two — it is this page's
+  // claim that the platform accepted a publish, and a writer anywhere else
+  // could put "Published as ..." on screen for a product that does not exist.
+  private readonly errorState = signal<DisplayError | null>(null);
+  private readonly publishedIdState = signal<string | null>(null);
+
+  readonly error = this.errorState.asReadonly();
+  readonly publishedId = this.publishedIdState.asReadonly();
 
   constructor() {
     this.form.valueChanges.subscribe(() => this.identity.onEdit());
@@ -132,7 +141,7 @@ export class PublishPage {
     // change it: a "Published as ..." (or already-committed) note from a
     // PRIOR success must not keep sitting under an error banner from THIS
     // attempt, implying the thing that just failed actually succeeded.
-    this.publishedId.set(null);
+    this.publishedIdState.set(null);
 
     const value = this.form.getRawValue();
 
@@ -149,8 +158,8 @@ export class PublishPage {
 
     this.catalog.publish(command).subscribe({
       next: (productId) => {
-        this.error.set(null);
-        this.publishedId.set(productId);
+        this.errorState.set(null);
+        this.publishedIdState.set(productId);
         this.identity.onSuccess();
         this.form.reset({ name: '', thumbnailUrl: '', amount: null, currency: '' });
 
@@ -191,15 +200,15 @@ export class PublishPage {
           // itself: onSuccess() is the right call here too, because a
           // completed submission — which this is — is exactly what its own
           // doc comment says starts a new form entry.
-          this.error.set(null);
-          this.publishedId.set(ALREADY_COMMITTED);
+          this.errorState.set(null);
+          this.publishedIdState.set(ALREADY_COMMITTED);
           this.identity.onSuccess();
           this.form.reset({ name: '', thumbnailUrl: '', amount: null, currency: '' });
           this.catalogRefresh.request();
           return;
         }
 
-        this.error.set(displayed);
+        this.errorState.set(displayed);
       },
     });
   }

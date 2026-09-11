@@ -30,6 +30,24 @@ import { ErrorBannerComponent } from '@shared/error-banner.component';
     <ion-content>
       <app-error-banner [error]="error()" />
 
+      <!--
+        The way back from a failed load. load()'s error branch sets hasMore
+        false on purpose — retrying into a 429 automatically is how a rate
+        limit becomes a loop — but that decision only covers the AUTOMATIC
+        retry the infinite scroll would make. Without a control, a first
+        listing that failed (this is the landing tab, reached before sign-in,
+        on a cold start) leaves an empty page nothing can recover except
+        restarting the app, while every other failure in this client — Get
+        quote, Place order, Publish, Sign in, Cancel order — is one tap from
+        being tried again. reload() rather than a plain load(): after an error
+        the pagination sequence is not resumable (cursor may point into a page
+        that never arrived, and hasMore is false), so the honest retry is the
+        first page again.
+      -->
+      @if (error()) {
+        <ion-button expand="block" fill="outline" (click)="reload()">Try again</ion-button>
+      }
+
       <ion-list>
         @for (product of products(); track product.productId) {
           <ion-item>
@@ -66,12 +84,15 @@ export class ProductsPage {
    * under and checks it again when the response lands; a response whose
    * generation no longer matches was superseded by a later `reload()` and is
    * dropped rather than applied. Without this, a `loadMore()` in flight when
-   * Task 14's publish page calls `reload()` lands AFTER the fresh first page
-   * and appends its items onto — and overwrites `cursor` from — a pagination
-   * sequence that `reload()` already discarded. A `switchMap` would hide that
-   * drop rather than state it, and `load()` is called from three call sites
-   * (constructor, `reload()`, `loadMore()`) with different completion
-   * semantics that a shared pipeline operator would have to paper over.
+   * a publish elsewhere bumps `CatalogRefresh` — which is what drives this
+   * page's own `reload()`, via the effect below; the publish page never calls
+   * `reload()` itself, because a feature may not import another feature — lands
+   * AFTER the fresh first page and appends its items onto (and overwrites
+   * `cursor` from) a pagination sequence that `reload()` already discarded.
+   * A `switchMap` would hide that drop rather than state it, and `load()` is
+   * called from three call sites (constructor, `reload()`, `loadMore()`) with
+   * different completion semantics that a shared pipeline operator would have
+   * to paper over.
    */
   private generation = 0;
 
@@ -81,9 +102,14 @@ export class ProductsPage {
   private readonly hasMoreSignal = signal(true);
 
   // Writable only inside this class — CartStore.lines and CommandIdentity's
-  // current/isSpent make the same choice, for the same reason: Task 14 holds
-  // a reference to this instance and `readonly` on the field only stops
-  // reassignment, not `.set()` from outside.
+  // current/isSpent make the same choice, for the same reason: `readonly` on
+  // the field stops reassignment, not `.set()` from outside. Nothing holds a
+  // reference to this component — the publish page asks for a refresh through
+  // CatalogRefresh precisely BECAUSE a feature may not import another feature
+  // (spec §3, enforced by the ESLint rule and boundaries.spec.ts) — so the
+  // point is not to fend off a caller that exists. It is that these three
+  // signals are what the platform answered, and the only code entitled to say
+  // what the platform answered is the code that read the response.
   readonly products: Signal<readonly ProductSummary[]> = this.productsSignal.asReadonly();
   readonly error: Signal<DisplayError | null> = this.errorSignal.asReadonly();
   readonly hasMore: Signal<boolean> = this.hasMoreSignal.asReadonly();
@@ -96,9 +122,9 @@ export class ProductsPage {
     // IonRouterOutlet.activateWith) instead of constructing a fresh one, so
     // this constructor runs exactly ONCE per app session, not once per visit
     // to the tab. Without this effect, navigating back here after publishing
-    // shows the stale list from the first (and only) construction. Task 14's
-    // publish page calls CatalogRefresh.request() instead of trying to
-    // navigate its way to a reload that navigation alone cannot produce.
+    // shows the stale list from the first (and only) construction. The publish
+    // page calls CatalogRefresh.request() instead of trying to navigate its
+    // way to a reload that navigation alone cannot produce.
     //
     // An effect() runs once immediately on top of every signal it reads, so
     // the version seen right here — before that first run — is remembered
@@ -112,7 +138,11 @@ export class ProductsPage {
     });
   }
 
-  /** Called by the publish page after a success (spec §5.5). */
+  /**
+   * Restarts the listing from the first page. Reached two ways: the effect
+   * above, when a publish elsewhere bumps `CatalogRefresh` (spec §5.5), and
+   * the template's "Try again" button after a failed load.
+   */
   reload(): void {
     this.generation++;
     this.cursor = null;

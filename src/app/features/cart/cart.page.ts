@@ -47,6 +47,30 @@ import { ErrorBannerComponent } from '@shared/error-banner.component';
               }
             </ion-label>
 
+            <!--
+              No client-side ceiling on the + button, and that is a decision
+              rather than an omission. OrderLimits.MaxQuantity (999) and
+              OrderLimits.MaxLines (100) are enforced twice on the platform —
+              by QuoteRequestValidator before the quote and by
+              PlaceOrderValidator before the order — from ONE constant in
+              Common.Contracts, which exists precisely because "two literals
+              are how daylight appears". A 999 typed into TypeScript would be a
+              third copy, in the one place that cannot be kept honest: raise
+              the bound on the platform and this stepper would go on refusing
+              baskets the platform accepts, with no error anywhere — just a
+              button that stops. A refusal the customer can see beats a limit
+              the client invented.
+
+              So the stepper reaches whatever the customer asks for, and the
+              quote answers. The platform's refusal is a field-keyed 400 and
+              mapError renders the keys and messages as sent, on this screen,
+              with the quantity still in front of them — which is where
+              OrderLimits itself says the refusal belongs.
+
+              Same shape as CheckoutEndpoints' own refusal to copy Catalog's
+              product-count ceiling: "a second copy of THAT limit in this host
+              would drift from the one actually enforced."
+            -->
             <ion-button slot="end" fill="clear"
               (click)="setQuantity(line.productId, line.quantity - 1)">−</ion-button>
             <ion-note slot="end">{{ line.quantity }}</ion-note>
@@ -114,9 +138,12 @@ export class CartPage {
   readonly lines = this.store.lines;
 
   // Writable privately, readonly to everyone else — the shape CartStore.lines
-  // and CommandId.current already use. `readonly` alone guards the field
-  // binding, not `.set()`, and the checkout page holds a reference to this
-  // service's neighbours.
+  // and CommandIdentity.current already use. `readonly` alone guards the field
+  // binding, not `.set()`. Nothing outside this class holds a reference to
+  // this page (a feature never imports another feature, spec §3), so the point
+  // is not to fend off a caller that exists: `quote` is what the PLATFORM
+  // priced, and the only code entitled to say what the platform priced is the
+  // code that read the response.
   private readonly currencyState = signal<string>('EUR');
   private readonly quoteState = signal<QuoteResponse | null>(null);
   private readonly errorState = signal<DisplayError | null>(null);

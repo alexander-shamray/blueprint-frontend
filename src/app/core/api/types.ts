@@ -169,5 +169,3 @@ export const PERMISSIONS = {
   ordersWrite: 'orders:write',
   ordersCancel: 'orders:cancel',
 } as const;
-
-export type Permission = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
