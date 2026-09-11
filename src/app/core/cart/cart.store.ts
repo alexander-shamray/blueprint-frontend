@@ -96,6 +96,37 @@ export class CartStore {
     this.state.set(lines);
   }
 
+  /**
+   * None of the mutators below — this one, `setQuantity`, `remove`,
+   * `clear` — defend against being called before `restore()` has resolved.
+   * If `state()` is still `CartStore.INITIAL` when one of them fires, the
+   * result is a new array that is no longer identical to `INITIAL`, so the
+   * persistence effect above no longer suppresses the write: the mutation
+   * persists over whatever real cart storage is holding, unread. That is
+   * the same clobber the `INITIAL` guard above exists to close — only
+   * triggered by a genuine mutator call instead of the effect's own
+   * spurious first flush, and the guard does not and cannot distinguish
+   * the two.
+   *
+   * This is benign today ONLY because `app.config.ts`'s
+   * `provideAppInitializer(() => inject(CartStore).restore())` RETURNS the
+   * promise `restore()` produces. Angular blocks application bootstrap on a
+   * returned initializer promise, so nothing renders — and so no mutator on
+   * this class is reachable from the UI — until `restore()` has resolved.
+   * If that provider is ever changed to invoke `restore()` without
+   * returning its promise (fire-and-forget), this class gains no
+   * protection of its own: a mutator reachable before `restore()` resolves
+   * will silently overwrite real cart storage that was never read, with no
+   * error and no signal anything went wrong.
+   *
+   * Not fixed here by deferring writes until hydration (queuing and
+   * replaying mutations for a code path that, given the constraint above,
+   * cannot currently occur) or by a `hydrated` boolean gate (rejected
+   * earlier for the same reason `INITIAL` uses identity instead of a flag:
+   * it would make a `CartStore` whose caller forgets to call `restore()`
+   * — including, quietly, a future test — stop persisting entirely, with
+   * no error and no signal that anything is wrong).
+   */
   add(product: ProductSummary): void {
     this.state.update((lines) => {
       const existing = lines.find((line) => line.productId === product.productId);
@@ -118,14 +149,26 @@ export class CartStore {
   }
 
   setQuantity(productId: string, quantity: number): void {
-    // Zero and negative both remove. A stepper that can reach zero is the
-    // ordinary way a line is deleted, and PlaceOrderItem has no meaning at a
-    // quantity of nought.
-    this.state.update((lines) =>
-      quantity <= 0
+    this.state.update((lines) => {
+      // Both .map() and .filter() allocate a new array even when nothing
+      // matches, and the persistence effect writes on every new array this
+      // signal takes regardless of whether its contents actually changed
+      // (see the effect above — it only special-cases the two arrays it was
+      // born with or just restored from, not "changed" in general). Without
+      // this early return, a call for a productId no longer in the cart —
+      // plausible from a UI still holding a stale reference — would persist
+      // unchanged content on every call. Wasteful, not data-lossy, but worth
+      // skipping since nothing downstream needs the reference to change when
+      // nothing did.
+      if (!lines.some((line) => line.productId === productId)) return lines;
+
+      // Zero and negative both remove. A stepper that can reach zero is the
+      // ordinary way a line is deleted, and PlaceOrderItem has no meaning at
+      // a quantity of nought.
+      return quantity <= 0
         ? lines.filter((line) => line.productId !== productId)
-        : lines.map((line) => (line.productId === productId ? { ...line, quantity } : line)),
-    );
+        : lines.map((line) => (line.productId === productId ? { ...line, quantity } : line));
+    });
   }
 
   remove(productId: string): void {

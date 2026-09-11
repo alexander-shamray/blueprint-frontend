@@ -64,6 +64,24 @@ describe('CartStore', () => {
     expect(store.lines()).toEqual([]);
   });
 
+  it('setQuantity for a productId not in the cart is a no-op and does not persist', () => {
+    // .map() allocates a new array even when nothing matches, so without an
+    // early return this no-op call would still trigger the persistence
+    // effect and write unchanged content — wasteful, not data-lossy, but
+    // pointless work on every call from a stale UI reference.
+    store.add(product('p1'));
+    TestBed.tick();
+    write.mockClear();
+
+    store.setQuantity('missing', 5);
+    TestBed.tick();
+
+    expect(store.lines()).toEqual([
+      { productId: 'p1', name: 'Thing', amount: 10, currency: 'EUR', quantity: 1 },
+    ]);
+    expect(write).not.toHaveBeenCalled();
+  });
+
   it('persists on every change', () => {
     store.add(product('p1'));
     // Under zoneless change detection an effect() is scheduled, not run
