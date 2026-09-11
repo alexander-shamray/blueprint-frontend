@@ -6040,6 +6040,9 @@ jobs:
     # that is allowed to fail is a smoke nobody reads.
     steps:
       - uses: actions/checkout@v4
+      # The backend is a separate public repository. If it is ever made
+      # private this step needs a token with read access to it; the failure
+      # mode is a checkout 404, which reads like a wrong repository name.
       - uses: actions/checkout@v4
         with:
           repository: alexander-shamray/dotnet-ddd-blueprint
@@ -6094,12 +6097,73 @@ One section per backend decision this client can observe, each naming where it s
 9. **The total is the BFF's.** Two places computing a total is two places to get rounding wrong.
 10. **`Retry-After` and CORS.** Why the correlation id comes from the body and the countdown may be a fallback, and what Task 0 changes.
 11. **The gateway routes GET for catalog.** Why Publish needed a route, and why the client did not simply call `catalog-api` directly — the gateway is the only host the client calls.
-12. **Deviations from the spec.** The four corrections above, and `ng new` + `ng add @ionic/angular` in place of `ionic start`.
+12. **Deviations from the spec, and what execution discovered.** Write each as
+    the claim that turned out to be wrong, then what is true, then where the
+    client shows it. These are the most useful paragraphs in the document:
+    a reader who knows the backend will want to know which of their
+    assumptions this client had to abandon. At minimum:
 
-- [ ] **Step 3: Verify the workflow parses**
+    - **The quote's total is not the basket's total.** `CheckoutEndpoints.cs`
+      sums `lines.Sum(line => line.Amount)` over `productId.Distinct()`, so it
+      prices one of each product and knows nothing of quantities. The cart
+      shows per-line unit prices and relabels the figure rather than
+      multiplying it out client-side — two places computing a total is two
+      places to get rounding wrong (§9 above), and the BFF's is the one the
+      order is placed against.
+    - **A product may cost nothing.** `PublishProductValidator.cs` uses
+      `GreaterThanOrEqualTo(0)`. A client that tested a price for truthiness
+      would hide a free product; the catalogue tests for `undefined`.
+    - **A customer may not name the platform's reasons.** Four of the five
+      codes in `CancelReasons` are facts the saga or Payments discovers, and
+      `OrderEndpoints.cs` stamps `CommandOrigin.User` regardless of the code
+      sent. The placed page sends `customer_request` and offers no choice.
+    - **Navigating to a tab does not reload it.** Ionic caches a tab's page
+      and reuses its `ComponentRef` (`StackController.getExistingView`), so a
+      tab root's constructor runs once per app session. `CatalogRefresh`
+      exists because a publish must ASK the catalogue to reload; nothing
+      about arriving there does it.
+    - **`provideIonicAngular()` does not install `IonicRouteStrategy`.**
+      Angular's default `RouteReuseStrategy` compares `routeConfig` and
+      ignores params, so `placed/:id` would keep one component across two
+      orders. `app.config.ts` provides it explicitly. Note the limit, because
+      it bit this client too: that strategy compares ROUTE params, not query
+      params, which is why the account page subscribes to `queryParamMap`
+      rather than reading a snapshot.
+    - **State at a tab root never gets a teardown.** Ionic's `setBack` prunes
+      only the views above the one returned to, so a tab root is reattached,
+      never destroyed. A `CommandIdentity` there must recover in-place: the
+      publish page treats `command.already_committed` as the completed
+      submission it is and mints a fresh id, where the checkout page can
+      simply be rebuilt because it sits deeper in a stack.
+    - **A rejection is not an `HttpErrorResponse`.**
+      `angular-oauth2-oidc`'s `loadDiscoveryDocument()` rejects with a bare
+      string. `mapError` takes `unknown` and returns a retry kind for
+      anything it does not recognise.
+    - **The auth initializer must never reject.** `provideAppInitializer`
+      hands its promise to bootstrap, and a rejection there blanks the whole
+      application rather than only its signed-in parts. `WebAuthStrategy`
+      catches, records the failure against `discoveryDocumentLoaded`, and
+      retries discovery on the next `signIn()`.
+    - **A response can outlive the state it was computed for.** The catalogue
+      and the cart each carry a generation token, because a `loadMore()` or a
+      quote in flight when the basket changes would otherwise overwrite the
+      state that superseded it.
+    - **`Validators.required` accepts `0`.** `isEmptyInputValue` tests for
+      null and for length, not for falsiness — which is what lets the publish
+      form send the free product the backend permits.
+    - **Tooling.** `ng new` + `ng add @ionic/angular` in place of
+      `ionic start`, and Vitest 4 rather than 5, which is what
+      `@angular/build` peers.
+
+- [ ] **Step 3: Verify the workflow parses, and that `npm test` terminates**
 
 Run: `npx --yes @action-validator/cli --verbose .github/workflows/ci.yml` (or push the branch and read the run).
 Expected: valid.
+
+Then confirm the web job cannot hang: `ng test` must run once and exit rather
+than watching. Run `CI=true npm test` locally and check it returns to the
+prompt. A watch-mode test step does not fail the build, it consumes the job's
+whole timeout, which is a far more expensive way to find out.
 
 - [ ] **Step 4: Commit**
 
