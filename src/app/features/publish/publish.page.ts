@@ -1,5 +1,4 @@
 import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
-import { HttpErrorResponse } from '@angular/common/http';
 import { FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
 import {
   IonButton, IonContent, IonHeader, IonInput, IonItem, IonNote, IonTitle, IonToolbar,
@@ -7,7 +6,7 @@ import {
 import { CatalogApi } from '@core/api/catalog.api';
 import { CatalogRefresh } from '@core/catalog/catalog-refresh';
 import { PERMISSIONS, PublishProductCommand } from '@core/api/types';
-import { CommandIdentity } from '@core/commands/command-id';
+import { ALREADY_COMMITTED, CommandIdentity } from '@core/commands/command-id';
 import { DisplayError, mapError } from '@core/errors/error-mapper';
 import { ErrorBannerComponent } from '@shared/error-banner.component';
 
@@ -33,8 +32,20 @@ import { ErrorBannerComponent } from '@shared/error-banner.component';
  * returns. So there is no tick in which a user could click while the button
  * is enabled but the state behind it is gone: by the time anything repaints,
  * the button is already disabled again (form.invalid is true). No guard is
- * added here for that reason — see publish.page.spec.ts for the coverage
- * that would fail if this reasoning were wrong.
+ * added here for that reason — publish.page.spec.ts's "resets the form to
+ * invalid so a second click cannot resubmit the same product" assertion is
+ * the coverage that would fail if this reasoning were wrong.
+ *
+ * command.already_committed is handled unlike checkout handles it, and for a
+ * reason specific to this page: checkout escapes a spent identity by
+ * navigating away — the placed page is a different component, and a later
+ * visit to checkout gets a freshly constructed CommandIdentity. This page
+ * never navigates and Ionic caches its ComponentRef for the app session, so
+ * a spent identity here is not escaped by anything — it is permanent, and
+ * the Publish tab would be dead for the rest of the session. The publish DID
+ * commit, though: the platform is saying the product exists and it no
+ * longer holds the result to hand back an id for. So this branch does what
+ * a success does, minus the id.
  *
  * The gateway routes this POST only once plan Task 0 has landed;
  * `catalog-public` matches GET alone. Until then a real call answers 404 at
@@ -68,7 +79,17 @@ import { ErrorBannerComponent } from '@shared/error-banner.component';
       </form>
 
       @if (publishedId(); as id) {
-        <ion-item><ion-note>Published as <code>{{ id }}</code>.</ion-note></ion-item>
+        @if (id === alreadyCommitted) {
+          <ion-item>
+            <ion-note>
+              The platform reported that this command id had already been applied, and it no
+              longer holds the result. The product was published; its id is not recoverable
+              from here.
+            </ion-note>
+          </ion-item>
+        } @else {
+          <ion-item><ion-note>Published as <code>{{ id }}</code>.</ion-note></ion-item>
+        }
       }
     </ion-content>
   `,
@@ -78,6 +99,9 @@ export class PublishPage {
   private readonly catalogRefresh = inject(CatalogRefresh);
 
   readonly identity = new CommandIdentity();
+
+  /** Read by the template to tell "committed, id unknown" apart from a real id. */
+  protected readonly alreadyCommitted = ALREADY_COMMITTED;
 
   readonly form = new FormGroup({
     name: new FormControl('', { nonNullable: true, validators: Validators.required }),
@@ -94,6 +118,20 @@ export class PublishPage {
   }
 
   publish(): void {
+    // (ngSubmit) is not the only way in — this method is public and directly
+    // callable — so the guard the template's [disabled] binding expresses
+    // must also live here, the same precedent checkout's placeOrder() sets
+    // for its own non-null assertion below. Without this, value.amount!
+    // would assert over a null the required validator was supposed to have
+    // ruled out.
+    if (this.form.invalid) return;
+
+    // Cleared at the START of every attempt, not just on the branches that
+    // change it: a "Published as ..." (or already-committed) note from a
+    // PRIOR success must not keep sitting under an error banner from THIS
+    // attempt, implying the thing that just failed actually succeeded.
+    this.publishedId.set(null);
+
     const value = this.form.getRawValue();
 
     const command: PublishProductCommand = {
@@ -130,10 +168,36 @@ export class PublishPage {
         // sitting on this cached page for the user's next visit.
         this.catalogRefresh.request();
       },
-      error: (failure: HttpErrorResponse) => {
+      // `unknown`, not HttpErrorResponse: mapError()'s parameter is `unknown`
+      // on purpose (see its own comment on the branch that handles a bare
+      // string rejection from WebAuthStrategy.signIn(), added for cart.page.ts's
+      // sign-in retry) and it re-narrows internally. Annotating this as
+      // HttpErrorResponse costs nothing at runtime here because mapError()
+      // never trusts the annotation either way — but it is still a claim
+      // this call site cannot back, which is reason enough not to make it.
+      error: (failure: unknown) => {
         const displayed = mapError(failure, { permission: PERMISSIONS.catalogWrite });
-        this.error.set(displayed);
         this.identity.onFailure(displayed);
+
+        if (displayed.kind === 'alreadyCommitted') {
+          // The submission committed — the platform is telling us the
+          // product exists and it no longer holds the result to hand an id
+          // back for. Checkout treats the same code as success-pending-
+          // confirmation and moves on because navigating away rebuilds its
+          // page with a fresh CommandIdentity; this page has no such escape
+          // (see the class doc comment), so it does the equivalent work
+          // itself: onSuccess() is the right call here too, because a
+          // completed submission — which this is — is exactly what its own
+          // doc comment says starts a new form entry.
+          this.error.set(null);
+          this.publishedId.set(ALREADY_COMMITTED);
+          this.identity.onSuccess();
+          this.form.reset({ name: '', thumbnailUrl: '', amount: null, currency: '' });
+          this.catalogRefresh.request();
+          return;
+        }
+
+        this.error.set(displayed);
       },
     });
   }
