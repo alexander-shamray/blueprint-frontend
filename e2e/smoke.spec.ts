@@ -118,8 +118,15 @@ test('demo browses, quotes, orders and cancels', async ({ page }) => {
   // an order id and the page is showing it. That is the whole output of
   // POST /api/v1/orders, which replies 200 with a bare GUID and no Location
   // header, so a rendered id is the only evidence the order exists.
+  // Scoped to this page's component, not `page.locator('code')`. An unscoped
+  // one matches two elements here: the order id, and the id in the Publish
+  // tab's "Published as …" note, because this test published two products a
+  // few steps ago and that page is a TAB ROOT — Ionic keeps it mounted with
+  // its state for the whole session rather than tearing it down when you
+  // leave. The same caching CatalogRefresh exists for is why two <code>
+  // elements are in this DOM at once.
   await expect(page.getByRole('heading', { name: 'Order', exact: true })).toBeVisible();
-  await expect(page.locator('code')).toHaveText(
+  await expect(page.locator('app-order-placed code')).toHaveText(
     /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
   );
   await expect(
