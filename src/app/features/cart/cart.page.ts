@@ -38,8 +38,7 @@ import { ErrorBannerComponent } from '@shared/error-banner.component';
               </ion-note>
               @if (quotedPrices()[line.productId] !== undefined) {
                 <ion-note>
-                  Quoted {{ quotedPrices()[line.productId] }} {{ currency() }} each
-                  &times; {{ line.quantity }}
+                  Quoted {{ quotedPrices()[line.productId] }} {{ currency() }} each, quantity {{ line.quantity }}
                 </ion-note>
               }
               @if (isUnpriced(line.productId)) {
@@ -99,6 +98,21 @@ export class CartPage {
    * false, and the citation rule exists to keep those two apart.
    */
   protected readonly currencies = ['EUR', 'GBP', 'USD'] as const;
+
+  /**
+   * Bumped by `invalidateQuote()`. `getQuote()` captures the generation it
+   * was called under and checks it again in both the success and error
+   * branches when the response lands; a response whose generation no longer
+   * matches was superseded by a quantity or currency change that invalidated
+   * it, and is dropped rather than applied — the same shape, deliberately,
+   * as `ProductsPage.generation` guards a `loadMore()` in flight against a
+   * `reload()` that started a fresh sequence underneath it. Without this, a
+   * `getQuote()` in flight when the user taps `+` or switches currency lands
+   * AFTER `invalidateQuote()` has nulled the now-stale quote, and silently
+   * restores a quote priced for a basket or currency that no longer exists —
+   * exactly what `canCheckout()` exists to keep off screen.
+   */
+  private generation = 0;
 
   readonly lines = this.store.lines;
 
@@ -161,12 +175,22 @@ export class CartPage {
   }
 
   getQuote(): void {
+    const generation = this.generation;
+
     this.checkoutApi.quote(this.store.productIds(), this.currency()).subscribe({
       next: (quote) => {
+        // Superseded by an invalidateQuote() (a quantity or currency change)
+        // that started a new generation while this request was in flight.
+        // Applying it now would restore a quote for a basket or currency
+        // that no longer exists.
+        if (generation !== this.generation) return;
+
         this.errorState.set(null);
         this.quoteState.set(quote);
       },
       error: (failure: HttpErrorResponse) => {
+        if (generation !== this.generation) return;
+
         const displayed = mapError(failure);
         this.errorState.set(displayed);
         this.quoteState.set(null);
@@ -180,8 +204,14 @@ export class CartPage {
         // becomes an unhandled promise rejection and the user gets a sign-in
         // button that appears to do nothing — the same class of bug as the
         // blank app the initializer fix removed, one layer up.
+        //
+        // mapError() takes the rejection as `unknown`, not `HttpErrorResponse`:
+        // angular-oauth2-oidc's loadDiscoveryDocument(), which signIn() awaits,
+        // can reject with a bare string rather than an HTTP error — there is no
+        // response to type it as. See error-mapper.ts's non-HttpErrorResponse
+        // branch, added for exactly this call.
         if (displayed.kind === 'signIn') {
-          this.auth.signIn().catch((failure: HttpErrorResponse) => {
+          this.auth.signIn().catch((failure) => {
             this.errorState.set(mapError(failure));
           });
         }
@@ -197,8 +227,19 @@ export class CartPage {
     void this.router.navigate(['/tabs/cart/checkout']);
   }
 
-  /** A quote describes a specific set of lines in a specific currency. Change either and it is stale. */
+  /**
+   * A quote describes a specific set of lines in a specific currency; change
+   * either and it is stale. Nulling `quoteState` alone does not finish the
+   * job: a `getQuote()` issued before the change may still be in flight, and
+   * the checkout handoff may still hold what the stale quote produced.
+   * Bumping `generation` drops that in-flight response when it lands, the
+   * same way `ProductsPage.reload()` drops a superseded `loadMore()`;
+   * clearing the handoff keeps the checkout route guard from trusting a
+   * quote priced for a basket or currency that no longer exists.
+   */
   private invalidateQuote(): void {
+    this.generation++;
     this.quoteState.set(null);
+    this.handoff.clear();
   }
 }

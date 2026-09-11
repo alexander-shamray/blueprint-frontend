@@ -208,4 +208,11 @@ describe('mapError', () => {
     expect(result.kind).toBe('retry');
     expect(result.correlationId).toBeUndefined();
   });
+
+  it('a bare-string rejection (angular-oauth2-oidc discovery failure) becomes retry, not a crash', () => {
+    const result = mapError('Discovery document could not be retrieved');
+
+    expect(result.kind).toBe('retry');
+    expect(result.correlationId).toBeUndefined();
+  });
 });

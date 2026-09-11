@@ -52,9 +52,21 @@ const CONFLICT_KINDS: Readonly<Record<string, ErrorKind>> = {
 };
 
 export function mapError(
-  error: HttpErrorResponse,
+  error: unknown,
   context?: { readonly permission?: string },
 ): DisplayError {
+  if (!(error instanceof HttpErrorResponse)) {
+    // angular-oauth2-oidc's loadDiscoveryDocument() — and therefore
+    // WebAuthStrategy.signIn(), which awaits it — can reject with a bare
+    // string rather than an Error, let alone an HttpErrorResponse: there is
+    // no HTTP response here to read a status or a body from. Every call site
+    // before cart.page.ts's sign-in retry was an HttpClient error handler,
+    // where `HttpErrorResponse` was actually true; that caller breaks the
+    // assumption, so the parameter widens to `unknown` and this branch is
+    // what keeps it from a runtime TypeError reading `.status` off a string.
+    return { kind: 'retry', title: '', detail: null };
+  }
+
   const body: ProblemDetails = isProblemDetails(error.error) ? error.error : {};
   const title = body.title ?? '';
   const detail = body.detail ?? null;

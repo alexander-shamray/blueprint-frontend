@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AuthService } from '@core/auth/auth.service';
 import { CartPersistence } from '@core/cart/cart.persistence';
 import { CartStore } from '@core/cart/cart.store';
+import { CheckoutHandoff } from '@core/cart/checkout-handoff';
 import { CartPage } from './cart.page';
 
 const product = (id: string) => ({
@@ -24,7 +25,10 @@ describe('CartPage', () => {
     TestBed.configureTestingModule({
       imports: [CartPage],
       providers: [
-        provideRouter([]),
+        // A stub for /tabs/cart/checkout, which checkout() navigates to —
+        // only so the navigation resolves instead of rejecting with
+        // NG04002 (no route matches); nothing here renders it.
+        provideRouter([{ path: 'tabs/cart/checkout', children: [] }]),
         provideHttpClient(),
         provideHttpClientTesting(),
         CartStore,
@@ -126,5 +130,47 @@ describe('CartPage', () => {
     // A quote priced two of something is not a quote for five of it.
     expect(fixture.componentInstance.quote()).toBeNull();
     expect(fixture.componentInstance.canCheckout()).toBe(false);
+  });
+
+  it('drops a getQuote() response that lands after a quantity change already invalidated it', async () => {
+    fixture.componentInstance.getQuote();
+    const request = controller.expectOne((r) => r.url.includes('/quote'));
+
+    // The request above is still in flight when the basket changes underneath
+    // it — invalidateQuote() bumps the generation before this stale response
+    // is flushed.
+    fixture.componentInstance.setQuantity('p1', 5);
+
+    request.flush({ currency: 'EUR', lines: [], total: 8, unpriced: [] });
+    await fixture.whenStable();
+
+    // The response answers a question ("what does the old basket cost?")
+    // that no longer applies, and must not silently re-enable checkout.
+    expect(fixture.componentInstance.quote()).toBeNull();
+    expect(fixture.componentInstance.canCheckout()).toBe(false);
+  });
+
+  it('clears the checkout handoff when a quantity changes after checkout()', async () => {
+    fixture.componentInstance.getQuote();
+    controller.expectOne((r) => r.url.includes('/quote')).flush({
+      currency: 'EUR',
+      lines: [
+        { productId: 'p1', name: 'Product p1', amount: 4 },
+        { productId: 'p2', name: 'Product p2', amount: 4 },
+      ],
+      total: 8,
+      unpriced: [],
+    });
+    await fixture.whenStable();
+
+    fixture.componentInstance.checkout();
+    const handoff = TestBed.inject(CheckoutHandoff);
+    expect(handoff.quote()).not.toBeNull();
+
+    // A quantity change after handing the quote to checkout must retract it —
+    // the guard reads the handoff, not this page, and must not be left
+    // trusting a quote for a basket that no longer exists.
+    fixture.componentInstance.setQuantity('p1', 5);
+    expect(handoff.quote()).toBeNull();
   });
 });
