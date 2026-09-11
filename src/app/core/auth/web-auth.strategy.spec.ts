@@ -146,13 +146,18 @@ describe('WebAuthStrategy', () => {
       // this is the tryLogin branch, not the discovery-unreachable one) and
       // a token is already sitting in the fake's storage when the rejection
       // happens.
+      //
+      // The setup call tolerates a rejection for the same reason as the
+      // signIn() retry tests below: against a version of initialize() with
+      // no try/catch at all, an unguarded await here would throw before this
+      // test ever reached its logOut()/getAccessToken() assertions.
       oauth.loadDiscoveryDocumentAndTryLogin.mockImplementationOnce(async () => {
         oauth.discoveryDocumentLoaded = true;
         oauth.token = 'stored-by-fetchAndProcessToken-but-never-adopted';
         throw new Error('token_validation_error');
       });
 
-      await strategy.initialize();
+      await strategy.initialize().catch(() => undefined);
 
       expect(strategy.accessToken()).toBeNull();
       expect(oauth.getAccessToken()).toBeNull();
