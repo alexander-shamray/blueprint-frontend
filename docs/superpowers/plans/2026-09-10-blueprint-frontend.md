@@ -3226,13 +3226,14 @@ export const routes: Routes = [
 ```ts
 import {
   ApplicationConfig,
+  provideBrowserGlobalErrorListeners,
   provideZonelessChangeDetection,
   inject,
   provideAppInitializer,
 } from '@angular/core';
 import { provideHttpClient, withInterceptors } from '@angular/common/http';
-import { provideRouter } from '@angular/router';
-import { provideIonicAngular } from '@ionic/angular';
+import { provideRouter, RouteReuseStrategy } from '@angular/router';
+import { IonicRouteStrategy, provideIonicAngular } from '@ionic/angular';
 import { routes } from './app.routes';
 import { authInterceptor } from '@core/auth/auth.interceptor';
 import { provideAuth } from '@core/auth/auth.providers';
@@ -3241,26 +3242,48 @@ import { CartStore } from '@core/cart/cart.store';
 export const appConfig: ApplicationConfig = {
   providers: [
     provideZonelessChangeDetection(),
+    // Funnels window.onerror / unhandledrejection into Angular's
+    // ErrorHandler. Present in the CLI scaffold's original app.config.ts;
+    // Task 9's brief omitted it from its app.config.ts snippet without
+    // recording that as deliberate, so it is restored here rather than
+    // treated as superseded.
+    provideBrowserGlobalErrorListeners(),
     provideIonicAngular(),
+    // Angular's default RouteReuseStrategy compares only `routeConfig`
+    // identity, ignoring params — so `placed/:id` navigating A -> B keeps
+    // the SAME ActivatedRoute and component instance, and a page that reads
+    // `route.snapshot` once (rather than subscribing to `paramMap`) shows
+    // stale data forever after. IonicRouteStrategy is Ionic's own fix for
+    // exactly this (it compares params too); provideIonicAngular() does not
+    // install it, so it must be provided here. Task 13's review caught the
+    // absence via order-placed.page.ts; this line is the app-wide fix, not
+    // a page-local workaround.
+    { provide: RouteReuseStrategy, useClass: IonicRouteStrategy },
     provideRouter(routes),
     provideHttpClient(withInterceptors([authInterceptor])),
     provideAuth(),
     // The cart survives a restart on every platform (spec §3). Restoring it
     // before the first render keeps the tab badge from flashing zero.
     //
-    // RETURN the promise - do not fire and forget. Angular waits on a
-    // returned promise before finishing bootstrap, so the first render sees
-    // the restored cart rather than a badge that flashes zero and corrects
-    // itself.
+    // RETURN the promise — do not fire and forget. Angular waits on a
+    // returned promise before bootstrapping, so the first render sees the
+    // restored cart instead of one that starts at zero and jumps a moment
+    // later. That is the actual reason to return it here.
     //
-    // What this does NOT do is close the race it was once claimed to close.
-    // CartStore's persistence effect is scheduled at construction with the
-    // initial empty state, and blocking bootstrap does not stop the zoneless
-    // effect scheduler from flushing during restore()'s await - the flush
-    // lands, writes [], and wipes the stored cart while the screen still
-    // looks right. That race is closed inside CartStore, by refusing to
-    // persist the array the signal was born with. See the INITIAL sentinel
-    // there.
+    // It does NOT, on its own, close the race with CartStore's persistence
+    // effect. That effect is scheduled once at construction, not run
+    // synchronously, so under zoneless change detection its first flush can
+    // land while `restore()` below is still awaiting `persistence.read()` —
+    // Angular blocking bootstrap on this initializer's promise does not stop
+    // the effect scheduler from flushing during that await, because the
+    // scheduler is not gated on bootstrap at all. A flush that lands there
+    // would see the signal still holding the exact array it was constructed
+    // with and, without a guard against that, would persist `[]` over
+    // whatever the real cart was — silently, since the in-memory state gets
+    // corrected a moment later when `restore()` resolves and the screen ends
+    // up right even though storage does not. That race is closed inside
+    // CartStore itself, by refusing to ever persist the array the store was
+    // born with (see `CartStore.INITIAL`), not by anything here.
     provideAppInitializer(() => inject(CartStore).restore()),
   ],
 };
@@ -4583,25 +4606,43 @@ git commit -m "feat(checkout): address form, command-id lifecycle, and a guarded
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { ActivatedRoute, provideRouter } from '@angular/router';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { ActivatedRoute, convertToParamMap, provideRouter } from '@angular/router';
+import { BehaviorSubject, map } from 'rxjs';
+import { afterEach, describe, expect, it } from 'vitest';
 import { OrderPlacedPage } from './order-placed.page';
 
-function mount(id: string): ComponentFixture<OrderPlacedPage> {
+const GUID_A = '44444444-4444-4444-4444-444444444444';
+const GUID_B = '55555555-5555-5555-5555-555555555555';
+
+function mount(id: string): { fixture: ComponentFixture<OrderPlacedPage>; paramMap: BehaviorSubject<string> } {
   TestBed.resetTestingModule();
+
+  // A BehaviorSubject-backed paramMap, not just `snapshot`, so the reuse
+  // test below can drive a second id through the SAME ActivatedRoute the
+  // way Angular's `advanceActivatedRoute` does on a reused route — the path
+  // that exists whenever a route's `RouteReuseStrategy` reuses a component
+  // across two different `:id`s, IonicRouteStrategy included.
+  const paramMap = new BehaviorSubject(id);
+
   TestBed.configureTestingModule({
     imports: [OrderPlacedPage],
     providers: [
       provideRouter([]),
       provideHttpClient(),
       provideHttpClientTesting(),
-      { provide: ActivatedRoute, useValue: { snapshot: { paramMap: { get: () => id } } } },
+      {
+        provide: ActivatedRoute,
+        useValue: {
+          snapshot: { paramMap: { get: () => paramMap.value } },
+          paramMap: paramMap.pipe(map((value) => convertToParamMap({ id: value }))),
+        },
+      },
     ],
   });
 
   const fixture = TestBed.createComponent(OrderPlacedPage);
   fixture.detectChanges();
-  return fixture;
+  return { fixture, paramMap };
 }
 
 describe('OrderPlacedPage', () => {
@@ -4609,44 +4650,84 @@ describe('OrderPlacedPage', () => {
 
   afterEach(() => controller?.verify());
 
-  it('sends customer_request and offers no other reason', () => {
-    const fixture = mount('44444444-4444-4444-4444-444444444444');
+  it('renders the order id and the no-read-endpoint sentence for a real order', () => {
+    const { fixture } = mount(GUID_A);
+
+    expect(fixture.nativeElement.textContent).toContain(GUID_A);
+    expect(fixture.nativeElement.textContent).toContain(
+      'The platform exposes no endpoint that reads an order back',
+    );
+
+    const button = [...fixture.nativeElement.querySelectorAll('ion-button')].find(
+      (el: HTMLElement) => el.textContent?.trim() === 'Cancel order',
+    );
+    expect(button).toBeTruthy();
+  });
+
+  it('sends customer_request and offers no other reason, via the rendered Cancel button', () => {
+    const { fixture } = mount(GUID_A);
     controller = TestBed.inject(HttpTestingController);
 
-    fixture.componentInstance.cancel();
+    const button: HTMLElement = [...fixture.nativeElement.querySelectorAll('ion-button')].find(
+      (el: HTMLElement) => el.textContent?.trim() === 'Cancel order',
+    );
+    button.click();
 
     // The other four codes are the platform's own findings — the saga's stock
     // outcomes and Payments' results. A customer cannot truthfully assert any
     // of them, and the endpoint stamps origin User whatever arrives.
-    expect(controller.expectOne((r) => r.url.endsWith('/cancel')).request.body)
-      .toEqual({ reason: 'customer_request' });
+    const request = controller.expectOne((r) => r.url.endsWith('/cancel'));
+    expect(request.request.body).toEqual({ reason: 'customer_request' });
 
     // The half of the name that the body assertion does not cover: no picker
     // is rendered at all. Asserting CANCEL_REASONS contains customer_request
     // would prove nothing here — that is a fact about a frozen constant, true
     // whatever this page puts on screen.
     expect(fixture.nativeElement.querySelector('ion-select')).toBeNull();
+
+    request.flush(null, { status: 204, statusText: 'No Content' });
   });
 
-  it('posts the reason and reports the 204', async () => {
-    const fixture = mount('44444444-4444-4444-4444-444444444444');
+  it('reports the 204 with the cancelled note, clearing a prior error', async () => {
+    const { fixture } = mount(GUID_A);
     controller = TestBed.inject(HttpTestingController);
 
     fixture.componentInstance.cancel();
-
-    const request = controller.expectOne(
-      'http://localhost:5000/api/v1/orders/44444444-4444-4444-4444-444444444444/cancel',
-    );
-    expect(request.request.body).toEqual({ reason: 'customer_request' });
-
-    request.flush(null, { status: 204, statusText: 'No Content' });
+    controller
+      .expectOne((r) => r.url.endsWith('/cancel'))
+      .flush({ title: 'Forbidden', status: 403 }, { status: 403, statusText: 'Forbidden' });
     await fixture.whenStable();
+    fixture.detectChanges();
+    expect(fixture.componentInstance.error()).not.toBeNull();
+
+    fixture.componentInstance.cancel();
+    controller
+      .expectOne((r) => r.url.endsWith('/cancel'))
+      .flush(null, { status: 204, statusText: 'No Content' });
+    await fixture.whenStable();
+    fixture.detectChanges();
 
     expect(fixture.componentInstance.cancelled()).toBe(true);
+    expect(fixture.componentInstance.error()).toBeNull();
+    expect(fixture.nativeElement.textContent).toContain('Cancelled. The platform answered 204.');
+  });
+
+  it('guards a second tap while a cancel is in flight — no commandId here to replay under', () => {
+    const { fixture } = mount(GUID_A);
+    controller = TestBed.inject(HttpTestingController);
+
+    fixture.componentInstance.cancel();
+    fixture.componentInstance.cancel();
+
+    // Exactly one request outstanding: expectOne throws if a second one was
+    // sent. Flushing it satisfies afterEach's verify().
+    controller
+      .expectOne((r) => r.url.endsWith('/cancel'))
+      .flush(null, { status: 204, statusText: 'No Content' });
   });
 
   it('maps a 403 to a banner naming orders:cancel', async () => {
-    const fixture = mount('44444444-4444-4444-4444-444444444444');
+    const { fixture } = mount(GUID_A);
     controller = TestBed.inject(HttpTestingController);
 
     fixture.componentInstance.cancel();
@@ -4662,12 +4743,54 @@ describe('OrderPlacedPage', () => {
   });
 
   it('hides cancel and explains when the command already committed', () => {
-    const fixture = mount('already-committed');
-    controller = TestBed.inject(HttpTestingController);
+    const { fixture } = mount('already-committed');
 
-    // No order id came back, so there is nothing to cancel and nothing to read.
     expect(fixture.componentInstance.canCancel()).toBe(false);
     expect(fixture.componentInstance.alreadyCommitted()).toBe(true);
+
+    const text: string = fixture.nativeElement.textContent;
+    expect(text).toContain('Already committed');
+    expect(text).toContain('already been applied');
+    // No order id came back, so there is nothing to cancel and nothing to
+    // read — neither the sentinel nor a real id belongs on screen here.
+    expect(text).not.toContain('already-committed');
+    expect(
+      [...fixture.nativeElement.querySelectorAll('ion-button')].some(
+        (el: HTMLElement) => el.textContent?.trim() === 'Cancel order',
+      ),
+    ).toBe(false);
+  });
+
+  it('drives a new :id through the route and updates what a reused instance shows', async () => {
+    const { fixture, paramMap } = mount(GUID_A);
+    controller = TestBed.inject(HttpTestingController);
+
+    // Cancel order A on this instance...
+    fixture.componentInstance.cancel();
+    controller
+      .expectOne((r) => r.url.endsWith('/cancel'))
+      .flush(null, { status: 204, statusText: 'No Content' });
+    await fixture.whenStable();
+    expect(fixture.componentInstance.cancelled()).toBe(true);
+
+    // ...then simulate Angular's default RouteReuseStrategy reusing this
+    // SAME component across placed/A -> placed/B: advanceActivatedRoute
+    // swaps `snapshot` in place and emits the new ParamMap on `paramMap`
+    // without a new component ever being constructed. IonicRouteStrategy
+    // (now installed in app.config.ts) prevents this reuse app-wide, but the
+    // page must be correct even if it were not.
+    paramMap.next(GUID_B);
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.orderId()).toBe(GUID_B);
+    expect(fixture.nativeElement.textContent).toContain(GUID_B);
+    expect(fixture.nativeElement.textContent).not.toContain(GUID_A);
+
+    // Order A's "cancelled" note must not bleed onto order B, which this
+    // instance has never touched.
+    expect(fixture.componentInstance.cancelled()).toBe(false);
+    expect(fixture.nativeElement.textContent).not.toContain('Cancelled. The platform answered 204.');
   });
 });
 ```
@@ -4677,9 +4800,11 @@ describe('OrderPlacedPage', () => {
 `src/app/features/order-placed/order-placed.page.ts`:
 
 ```ts
-import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, effect, inject, signal } from '@angular/core';
+import { toSignal } from '@angular/core/rxjs-interop';
 import { HttpErrorResponse } from '@angular/common/http';
 import { ActivatedRoute } from '@angular/router';
+import { map } from 'rxjs';
 import {
   IonBackButton, IonButton, IonButtons, IonContent, IonHeader, IonItem, IonLabel, IonNote,
   IonText, IonTitle, IonToolbar,
@@ -4780,24 +4905,78 @@ export class OrderPlacedPage {
    */
   private static readonly USER_REASON: CancelReason = 'customer_request';
 
-  readonly orderId = signal(this.route.snapshot.paramMap.get('id') ?? '');
+  /**
+   * Reactive, not a one-shot `route.snapshot` read. Angular's default
+   * `RouteReuseStrategy` compares only `routeConfig` identity — params are
+   * ignored — so navigating `placed/A` -> `placed/B` can hand this component
+   * the SAME `ActivatedRoute` instance rather than constructing a fresh one.
+   * `app.config.ts` now installs `IonicRouteStrategy`, which closes that gap
+   * app-wide, but this page does not lean on a fact maintained three files
+   * away: `paramMap` keeps emitting on a reused `ActivatedRoute` regardless
+   * of which strategy is active (Angular's `advanceActivatedRoute` swaps
+   * `snapshot` in place and emits on `paramsSubject` on every reuse, not
+   * just a fresh activation), so reading it reactively is correct under
+   * either strategy and the page is right on its own terms.
+   */
+  readonly orderId = toSignal(
+    this.route.paramMap.pipe(map((params) => params.get('id') ?? '')),
+    { initialValue: this.route.snapshot.paramMap.get('id') ?? '' },
+  );
 
   readonly cancelled = signal(false);
   readonly error = signal<DisplayError | null>(null);
 
+  /** True while a `cancel()` request is outstanding. See `cancel()` below. */
+  private readonly cancelling = signal(false);
+
   readonly alreadyCommitted = computed(() => this.orderId() === ALREADY_COMMITTED);
   readonly canCancel = computed(() => !this.alreadyCommitted() && this.orderId() !== '');
 
+  constructor() {
+    // Companion to the reactive `orderId` above: on a reused instance,
+    // `cancelled`/`error` are leftovers from the PRIOR order and must not
+    // bleed onto the next one's screen — showing "Cancelled. The platform
+    // answered 204." for an order that was never touched would be exactly
+    // the sentinel-as-real-id failure this branch keeps re-finding, one
+    // signal over. Same idiom as `ProductsPage`'s `constructedAtVersion`
+    // guard: an `effect()` runs once immediately on top of every signal it
+    // reads, so the id seen right here — this construction's own initial
+    // value — is remembered and skipped; only a LATER change (a different id
+    // landing on this same instance) resets the two signals.
+    const constructedForId = this.orderId();
+    effect(() => {
+      if (this.orderId() === constructedForId) return;
+      this.cancelled.set(false);
+      this.error.set(null);
+    });
+  }
+
   cancel(): void {
+    // `CancelOrderRequest` carries no command id — the wire body is
+    // `{ reason }` alone — so, unlike checkout's `placeOrder()`, there is no
+    // idempotency key here for a duplicate tap to replay under and nothing
+    // for `request.in_progress` to demonstrate. Checkout deliberately lets a
+    // double-click send two requests, because doing so exercises the real
+    // mechanism; here a second tap would just be a second, uncorrelated
+    // command, so it is guarded outright rather than left to the domain's
+    // own idempotent `Order.Cancel` (harmless on its own, but two concurrent
+    // writes to the same order can still surface EF's
+    // `request.concurrency_conflict` on the second one).
+    if (this.cancelling()) return;
+    this.cancelling.set(true);
+
     this.ordering.cancel(this.orderId(), OrderPlacedPage.USER_REASON).subscribe({
       next: () => {
+        this.cancelling.set(false);
         this.error.set(null);
         this.cancelled.set(true);
       },
-      error: (failure: HttpErrorResponse) =>
-        // The permission comes from the route's own knowledge of what it needs,
-        // not from the response — the 403 deliberately names none.
-        this.error.set(mapError(failure, { permission: PERMISSIONS.ordersCancel })),
+      error: (failure: HttpErrorResponse) => {
+        this.cancelling.set(false);
+        // The permission comes from the route's own knowledge of what it
+        // needs, not from the response — the 403 deliberately names none.
+        this.error.set(mapError(failure, { permission: PERMISSIONS.ordersCancel }));
+      },
     });
   }
 }
@@ -4820,14 +4999,24 @@ rather than defaulting — so keep it and drop the clause about the select:
    * truthfully send is the caller's own question: the order-placed page
    * answers it with `customer_request` and explains why.
    */
+  cancel(orderId: string, reason: CancelReason): Observable<void> {
+    const body: CancelOrderRequest = { reason };
+
+    // encodeURIComponent: orderId reaches here from a route param, which
+    // Angular has already percent-decoded. A raw '/', '?' or '%' in it would
+    // otherwise land in this template literal unescaped and turn into a
+    // different path plus a query string rather than a single path segment.
+    return this.http.post<void>(`${this.base}/${encodeURIComponent(orderId)}/cancel`, body);
+  }
 ```
 
 - [ ] **Step 4: Run the tests and the boundary check**
 
 `ALREADY_COMMITTED` comes from `@core/commands/command-id` in both this page and the checkout page — never from the other feature. The boundary run below is what proves it.
 
-Run: `npm test -- order-placed && npm test -- boundaries && npm run lint`
-Expected: all pass.
+Run: `npm test -- order-placed && npm test && npm run lint`
+Expected: all pass. (`npm test -- boundaries` trips the CLI's project-argument parsing; use
+`npm test -- --include='**/boundaries*.spec.ts'` to run that file alone.)
 
 - [ ] **Step 5: Commit**
 
@@ -5129,10 +5318,10 @@ git commit -m "feat(publish): product form behind catalog:write with the shared 
 `src/app/features/account/account.page.spec.ts`:
 
 ```ts
-import { HttpErrorResponse } from '@angular/common/http';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { ActivatedRoute, provideRouter } from '@angular/router';
+import { ActivatedRoute, convertToParamMap, provideRouter } from '@angular/router';
 import { signal } from '@angular/core';
+import { BehaviorSubject } from 'rxjs';
 import { describe, expect, it, vi } from 'vitest';
 import { AuthService, CurrentUser } from '@core/auth/auth.service';
 import { AccountPage } from './account.page';
@@ -5141,6 +5330,10 @@ function mount(user: CurrentUser | null, sessionEndsOnReload: boolean, denied?: 
   TestBed.resetTestingModule();
   const signIn = vi.fn(async () => undefined);
   const signOut = vi.fn(async () => undefined);
+  // A BehaviorSubject rather than of(): one test pushes a SECOND value
+  // through it, which is the only way to exercise a reused component
+  // receiving a different `denied` without a fresh construction.
+  const queryParams = new BehaviorSubject(convertToParamMap(denied ? { denied } : {}));
 
   TestBed.configureTestingModule({
     imports: [AccountPage],
@@ -5148,7 +5341,10 @@ function mount(user: CurrentUser | null, sessionEndsOnReload: boolean, denied?: 
       provideRouter([]),
       {
         provide: ActivatedRoute,
-        useValue: { snapshot: { queryParamMap: { get: () => denied ?? null } } },
+        useValue: {
+          queryParamMap: queryParams.asObservable(),
+          snapshot: { queryParamMap: queryParams.value },
+        },
       },
       {
         provide: AuthService,
@@ -5165,7 +5361,7 @@ function mount(user: CurrentUser | null, sessionEndsOnReload: boolean, denied?: 
 
   const fixture: ComponentFixture<AccountPage> = TestBed.createComponent(AccountPage);
   fixture.detectChanges();
-  return { fixture, signIn, signOut };
+  return { fixture, signIn, signOut, queryParams };
 }
 
 const demo: CurrentUser = {
@@ -5191,6 +5387,24 @@ describe('AccountPage', () => {
     expect(fixture.componentInstance.permissions()).toEqual([
       'catalog:write', 'orders:write', 'orders:cancel',
     ]);
+
+    // Spec §5.6 asks for the permissions held AS CHIPS. Asserting the
+    // computed alone would pass with the whole template deleted.
+    const chips = Array.from(
+      fixture.nativeElement.querySelectorAll('ion-chip') as NodeListOf<HTMLElement>,
+    ).map((chip) => chip.textContent?.trim());
+
+    expect(chips).toEqual(['catalog:write', 'orders:write', 'orders:cancel']);
+    expect(fixture.nativeElement.textContent).toContain('demo');
+  });
+
+  it('says plainly that an account with no permissions can write nothing', () => {
+    const { fixture } = mount({ ...demo, permissions: [] }, true);
+
+    expect(fixture.nativeElement.querySelectorAll('ion-chip')).toHaveLength(0);
+    expect(fixture.nativeElement.textContent).toContain(
+      'Every write in this application will answer 403.',
+    );
   });
 
   it('states the web token posture', () => {
@@ -5209,9 +5423,12 @@ describe('AccountPage', () => {
     // signIn() rejects when discovery is unreachable — WebAuthStrategy retries
     // it, because initCodeFlow() with no loginUrl does nothing at all. A bare
     // `void` here would leave a button that looks broken and says nothing.
-    signIn.mockRejectedValueOnce(
-      new HttpErrorResponse({ status: 0, statusText: 'Unknown Error' }),
-    );
+    // A bare string, because that is what angular-oauth2-oidc's
+    // loadDiscoveryDocument() actually rejects with. Rejecting with an
+    // HttpErrorResponse here would make this test agree with an annotation
+    // the runtime does not honour, and pass even if mapError still
+    // required one.
+    signIn.mockRejectedValueOnce('Error loading discovery document');
 
     fixture.componentInstance.signIn();
     await fixture.whenStable();
@@ -5223,6 +5440,24 @@ describe('AccountPage', () => {
     const { fixture } = mount(demo, true, 'catalog:write');
 
     expect(fixture.componentInstance.denied()).toBe('catalog:write');
+    expect(fixture.nativeElement.textContent).toContain('Route refused');
+    expect(fixture.nativeElement.querySelector('code')?.textContent).toBe('catalog:write');
+  });
+
+  it('follows a later refusal on the same cached instance', async () => {
+    // The bug this guards: Account is a tab, Ionic caches its page, and
+    // IonicRouteStrategy compares route params rather than query params —
+    // so a redirect from permissionGuard reaches an ALREADY CONSTRUCTED
+    // component. A snapshot read would still be showing the first value,
+    // which for most users is no value at all.
+    const { fixture, queryParams } = mount(demo, true, 'catalog:write');
+
+    queryParams.next(convertToParamMap({ denied: 'orders:cancel' }));
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.denied()).toBe('orders:cancel');
+    expect(fixture.nativeElement.querySelector('code')?.textContent).toBe('orders:cancel');
   });
 });
 ```
@@ -5233,8 +5468,9 @@ describe('AccountPage', () => {
 
 ```ts
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
-import { HttpErrorResponse } from '@angular/common/http';
+import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute } from '@angular/router';
+import { map } from 'rxjs';
 import {
   IonButton, IonChip, IonContent, IonHeader, IonItem, IonLabel, IonNote, IonTitle, IonToolbar,
 } from '@ionic/angular';
@@ -5298,7 +5534,28 @@ export class AccountPage {
 
   readonly username = computed(() => this.currentUser()?.username ?? null);
   readonly permissions = computed(() => this.currentUser()?.permissions ?? []);
-  readonly denied = signal(this.route.snapshot.queryParamMap.get('denied'));
+  /**
+   * Read reactively, NOT from `route.snapshot`, and this page is the one
+   * where that matters most.
+   *
+   * permissionGuard sends a refused navigation here as
+   * `/tabs/account?denied=<permission>`. Account is a TAB: Ionic caches its
+   * page in the tab stack and hands back the same ComponentRef on re-entry,
+   * so this constructor runs once per app session — and a user who has
+   * opened Account even once would afterwards be redirected here by the
+   * guard and shown nothing at all.
+   *
+   * IonicRouteStrategy does not rescue this the way it rescues
+   * order-placed's `:id`: its shouldReuseRoute compares `future.params`
+   * against `curr.params`, which are ROUTE params. Query params are not
+   * compared, so a change from `/tabs/account` to
+   * `/tabs/account?denied=catalog:write` reuses the component by design.
+   * Subscribing is the only thing that sees it.
+   */
+  readonly denied = toSignal(
+    this.route.queryParamMap.pipe(map((params) => params.get('denied'))),
+    { initialValue: this.route.snapshot.queryParamMap.get('denied') },
+  );
 
   private readonly errorState = signal<DisplayError | null>(null);
   readonly error = this.errorState.asReadonly();
@@ -5327,7 +5584,11 @@ export class AccountPage {
     // and says nothing — the same failure the initializer fix removed from
     // the shell, reappearing on the one screen whose job is to explain the
     // session.
-    this.auth.signIn().catch((failure: HttpErrorResponse) => {
+    // Untyped on purpose. `loadDiscoveryDocument()` rejects with a bare
+    // STRING, not an HttpErrorResponse — annotating it as one is a claim
+    // the runtime does not honour, which is why mapError takes `unknown`
+    // and returns a retry kind for anything it does not recognise.
+    this.auth.signIn().catch((failure: unknown) => {
       this.errorState.set(mapError(failure));
     });
   }
@@ -5339,7 +5600,7 @@ export class AccountPage {
 ```
 
 Run: `npm test -- account.page`
-Expected: PASS, 6 tests.
+Expected: PASS, 9 tests.
 
 - [ ] **Step 3: Run the whole suite**
 
