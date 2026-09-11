@@ -64,9 +64,21 @@ backend's cursor shape — `Common.Application/CursorPage.cs`, where a null
 `nextCursor` is the last page — so `ProductsPage` sets `hasMore` from
 `page.nextCursor !== null` and nothing asks past it. And the anonymous limiter
 is a fixed window of 100 requests per minute per remote address
-(`Gateway.Api/Program.cs`), which is why a failed page load sets `hasMore` to
-false rather than letting the infinite scroll try again: retrying into a 429 is
-how a rate limit becomes a loop.
+(`Gateway.Api/Program.cs`), which is why a failed page load stops the infinite
+scroll asking again on its own: retrying into a 429 is how a rate limit becomes
+a loop.
+
+Those are two different facts and the page keeps them in two places, because
+conflating them cost the user the rest of the catalogue. `hasMore` is what the
+platform said; a failure is what this attempt did. The error branch used to set
+`hasMore` false, which reads as "there is nothing more to fetch" — so one 429 or
+one 503 on page two ended pagination for the session, and no retry window
+closing could bring it back. Now the failure is recorded as an error,
+`canLoadMore` is `hasMore && no error`, and a **Try again** control resumes from
+the cursor that failed (on a first-page failure that cursor is null, so resuming
+and restarting are the same request). The control is itself disabled for the
+length of a 429's window, which is the other half of spec §6's 429 row — see
+§10.
 
 ## 2. Five minutes, and no refresh token in the browser
 
@@ -712,8 +724,23 @@ always safe.
 *What is true.* It answers the state that existed when it was sent. Two places
 here can invalidate that state mid-flight: `ProductsPage.reload()` (triggered by
 a publish) starts a new pagination sequence while a `loadMore()` is outstanding,
-and `CartPage.invalidateQuote()` (a quantity or currency change) supersedes a
-quote still in flight.
+and `CartPage.invalidateQuote()` (a currency change) supersedes a quote still in
+flight.
+
+A quote has a second, sharper version of the same problem, and it is answered in
+the store rather than on the page. A quote is a statement about one basket, and
+the basket can change from a screen that has never heard of quotes:
+`ProductsPage.addToCart()` calls `CartStore.add()` directly. Invalidation that
+hung off the cart page's own steppers and currency select therefore missed it,
+and `quoteGuard` went on admitting `/tabs/cart/checkout` with a total priced for
+a basket the customer no longer had. So `CartStore` carries a `version` bumped by
+every mutation that changes the lines — the same shape as `CatalogRefresh` — and
+both holders of a quote (`CheckoutHandoff`, which the guard reads, and
+`CartPage`, which decides whether Checkout is enabled) record the version they
+were quoted at and report nothing once it moves. They compare against one
+counter, so they cannot disagree. The version is captured when the request is
+ISSUED, not when the reply lands, or a reply overtaken by an `add()` from
+another tab would stamp itself fresh.
 
 *Where it shows.* Both carry a generation counter, captured when the request is
 issued and re-checked when it lands; a response from a superseded generation is

@@ -7,11 +7,13 @@ import {
   IonTitle, IonToolbar,
 } from '@ionic/angular';
 import { OrderingApi } from '@core/api/ordering.api';
+import { AuthService } from '@core/auth/auth.service';
 import { PERMISSIONS, PlaceOrderCommand } from '@core/api/types';
 import { CartStore } from '@core/cart/cart.store';
 import { CheckoutHandoff } from '@core/cart/checkout-handoff';
 import { ALREADY_COMMITTED, CommandIdentity } from '@core/commands/command-id';
 import { DisplayError, mapError } from '@core/errors/error-mapper';
+import { RetryCountdown } from '@core/errors/retry-countdown';
 import { ErrorBannerComponent } from '@shared/error-banner.component';
 
 /**
@@ -37,7 +39,7 @@ import { ErrorBannerComponent } from '@shared/error-banner.component';
     </ion-header>
 
     <ion-content>
-      <app-error-banner [error]="error()" />
+      <app-error-banner [error]="error()" [retryInSeconds]="rateLimit.remaining()" />
 
       <form [formGroup]="form" (ngSubmit)="placeOrder()">
         <ion-item><ion-input label="Line 1" formControlName="line1" required></ion-input></ion-item>
@@ -66,8 +68,13 @@ import { ErrorBannerComponent } from '@shared/error-banner.component';
           </ion-item>
         }
 
+        <!--
+          rateLimit.blocked() joins the other three refusals: a 429 says the
+          platform will not take this order yet, and the banner above is
+          counting the window down (spec §6).
+        -->
         <ion-button expand="block" type="submit"
-          [disabled]="form.invalid || identity.isSpent() || !handoff.quote()">
+          [disabled]="form.invalid || identity.isSpent() || !handoff.quote() || rateLimit.blocked()">
           Place order
         </ion-button>
       </form>
@@ -76,6 +83,7 @@ import { ErrorBannerComponent } from '@shared/error-banner.component';
 })
 export class CheckoutPage {
   private readonly ordering = inject(OrderingApi);
+  private readonly auth = inject(AuthService);
   private readonly cart = inject(CartStore);
   // Protected, not private: the template reads it directly (see the @if
   // guard below), the same convention CartPage.store uses.
@@ -107,6 +115,21 @@ export class CheckoutPage {
   private readonly errorState = signal<DisplayError | null>(null);
 
   readonly error = this.errorState.asReadonly();
+
+  /**
+   * Spec §6's 429 row. Declared after `error`, which it reads — field
+   * initialisers run in order — and in an injection context, which is what
+   * its effect and its DestroyRef need.
+   */
+  readonly rateLimit = new RetryCountdown(this.error);
+
+  /**
+   * One automatic replay per successful round trip. A 401 answered by a
+   * sign-in that is itself answered by another 401 — an account that has
+   * lost the permission, a realm mid-restart — would otherwise be an
+   * unbounded loop of sign-in prompts, and a loop is not a replay.
+   */
+  private replayedAfterSignIn = false;
 
   /**
    * Carried from the quote, with no fallback — quoteGuard guarantees a quote
@@ -157,6 +180,7 @@ export class CheckoutPage {
 
     this.ordering.place(command).subscribe({
       next: (orderId) => {
+        this.replayedAfterSignIn = false;
         this.errorState.set(null);
         this.identity.onSuccess();
         this.spendQuote();
@@ -176,11 +200,56 @@ export class CheckoutPage {
           void this.router.navigate(['/tabs/cart/placed', ALREADY_COMMITTED]);
         }
 
+        // Spec §6's 401 row: the caller invokes AuthService.signIn() and
+        // replays after. What this page replays is THIS order, under the
+        // commandId it already holds — `identity.onFailure()` above mints
+        // nothing for a signIn kind, and no edit happens in between — so
+        // the replay is a replay in the platform's sense too:
+        // IdempotencyBehavior keys on subject, operation and commandId, and
+        // a second POST under the same id is either the same order coming
+        // back or a 409 that says so. That is exactly why auto-replaying
+        // here is safe when auto-resubmitting a form generally is not.
+        //
+        // A 401 is also a refusal at the edge, before the handler: the order
+        // it names was never placed. So the replay cannot duplicate one even
+        // if the id had been fresh.
+        if (displayed.kind === 'signIn') this.signInAndReplay();
+
         // request.in_progress and every other failure stay on this page. The
         // id is unchanged, so the user's next click is a replay rather than a
         // second order.
       },
     });
+  }
+
+  /**
+   * Re-authenticate, then send the same order again.
+   *
+   * On the web this replay does not happen, and that is not a flaw in it:
+   * `WebAuthStrategy.signIn()` is `initCodeFlow()`, a top-level navigation
+   * to Keycloak, and the heap — this component, its CommandIdentity, the
+   * handoff — is destroyed on the way out. The user comes back to a fresh
+   * app at `/` (spec §4.1: a reload signs the web session out, and there is
+   * no refresh token to avoid the round trip). The replay is written for
+   * the interface, not for one strategy: the native strategy (spec §4.2)
+   * returns from `signIn()` with the app still standing, and there the
+   * customer gets their order placed instead of a banner and a form they
+   * have to re-submit by hand.
+   *
+   * The rejection path is the one `CartPage.getQuote()` documents:
+   * `signIn()` rejects with a bare string when discovery fails, which is
+   * why `mapError` takes `unknown`.
+   */
+  private signInAndReplay(): void {
+    const replay = !this.replayedAfterSignIn;
+    this.replayedAfterSignIn = true;
+
+    this.auth.signIn().then(
+      () => {
+        if (replay) this.placeOrder();
+      },
+      (failure: unknown) => this.errorState.set(mapError(failure)),
+    );
   }
 
   /**

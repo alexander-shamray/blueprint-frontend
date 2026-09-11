@@ -4,10 +4,12 @@ import {
   IonButton, IonContent, IonHeader, IonInput, IonItem, IonNote, IonTitle, IonToolbar,
 } from '@ionic/angular';
 import { CatalogApi } from '@core/api/catalog.api';
+import { AuthService } from '@core/auth/auth.service';
 import { CatalogRefresh } from '@core/catalog/catalog-refresh';
 import { PERMISSIONS, PublishProductCommand } from '@core/api/types';
 import { ALREADY_COMMITTED, CommandIdentity } from '@core/commands/command-id';
 import { DisplayError, mapError } from '@core/errors/error-mapper';
+import { RetryCountdown } from '@core/errors/retry-countdown';
 import { ErrorBannerComponent } from '@shared/error-banner.component';
 
 /**
@@ -65,7 +67,7 @@ import { ErrorBannerComponent } from '@shared/error-banner.component';
     <ion-header><ion-toolbar><ion-title>Publish</ion-title></ion-toolbar></ion-header>
 
     <ion-content>
-      <app-error-banner [error]="error()" />
+      <app-error-banner [error]="error()" [retryInSeconds]="rateLimit.remaining()" />
 
       <form [formGroup]="form" (ngSubmit)="publish()">
         <ion-item><ion-input label="Name" formControlName="name" required></ion-input></ion-item>
@@ -75,7 +77,13 @@ import { ErrorBannerComponent } from '@shared/error-banner.component';
         </ion-item>
         <ion-item><ion-input label="Currency" formControlName="currency" required></ion-input></ion-item>
 
-        <ion-button expand="block" type="submit" [disabled]="form.invalid || identity.isSpent()">
+        <!--
+          rateLimit.blocked() joins the other two refusals: the gateway has
+          said how long to wait and the banner above is counting it down
+          (spec §6).
+        -->
+        <ion-button expand="block" type="submit"
+          [disabled]="form.invalid || identity.isSpent() || rateLimit.blocked()">
           Publish
         </ion-button>
       </form>
@@ -99,6 +107,7 @@ import { ErrorBannerComponent } from '@shared/error-banner.component';
 export class PublishPage {
   private readonly catalog = inject(CatalogApi);
   private readonly catalogRefresh = inject(CatalogRefresh);
+  private readonly auth = inject(AuthService);
 
   readonly identity = new CommandIdentity();
 
@@ -123,6 +132,20 @@ export class PublishPage {
 
   readonly error = this.errorState.asReadonly();
   readonly publishedId = this.publishedIdState.asReadonly();
+
+  /**
+   * Spec §6's 429 row. Declared after `error`, which it reads: field
+   * initialisers run in order, and it needs this injection context for its
+   * effect and its DestroyRef.
+   */
+  readonly rateLimit = new RetryCountdown(this.error);
+
+  /**
+   * One automatic replay per successful round trip — the same bound
+   * CheckoutPage sets, for the same reason: a 401 answered by a sign-in
+   * that is answered by another 401 is a loop, not a replay.
+   */
+  private replayedAfterSignIn = false;
 
   constructor() {
     this.form.valueChanges.subscribe(() => this.identity.onEdit());
@@ -158,6 +181,7 @@ export class PublishPage {
 
     this.catalog.publish(command).subscribe({
       next: (productId) => {
+        this.replayedAfterSignIn = false;
         this.errorState.set(null);
         this.publishedIdState.set(productId);
         this.identity.onSuccess();
@@ -209,7 +233,37 @@ export class PublishPage {
         }
 
         this.errorState.set(displayed);
+
+        // Spec §6's 401 row. What this page replays is THIS publish, under
+        // the commandId it already holds: `identity.onFailure()` mints
+        // nothing for a signIn kind and the form is untouched in between, so
+        // the second POST carries the same id and IdempotencyBehavior treats
+        // it as the replay it is rather than as a second product. (A 401 is
+        // refused at the edge, before the handler, so nothing was published
+        // to duplicate in the first place.)
+        //
+        // Unlike checkout, this page does not navigate away, so the replay
+        // lands back on the same form with the same values in it — which is
+        // the outcome the user asked for when they pressed Publish. On the
+        // web it will not be reached at all: signIn() is a top-level
+        // redirect to Keycloak and the heap does not survive it (spec §4.1).
+        // It is written for the interface, which the native strategy
+        // (spec §4.2) implements without the redirect.
+        if (displayed.kind === 'signIn') this.signInAndReplay();
       },
     });
+  }
+
+  /** See the 401 branch above; `CartPage.getQuote()` documents why mapError takes `unknown` here. */
+  private signInAndReplay(): void {
+    const replay = !this.replayedAfterSignIn;
+    this.replayedAfterSignIn = true;
+
+    this.auth.signIn().then(
+      () => {
+        if (replay) this.publish();
+      },
+      (failure: unknown) => this.errorState.set(mapError(failure)),
+    );
   }
 }

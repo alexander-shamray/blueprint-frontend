@@ -2,12 +2,20 @@ import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { ActivatedRoute, convertToParamMap, provideRouter } from '@angular/router';
+import { signal } from '@angular/core';
 import { BehaviorSubject, map } from 'rxjs';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { AuthService } from '@core/auth/auth.service';
 import { OrderPlacedPage } from './order-placed.page';
 
 const GUID_A = '44444444-4444-4444-4444-444444444444';
 const GUID_B = '55555555-5555-5555-5555-555555555555';
+
+/**
+ * Shared with the tests that assert the 401 row: a page-level mock of the one
+ * method spec §6 asks the caller to invoke.
+ */
+let signIn: ReturnType<typeof vi.fn>;
 
 function mount(id: string): { fixture: ComponentFixture<OrderPlacedPage>; paramMap: BehaviorSubject<string> } {
   TestBed.resetTestingModule();
@@ -18,6 +26,7 @@ function mount(id: string): { fixture: ComponentFixture<OrderPlacedPage>; paramM
   // that exists whenever a route's `RouteReuseStrategy` reuses a component
   // across two different `:id`s, IonicRouteStrategy included.
   const paramMap = new BehaviorSubject(id);
+  signIn = vi.fn(async () => undefined);
 
   TestBed.configureTestingModule({
     imports: [OrderPlacedPage],
@@ -25,6 +34,10 @@ function mount(id: string): { fixture: ComponentFixture<OrderPlacedPage>; paramM
       provideRouter([]),
       provideHttpClient(),
       provideHttpClientTesting(),
+      {
+        provide: AuthService,
+        useValue: { signIn, user: () => signal({ username: 'demo' }), accessToken: () => 't' },
+      },
       {
         provide: ActivatedRoute,
         useValue: {
@@ -135,6 +148,73 @@ describe('OrderPlacedPage', () => {
       kind: 'forbidden',
       permission: 'orders:cancel',
     });
+  });
+
+  it('invokes sign-in on a 401 and replays the cancellation for the same order', async () => {
+    const { fixture } = mount(GUID_A);
+    controller = TestBed.inject(HttpTestingController);
+
+    fixture.componentInstance.cancel();
+    controller
+      .expectOne((r) => r.url.endsWith('/cancel'))
+      .flush({ title: 'Unauthorized', status: 401 }, { status: 401, statusText: 'Unauthorized' });
+    await fixture.whenStable();
+
+    // Spec §6's 401 row, on the one page with no commandId to replay under.
+    // What makes the replay safe here is the status code itself: a 401 is
+    // refused at the edge, before the handler, so no cancellation was
+    // recorded and this is the first one rather than a second.
+    expect(signIn).toHaveBeenCalledOnce();
+
+    const replay = controller.expectOne((r) => r.url.endsWith('/cancel'));
+    expect(replay.request.url).toContain(GUID_A);
+    expect(replay.request.body).toEqual({ reason: 'customer_request' });
+
+    replay.flush(null, { status: 204, statusText: 'No Content' });
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.cancelled()).toBe(true);
+  });
+
+  it('does not replay a cancellation onto a different order the route handed this instance', async () => {
+    const { fixture, paramMap } = mount(GUID_A);
+    controller = TestBed.inject(HttpTestingController);
+
+    fixture.componentInstance.cancel();
+    controller
+      .expectOne((r) => r.url.endsWith('/cancel'))
+      .flush({ title: 'Unauthorized', status: 401 }, { status: 401, statusText: 'Unauthorized' });
+
+    // The sign-in resolves a tick later — and in between, this cached
+    // component is reused for another order. Replaying "cancel" now would
+    // cancel an order the customer never asked to cancel, which is worse than
+    // the banner it replaced.
+    paramMap.next(GUID_B);
+    await fixture.whenStable();
+
+    expect(signIn).toHaveBeenCalledOnce();
+    controller.expectNone((r) => r.url.endsWith('/cancel'));
+  });
+
+  it('disables Cancel order while a 429 window is open', async () => {
+    const { fixture } = mount(GUID_A);
+    controller = TestBed.inject(HttpTestingController);
+
+    fixture.componentInstance.cancel();
+    controller.expectOne((r) => r.url.endsWith('/cancel')).flush(
+      { title: 'Too many requests', status: 429 },
+      { status: 429, statusText: 'Too Many Requests' },
+    );
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.rateLimit.blocked()).toBe(true);
+
+    const cancel = [...fixture.nativeElement.querySelectorAll('ion-button')].find(
+      (el: HTMLElement) => el.textContent?.trim() === 'Cancel order',
+    );
+    expect(cancel.disabled).toBe(true);
   });
 
   it('hides cancel and explains when the command already committed', () => {

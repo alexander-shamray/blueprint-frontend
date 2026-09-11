@@ -33,6 +33,57 @@ describe('CartStore', () => {
     expect(store.count()).toBe(0);
   });
 
+  describe('version', () => {
+    // The counter CheckoutHandoff and CartPage compare a quote against. It is
+    // the store's job precisely because the screens that mutate the basket —
+    // the cart page's steppers, the products page's Add button — are not the
+    // screen that holds the quote.
+    it('moves on every mutation that changes the basket', () => {
+      const versions = [store.version()];
+
+      store.add(product('p1'));
+      versions.push(store.version());
+      store.add(product('p1'));
+      versions.push(store.version());
+      store.setQuantity('p1', 5);
+      versions.push(store.version());
+      store.remove('p1');
+      versions.push(store.version());
+      store.add(product('p2'));
+      versions.push(store.version());
+      store.clear();
+      versions.push(store.version());
+
+      // Strictly increasing: every entry greater than the one before it. The
+      // assertion is "it moved", not "it moved by one" — callers compare, they
+      // do not count.
+      expect(versions.every((v, i) => i === 0 || v > versions[i - 1])).toBe(true);
+    });
+
+    it('moves when a restore replaces the basket wholesale', async () => {
+      // Belt and braces rather than load-bearing — app.config.ts blocks
+      // bootstrap on restore(), so no quote can exist yet — but the version
+      // means "the lines changed", and a restore changes them.
+      const before = store.version();
+
+      await store.restore();
+
+      expect(store.version()).toBeGreaterThan(before);
+    });
+
+    it('does not move when a mutator changed nothing', () => {
+      store.add(product('p1'));
+      const before = store.version();
+
+      // A quantity for a product the cart no longer holds — plausible from a
+      // UI holding a stale reference. Nothing changed, so no quote priced for
+      // this basket has gone stale.
+      store.setQuantity('p2', 3);
+
+      expect(store.version()).toBe(before);
+    });
+  });
+
   it('adds a product as a line of quantity one', () => {
     store.add(product('p1', 'Widget', 12.5));
 

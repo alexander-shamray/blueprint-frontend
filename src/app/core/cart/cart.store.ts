@@ -56,6 +56,32 @@ export class CartStore {
 
   private readonly persistence = inject(CartPersistence);
   private readonly state = signal<readonly CartLine[]>(CartStore.INITIAL);
+  /**
+   * Bumped by every mutation that actually changes the basket, and by
+   * `restore()`, which replaces it wholesale.
+   *
+   * This exists so that "the basket changed" is a fact about the STORE rather
+   * than about the screen that happened to change it. Quote invalidation used
+   * to hang off `CartPage`'s own steppers and currency select, which meant
+   * `ProductsPage.addToCart()` — a mutation from a different feature, calling
+   * `add()` here directly — left a quote standing that was priced for a
+   * basket the customer no longer had. A quote whose whole job is telling
+   * someone what they will pay had told them something false.
+   *
+   * A version rather than a subscription, for the reason `CatalogRefresh`
+   * uses one: an observer that has to be wired up is an observer someone can
+   * forget to wire up, whereas a number that only ever goes forward lets a
+   * holder of a quote record what it was quoted for and compare. Readers are
+   * `CheckoutHandoff` (which the checkout route guard consults) and
+   * `CartPage` (which decides whether Checkout is enabled at all) — and
+   * because both compare against the SAME counter, they cannot disagree about
+   * whether a quote is still good.
+   *
+   * Private-writable, public `asReadonly()`: this repo's convention for state
+   * one class owns and others may only observe — `CartStore.lines` itself,
+   * `CommandIdentity.current`, `CatalogRefresh.current`.
+   */
+  private readonly versionState = signal(0);
   // Set to the exact array `restore()` just handed to `state.set`, so the
   // effect below can recognise "this run is the echo of a restore" and
   // suppress the write-back. A boolean flag cleared synchronously in a
@@ -67,6 +93,7 @@ export class CartStore {
   private pendingRestore: readonly CartLine[] | null = null;
 
   readonly lines = this.state.asReadonly();
+  readonly version = this.versionState.asReadonly();
   readonly count = computed(() => this.state().reduce((total, line) => total + line.quantity, 0));
   readonly isEmpty = computed(() => this.state().length === 0);
 
@@ -93,6 +120,31 @@ export class CartStore {
     const lines = await this.persistence.read();
     this.pendingRestore = lines;
     this.state.set(lines);
+    // A restore replaces the basket wholesale, so anything priced for what
+    // was in memory a moment ago is priced for a different basket. Bumping
+    // here is belt-and-braces rather than load-bearing — `app.config.ts`
+    // blocks bootstrap on this promise, so no quote can exist yet — but the
+    // version's meaning is "the lines changed", and they did.
+    this.versionState.update((n) => n + 1);
+  }
+
+  /**
+   * The one path every mutator takes, so that "the basket changed" and "the
+   * version moved" cannot come apart — a mutator that wrote `state` directly
+   * would leave a stale quote looking fresh, which is the whole defect the
+   * version exists to close.
+   *
+   * Returning the same array means nothing happened: `setQuantity` does that
+   * for a product the cart no longer holds, and neither the persistence
+   * effect nor a quote should be disturbed by a call that changed nothing.
+   */
+  private mutate(update: (lines: readonly CartLine[]) => readonly CartLine[]): void {
+    const before = this.state();
+    const after = update(before);
+    if (after === before) return;
+
+    this.state.set(after);
+    this.versionState.update((n) => n + 1);
   }
 
   /**
@@ -127,7 +179,7 @@ export class CartStore {
    * no error and no signal that anything is wrong).
    */
   add(product: ProductSummary): void {
-    this.state.update((lines) => {
+    this.mutate((lines) => {
       const existing = lines.find((line) => line.productId === product.productId);
 
       return existing
@@ -148,7 +200,7 @@ export class CartStore {
   }
 
   setQuantity(productId: string, quantity: number): void {
-    this.state.update((lines) => {
+    this.mutate((lines) => {
       // Both .map() and .filter() allocate a new array even when nothing
       // matches, and the persistence effect writes on every new array this
       // signal takes regardless of whether its contents actually changed
@@ -175,6 +227,9 @@ export class CartStore {
   }
 
   clear(): void {
-    this.state.set([]);
+    // Through `mutate` like every other mutator, so an emptied basket moves
+    // the version too: a quote priced for the basket that has just been spent
+    // (CheckoutPage.spendQuote) or emptied must not survive it.
+    this.mutate(() => []);
   }
 }

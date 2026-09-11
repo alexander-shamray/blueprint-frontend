@@ -1,7 +1,7 @@
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { provideRouter } from '@angular/router';
+import { Router, provideRouter } from '@angular/router';
 import { signal } from '@angular/core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AuthService } from '@core/auth/auth.service';
@@ -192,6 +192,72 @@ describe('CartPage', () => {
     expect(signIn).toHaveBeenCalledOnce();
   });
 
+  it('drops a quote reply that lands after another screen changed the basket', async () => {
+    fixture.componentInstance.getQuote();
+    const request = controller.expectOne((r) => r.url.includes('/quote'));
+
+    // ProductsPage.addToCart() while the request is in flight. Nothing on this
+    // page was touched, so this page's own generation counter — which guards
+    // the quantity and currency controls — never moves, and the reply is
+    // applied. What makes it safe is that the reply is stamped with the basket
+    // it was ASKED about, not the basket in force when it landed.
+    store.add(product('p3'));
+
+    request.flush({
+      currency: 'EUR',
+      lines: [quoted('p1', 4, 1, 4), quoted('p2', 4, 1, 4)],
+      total: 8,
+      unpriced: [],
+    });
+    await fixture.whenStable();
+
+    // A total for two products, arriving to a basket of three.
+    expect(fixture.componentInstance.quote()).toBeNull();
+    expect(fixture.componentInstance.canCheckout()).toBe(false);
+  });
+
+  it('refuses to hand a stale quote to checkout even if checkout() is called directly', async () => {
+    fixture.componentInstance.getQuote();
+    controller.expectOne((r) => r.url.includes('/quote')).flush({
+      currency: 'EUR',
+      lines: [quoted('p1', 4, 1, 4), quoted('p2', 4, 1, 4)],
+      total: 8,
+      unpriced: [],
+    });
+    await fixture.whenStable();
+
+    // The quote goes stale without any method on this page being called, so
+    // the button's [disabled] binding and this method's precondition are no
+    // longer established by the same code path — and checkout() is public.
+    store.add(product('p3'));
+
+    const navigate = vi.spyOn(TestBed.inject(Router), 'navigate');
+    fixture.componentInstance.checkout();
+
+    // Neither half happens: nothing is written to the handoff the guard reads
+    // (a `!` here would assert "a quote was set" over a null), and nothing
+    // navigates to a page whose whole precondition is that quote.
+    expect(TestBed.inject(CheckoutHandoff).quote()).toBeNull();
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it('disables Get quote while a 429 window is open', async () => {
+    fixture.componentInstance.getQuote();
+    controller.expectOne((r) => r.url.includes('/quote')).flush(
+      { title: 'Too many requests', status: 429 },
+      { status: 429, statusText: 'Too Many Requests' },
+    );
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.rateLimit.blocked()).toBe(true);
+
+    const getQuote = [...fixture.nativeElement.querySelectorAll('ion-button')].find(
+      (el: HTMLElement) => el.textContent?.trim() === 'Get quote',
+    );
+    expect(getQuote.disabled).toBe(true);
+  });
+
   it('discards a stale quote when a quantity changes', async () => {
     fixture.componentInstance.getQuote();
     controller.expectOne((r) => r.url.includes('/quote')).flush({
@@ -222,6 +288,35 @@ describe('CartPage', () => {
     // that no longer applies, and must not silently re-enable checkout.
     expect(fixture.componentInstance.quote()).toBeNull();
     expect(fixture.componentInstance.canCheckout()).toBe(false);
+  });
+
+  it('discards a quote when the basket is changed from another screen', async () => {
+    fixture.componentInstance.getQuote();
+    controller.expectOne((r) => r.url.includes('/quote')).flush({
+      currency: 'EUR',
+      lines: [quoted('p1', 4, 1, 4), quoted('p2', 4, 1, 4)],
+      total: 8,
+      unpriced: [],
+    });
+    await fixture.whenStable();
+
+    fixture.componentInstance.checkout();
+    const handoff = TestBed.inject(CheckoutHandoff);
+    expect(fixture.componentInstance.canCheckout()).toBe(true);
+    expect(handoff.quote()).not.toBeNull();
+
+    // ProductsPage.addToCart(), which is CartStore.add() and nothing else: no
+    // stepper on this page moved, no method on this page was called. The quote
+    // on screen is now priced for a basket the customer no longer has, and
+    // both this page and the route guard have to say so — they used to say
+    // different things, because invalidation hung off this page's own
+    // controls rather than off the mutation.
+    store.add(product('p3'));
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.quote()).toBeNull();
+    expect(fixture.componentInstance.canCheckout()).toBe(false);
+    expect(handoff.quote()).toBeNull();
   });
 
   it('clears the checkout handoff when a quantity changes after checkout()', async () => {

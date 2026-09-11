@@ -2,7 +2,9 @@ import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { Router, provideRouter } from '@angular/router';
+import { signal } from '@angular/core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { AuthService } from '@core/auth/auth.service';
 import { CartPersistence } from '@core/cart/cart.persistence';
 import { CartStore } from '@core/cart/cart.store';
 import { CheckoutHandoff } from '@core/cart/checkout-handoff';
@@ -16,8 +18,10 @@ describe('CheckoutPage', () => {
   let fixture: ComponentFixture<CheckoutPage>;
   let controller: HttpTestingController;
   let navigate: ReturnType<typeof vi.fn>;
+  let signIn: ReturnType<typeof vi.fn>;
 
   beforeEach(async () => {
+    signIn = vi.fn(async () => undefined);
     TestBed.configureTestingModule({
       imports: [CheckoutPage],
       providers: [
@@ -26,6 +30,10 @@ describe('CheckoutPage', () => {
         provideHttpClientTesting(),
         CartStore,
         { provide: CartPersistence, useValue: { read: async () => [], write: async () => undefined } },
+        {
+          provide: AuthService,
+          useValue: { signIn, user: () => signal({ username: 'demo' }), accessToken: () => 't' },
+        },
       ],
     });
 
@@ -180,6 +188,67 @@ describe('CheckoutPage', () => {
     // — must not reach currency()'s assertion with a null quote underneath.
     expect(() => fixture.componentInstance.placeOrder()).not.toThrow();
     controller.expectNone('http://localhost:5000/api/v1/orders');
+  });
+
+  it('invokes sign-in on a 401 and replays the order under the same commandId', async () => {
+    fixture.componentInstance.placeOrder();
+    const first = controller.expectOne('http://localhost:5000/api/v1/orders');
+    const firstId = first.request.body.commandId;
+
+    // An access token that expired mid-checkout: five minutes is the whole
+    // lifetime (spec §2.1), so this is the ordinary case rather than the
+    // exotic one.
+    first.flush({ title: 'Unauthorized', status: 401 }, { status: 401, statusText: 'Unauthorized' });
+    await fixture.whenStable();
+
+    expect(signIn).toHaveBeenCalledOnce();
+
+    // "…and replays after" (spec §6). The replay carries the SAME commandId,
+    // which is the only thing that makes an automatic resubmission of an order
+    // defensible: IdempotencyBehavior keys on it, so the platform sees a
+    // replay rather than a second order.
+    const replay = controller.expectOne('http://localhost:5000/api/v1/orders');
+    expect(replay.request.body.commandId).toBe(firstId);
+
+    replay.flush('44444444-4444-4444-4444-444444444444', { status: 200, statusText: 'OK' });
+    await fixture.whenStable();
+  });
+
+  it('does not loop when the replay is refused with another 401', async () => {
+    fixture.componentInstance.placeOrder();
+    controller
+      .expectOne('http://localhost:5000/api/v1/orders')
+      .flush({ title: 'Unauthorized', status: 401 }, { status: 401, statusText: 'Unauthorized' });
+    await fixture.whenStable();
+
+    // The replay is refused too — an account that lost the permission, a realm
+    // mid-restart. Sign-in is offered again, because a 401 always means the
+    // caller must authenticate, but the automatic replay is spent: one more
+    // request and no third one.
+    controller
+      .expectOne('http://localhost:5000/api/v1/orders')
+      .flush({ title: 'Unauthorized', status: 401 }, { status: 401, statusText: 'Unauthorized' });
+    await fixture.whenStable();
+
+    expect(signIn).toHaveBeenCalledTimes(2);
+    controller.expectNone('http://localhost:5000/api/v1/orders');
+  });
+
+  it('disables Place order while a 429 window is open', async () => {
+    fixture.componentInstance.placeOrder();
+    controller.expectOne('http://localhost:5000/api/v1/orders').flush(
+      { title: 'Too many requests', status: 429 },
+      { status: 429, statusText: 'Too Many Requests' },
+    );
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.rateLimit.blocked()).toBe(true);
+
+    const place = [...fixture.nativeElement.querySelectorAll('ion-button')].find(
+      (el: HTMLElement) => el.textContent?.trim() === 'Place order',
+    );
+    expect(place.disabled).toBe(true);
   });
 
   it('surfaces field errors keyed as the backend keyed them', async () => {

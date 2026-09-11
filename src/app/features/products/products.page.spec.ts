@@ -99,19 +99,27 @@ describe('ProductsPage', () => {
 
   it('offers a way back after a failed first load, and the retry starts from the first page', async () => {
     // The landing tab's very first listing fails. Before the Try again
-    // control existed this was terminal for the session: load() sets hasMore
-    // false so the infinite scroll stops asking, and nothing else on the page
-    // could issue another request.
+    // control existed this was terminal for the session: the infinite scroll
+    // stops asking on a failure, and nothing else on the page could issue
+    // another request.
+    //
+    // A 503 rather than a 429 on purpose: a 429 opens a retry window during
+    // which this button is deliberately dead (the test below), and this test
+    // is about the affordance existing at all.
     controller
       .expectOne((r) => r.url === 'http://localhost:5000/api/v1/catalog/products')
       .flush(
-        { title: 'Too many requests', status: 429 },
-        { status: 429, statusText: 'Too Many Requests' },
+        { title: 'Service unavailable', status: 503 },
+        { status: 503, statusText: 'Service Unavailable' },
       );
     await fixture.whenStable();
     fixture.detectChanges();
 
-    expect(fixture.componentInstance.hasMore()).toBe(false);
+    // The scroll stops asking on its own — retrying into a limiter
+    // automatically is how a rate limit becomes a loop — but it stops because
+    // an error stands, not because the catalogue said it had no more pages.
+    expect(fixture.componentInstance.canLoadMore()).toBe(false);
+    expect(fixture.componentInstance.hasMore()).toBe(true);
 
     const retry: HTMLElement = [...fixture.nativeElement.querySelectorAll('ion-button')].find(
       (el: HTMLElement) => el.textContent?.trim() === 'Try again',
@@ -126,8 +134,10 @@ describe('ProductsPage', () => {
     const second = controller.expectOne(
       (r) => r.url === 'http://localhost:5000/api/v1/catalog/products',
     );
-    // The first page again, not a resumed cursor: after a failure the
-    // sequence is not resumable.
+    // The first page again — not because a failed sequence cannot be resumed
+    // (the test below resumes one), but because this failure was the FIRST
+    // page: `cursor` is still null, so resuming and restarting are the same
+    // request.
     expect(second.request.params.has('cursor')).toBe(false);
 
     second.flush(page(2, null));
@@ -142,6 +152,87 @@ describe('ProductsPage', () => {
         (el: HTMLElement) => el.textContent?.trim() === 'Try again',
       ),
     ).toBe(false);
+  });
+
+  it('a failed later page is retryable, and resumes from the cursor that failed', async () => {
+    controller
+      .expectOne((r) => r.url === 'http://localhost:5000/api/v1/catalog/products')
+      .flush(page(20, 'cursor-2'));
+    await fixture.whenStable();
+
+    // Page two fails transiently. This used to be terminal for the session:
+    // the error branch set hasMore false — correct for "no more pages", wrong
+    // for "this attempt failed" — so after the 429's window closed, or after a
+    // 503 passed, page two could never be asked for again.
+    fixture.componentInstance.loadMore();
+    controller
+      .expectOne((r) => r.url === 'http://localhost:5000/api/v1/catalog/products')
+      .flush(
+        { title: 'Service unavailable', status: 503 },
+        { status: 503, statusText: 'Service Unavailable' },
+      );
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    // The platform never said the listing had ended, and the client does not
+    // say it on its behalf.
+    expect(fixture.componentInstance.hasMore()).toBe(true);
+    // It does stop the scroll asking by itself while the failure stands.
+    expect(fixture.componentInstance.canLoadMore()).toBe(false);
+
+    const retry: HTMLElement = [...fixture.nativeElement.querySelectorAll('ion-button')].find(
+      (el: HTMLElement) => el.textContent?.trim() === 'Try again',
+    );
+    expect(retry).toBeTruthy();
+    retry.click();
+    await fixture.whenStable();
+
+    // Resumed, not restarted: cursor-2 is the page that never arrived, and the
+    // twenty items already on screen are not thrown away to ask for it.
+    const resumed = controller.expectOne(
+      (r) => r.url === 'http://localhost:5000/api/v1/catalog/products',
+    );
+    expect(resumed.request.params.get('cursor')).toBe('cursor-2');
+
+    resumed.flush(page(5, 'cursor-3'));
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.products()).toHaveLength(25);
+    expect(fixture.componentInstance.error()).toBeNull();
+    // And the scroll is armed again, at the cursor the resumed page returned.
+    expect(fixture.componentInstance.canLoadMore()).toBe(true);
+
+    fixture.componentInstance.loadMore();
+    const next = controller.expectOne(
+      (r) => r.url === 'http://localhost:5000/api/v1/catalog/products',
+    );
+    expect(next.request.params.get('cursor')).toBe('cursor-3');
+    next.flush(page(0, null));
+    await fixture.whenStable();
+  });
+
+  it('disables Try again while a 429 window is open', async () => {
+    controller
+      .expectOne((r) => r.url === 'http://localhost:5000/api/v1/catalog/products')
+      .flush(
+        { title: 'Too many requests', status: 429 },
+        { status: 429, statusText: 'Too Many Requests' },
+        // No Retry-After header, so the mapper's own 60-second fallback
+        // applies — the window is open either way, which is all this asserts.
+      );
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.rateLimit.blocked()).toBe(true);
+
+    // Asserted through the rendered button, not just the signal: spec §6 asks
+    // for the ACTION to be disabled for that long, and a countdown beside a
+    // live button is a countdown that changes nothing.
+    const retry = [...fixture.nativeElement.querySelectorAll('ion-button')].find(
+      (el: HTMLElement) => el.textContent?.trim() === 'Try again',
+    );
+    expect(retry.disabled).toBe(true);
   });
 
   it('drops a stale loadMore() response that lands after reload() started a new sequence', async () => {

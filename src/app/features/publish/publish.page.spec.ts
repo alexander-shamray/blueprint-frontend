@@ -2,7 +2,9 @@ import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { Router, provideRouter } from '@angular/router';
+import { signal } from '@angular/core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { AuthService } from '@core/auth/auth.service';
 import { ALREADY_COMMITTED } from '@core/commands/command-id';
 import { CatalogRefresh } from '@core/catalog/catalog-refresh';
 import { PublishPage } from './publish.page';
@@ -11,11 +13,22 @@ describe('PublishPage', () => {
   let fixture: ComponentFixture<PublishPage>;
   let controller: HttpTestingController;
   let navigate: ReturnType<typeof vi.fn>;
+  let signIn: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
+    signIn = vi.fn(async () => undefined);
+
     TestBed.configureTestingModule({
       imports: [PublishPage],
-      providers: [provideRouter([]), provideHttpClient(), provideHttpClientTesting()],
+      providers: [
+        provideRouter([]),
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        {
+          provide: AuthService,
+          useValue: { signIn, user: () => signal({ username: 'demo' }), accessToken: () => 't' },
+        },
+      ],
     });
 
     navigate = vi.fn(async () => true);
@@ -190,6 +203,68 @@ describe('PublishPage', () => {
 
     request.flush('55555555-5555-5555-5555-555555555555', { status: 200, statusText: 'OK' });
     await fixture.whenStable();
+  });
+
+  it('invokes sign-in on a 401 and replays the publish under the same commandId', async () => {
+    fixture.componentInstance.publish();
+    const first = controller.expectOne('http://localhost:5000/api/v1/catalog/products');
+    const firstId = first.request.body.commandId;
+
+    first.flush({ title: 'Unauthorized', status: 401 }, { status: 401, statusText: 'Unauthorized' });
+    await fixture.whenStable();
+
+    expect(signIn).toHaveBeenCalledOnce();
+
+    // "…and replays after" (spec §6). The same commandId is what makes the
+    // automatic resubmission a replay rather than a second product:
+    // IdempotencyBehavior keys on it. (The 401 was refused at the edge, so
+    // nothing was published to duplicate either way.)
+    const replay = controller.expectOne('http://localhost:5000/api/v1/catalog/products');
+    expect(replay.request.body.commandId).toBe(firstId);
+
+    replay.flush('55555555-5555-5555-5555-555555555555', { status: 200, statusText: 'OK' });
+    await fixture.whenStable();
+
+    // The form's values were still in front of the user throughout — this
+    // page never navigates — so the publish they asked for is the publish
+    // that happened.
+    expect(fixture.componentInstance.publishedId()).toBe('55555555-5555-5555-5555-555555555555');
+  });
+
+  it('does not loop when the replay is refused with another 401', async () => {
+    fixture.componentInstance.publish();
+    controller
+      .expectOne('http://localhost:5000/api/v1/catalog/products')
+      .flush({ title: 'Unauthorized', status: 401 }, { status: 401, statusText: 'Unauthorized' });
+    await fixture.whenStable();
+
+    controller
+      .expectOne('http://localhost:5000/api/v1/catalog/products')
+      .flush({ title: 'Unauthorized', status: 401 }, { status: 401, statusText: 'Unauthorized' });
+    await fixture.whenStable();
+
+    // Sign-in is offered every time a 401 arrives — that is what the row
+    // says — but the automatic replay is spent after one, so this is two
+    // requests and not an unbounded chain of them.
+    expect(signIn).toHaveBeenCalledTimes(2);
+    controller.expectNone('http://localhost:5000/api/v1/catalog/products');
+  });
+
+  it('disables Publish while a 429 window is open', async () => {
+    fixture.componentInstance.publish();
+    controller.expectOne('http://localhost:5000/api/v1/catalog/products').flush(
+      { title: 'Too many requests', status: 429 },
+      { status: 429, statusText: 'Too Many Requests' },
+    );
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.rateLimit.blocked()).toBe(true);
+
+    const publish = [...fixture.nativeElement.querySelectorAll('ion-button')].find(
+      (el: HTMLElement) => el.textContent?.trim() === 'Publish',
+    );
+    expect(publish.disabled).toBe(true);
   });
 
   it('names catalog:write on a 403', async () => {

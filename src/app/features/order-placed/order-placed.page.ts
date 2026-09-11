@@ -8,8 +8,10 @@ import {
   IonText, IonTitle, IonToolbar,
 } from '@ionic/angular';
 import { OrderingApi } from '@core/api/ordering.api';
+import { AuthService } from '@core/auth/auth.service';
 import { CancelReason, PERMISSIONS } from '@core/api/types';
 import { DisplayError, mapError } from '@core/errors/error-mapper';
+import { RetryCountdown } from '@core/errors/retry-countdown';
 import { ALREADY_COMMITTED } from '@core/commands/command-id';
 import { ErrorBannerComponent } from '@shared/error-banner.component';
 
@@ -36,7 +38,7 @@ import { ErrorBannerComponent } from '@shared/error-banner.component';
     </ion-header>
 
     <ion-content>
-      <app-error-banner [error]="error()" />
+      <app-error-banner [error]="error()" [retryInSeconds]="rateLimit.remaining()" />
 
       @if (alreadyCommitted()) {
         <ion-item>
@@ -70,7 +72,13 @@ import { ErrorBannerComponent } from '@shared/error-banner.component';
           </ion-note>
         </ion-item>
 
-        <ion-button expand="block" [disabled]="cancelled()" (click)="cancel()">Cancel order</ion-button>
+        <!--
+          Disabled for the length of a 429 window as well as after a
+          cancellation the platform confirmed (spec §6). The banner above is
+          counting the window down.
+        -->
+        <ion-button expand="block" [disabled]="cancelled() || rateLimit.blocked()"
+          (click)="cancel()">Cancel order</ion-button>
       }
 
       @if (cancelled()) {
@@ -82,6 +90,7 @@ import { ErrorBannerComponent } from '@shared/error-banner.component';
 export class OrderPlacedPage {
   private readonly ordering = inject(OrderingApi);
   private readonly route = inject(ActivatedRoute);
+  private readonly auth = inject(AuthService);
 
   /**
    * The ONLY reason a cancellation from this screen can truthfully carry.
@@ -134,6 +143,16 @@ export class OrderPlacedPage {
 
   readonly cancelled = this.cancelledState.asReadonly();
   readonly error = this.errorState.asReadonly();
+
+  /**
+   * Spec §6's 429 row. After `error`, which it reads — field initialisers
+   * run in order — and in the injection context its effect and DestroyRef
+   * need.
+   */
+  readonly rateLimit = new RetryCountdown(this.error);
+
+  /** One automatic replay per round trip; see `signInAndReplay()` below. */
+  private replayedAfterSignIn = false;
 
   /** True while a `cancel()` request is outstanding. See `cancel()` below. */
   private readonly cancelling = signal(false);
@@ -198,6 +217,7 @@ export class OrderPlacedPage {
       next: () => {
         if (this.orderId() !== issuedForId) return;
         this.cancelling.set(false);
+        this.replayedAfterSignIn = false;
         this.errorState.set(null);
         this.cancelledState.set(true);
       },
@@ -206,8 +226,55 @@ export class OrderPlacedPage {
         this.cancelling.set(false);
         // The permission comes from the route's own knowledge of what it
         // needs, not from the response — the 403 deliberately names none.
-        this.errorState.set(mapError(failure, { permission: PERMISSIONS.ordersCancel }));
+        const displayed = mapError(failure, { permission: PERMISSIONS.ordersCancel });
+        this.errorState.set(displayed);
+
+        // Spec §6's 401 row. This page is the one of the four with no
+        // commandId to replay under — `CancelOrderRequest` is `{ reason }`
+        // and nothing else, as `cancel()` says above — so the argument for
+        // replaying has to be made differently, and it is made by the status
+        // code itself: a 401 is a refusal at the edge, before the handler
+        // ever runs, so no cancellation was recorded. Sending the same
+        // cancellation again after re-authenticating therefore cannot be a
+        // second cancellation of anything; it is the first one, arriving
+        // with a token this time. (Order.Cancel is idempotent in the domain
+        // besides, which is a second line of defence, not the reason.)
+        //
+        // Replayed for `issuedForId` alone: this component is reused across
+        // `:id` values (see `orderId` above), and a sign-in that resolves
+        // after the route handed this instance a different order must not
+        // cancel the new one on the old one's behalf.
+        if (displayed.kind === 'signIn') this.signInAndReplay(issuedForId);
       },
     });
+  }
+
+  /**
+   * Re-authenticate, then send the same cancellation again, at most once per
+   * round trip — a 401 answered by a sign-in answered by another 401 is a
+   * loop, not a replay.
+   *
+   * On the web the replay is unreachable: `WebAuthStrategy.signIn()` is a
+   * top-level redirect to Keycloak and this page does not survive it (spec
+   * §4.1), and the platform exposes no endpoint to find the order again
+   * afterwards — which is precisely why the sign-in still has to be offered
+   * rather than left as a dead banner: the session the customer is about to
+   * lose is the only route they have back to this order id. The replay is
+   * written for the interface; the native strategy (spec §4.2) returns from
+   * `signIn()` with the page still standing, and there the cancellation goes
+   * through instead of being retyped.
+   */
+  private signInAndReplay(issuedForId: string): void {
+    const replay = !this.replayedAfterSignIn;
+    this.replayedAfterSignIn = true;
+
+    this.auth.signIn().then(
+      () => {
+        if (replay && this.orderId() === issuedForId && !this.cancelled()) this.cancel();
+      },
+      // `unknown`, not HttpErrorResponse: signIn() can reject with a bare
+      // string when discovery fails (see CartPage.getQuote()).
+      (failure: unknown) => this.errorState.set(mapError(failure)),
+    );
   }
 }

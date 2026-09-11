@@ -52,7 +52,7 @@ const GENERIC: Readonly<Record<ErrorKind, string | null>> = {
 
           @if (e.kind === 'rateLimited') {
             <p>
-              Retry in {{ e.retryAfterSeconds }}s.
+              {{ retryLabel() }}
               <!--
                 What the client can actually observe: it read no usable
                 Retry-After off this response. WHY it read none — absent,
@@ -91,6 +91,29 @@ const GENERIC: Readonly<Record<ErrorKind, string | null>> = {
 })
 export class ErrorBannerComponent {
   readonly error = input.required<DisplayError | null>();
+
+  /**
+   * Seconds left in a 429's window, counted by the PAGE (see
+   * `RetryCountdown`), because the page is what has to disable the action for
+   * that long and the number on screen must come from the same clock as the
+   * disabled button. This component renders; it does not own a timer.
+   *
+   * Optional, with the mapped `retryAfterSeconds` as the fallback: a caller
+   * that passes nothing gets the platform's figure stated once, which is what
+   * this banner did before anything counted at all — wrong to present as a
+   * countdown, but not wrong as a fact.
+   */
+  readonly retryInSeconds = input<number | null>(null);
+
+  /**
+   * "Retry in 12s." while the window is open, and a plain statement that it
+   * has closed once it reaches zero — "Retry in 0s." is a countdown that has
+   * finished still pretending to be a countdown.
+   */
+  protected readonly retryLabel = computed(() => {
+    const seconds = this.retryInSeconds() ?? this.error()?.retryAfterSeconds ?? 0;
+    return seconds > 0 ? `Retry in ${seconds}s.` : 'You can try again now.';
+  });
 
   /**
    * The backend's title wins whenever it sent one; the generic is the

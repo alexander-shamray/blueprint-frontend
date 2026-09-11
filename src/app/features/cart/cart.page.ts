@@ -11,6 +11,7 @@ import { AuthService } from '@core/auth/auth.service';
 import { CartStore } from '@core/cart/cart.store';
 import { CheckoutHandoff } from '@core/cart/checkout-handoff';
 import { DisplayError, mapError } from '@core/errors/error-mapper';
+import { RetryCountdown } from '@core/errors/retry-countdown';
 import { ErrorBannerComponent } from '@shared/error-banner.component';
 
 /** Spec §5.2. */
@@ -26,7 +27,7 @@ import { ErrorBannerComponent } from '@shared/error-banner.component';
     <ion-header><ion-toolbar><ion-title>Cart</ion-title></ion-toolbar></ion-header>
 
     <ion-content>
-      <app-error-banner [error]="error()" />
+      <app-error-banner [error]="error()" [retryInSeconds]="rateLimit.remaining()" />
 
       <ion-list>
         @for (line of lines(); track line.productId) {
@@ -89,7 +90,13 @@ import { ErrorBannerComponent } from '@shared/error-banner.component';
         </ion-select>
       </ion-item>
 
-      <ion-button expand="block" [disabled]="store.isEmpty()" (click)="getQuote()">Get quote</ion-button>
+      <!--
+        Disabled while a 429 window is open as well as for an empty basket
+        (spec §6): the gateway has already said how long to wait, and the
+        banner above is counting it down.
+      -->
+      <ion-button expand="block" [disabled]="store.isEmpty() || rateLimit.blocked()"
+        (click)="getQuote()">Get quote</ion-button>
 
       @if (quote(); as q) {
         <ion-item>
@@ -145,12 +152,48 @@ export class CartPage {
   // priced, and the only code entitled to say what the platform priced is the
   // code that read the response.
   private readonly currencyState = signal<string>('EUR');
-  private readonly quoteState = signal<QuoteResponse | null>(null);
+  // The quote AND the cart version it was priced at, stored together for the
+  // reason CheckoutHandoff stores them together: a quote is a statement about
+  // one specific basket, and the two drifting apart is the whole defect. The
+  // version is the one the REQUEST was issued under, not the one in force
+  // when the reply landed — a reply stamped on arrival would call itself
+  // fresh for a basket that changed while it was in flight.
+  private readonly quoteState = signal<{
+    readonly quote: QuoteResponse;
+    readonly cartVersion: number;
+  } | null>(null);
   private readonly errorState = signal<DisplayError | null>(null);
 
   readonly currency = this.currencyState.asReadonly();
-  readonly quote = this.quoteState.asReadonly();
   readonly error = this.errorState.asReadonly();
+
+  /**
+   * Spec §6's 429 row. Declared after `error`, which it reads: field
+   * initialisers run in order, and it needs the injection context this
+   * one runs in for its effect and its DestroyRef.
+   */
+  readonly rateLimit = new RetryCountdown(this.error);
+
+  /**
+   * The quote, or null once the basket has moved underneath it — the same
+   * answer, from the same counter, that `CheckoutHandoff.quote` gives
+   * `quoteGuard`. Both must agree: this signal decides whether Checkout is
+   * enabled, the guard decides whether the route opens, and a screen whose
+   * button and whose guard disagreed about a price would be a screen that
+   * could offer a stale total and then honour it.
+   *
+   * Not delegated to the handoff to avoid the duplication: the handoff holds
+   * a quote only from the moment Checkout is PRESSED, and only for quotes
+   * with no unpriced lines (`canCheckout`). Writing every reply into it
+   * instead would make `/tabs/cart/checkout` reachable by deep link with an
+   * unpriced basket, which is the one thing `canCheckout` exists to refuse.
+   */
+  readonly quote = computed<QuoteResponse | null>(() => {
+    const held = this.quoteState();
+    if (held === null) return null;
+
+    return held.cartVersion === this.store.version() ? held.quote : null;
+  });
 
   /**
    * Enabled only when a quote exists and prices every line. The BFF names the
@@ -206,6 +249,10 @@ export class CartPage {
 
   getQuote(): void {
     const generation = this.generation;
+    // Captured with the request, not read when the reply lands: this is the
+    // basket the platform is being asked to price, and it is what the reply
+    // is a statement about.
+    const cartVersion = this.store.version();
 
     // The cart's lines, quantities and all — the endpoint prices a basket
     // now, not a set of products. Mapped down to the two members the request
@@ -226,7 +273,7 @@ export class CartPage {
         if (generation !== this.generation) return;
 
         this.errorState.set(null);
-        this.quoteState.set(quote);
+        this.quoteState.set({ quote, cartVersion });
       },
       error: (failure: HttpErrorResponse) => {
         if (generation !== this.generation) return;
@@ -260,28 +307,46 @@ export class CartPage {
   }
 
   checkout(): void {
+    // Read once and checked, rather than asserted non-null behind the
+    // template's [disabled] binding. `quote()` can now become null without
+    // any method on this page being called — a mutation from ANOTHER feature
+    // (ProductsPage.addToCart) moves the cart version and the computed above
+    // reports nothing — so the button's disabled state and this method's
+    // precondition are no longer established by the same code path. The
+    // check is what makes CheckoutHandoff.set()'s non-nullable parameter
+    // honest: quoteGuard treats "a quote was set" as the route-reachability
+    // fact, and a `!` here could assert that fact falsely.
+    const quote = this.quote();
+    if (quote === null) return;
+
     // The quote travels through core rather than through a route parameter: a
     // QuoteResponse does not belong in a URL, and a feature never imports
     // another feature (spec §3).
-    //
-    // Asserted non-null: the template only enables this button behind
-    // canCheckout(), which requires a quote to exist. CheckoutHandoff.set()
-    // takes QuoteResponse rather than QuoteResponse | null on purpose —
-    // quoteGuard treats "a quote was set" as the route-reachability fact, and
-    // a nullable setter would let that fact be asserted falsely.
-    this.handoff.set(this.quote()!);
+    this.handoff.set(quote);
     void this.router.navigate(['/tabs/cart/checkout']);
   }
 
   /**
    * A quote describes a specific set of lines in a specific currency; change
-   * either and it is stale. Nulling `quoteState` alone does not finish the
-   * job: a `getQuote()` issued before the change may still be in flight, and
-   * the checkout handoff may still hold what the stale quote produced.
-   * Bumping `generation` drops that in-flight response when it lands, the
-   * same way `ProductsPage.reload()` drops a superseded `loadMore()`;
-   * clearing the handoff keeps the checkout route guard from trusting a
-   * quote priced for a basket or currency that no longer exists.
+   * either and it is stale.
+   *
+   * The LINES half is no longer this method's job, and deliberately so: it
+   * hangs off `CartStore.version` now, so a mutation from any screen — this
+   * page's steppers, `ProductsPage.addToCart()`, a cleared basket after a
+   * placed order — invalidates the quote here and in the handoff the guard
+   * reads, without either of them being told. Tying invalidation to the UI
+   * that triggered the mutation is precisely what let a product added from
+   * the Products tab leave a stale quote standing.
+   *
+   * What remains is the CURRENCY half, which the store cannot see: the
+   * basket is unchanged, so the version does not move, and only this page
+   * knows the number on screen is now priced in the wrong unit. Nulling
+   * `quoteState` alone does not finish that job — a `getQuote()` issued
+   * before the change may still be in flight, and the handoff may still hold
+   * what the stale quote produced. Bumping `generation` drops that in-flight
+   * response when it lands, the same way `ProductsPage.reload()` drops a
+   * superseded `loadMore()`; clearing the handoff keeps the checkout route
+   * guard from trusting a quote priced in a currency nobody asked for.
    */
   private invalidateQuote(): void {
     this.generation++;

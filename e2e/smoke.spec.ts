@@ -176,7 +176,7 @@ test('a published product reaches the catalogue without a reload', async ({ page
   await expect(page.getByText(name)).toBeVisible();
 });
 
-test('browser holds no permissions: the publish tab is absent and the route refuses', async ({ page }) => {
+test('browser holds no permissions: the publish tab is absent, and a direct navigation — which reloads, so it arrives anonymous — is refused', async ({ page }) => {
   await signIn(page, 'browser', 'browser');
 
   // Not getByText('browser'): the catalogue accumulates published products
