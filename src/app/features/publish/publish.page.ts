@@ -47,9 +47,11 @@ import { ErrorBannerComponent } from '@shared/error-banner.component';
  * longer holds the result to hand back an id for. So this branch does what
  * a success does, minus the id.
  *
- * The gateway routes this POST only once plan Task 0 has landed;
- * `catalog-public` matches GET alone. Until then a real call answers 404 at
- * the edge, which the banner shows as sent.
+ * The gateway routes this POST through `catalog-write`, which matches POST
+ * and requires authentication, rather than through `catalog-public`, which
+ * matches GET alone and is anonymous. Both routes exist
+ * (Gateway.Api/appsettings.json); the split is what lets the catalogue be
+ * readable by anyone while publishing is not.
  */
 @Component({
   selector: 'app-publish',

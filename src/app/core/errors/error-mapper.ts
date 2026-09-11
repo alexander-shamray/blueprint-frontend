@@ -38,9 +38,18 @@ export interface DisplayError {
 }
 
 /**
- * Used when the gateway has not yet been taught to expose Retry-After
- * (Task 0, step 2). The limiter's real budget is 300 tokens per minute, so a
- * minute is the honest round number to wait rather than a tuned guess.
+ * Used when a 429 arrives with no readable `Retry-After`.
+ *
+ * The gateway exposes the header across origins — Gateway.Api/Program.cs
+ * calls `WithExposedHeaders("Retry-After", ...)`, so CORS is no longer the
+ * reason a browser cannot read it. What remains is narrower: the gateway
+ * sets the header when the rejected lease carries the retry metadata, and a
+ * rejection that carries none produces a 429 with nothing to read. This
+ * constant is for that case only, and `retryAfterIsFallback` tells the
+ * banner to say it is a guess rather than the platform's own number.
+ *
+ * The limiter's real budget is 300 tokens per minute, so a minute is the
+ * honest round number to wait rather than a tuned guess.
  */
 export const RATE_LIMIT_FALLBACK_SECONDS = 60;
 

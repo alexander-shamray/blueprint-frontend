@@ -29,9 +29,13 @@ export class CatalogApi {
   }
 
   /**
-   * Requires `catalog:write`, and requires the gateway's `catalog-write` route
-   * (plan Task 0): `catalog-public` matches GET alone, so before that route
-   * exists this call 404s at the edge rather than reaching Catalog at all.
+   * Requires `catalog:write`, and reaches Catalog through the gateway's
+   * `catalog-write` route (Gateway.Api/appsettings.json) rather than
+   * `catalog-public`. The two are deliberately separate: `catalog-public`
+   * matches GET alone and is anonymous, `catalog-write` matches POST and
+   * carries the `authenticated` policy. A single route doing both would
+   * have made the listing's anonymity a property of a method check rather
+   * than of the route, which is the weaker of the two places to put it.
    *
    * Replies 200 with the new id, not 201 — there is no Location header to
    * follow, and no endpoint to follow it to.

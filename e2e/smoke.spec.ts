@@ -91,8 +91,9 @@ test('demo browses, quotes, orders and cancels', async ({ page }) => {
 });
 
 test('a published product reaches the catalogue without a reload', async ({ page }) => {
-  // Requires the gateway's catalog-write route (plan Task 0). Before it lands
-  // this fails with the edge's 404, which is the accurate result.
+  // Goes through the gateway's `catalog-write` route, which matches POST and
+  // requires authentication — `catalog-public` matches GET alone. If this
+  // test ever 404s at the edge, that route is the first thing to check.
   await signIn(page, 'demo', 'demo');
 
   const name = `Smoke ${Date.now()}`;
