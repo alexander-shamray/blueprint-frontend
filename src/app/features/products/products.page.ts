@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, Signal, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, Signal, effect, inject, signal } from '@angular/core';
 import { HttpErrorResponse } from '@angular/common/http';
 import {
   IonContent, IonHeader, IonInfiniteScroll, IonInfiniteScrollContent, IonItem, IonLabel,
@@ -7,6 +7,7 @@ import {
 import { CatalogApi } from '@core/api/catalog.api';
 import { ProductSummary } from '@core/api/types';
 import { CartStore } from '@core/cart/cart.store';
+import { CatalogRefresh } from '@core/catalog/catalog-refresh';
 import { DisplayError, mapError } from '@core/errors/error-mapper';
 import { ErrorBannerComponent } from '@shared/error-banner.component';
 
@@ -57,6 +58,7 @@ import { ErrorBannerComponent } from '@shared/error-banner.component';
 export class ProductsPage {
   private readonly catalog = inject(CatalogApi);
   private readonly cart = inject(CartStore);
+  private readonly catalogRefresh = inject(CatalogRefresh);
   private cursor: string | null = null;
 
   /**
@@ -88,6 +90,26 @@ export class ProductsPage {
 
   constructor() {
     this.load();
+
+    // Ionic caches this page's ComponentRef in its tab-stack view list and
+    // reuses it on re-entry (StackController.getExistingView, via
+    // IonRouterOutlet.activateWith) instead of constructing a fresh one, so
+    // this constructor runs exactly ONCE per app session, not once per visit
+    // to the tab. Without this effect, navigating back here after publishing
+    // shows the stale list from the first (and only) construction. Task 14's
+    // publish page calls CatalogRefresh.request() instead of trying to
+    // navigate its way to a reload that navigation alone cannot produce.
+    //
+    // An effect() runs once immediately on top of every signal it reads, so
+    // the version seen right here — before that first run — is remembered
+    // and compared against: the first run is this same construction's own
+    // load() above, and reloading again for it would double-fetch on every
+    // app start.
+    const constructedAtVersion = this.catalogRefresh.current();
+    effect(() => {
+      if (this.catalogRefresh.current() === constructedAtVersion) return;
+      this.reload();
+    });
   }
 
   /** Called by the publish page after a success (spec §5.5). */

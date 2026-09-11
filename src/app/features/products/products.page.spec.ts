@@ -4,6 +4,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { CartStore } from '@core/cart/cart.store';
 import { CartPersistence } from '@core/cart/cart.persistence';
+import { CatalogRefresh } from '@core/catalog/catalog-refresh';
 import { ProductsPage } from './products.page';
 
 const page = (n: number, nextCursor: string | null) => ({
@@ -137,5 +138,74 @@ describe('ProductsPage', () => {
     );
     expect(next.request.params.get('cursor')).toBe('cursor-fresh');
     next.flush(page(0, null));
+  });
+
+  it('construction alone does not double-fetch (CatalogRefresh untouched)', async () => {
+    // The first HTTP request in beforeEach is the one and only load() this
+    // component makes on its own. Confirming there is no second one pending
+    // is what distinguishes "the effect skipped its own first run" from "the
+    // effect happens to never have fired yet".
+    controller.expectOne((r) => r.url === 'http://localhost:5000/api/v1/catalog/products').flush(page(1, null));
+    await fixture.whenStable();
+
+    controller.verify();
+  });
+
+  it('CatalogRefresh.request() triggers exactly one reload, starting from the first page', async () => {
+    controller
+      .expectOne((r) => r.url === 'http://localhost:5000/api/v1/catalog/products')
+      .flush(page(20, 'cursor-2'));
+    await fixture.whenStable();
+
+    TestBed.inject(CatalogRefresh).request();
+    await fixture.whenStable();
+
+    // Exactly one reload: a single new request, carrying no cursor — a
+    // refresh restarts pagination from the first page rather than resuming
+    // from wherever the stale list had scrolled to.
+    const refreshed = controller.expectOne(
+      (r) => r.url === 'http://localhost:5000/api/v1/catalog/products',
+    );
+    expect(refreshed.request.params.has('cursor')).toBe(false);
+    refreshed.flush(page(3, null));
+    await fixture.whenStable();
+
+    expect(fixture.componentInstance.products()).toHaveLength(3);
+  });
+
+  it('a reload triggered by CatalogRefresh drops a stale loadMore() the same way a manual reload() does', async () => {
+    controller
+      .expectOne((r) => r.url === 'http://localhost:5000/api/v1/catalog/products')
+      .flush(page(20, 'cursor-2'));
+    await fixture.whenStable();
+
+    // A loadMore() is in flight...
+    fixture.componentInstance.loadMore();
+    const stale = controller.expectOne(
+      (r) =>
+        r.url === 'http://localhost:5000/api/v1/catalog/products' &&
+        r.params.get('cursor') === 'cursor-2',
+    );
+
+    // ...when a publish elsewhere bumps CatalogRefresh mid-flight, exactly as
+    // a direct reload() call would.
+    TestBed.inject(CatalogRefresh).request();
+    await fixture.whenStable();
+    const fresh = controller.expectOne(
+      (r) =>
+        r.url === 'http://localhost:5000/api/v1/catalog/products' && !r.params.has('cursor'),
+    );
+
+    fresh.flush(page(2, null));
+    await fixture.whenStable();
+
+    // The stale page-2 response lands late and must be dropped, same as the
+    // manual-reload() case above — the version-generation guard in load()
+    // does not distinguish who called reload().
+    stale.flush(page(5, 'cursor-stale-next'));
+    await fixture.whenStable();
+
+    expect(fixture.componentInstance.products()).toHaveLength(2);
+    expect(fixture.componentInstance.hasMore()).toBe(false);
   });
 });
