@@ -1,6 +1,7 @@
 import { Routes } from '@angular/router';
 import { PERMISSIONS } from '@core/api/types';
 import { permissionGuard } from '@core/auth/permission.guard';
+import { quoteGuard } from '@core/cart/quote.guard';
 
 /**
  * Checkout and Order placed are pushed onto the Cart tab's stack (spec §5), so
@@ -23,6 +24,7 @@ export const routes: Routes = [
       },
       {
         path: 'cart/checkout',
+        canActivate: [quoteGuard],
         loadComponent: () => import('@features/checkout/checkout.page').then((m) => m.CheckoutPage),
       },
       {
