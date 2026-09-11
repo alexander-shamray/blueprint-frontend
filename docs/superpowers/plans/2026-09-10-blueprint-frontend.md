@@ -2533,6 +2533,26 @@ describe('CartStore', () => {
     expect(store.lines()).toEqual([]);
   });
 
+  it('does not persist the state it was born with', () => {
+    // The effect is scheduled at construction and its first flush can land
+    // while restore() is still awaiting the read. Persisting there writes []
+    // over the stored cart: the screen is then right and storage is empty, so
+    // the cart survives one reload and vanishes on the second.
+    TestBed.tick();
+
+    expect(persistence.write).not.toHaveBeenCalled();
+  });
+
+  it('persists a cart the user emptied, which is not the same thing', async () => {
+    store.add(product('p1'));
+    TestBed.tick();
+    store.clear();
+    TestBed.tick();
+
+    // clear() sets a fresh [], a different object from INITIAL, so it writes.
+    expect(persistence.write).toHaveBeenLastCalledWith([]);
+  });
+
   it('persists on every change', async () => {
     store.add(product('p1'));
     // TestBed.tick() — NOT `await Promise.resolve()`. The scheduler uses
@@ -2647,7 +2667,17 @@ export interface CartLine {
 @Injectable({ providedIn: 'root' })
 export class CartStore {
   private readonly persistence = inject(CartPersistence);
-  private readonly state = signal<readonly CartLine[]>([]);
+  /**
+   * The array the signal starts at, held as a named constant so its IDENTITY
+   * can be recognised later. This is what tells "not yet read from storage"
+   * apart from "emptied by the user": clear() sets a FRESH [], a different
+   * object, so a genuinely emptied cart still persists while this one never
+   * does. Without the distinction the two are indistinguishable, because
+   * both are an empty array.
+   */
+  private static readonly INITIAL: readonly CartLine[] = [];
+
+  private readonly state = signal<readonly CartLine[]>(CartStore.INITIAL);
 
   /**
    * The exact array reference `restore()` last wrote, or null.
@@ -2674,6 +2704,19 @@ export class CartStore {
   constructor() {
     effect(() => {
       const lines = this.state();
+
+      // Never persist the state the signal was BORN with. This effect is
+      // scheduled at construction, and its first flush can land while
+      // restore() is still awaiting persistence.read() - at which point
+      // state() is this initial [] and pendingRestore is still null, so the
+      // echo guard below does not fire and the effect writes [] straight
+      // over the stored cart. restore() then sets the real lines, so the
+      // SCREEN is correct and storage is empty: the cart survives one
+      // reload and vanishes on the second. Returning the promise from
+      // provideAppInitializer does not prevent this - blocking bootstrap on
+      // the initializer does not stop the zoneless effect scheduler from
+      // flushing during the await. Observed, not theorised.
+      if (lines === CartStore.INITIAL) return;
 
       // Skip only the write for the restore that produced THIS exact array.
       // Anything else — including a change made after the restore but before
@@ -3193,15 +3236,19 @@ export const appConfig: ApplicationConfig = {
     // The cart survives a restart on every platform (spec §3). Restoring it
     // before the first render keeps the tab badge from flashing zero.
     //
-    // RETURN the promise — do not fire and forget. Angular waits on a returned
-    // promise before bootstrapping, and that wait is what closes a real race:
-    // CartStore's persistence effect is scheduled once at construction with the
-    // initial EMPTY state. If a slow Preferences.get() — a native bridge round
-    // trip, not web localStorage — let that first flush land before restore()
-    // resolved, it would persist `[]`, and the pendingRestore guard would then
-    // suppress the write that should have corrected it. The cart would come
-    // back empty, silently. Blocking bootstrap on the read keeps the empty
-    // state from ever being the one that flushes.
+    // RETURN the promise - do not fire and forget. Angular waits on a
+    // returned promise before finishing bootstrap, so the first render sees
+    // the restored cart rather than a badge that flashes zero and corrects
+    // itself.
+    //
+    // What this does NOT do is close the race it was once claimed to close.
+    // CartStore's persistence effect is scheduled at construction with the
+    // initial empty state, and blocking bootstrap does not stop the zoneless
+    // effect scheduler from flushing during restore()'s await - the flush
+    // lands, writes [], and wipes the stored cart while the screen still
+    // looks right. That race is closed inside CartStore, by refusing to
+    // persist the array the signal was born with. See the INITIAL sentinel
+    // there.
     provideAppInitializer(() => inject(CartStore).restore()),
   ],
 };
@@ -3641,7 +3688,8 @@ describe('CartPage', () => {
   afterEach(() => controller.verify());
 
   it('quotes with one productId per distinct product and the selected currency', () => {
-    fixture.componentInstance.currency.set('GBP');
+    // setCurrency(), not currency.set() — `currency` is an asReadonly() view.
+    fixture.componentInstance.setCurrency('GBP');
     fixture.componentInstance.getQuote();
 
     const request = controller.expectOne((r) => r.url.includes('/bff/v1/checkout/quote'));
