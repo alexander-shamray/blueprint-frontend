@@ -34,6 +34,10 @@ export class OrderingApi {
   cancel(orderId: string, reason: CancelReason): Observable<void> {
     const body: CancelOrderRequest = { reason };
 
-    return this.http.post<void>(`${this.base}/${orderId}/cancel`, body);
+    // encodeURIComponent: orderId reaches here from a route param, which
+    // Angular has already percent-decoded. A raw '/', '?' or '%' in it would
+    // otherwise land in this template literal unescaped and turn into a
+    // different path plus a query string rather than a single path segment.
+    return this.http.post<void>(`${this.base}/${encodeURIComponent(orderId)}/cancel`, body);
   }
 }

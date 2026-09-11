@@ -6,8 +6,8 @@ import {
   provideAppInitializer,
 } from '@angular/core';
 import { provideHttpClient, withInterceptors } from '@angular/common/http';
-import { provideRouter } from '@angular/router';
-import { provideIonicAngular } from '@ionic/angular';
+import { provideRouter, RouteReuseStrategy } from '@angular/router';
+import { IonicRouteStrategy, provideIonicAngular } from '@ionic/angular';
 import { routes } from './app.routes';
 import { authInterceptor } from '@core/auth/auth.interceptor';
 import { provideAuth } from '@core/auth/auth.providers';
@@ -23,6 +23,16 @@ export const appConfig: ApplicationConfig = {
     // treated as superseded.
     provideBrowserGlobalErrorListeners(),
     provideIonicAngular(),
+    // Angular's default RouteReuseStrategy compares only `routeConfig`
+    // identity, ignoring params — so `placed/:id` navigating A -> B keeps
+    // the SAME ActivatedRoute and component instance, and a page that reads
+    // `route.snapshot` once (rather than subscribing to `paramMap`) shows
+    // stale data forever after. IonicRouteStrategy is Ionic's own fix for
+    // exactly this (it compares params too); provideIonicAngular() does not
+    // install it, so it must be provided here. Task 13's review caught the
+    // absence via order-placed.page.ts; this line is the app-wide fix, not
+    // a page-local workaround.
+    { provide: RouteReuseStrategy, useClass: IonicRouteStrategy },
     provideRouter(routes),
     provideHttpClient(withInterceptors([authInterceptor])),
     provideAuth(),
