@@ -17,7 +17,13 @@ class FakeOAuth {
   // own success path runs, never cleared back to false).
   discoveryDocumentLoaded = false;
   silentRefresh = vi.fn(async () => undefined);
-  logOut = vi.fn();
+  // The real logOut() removes access_token (among other keys) from
+  // OAuthService's storage (angular-oauth2-oidc.mjs:2731) before getAccessToken()
+  // is next read — mirrored here so a test can tell logOut() was actually
+  // effective, not just called.
+  logOut = vi.fn(() => {
+    this.token = null;
+  });
   initCodeFlow = vi.fn();
   configure = vi.fn();
   setStorage = vi.fn();
@@ -128,6 +134,33 @@ describe('WebAuthStrategy', () => {
   );
 
   it(
+    'clears a token the library already stored when tryLogin rejects after fetchAndProcessToken wrote it',
+    async () => {
+      // fetchAndProcessToken (angular-oauth2-oidc.mjs:2249-2300) calls
+      // storeAccessTokenResponse() — which writes access_token to
+      // OAuthService's storage — BEFORE it awaits processIdToken() a few
+      // lines later. An id_token that then fails validation rejects
+      // tryLoginCodeFlow with that access_token already sitting in storage,
+      // even though this strategy never adopted it. Simulate exactly that:
+      // discoveryDocumentLoaded ends up true (discovery itself succeeded —
+      // this is the tryLogin branch, not the discovery-unreachable one) and
+      // a token is already sitting in the fake's storage when the rejection
+      // happens.
+      oauth.loadDiscoveryDocumentAndTryLogin.mockImplementationOnce(async () => {
+        oauth.discoveryDocumentLoaded = true;
+        oauth.token = 'stored-by-fetchAndProcessToken-but-never-adopted';
+        throw new Error('token_validation_error');
+      });
+
+      await strategy.initialize();
+
+      expect(strategy.accessToken()).toBeNull();
+      expect(oauth.getAccessToken()).toBeNull();
+      expect(oauth.logOut).toHaveBeenCalledWith(true);
+    },
+  );
+
+  it(
     'retries discovery on signIn() after a failed initialize(), and only then starts the code flow',
     async () => {
       // Against the unfixed code, signIn() calls initCodeFlow()
@@ -135,8 +168,15 @@ describe('WebAuthStrategy', () => {
       // assertion is what catches that: initCodeFlow() would have nothing to
       // navigate to (loginUrl is still '' because discovery never
       // succeeded), silently doing nothing forever.
+      //
+      // The setup call tolerates a rejection (`.catch(() => {})`) rather than
+      // a bare `await`, deliberately: against the unfixed initialize() (no
+      // try/catch at all) an unguarded await here throws before this test
+      // ever reaches its signIn() assertions, so the test would fail for
+      // "initialize() rejected" regardless of what signIn() does — proving
+      // nothing about the retry behaviour this test is named for.
       oauth.loadDiscoveryDocumentAndTryLogin.mockRejectedValueOnce(new Error('ERR_CONNECTION_REFUSED'));
-      await strategy.initialize();
+      await strategy.initialize().catch(() => undefined);
 
       await strategy.signIn();
 
@@ -153,8 +193,12 @@ describe('WebAuthStrategy', () => {
       // always resolves regardless of whether the identity provider is
       // reachable. That is the silent no-op the brief calls a worse bug than
       // the blank-app one.
+      //
+      // Same reasoning as the test above for tolerating the setup rejection:
+      // this test's failure must come from the `signIn()` assertion, not
+      // from an unguarded `await strategy.initialize()` throwing first.
       oauth.loadDiscoveryDocumentAndTryLogin.mockRejectedValueOnce(new Error('ERR_CONNECTION_REFUSED'));
-      await strategy.initialize();
+      await strategy.initialize().catch(() => undefined);
       oauth.loadDiscoveryDocument.mockRejectedValueOnce(new Error('ERR_CONNECTION_REFUSED'));
 
       await expect(strategy.signIn()).rejects.toThrow('ERR_CONNECTION_REFUSED');

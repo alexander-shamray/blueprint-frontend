@@ -183,7 +183,32 @@ export class WebAuthStrategy extends AuthService {
       // Record a retry-worthy failure only for the discovery case — the
       // tryLogin case has an authorization endpoint waiting for signIn()
       // already.
-      this.discoveryFailed = !this.oauth.discoveryDocumentLoaded;
+      const discoverySucceeded = this.oauth.discoveryDocumentLoaded;
+      this.discoveryFailed = !discoverySucceeded;
+
+      if (discoverySucceeded) {
+        // Only the tryLogin branch can have left a token behind:
+        // fetchAndProcessToken (angular-oauth2-oidc.mjs:2249-2300) calls
+        // storeAccessTokenResponse(), which writes access_token to
+        // OAuthService's storage, BEFORE it awaits processIdToken() a few
+        // lines later — so an id_token that fails validation rejects
+        // tryLoginCodeFlow with an access_token already sitting in storage
+        // that this strategy never saw and `token` (still null here) says
+        // does not exist. (When discovery itself failed instead, tryLogin
+        // never ran at all — loadDiscoveryDocumentAndTryLogin is
+        // `loadDiscoveryDocument().then(() => tryLogin())`, so a rejected
+        // loadDiscoveryDocument() skips the .then() entirely — and this
+        // is also a fresh HybridOAuthStorage from this same call, so
+        // there is nothing of this run's to clean up.) logOut(true) — the
+        // boolean overload sets noRedirectToLogoutUrl and returns before
+        // any navigation — clears every token/session key including that
+        // stray access_token, making the two states agree again rather
+        // than merely leaving the disagreement harmless. It also clears
+        // PKCE_verifier and nonce, which is correct here too: the
+        // authorization code that produced this failure is spent, and
+        // signIn() mints a fresh verifier on its next initCodeFlow().
+        this.oauth.logOut(true);
+      }
       return;
     }
 
