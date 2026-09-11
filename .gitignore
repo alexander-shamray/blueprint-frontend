@@ -45,3 +45,7 @@ Thumbs.db
 
 # Browser automation scratch (boot verification sessions)
 .playwright-mcp/
+
+# Playwright e2e run artifacts (task 16 smoke)
+/test-results/
+/playwright-report/
