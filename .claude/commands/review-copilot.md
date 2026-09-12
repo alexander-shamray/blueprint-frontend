@@ -108,8 +108,16 @@ review bodies on `copilot-pull-request-reviewer` — and an earlier revision of
 this section claimed those were one identity, which is what let a two-string
 list look complete. Both feeds now reach it through the same helpers this
 command uses, so there is one list rather than two prose rules; it reads
-`pr-review-threads.sh` unfiltered, which needs no filter because it returns
-resolution state and never a body.
+`pr-review-threads.sh` without an author filter, which it needs none of
+because it returns resolution state and never a body.
+
+**It is not unfiltered, and an earlier revision of this sentence said it was
+(#14).** The listing's fourth field is a filename, the pull request author
+chooses those, and git permits a newline inside one — so a crafted name could
+add lines to a listing this command reads while holding `Edit`, unattended
+inside `/ship`. The helper now validates each path the way `pr-locality.sh`
+validates a changed one, and refuses the whole run rather than dropping a row:
+a thread list with one line withheld is one step 6 would read as a clean exit.
 
 | Author | What happens | Where it is decided |
 |---|---|---|
@@ -268,7 +276,11 @@ bash .claude/scripts/pr-review-threads.sh <n>
 
 Each output line is `<thread-id> <isResolved> <comment-database-id> <path>`;
 the database id joins to the inline comment's numeric `id` from the intake
-step. Then, once the marker is posted:
+step. **All four fields are validated before they are printed, and the path is
+the author's text** — so a name that is not a plain repository-relative path
+exits 3 with an empty listing rather than printing a row, and an empty listing
+from a non-zero exit is a refusal rather than zero unresolved threads (#14).
+Then, once the marker is posted:
 
 ```bash
 bash .claude/scripts/pr-thread-resolve.sh <n> <PRRT-thread-id>
