@@ -927,7 +927,8 @@ you anything on the day it trips.
 
 ## 14. What CI runs, and the one test that is left failing
 
-`.github/workflows/ci.yml` has four jobs. The `web` job installs from the
+`.github/workflows/ci.yml` names the jobs, and is the source of truth for
+which exist. The `web` job installs from the
 lockfile and runs `npm run lint`, `npm test` and `npm run build`. The Angular
 unit-test builder runs once and exits rather than watching, which is checked
 locally with `CI=true npm test` — a watch-mode test step does not fail a build,
@@ -950,6 +951,24 @@ needs no Android SDK setup step because the `ubuntu-24.04` runner image ships
 sets `ANDROID_HOME` itself. That job therefore pins `runs-on: ubuntu-24.04`
 rather than following the other three onto `ubuntu-latest`: the claim above is
 about an image, and `ubuntu-latest` is a label that moves.
+
+The `harness` job runs the agent harness's own suite —
+`python -m unittest discover -s .claude/scripts` — across a three-OS matrix,
+and it is the newest of the five. It needs no Node and no Docker: the cases
+that mention `docker run` assert things about the TEXT of the scripts, which
+is what writing a gate's test against what the gate is looking at means. The
+matrix is not thoroughness. `test_edit_target_guard.py` asserts three
+properties of the *platform* rather than assuming them — how `..` resolves
+after a symbolic link, whether the filesystem folds case, and which link
+primitives exist — so a single runner would leave the Windows and macOS paths
+unexercised while the module said otherwise. Python is pinned to 3.12 because
+that is what `.claude/settings.json` invokes the two `PreToolUse` hooks as,
+and jq is installed on the Windows and macOS runners because the suite's
+`setUpModule` fails rather than skips when a required tool is absent.
+
+Until that job existed, nothing ran those tests at all — which mattered
+because `.claude/commands/review-grok.md` argued one of its premises was
+"still gated" by them.
 
 The `ios-config` job is a configuration check and says so: `npx cap sync ios`
 copies web assets and writes `Package.swift` and `capacitor.config.json`, and
