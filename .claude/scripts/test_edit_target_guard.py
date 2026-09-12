@@ -748,15 +748,85 @@ class TheOrdinaryWriteIsNotDisturbed(GuardCase):
 class WhatThisGuardIsNotTheSubjectOf(GuardCase):
     """The residuals, written as passing cases so nobody assumes they closed."""
 
-    def test_a_path_outside_every_checkout_is_not_judged(self):
-        # **Stated in the hook's docstring and pinned here.** The harness
-        # writes the session's own memory and scratchpad by absolute path
-        # outside the repository, and refusing those would take them with it.
-        # Nothing in the exposure this closes can spell one: a review row is
-        # one plain repository-relative path, and the adjudicator drops a row
-        # that is not. If this starts being refused, the docstring's residual
-        # paragraph is what needs rewriting.
+    def test_a_scratch_path_outside_every_checkout_is_admitted(self):
+        # **The reason the out-of-tree exception exists at all.** The harness
+        # writes the session's own scratchpad by absolute path outside the
+        # repository, and refusing that would take it with it. `self.outside`
+        # is a `mkdtemp`, so this is the scratch root rather than "anywhere",
+        # which is the distinction #21 turned on — and the case below is the
+        # other half, without which this one would pass against a guard that
+        # still admitted everything.
         self.assertAdmitted(os.path.join(self.outside, "loot.txt"))
+
+    def test_the_harness_state_root_is_admitted(self):
+        # The second of the two roots the docstring names. Judged rather than
+        # written: a `Write` target need not exist, and this suite has no
+        # business creating files in the user's own `~/.claude`.
+        state = os.path.join(os.path.expanduser("~"), ".claude", "projects",
+                             "some-project", "memory", "note.md")
+        self.assertAdmitted(state)
+
+    def test_a_path_outside_every_checkout_and_every_scratch_root_is_refused(self):
+        # **The finding.** The fallback was argued as "refusing would break the
+        # harness's own state writes", which reads as though the alternative
+        # were refusing everything — and meanwhile `/review-branch` holds an
+        # unrestricted `Write`, consumes untrusted branch text, and `/ship`
+        # runs it unattended. A prompt-injected diff can name an absolute path.
+        #
+        # Spelled from the real home directory rather than a fixture, because
+        # the point is the paths an injected row would actually choose.
+        home = os.path.expanduser("~")
+        for target in (
+            os.path.join(home, ".ssh", "authorized_keys"),
+            os.path.join(home, ".bashrc"),
+            os.path.join(home, ".gitconfig"),
+            os.path.join(home, ".profile"),
+        ):
+            with self.subTest(target=target):
+                reason = self.assertRefused(target)
+                self.assertIn("outside every checkout", reason)
+
+    def test_the_harness_control_surface_is_refused_inside_its_own_root(self):
+        # `~/.claude` is admitted for STATE, and a credential or a settings
+        # file is not state — the same argument this repository already makes
+        # about its own `.claude/`, applied one level up where the grant is
+        # strictly wider: those settings and hooks apply to every project.
+        base = os.path.join(os.path.expanduser("~"), ".claude")
+        for target in (
+            os.path.join(base, ".credentials.json"),
+            os.path.join(base, "settings.json"),
+            os.path.join(base, "settings.local.json"),
+            os.path.join(base, "CLAUDE.md"),
+            os.path.join(base, "hooks", "anything.py"),
+            os.path.join(base, "commands", "anything.md"),
+            os.path.join(base, "agents", "anything.md"),
+            os.path.join(base, "plugins", "p", "skills", "s", "SKILL.md"),
+        ):
+            with self.subTest(target=target):
+                reason = self.assertRefused(target)
+                self.assertIn("control surface", reason)
+
+    def test_a_scratch_path_that_resolves_out_of_the_scratch_root_is_refused(self):
+        # The link traversal this whole file is about, arriving at the one
+        # place the anchors do not reach: a name under the admitted root whose
+        # target is not. Both the spelling and the resolution have to qualify,
+        # and this is the case that says so.
+        secret = os.path.join(self.outside, "beyond")
+        os.makedirs(secret, exist_ok=True)
+        for linker in linkers():
+            with self.subTest(link=linker):
+                target = os.path.join(os.path.expanduser("~"), ".ssh")
+                link = os.path.join(self.outside, f"escape-{linker}")
+                if os.path.exists(link):
+                    continue
+                try:
+                    if linker == "symlink":
+                        os.symlink(target, link, target_is_directory=True)
+                    else:
+                        JUNCTIONS(target, link)
+                except (OSError, NotImplementedError):
+                    continue
+                self.assertRefused(os.path.join(link, "authorized_keys"))
 
     def test_a_tool_that_does_not_write_is_not_judged(self):
         target = os.path.join(self.root, ".claude", "scripts", "helper.sh")

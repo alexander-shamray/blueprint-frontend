@@ -44,19 +44,33 @@ folds nothing and a differently-cased checkout prefix matches no anchor at
 all, which is the branch that admits. A case-insensitive mount on Linux is the
 same case again, which is why the question is asked of the mount.
 
-**The residual, stated rather than left to be found — and it is narrower than
-it reads.** A path this file cannot place under any anchor is admitted **only
-when it also resolves outside every one of them**: an absolute path into a
-scratch directory, or into the user's own `~/.claude`, which the harness writes
-its own state through and refusing would take the session's memory and
-scratchpad with it. A spelling no anchor recognises that nevertheless *lands
-inside* a checkout is refused instead, whatever alphabet it is in, because the
-matcher then judged a string that is not this file. Nothing in the exposure
-this closes can spell either: `/review-grok`'s site contract admits one plain
+**The out-of-tree half is an allow-list, and it used to be the residual.** A
+path this file cannot place under any anchor and that also resolves outside
+every one of them was admitted, on the argument that refusing would take the
+session's memory and scratchpad with it. That was true and the conclusion did
+not follow: **the exception was argued against the wrong threat**, as though
+the alternative were refusing everything, when it could instead name the roots
+it exists for. `/review-branch` holds an unrestricted `Write` and consumes
+untrusted branch text, `/ship` runs it unattended, and a prompt-injected diff
+can name an absolute path — a shell profile, an SSH key, a credential — which
+the fallback then allowed (#21). So `scratch_roots` names the two roots the old
+paragraph named, the platform temp directory the scratchpad is created under
+and the user's `~/.claude`, and everything else is refused. Within `~/.claude`
+the harness's own control surface is refused too: that root is admitted for
+STATE and a credential or a settings file is not state. A spelling no anchor
+recognises that nevertheless *lands inside* a checkout is refused by the
+paragraph below instead, whatever alphabet it is in, because the matcher then
+judged a string that is not this file. Nothing in the exposure this closes can
+spell either: `/review-grok`'s site contract admits one plain
 repository-relative path per row, with no leading slash, no drive letter and no
-`..` segment, and the adjudicator drops a row that is not. A guard for the
-out-of-tree half would have to be a rule about which out-of-tree paths are
-legitimate, which is a different file's argument.
+`..` segment, and the adjudicator drops a row that is not.
+
+**What that leaves, stated because an allow-list is not an absence of
+residual.** The temp root is admitted whole rather than the session's own
+subdirectory within it, because no environment variable names the scratchpad
+and deriving it would be a guess this file cannot check. So a write into
+another process's temp file is still admitted, which is a smaller surface than
+the home directory it replaces and not an empty one.
 
 **And one whole grammar is refused rather than judged**, which is the exception
 to "this file holds no list": on Windows a spelling beginning `\\` — the
@@ -76,6 +90,7 @@ choice and this file follows it.
 import json
 import os
 import sys
+import tempfile
 import unicodedata
 
 # The tools that write a file. `MultiEdit` is listed although this repository's
@@ -230,6 +245,136 @@ def under(child, parent, traits):
     if not parent.endswith(os.sep):
         parent += os.sep
     return child.startswith(parent)
+
+
+# **The control surface, wherever a `.claude` directory holds it.** This
+# repository denies `Edit(.claude/scripts/**)`, `hooks/**`, `commands/**`,
+# `agents/**`, `sandbox/**` and both settings files, and the argument in
+# `docs/harness-boundaries.md` is that a session able to rewrite one of those
+# before invoking it makes every fixed endpoint in the chain a fiction. The
+# user's own `~/.claude` has the same shape and grants strictly more — its
+# settings and hooks apply to every project — so the same names are refused
+# there. `.credentials.json` is beside them because the fallback below exists
+# for the harness's STATE writes and a credential is not one.
+CONTROL_DIRECTORIES = frozenset({
+    "agents", "commands", "hooks", "plugins", "sandbox", "scripts", "skills",
+})
+CONTROL_FILES = frozenset({
+    ".credentials.json", "CLAUDE.md", "settings.json", "settings.local.json",
+})
+
+# **Folded copies, because comparing a lowered name against an unlowered set is
+# a hole rather than a nicety.** `CLAUDE.md` lowers to `claude.md`, which is in
+# neither set above, so the one entry whose spelling is not already lower case
+# was admitted on a case-insensitive filesystem — every Windows and default
+# macOS host. Caught by the case written for it.
+CONTROL_DIRECTORIES_FOLDED = frozenset(
+    name.lower() for name in CONTROL_DIRECTORIES)
+CONTROL_FILES_FOLDED = frozenset(name.lower() for name in CONTROL_FILES)
+
+
+def scratch_roots():
+    """The roots a write outside every checkout is permitted to land in.
+
+    **The exception this bounds was argued against the wrong threat.** The
+    docstring above states it as "refusing would take the session's memory and
+    scratchpad with it", which is true, and reads as though the alternative
+    were refusing everything. It is not: the exception can name the roots it
+    exists for. `/review-branch` holds an unrestricted `Write` and consumes
+    untrusted branch text, and `/ship` runs it unattended — so a prompt-injected
+    diff could steer an absolute path at a shell profile, an SSH key or a
+    credential, and the fallback returned allow (#21).
+
+    Two roots, which are the two the docstring already names. The session
+    scratchpad is created under the platform temp directory, so the temp roots
+    are taken from the environment the harness runs in rather than guessed at;
+    all four spellings are read because a host may set any of them and Python
+    consults them in this order itself.
+
+    **Each is kept as (spelled, resolved), for the reason `anchors` keeps its
+    own pairs and one platform makes unmissable.** macOS reaches the temp
+    directory through a link — `TMPDIR` is under `/var/folders`, whose real
+    path is `/private/var/folders` — so a scratch write compared against the
+    spelled root alone has a resolution that is not under it, and the session's
+    own scratchpad would be refused on every macOS host. The `harness` job runs
+    this suite on three platforms, which is the only reason that is knowable
+    from here.
+    """
+    roots = [tempfile.gettempdir()]
+    for name in ("TMPDIR", "TEMP", "TMP"):
+        value = os.environ.get(name)
+        if value:
+            roots.append(value)
+    roots.append(os.path.join(os.path.expanduser("~"), ".claude"))
+    return [(os.path.abspath(root), os.path.realpath(root))
+            for root in roots if root]
+
+
+def control_surface(path, root, traits):
+    """Which control-surface name `path` holds beneath `root`, or `None`.
+
+    Judged on the components between the two, so a `settings.json` in a
+    project's own tree is not this file's business and one at
+    `~/.claude/settings.json` is.
+    """
+    try:
+        relative = os.path.relpath(path, root)
+    except ValueError:
+        return None
+    parts = [part for part in relative.replace("\\", "/").split("/")
+             if part not in ("", ".")]
+    folded, _ = traits
+    directories = CONTROL_DIRECTORIES_FOLDED if folded else CONTROL_DIRECTORIES
+    files = CONTROL_FILES_FOLDED if folded else CONTROL_FILES
+    for part in parts[:-1]:
+        if (part.lower() if folded else part) in directories:
+            return part
+    if parts:
+        last = parts[-1].lower() if folded else parts[-1]
+        if last in files or last in directories:
+            return parts[-1]
+    return None
+
+
+def outside_offence(spelled, lexical, resolved):
+    """The reason to refuse a target that lands outside every checkout.
+
+    **Turns the fallback from "admit unless it lands in a checkout it cannot
+    place" into "admit only what it is for"**, which is the direction every
+    other rule in this repository already goes.
+
+    Both the spelling and the resolution have to qualify, and each against
+    either spelling of the root. A path under a temp root that resolves out of
+    it is the link traversal this whole file is about, arriving at the one
+    place the anchors do not reach.
+    """
+    for spelled_root, real_root in scratch_roots():
+        traits = traits_of(spelled_root)
+
+        def within(path):
+            return (under(path, spelled_root, traits)
+                    or under(path, real_root, traits))
+
+        if not (within(lexical) and within(resolved)):
+            continue
+        base = real_root if under(resolved, real_root, traits) else spelled_root
+        named = control_surface(resolved, base, traits)
+        if named is None:
+            return None
+        return (
+            f"guard-edit-target: {spelled} resolves to {resolved}, inside the "
+            f"harness's own control surface — `{named}` grants what every "
+            "other rule here bounds, and this exception exists for the "
+            "session's state writes rather than for its configuration (#21, "
+            "docs/harness-boundaries.md)."
+        )
+    return (
+        f"guard-edit-target: {spelled} resolves to {resolved}, which is "
+        "outside every checkout here and outside the scratch and harness-state "
+        "roots this guard admits. An unattended command reading untrusted "
+        "branch text can name an absolute path, so a write nothing can place "
+        "is refused rather than admitted (#21, docs/harness-boundaries.md)."
+    )
 
 
 def checkout_root(path):
@@ -482,10 +627,17 @@ def offence(event):
                     "nothing has judged (#181, docs/harness-boundaries.md)."
                 )
 
-    # Reached when every anchor containing the target agreed, or when the
-    # target is outside every one of them — which is not this guard's subject,
-    # and the module docstring argues why. A test pins that residual so the
-    # next reader does not have to take the paragraph's word for it.
+        # **And the target that is genuinely outside every checkout is now
+        # bounded rather than admitted (#21).** This was the residual the
+        # module docstring stated, and stating it did not make it narrow: it
+        # admitted every absolute path that was not in a checkout, which is a
+        # shell profile, an SSH key or a credential as readily as a scratch
+        # file. `outside_offence` names the two roots the exception was written
+        # for and refuses the rest.
+        return outside_offence(spelled, lexical, resolved)
+
+    # Reached when every anchor containing the target agreed. A target outside
+    # every one of them went to `outside_offence` above.
     return None
 
 
