@@ -91,7 +91,16 @@ for item in "${items[@]}"; do
     '`'*'`') t="${t:1:${#t}-2}" ;;
     *'`'*) refuse "the Touch set row has an unbalanced backtick" ;;
   esac
-  grep -Eq '^[A-Za-z0-9_./*?{},()-]+$' <<<"$t" ||
+  # **The two grammars here disagreed, and the touch-set one was the narrower
+  # (#19).** A changed path is admitted with `@` and `+` in it — git permits
+  # both — while a declared set naming `src/app/@types/**` or `docs/a+b.md`
+  # made this `refuse` and exit 3 before printing any verdict. `/review-branch`,
+  # `/review-copilot` and `/ship` all read a helper that prints nothing as
+  # "names no class and no bound", so a legitimate touch set silently degraded
+  # the locality check rather than failing it visibly. This is the changed-path
+  # grammar plus the glob characters `*?{},`, which makes it a superset rather
+  # than a second list to keep in step.
+  grep -Eq '^[A-Za-z0-9_./*?{},()@+-]+$' <<<"$t" ||
     refuse "the Touch set row is not a path list"
   case "$t" in *[/.]*) ;; *) refuse "the Touch set row is not a path list" ;; esac
   t="${t%/}"
@@ -110,9 +119,26 @@ for item in "${items[@]}"; do
   # test projects, not files whose name happens to start that way. A
   # trailing `/` names the directory the same way `docs` would, and was
   # dropped above before the boundary was judged.
+  #
+  # **`\x01` was a GNU `sed` escape and macOS ships BSD `sed` (#23).** There it
+  # is not an escape at all, so the sentinel was written and read as the two
+  # literal characters `x` and `1` — which leaves `**` mistranslated, or a
+  # token containing that pair read as the placeholder. Either way the helper
+  # emits a wrong `inside`/`outside` verdict rather than refusing, and all
+  # three callers act on verdicts: a wrong one is worse here than a refusal.
+  #
+  # The placeholder is built from a character the touch-set grammar above
+  # rejects, which is what makes a collision unforgeable rather than unlikely
+  # — `%` cannot appear in a token, so no token can spell this.
+  #
+  # **`+` joins the escape set with the grammar that admits it.** It is an ERE
+  # quantifier, so an unescaped `docs/a+b.md` would match `docs/aab.md` — a
+  # false `outside` traded for a silently wrong `inside`, which is the same
+  # trade the changed-path side already refuses. `@` needs no escape.
   re=$(printf '%s' "$t" |
-    sed -e 's/[.()]/\\&/g' -e 's/\*\*/\x01/g' -e 's/\*/[^\/]*/g' \
-        -e 's/?/[^\/]/g' -e 's/\x01/.*/g' -e 's/{/(/g' -e 's/}/)/g' -e 's/,/|/g')
+    sed -e 's/[.()+]/\\&/g' -e 's/\*\*/%%GLOBSTAR%%/g' -e 's/\*/[^\/]*/g' \
+        -e 's/?/[^\/]/g' -e 's/%%GLOBSTAR%%/.*/g' \
+        -e 's/{/(/g' -e 's/}/)/g' -e 's/,/|/g')
   patterns+=("^${re}(/.*)?$")
 done
 # The changed paths are the diff's own, and each gets the one word this

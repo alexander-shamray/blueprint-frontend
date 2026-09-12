@@ -2742,6 +2742,80 @@ class CopilotFeedHelpersAreTheOnlyIntake(unittest.TestCase):
                 self.assertNotIn("IGNORE", r.stderr)
                 self.assertNotIn("ignore", r.stderr)
 
+    def test_a_touch_set_may_spell_what_a_changed_path_may(self):
+        # **#19 — the two grammars disagreed and the touch-set one was
+        # narrower.** A changed path is admitted with `@` and `+` in it, git
+        # permits both, and a declared set naming either made the helper
+        # `refuse` and exit 3 before printing any verdict. All three callers
+        # read a helper that prints nothing as "names no class and no bound",
+        # so a legitimate touch set silently degraded the locality check rather
+        # than failing it visibly.
+        body = ("| Class | D |\n"
+                "| Touch set | src/app/@types/**, docs/a+b.md |\n")
+        files = "src/app/@types/x.d.ts\ndocs/a+b.md\nsrc/Foo.ts\n"
+        r = self._run_locality_with_gh(self._gh_printing(body, files))
+        self.assertEqual(0, r.returncode, r.stderr)
+        self.assertEqual(
+            [
+                "class D",
+                "inside src/app/@types/x.d.ts",
+                "inside docs/a+b.md",
+                "outside src/Foo.ts",
+            ],
+            r.stdout.splitlines(),
+        )
+
+    def test_a_plus_in_a_token_is_a_character_and_not_a_quantifier(self):
+        # The half that makes the widening safe rather than merely wider. `+`
+        # is an ERE quantifier, so an unescaped `docs/a+b.md` matches
+        # `docs/aab.md` — a false `outside` traded for a silently wrong
+        # `inside`, which is the worse of the two for a caller that acts on
+        # verdicts.
+        body = "| Class | D |\n| Touch set | docs/a+b.md |\n"
+        r = self._run_locality_with_gh(
+            self._gh_printing(body, "docs/aab.md\ndocs/ab.md\n"))
+        self.assertEqual(0, r.returncode, r.stderr)
+        self.assertEqual(
+            ["class D", "outside docs/aab.md", "outside docs/ab.md"],
+            r.stdout.splitlines(),
+        )
+
+    def test_the_globstar_placeholder_cannot_be_spelled_by_a_token(self):
+        # **#23 — `\x01` is a GNU `sed` escape and macOS ships BSD `sed`.**
+        # There it is not an escape, so the sentinel was written and read as
+        # the two literal characters `x` and `1`: a token containing that pair
+        # could be read as the placeholder, or the placeholder left unexpanded.
+        # The macOS leg of the `harness` matrix passes today because nothing
+        # exercised this path, which is its own small finding.
+        #
+        # The replacement is built from a character the touch-set grammar
+        # rejects, so a collision is unforgeable rather than unlikely. Both
+        # halves are asserted: a token spelling the placeholder is refused, and
+        # a token holding the OLD sentinel's characters translates as itself.
+        # Over the CODE rather than the file: the comment above the `sed`
+        # names the escape it replaced, and a whole-file scan reads the
+        # explanation as the defect.
+        code = "\n".join(
+            line for line
+            in (SCRIPTS / "pr-locality.sh").read_text(encoding="utf-8").splitlines()
+            if not line.lstrip().startswith("#"))
+        self.assertNotIn(r"\x01", code)
+        self.assertIn("%%GLOBSTAR%%", code)
+
+        body = "| Class | D |\n| Touch set | docs/%%GLOBSTAR%%.md |\n"
+        r = self._run_locality_with_gh(self._gh_printing(body, "docs/a.md\n"))
+        self.assertEqual(3, r.returncode, r.stderr)
+        self.assertEqual("", r.stdout)
+
+        body = "| Class | D |\n| Touch set | docs/x01/** |\n"
+        r = self._run_locality_with_gh(
+            self._gh_printing(body, "docs/x01/a.md\ndocs/other/a.md\n"))
+        self.assertEqual(0, r.returncode, r.stderr)
+        self.assertEqual(
+            ["class D", "inside docs/x01/a.md", "outside docs/other/a.md"],
+            r.stdout.splitlines(),
+        )
+
     def test_a_body_without_rows_is_empty_success(self):
         r = self._run_locality_with_gh(self._gh_printing("no rows here\n"))
         self.assertEqual(0, r.returncode, r.stderr)
