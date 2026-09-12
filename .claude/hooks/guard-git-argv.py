@@ -74,6 +74,7 @@ reason the caller can read, and a guard that refuses without saying why is one
 that gets worked around rather than fixed.
 """
 
+import collections
 import json
 import re
 import shlex
@@ -116,6 +117,61 @@ FORBIDDEN_FLAGS = ("--output", "--upload-pack", "--receive-pack", "--exec",
 # repository — a branch name, a path or a commit body may carry the sequence
 # without using it as a transport.
 FORBIDDEN_SUBSTRINGS = ("ext::",)
+
+# **The trees a redirection may not write into, and the reason this list is
+# here rather than read off the deny rules is that a hook cannot see them.**
+# `.claude/settings.json` denies `Edit(.claude/scripts/**)` and every editing
+# command denies the same trees in its own frontmatter — and all of that binds
+# the EDITING TOOLS. A `>` on any granted `Bash` command writes what every one
+# of those refuses (#20), measured on this repository's own hook: `ls >
+# .claude/settings.json`, `wc -l README.md > package.json` and `git log
+# --oneline > package.json` were all admitted, and in a scratch directory the
+# write landed.
+#
+# `/review-grok` answered this by denying `Bash` whole, which is available to
+# exactly one command: the other four editing commands have fixed helpers as
+# their API and cannot. So the rule moves here, where it binds the redirection
+# rather than the tool beside it.
+#
+# **A hook is handed a command, never the frontmatter that granted it**, so the
+# set cannot be derived at run time the way `test_grok_helpers.py` derives the
+# frontmatter denies from the frontmatter. What stands instead is a test whose
+# subject is this list: the suite asserts it covers `MACHINERY_TREES` and every
+# tracked root file, so a new tree or a new root file fails the suite until
+# somebody decides which side of the boundary it is on — the same shape
+# `CLAUDE.md` already describes for the harness suite as a whole.
+#
+# `.vscode` is here and is not in the suite's machinery set, because
+# `tasks.json` runs on folder open and this list is about writes rather than
+# about what a command may edit; the suite asserts coverage in one direction
+# only for exactly that reason.
+PROTECTED_TREES = frozenset({
+    ".claude", ".git", ".github", ".vscode", "android", "ios", "node_modules",
+})
+
+# **The root files, matched on the BASENAME, and the over-refusal is
+# deliberate.** A target is judged lexically — this hook has no `cwd` it can
+# trust and resolving one would be a second answer to the question
+# `guard-edit-target.py` already answers — so `src/app/README.md` is refused
+# along with `README.md`. That costs a redirection nobody makes and buys the
+# nested spellings that matter: an `eslint.config.js` or a `vite.config.ts` in
+# a subdirectory is loaded by EXECUTING it, and `../package.json` is the root
+# file under another name. The editing tools remain the way to write one, where
+# the permission rules see the path and judge it.
+PROTECTED_FILES = frozenset({
+    ".editorconfig", ".gitattributes", ".gitignore", ".npmrc", ".nvmrc",
+    ".prettierrc", ".prettierrc.cjs", ".prettierrc.js", ".prettierrc.json",
+    "CLAUDE.md", "README.md",
+    "angular.json", "capacitor.config.ts", "ionic.config.json",
+    "eslint.config.cjs", "eslint.config.js", "eslint.config.mjs",
+    "jest.config.js", "karma.conf.js",
+    "npm-shrinkwrap.json", "package-lock.json", "package.json",
+    "playwright.config.ts",
+    "prettier.config.cjs", "prettier.config.js", "prettier.config.mjs",
+    "tsconfig.app.json", "tsconfig.json", "tsconfig.spec.json",
+    "vite.config.js", "vite.config.mts", "vite.config.ts",
+    "vitest.config.js", "vitest.config.mts", "vitest.config.ts",
+})
 
 # `git -c <key>=<value>` sets configuration for one invocation, and a long list
 # of config keys are EXECUTED by git: `alias.*`, `core.pager`, `core.editor`,
@@ -1365,6 +1421,23 @@ def separate_lines(command):
 # `redirection_spans` argues both.
 REDIRECTION_OPERATORS = ("&>>", "&>", ">>", ">&", ">|", "<>", "<&", ">", "<")
 
+# **The operators that OPEN THE TARGET FOR WRITING**, which is the half #20 is
+# about. `<`, `<<` and `<<<` read, so a protected path on the right of one is a
+# read this hook has no quarrel with. `<>` is here because it opens read-write.
+#
+# `>&` and `<&` are the fd-duplication forms and are judged by their target
+# rather than by the operator: bash reads `>&1` and `>&-` as duplication and
+# `>&file` as `&>file`, redirecting both streams into a file. So the operator
+# alone cannot say, and `writes_to_a_file` asks about the word.
+WRITING_OPERATORS = frozenset({"&>>", "&>", ">>", ">|", "<>", ">"})
+DUPLICATING_OPERATORS = frozenset({">&", "<&"})
+
+# What `redirection_spans` found: the span bash consumes, the operator it read,
+# and the source text of the target word. `target` is the empty string for a
+# heredoc introducer, whose delimiter is a name rather than a path.
+Redirection = collections.namedtuple(
+    "Redirection", "start end operator target")
+
 
 def word_end(command, position, ordinary):
     """The end of the shell WORD beginning at `position`.
@@ -1455,12 +1528,18 @@ def word_end(command, position, ordinary):
 
 
 def redirection_spans(command):
-    """Every redirection in `command`, as `(start, end)` character offsets.
+    """Every redirection in `command`, as `Redirection` records.
 
     `start` is the first character of the file descriptor where one is written
     and of the operator otherwise, and `end` is just past the target word — so
     `command[start:end]` is everything bash consumes as redirection syntax and
     never hands to the program.
+
+    **The operator and the target travel with the span because there were very
+    nearly two parses of this grammar.** `strip_redirections` wants only the
+    span; #20 wants the target, and a second walk to find it would be the
+    disagreement `word_end`'s own docstring records happening again one
+    function along. One parse, three consumers.
 
     **A heredoc introducer IS one of these, and an earlier revision of this
     docstring said the opposite.** The reasoning then was that `strip_heredocs`
@@ -1534,8 +1613,9 @@ def redirection_spans(command):
             end = digits + 3
             while plain(end) and command[end] in " \t":
                 end += 1
+            target = end
             end = word_end(command, end, ordinary)
-            spans.append((start, end))
+            spans.append(Redirection(start, end, "<<<", command[target:end]))
             index = end
             continue
         if command[digits:digits + 2] == "<<":
@@ -1553,14 +1633,15 @@ def redirection_spans(command):
             # dash form and both quoted spellings included.
             introducer = HEREDOC.match(command, digits)
             if introducer is not None:
-                spans.append((start, introducer.end()))
+                spans.append(
+                    Redirection(start, introducer.end(), "<<", ""))
                 index = introducer.end()
                 continue
             # An introducer this file cannot parse keeps its old treatment, and
             # a descriptor in front of one is still the stray word every other
             # spelling leaves.
             if digits > start:
-                spans.append((start, digits))
+                spans.append(Redirection(start, digits, "<<", ""))
             index = digits + 2
             continue
         operator = None
@@ -1592,11 +1673,13 @@ def redirection_spans(command):
                 and plain(end) and plain(end + 1)):
             close = _closing_paren(command, end + 2)
             if close is not None:
-                spans.append((start, close + 1))
+                spans.append(Redirection(
+                    start, close + 1, operator, command[end:close + 1]))
                 index = close + 1
                 continue
+        target = end
         end = word_end(command, end, ordinary)
-        spans.append((start, end))
+        spans.append(Redirection(start, end, operator, command[target:end]))
         index = end
     return spans
 
@@ -1631,11 +1714,124 @@ def strip_redirections(command):
     someone happened to be looking at.
     """
     out, cursor = [], 0
-    for start, end in redirection_spans(command):
-        out.append(command[cursor:start])
-        cursor = end
+    for span in redirection_spans(command):
+        out.append(command[cursor:span.start])
+        cursor = span.end
     out.append(command[cursor:])
     return "".join(out)
+
+
+def writes_to_a_file(span):
+    """Whether this redirection opens its target for writing.
+
+    The duplication operators are the only ones the operator cannot answer for.
+    Bash reads `>&1` and `>&-` as duplication of a descriptor, and `>&word` as
+    `&>word` — both streams into a FILE — so the word decides. A descriptor is
+    digits or `-`; anything else is a path.
+    """
+    if span.operator in WRITING_OPERATORS:
+        return True
+    if span.operator not in DUPLICATING_OPERATORS:
+        return False
+    word = span.target.strip()
+    return bool(word) and word != "-" and not word.isdigit()
+
+
+def target_literal(word):
+    """The filename `word` names, or `None` when that cannot be read.
+
+    **A target built by a command substitution is refused rather than guessed
+    at**, which is the answer this file gives everywhere else the deciding text
+    is not in the source — `substitution_fed_shells`, `unmodelled_printer` and
+    the stdin-script scan all say it in their own words. `substitutions` is
+    asked rather than a `$(` scan written here, so single quotes still mean
+    what they mean.
+
+    A process substitution is the same answer for a nearer reason: `> >(sh -c
+    …)` writes through a command rather than to a path, so there is no
+    filename to judge.
+
+    **A parameter expansion is NOT refused, and that is the module docstring's
+    stated residual rather than a second decision.** `git log $F` is already
+    unjudgeable for the same reason, and refusing every `> "$TMPDIR/out"` would
+    charge a real cost against a hole that a literal spelling walks around
+    anyway. What closes it is the argv after expansion, which no hook is given.
+    """
+    if word.startswith(("<(", ">(")) or substitutions(word):
+        return None
+    try:
+        parsed = shlex.split(strip_dollar_quotes(word), posix=True)
+    except ValueError:
+        return None
+    return parsed[0] if parsed else None
+
+
+def protected_path(literal):
+    """Which protected surface `literal` names, or `None`.
+
+    Judged on the components of the path as written. `docs/../.claude/x` holds
+    a `.claude` component and is refused; so is `/tmp/checkout/.git/config`,
+    which is the point of matching a component rather than a prefix.
+    """
+    parts = [part for part in re.split(r"[\\/]+", literal)
+             if part not in ("", ".")]
+    for part in parts:
+        if part in PROTECTED_TREES:
+            return part
+    if parts and parts[-1] in PROTECTED_FILES:
+        return parts[-1]
+    return None
+
+
+def redirection_offence(command):
+    """The reason to refuse a redirection in `command`, or `None`.
+
+    **This is the half of the deny lists that was defence in depth and is now a
+    boundary.** Every `Edit(...)` entry in `.claude/settings.json` and in every
+    command's `disallowed-tools` binds the editing tools; `Bash(ls:*)` and
+    `Bash(wc:*)` are auto-approved for every session, and a `>` on either one
+    wrote what all of them refuse.
+
+    **The residual, because it is narrower than the fix reads.** A redirection
+    is not the only way a command writes: `tee`, `cp`, `sed -i` and an
+    interpreter all do, and none of them is judged here. What makes the
+    redirection the case worth closing is that it rides on a command that is
+    ALREADY approved, so it needs no grant of its own — everything else in that
+    list has to be granted first, and none of it is.
+    """
+    for span in redirection_spans(command):
+        if not writes_to_a_file(span):
+            continue
+        # **An empty target is not a write and refusing it broke an admitted
+        # case.** `word_end` stops without consuming anything when the word
+        # would BEGIN with `(`, because `git log >(cat) -1` is a process
+        # substitution bash passes as an ARGUMENT rather than a redirect with
+        # `(cat)` for a target — so the span holds a bare `>` and there is no
+        # path here to judge. What runs inside those parentheses is judged by
+        # the run splitter, which is the arrangement
+        # `test_a_substitution_is_part_of_the_target_word` pins.
+        if not span.target.strip():
+            continue
+        literal = target_literal(span.target)
+        if literal is None:
+            return (
+                "a redirection's target is built by a command substitution, "
+                "so the file it writes cannot be read from this command; "
+                "refusing rather than admitting a write nothing judged. Name "
+                "the path, or use the editing tools, which the permission "
+                "rules see (#20, docs/harness-boundaries.md)."
+            )
+        named = protected_path(literal)
+        if named is not None:
+            return (
+                f"`{span.operator}` would write `{literal}`, and `{named}` is "
+                "the agent's own machinery or the toolchain that runs on it. "
+                "Every `Edit(...)` deny that names it binds the editing tools, "
+                "so a redirection on an approved command wrote straight past "
+                "them (#20, docs/harness-boundaries.md). Write it with an "
+                "editing tool, where a permission rule judges the path."
+            )
+    return None
 
 
 def expandable_regions(command):
@@ -2702,9 +2898,23 @@ def _offence(command, depth, judged):
     # `join_continuations` sits after `strip_comments` because a backslash at
     # the end of a COMMENT continues nothing — bash ends a comment at the
     # newline — so joining first would have swallowed the next line into it.
-    resolved = strip_redirections(
-        separate_lines(
-            join_continuations(strip_comments(strip_heredocs(command)))))
+    performed = separate_lines(
+        join_continuations(strip_comments(strip_heredocs(command))))
+
+    # **Judged on the string the strip is about to read, and that is the whole
+    # placement argument.** A `>` inside a heredoc body or a comment is not a
+    # redirection bash performs, so judging the raw command would refuse a
+    # commit message describing this very change — the mistake
+    # `unreadable_dollar_quote` records making one line down. And judging after
+    # the strip is impossible: the strip is what removes the targets.
+    #
+    # Every reading above recurses through `offence`, so a target assembled by
+    # an expansion is judged under each of them too.
+    refusal = redirection_offence(performed)
+    if refusal is not None:
+        return refusal
+
+    resolved = strip_redirections(performed)
 
     # **The check and the code that acts on it must read the SAME string**, and
     # putting this on the raw command was wrong twice over. It refused a

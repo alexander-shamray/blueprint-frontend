@@ -7132,6 +7132,147 @@ class TheGitArgvGuard(unittest.TestCase):
         self.assertEqual("", result.stdout.strip())
         self.assertIn("guard-git-argv", result.stderr)
 
+    # ---- #20: a redirection writes what every Edit(...) deny refuses --------
+
+    def test_the_measured_redirections_are_refused(self):
+        # **The three in #20, fed to this hook and admitted, and the write
+        # landed.** They are first because they are what the issue measured:
+        # `Bash(ls:*)` and `Bash(wc:*)` are auto-approved for every session, so
+        # neither of the first two needs a grant of any kind, and the third
+        # shows that a redirect on a GIT command was not refused either.
+        for command in (
+            "ls > .claude/settings.json",
+            "wc -l README.md > package.json",
+            "git log --oneline > package.json",
+        ):
+            with self.subTest(command=command):
+                self.assertRefused(command)
+
+    def test_every_writing_operator_reaches_the_machinery_check(self):
+        # One operator per spelling bash writes a file with. `>&` is here
+        # because bash reads `>&word` as `&>word` when the word is not a
+        # descriptor — the operator alone cannot say, so the target decides.
+        for command in (
+            "ls > .claude/hooks/guard-git-argv.py",
+            "ls >> .claude/hooks/guard-git-argv.py",
+            "ls >| .claude/scripts/npm-checks.sh",
+            "ls &> .claude/agents/bug-auditor.md",
+            "ls &>> .claude/commands/ship.md",
+            "ls >& .claude/sandbox/Dockerfile",
+            "ls <> .git/config",
+            "ls 2> .claude/settings.json",
+        ):
+            with self.subTest(command=command):
+                self.assertRefused(command)
+
+    def test_a_component_is_matched_rather_than_a_prefix(self):
+        # A prefix test answers `.claude/x` and nothing else. These are the
+        # same write under four spellings, and the last two are why the rule
+        # reads every component rather than the first one.
+        for command in (
+            "ls > ./.claude/settings.json",
+            "ls > docs/../.claude/settings.json",
+            "ls > /tmp/checkout/.git/config",
+            "ls > ../blueprint-frontend/.claude/settings.json",
+        ):
+            with self.subTest(command=command):
+                self.assertRefused(command)
+
+    def test_a_reading_redirection_is_not_a_write(self):
+        # The other direction, and the reason `WRITING_OPERATORS` exists rather
+        # than a scan for protected paths anywhere in the line: reading the
+        # machinery is what half these commands are FOR.
+        for command in (
+            "cat < package.json",
+            "wc -l < .claude/settings.json",
+            "cat <<< 'package.json'",
+            "ls 2>&1",
+            "ls >&2",
+            "ls 3>&-",
+        ):
+            with self.subTest(command=command):
+                self.assertAdmitted(command)
+
+    def test_an_unreadable_target_is_refused_and_an_expansion_is_not(self):
+        # **A target built by a command substitution is the answer this file
+        # gives everywhere the deciding text is not in the source.** A process
+        # substitution is the same answer for a nearer reason: there is no
+        # filename at all.
+        for command in (
+            "ls > $(printf .claude/settings.json)",
+            "ls > `printf package.json`",
+            "ls > >(sh -c 'cat > .claude/settings.json')",
+        ):
+            with self.subTest(command=command):
+                self.assertRefused(command)
+
+        # And the stated residual, pinned so that closing it is a decision
+        # rather than a side effect: a parameter expansion is admitted, exactly
+        # as `git log $F` already is.
+        self.assertAdmitted('ls > "$TMPDIR/out"')
+
+    def test_an_ordinary_redirection_is_still_admitted(self):
+        # The positive control. A rule that refused every redirection would
+        # satisfy every case above and take the session's own scratch writes
+        # with it.
+        for command in (
+            "ls > /dev/null",
+            "npm test 2>&1 | head -5",
+            "git log --oneline > D:/tmp/alexa/out.txt",
+            "cat foo.txt > docs/notes.md",
+            "printf x > src/app/probe.ts",
+        ):
+            with self.subTest(command=command):
+                self.assertAdmitted(command)
+
+    def test_a_protected_path_inside_a_heredoc_or_a_quote_is_data(self):
+        # The invariant the rest of this pipeline is built on, applied to the
+        # new rule: a commit body describing this very change has to remain
+        # writable. Judged on the string the strip reads, which is why.
+        self.assertAdmitted(
+            'git commit -m "fix: ls > package.json was admitted"')
+        self.assertAdmitted(
+            "git commit -F - <<'EOF'\nfix: ls > .claude/settings.json\nEOF")
+        self.assertAdmitted("ls # writes > package.json one day")
+
+    def test_the_protected_trees_cover_what_the_editing_commands_deny(self):
+        # **The gate whose subject is what the gate is looking at.** A hook is
+        # handed a command and never the frontmatter that granted it, so this
+        # set cannot be derived at run time the way the frontmatter denies are.
+        # What stands instead is this: the hook's list is asserted against the
+        # set the editing commands are already judged by, so a tree added there
+        # fails here until somebody adds it in both places.
+        module = self.guard_module()
+        for tree in CommandsEnforceTheEditingBoundariesTheyState.MACHINERY_TREES:
+            with self.subTest(tree=tree):
+                self.assertIn(tree, module.PROTECTED_TREES)
+
+    def test_the_protected_files_cover_every_tracked_root_file(self):
+        # The same argument for the other half, derived from `git ls-files` —
+        # so a new tracked root file fails this until somebody decides which
+        # side of the boundary it is on. `CLAUDE.md` already describes that as
+        # how this suite behaves; this is one more instance of it.
+        module = self.guard_module()
+        tracked = CommandsEnforceTheEditingBoundariesTheyState \
+            .tracked_root_files()
+        self.assertGreater(len(tracked), 4, "the root listing went empty")
+        for name in tracked:
+            with self.subTest(name=name):
+                self.assertIn(name, module.PROTECTED_FILES)
+
+    def test_the_protected_files_reach_names_no_enumeration_could_hold(self):
+        # The positive control for the case above and the reason the list is
+        # wider than it: the dangerous file is one that does not exist yet.
+        # `.npmrc` can set `script-shell`, and `vite.config.ts` is JavaScript
+        # the toolchain EXECUTES in order to load it — neither is tracked here.
+        module = self.guard_module()
+        tracked = CommandsEnforceTheEditingBoundariesTheyState \
+            .tracked_root_files()
+        for name in (".npmrc", "vite.config.ts", "npm-shrinkwrap.json"):
+            with self.subTest(name=name):
+                self.assertNotIn(name, tracked)
+                self.assertIn(name, module.PROTECTED_FILES)
+
     # ---- the wiring, without which none of the above runs -------------------
 
     def test_the_hook_is_registered_for_bash_in_settings(self):
