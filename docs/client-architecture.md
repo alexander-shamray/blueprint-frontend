@@ -999,9 +999,9 @@ Choosing without an emulator to verify against would be guessing.
 
 **What has not been done.** No device or emulator has run this client. The
 Android project builds a debug APK, the native strategy is covered by
-thirty-five unit tests with no device attached, and the iOS project is
+thirty-nine unit tests with no device attached, and the iOS project is
 generated — none of that is the same as a round trip through a real system
-browser. Most of those twenty-seven exist because review found a bug, which is
+browser. Most of those thirty-nine exist because review found a bug, which is
 worth noting: unit tests around a mocked `fetch` and a mocked browser can pin
 every decision this class makes and still say nothing about the two things
 below, because both are the platform refusing a request the mocks always

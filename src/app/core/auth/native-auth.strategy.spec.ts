@@ -302,6 +302,12 @@ describe('NativeAuthStrategy', () => {
       () => new Promise((resolve) => (releaseRenewal = resolve)),
     );
     const renewal = strategy.renewNow();
+    // Wait until the token request is genuinely in flight before signing out.
+    // Without this the sign-out's generation bump lands while the renewal is
+    // still on its storage READ, so it bails there and never reaches the
+    // network — testing the wrong guard, and leaving the suspended mock to be
+    // picked up by the revocation instead.
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
 
     // Sign out completes while that request is outstanding.
     fetchMock.mockResolvedValue({ ok: true, json: async () => ({}) });
@@ -602,6 +608,109 @@ describe('NativeAuthStrategy', () => {
     await signOut;
 
     expect(store.has(REFRESH_TOKEN_KEY)).toBe(false);
+  });
+
+  it('a stale empty-store renewal does not tear down a newer session', async () => {
+    store.set(REFRESH_TOKEN_KEY, 'refresh-1');
+    fetchMock.mockResolvedValue(tokenResponse('refresh-2'));
+    await strategy.renewNow();
+
+    // A renewal whose storage READ is suspended, and which will come back
+    // empty-handed. Its no-token branch used to call abandonSession()
+    // unconditionally.
+    let releaseRead!: (value: string | null) => void;
+    secure.get.mockImplementationOnce(
+      () => new Promise<string | null>((resolve) => (releaseRead = resolve)),
+    );
+    const stale = strategy.renewNow();
+    await vi.waitFor(() => expect(secure.get).toHaveBeenCalled());
+
+    fetchMock.mockResolvedValue({ ok: true, json: async () => ({}) });
+    await strategy.signOut();
+
+    store.set(REFRESH_TOKEN_KEY, 'brand-new');
+    fetchMock.mockResolvedValue(tokenResponse('brand-new-2', 'second-session'));
+    await strategy.renewNow();
+
+    releaseRead(null);
+    await stale;
+
+    expect(strategy.user()()?.username).toBe('second-session');
+    expect(store.get(REFRESH_TOKEN_KEY)).toBe('brand-new-2');
+  });
+
+  it('keeps a still-valid session when a renewal cannot reach Keycloak, and tries again', async () => {
+    store.set(REFRESH_TOKEN_KEY, 'refresh-1');
+    fetchMock.mockResolvedValue(tokenResponse('refresh-2'));
+    await strategy.renewNow();
+    fetchMock.mockClear();
+
+    // Renewal fires at 75% of a five-minute token, so a quarter of its life —
+    // 75 seconds — is still ahead of it. Signing the user out at the first
+    // failed attempt throws away a token that still works.
+    fetchMock.mockRejectedValue(new TypeError('Failed to fetch'));
+    await vi.advanceTimersByTimeAsync(225_000);
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(strategy.accessToken()).not.toBeNull();
+    expect(store.get(REFRESH_TOKEN_KEY)).toBe('refresh-2');
+
+    // And it retries, at 75% of whatever life is left — a backoff that comes
+    // out of the token's own exp rather than a number chosen here.
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(fetchMock.mock.calls.length).toBeGreaterThan(1);
+  });
+
+  it('does not destroy a session established while the sign-out was still in flight', async () => {
+    store.set(REFRESH_TOKEN_KEY, 'refresh-1');
+    fetchMock.mockResolvedValue(tokenResponse('refresh-2'));
+    await strategy.renewNow();
+
+    let releaseRevoke!: (value: unknown) => void;
+    fetchMock.mockImplementationOnce(
+      () => new Promise((resolve) => (releaseRevoke = resolve)),
+    );
+    const signOut = strategy.signOut();
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled());
+
+    // A fresh interactive sign-in, started AFTER the sign-out began and
+    // completing before its revocation returns — the checkout 401 path can do
+    // exactly this.
+    fetchMock.mockResolvedValue(tokenResponse('after-signout', 'second-session'));
+    const { flow } = await startSignIn();
+    await deliverCallback();
+    await flow;
+    expect(strategy.user()()?.username).toBe('second-session');
+
+    releaseRevoke({ ok: true, json: async () => ({}) });
+    await signOut;
+
+    // The sign-out's own cleanup must not reach past the session it ended.
+    expect(strategy.user()()?.username).toBe('second-session');
+    expect(store.get(REFRESH_TOKEN_KEY)).toBe('after-signout');
+  });
+
+  it('abandons a sign-in that was already in flight when the user signed out', async () => {
+    await strategy.initialize();
+    const { flow } = await startSignIn();
+    const state = strategy.pendingState();
+
+    fetchMock.mockResolvedValue({ ok: true, json: async () => ({}) });
+    await strategy.signOut();
+
+    await expect(flow).rejects.toThrow(/sign-out/i);
+    // The browser showing the login page is closed with it.
+    expect(browser.close).toHaveBeenCalled();
+
+    // And the return leg, if it arrives anyway, signs nobody in: signing out
+    // is the later instruction, and a flow started before it does not
+    // override it.
+    fetchMock.mockClear();
+    fetchMock.mockResolvedValue(tokenResponse('sneaky'));
+    await strategy.handleCallback(`blueprint://auth/callback?code=abc&state=${state}`);
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(strategy.accessToken()).toBeNull();
   });
 
   it('reports a sign-out that could not clear the stored credential', async () => {

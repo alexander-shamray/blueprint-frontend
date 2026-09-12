@@ -161,6 +161,16 @@ export class NativeAuthStrategy extends AuthService {
    */
   private sessionGeneration = 0;
 
+  /**
+   * Incremented by every successful adoption. `sessionGeneration` says when a
+   * session ENDED; this says when one BEGAN, and sign-out needs both: it ends
+   * the session it was asked about, then does asynchronous work, and must not
+   * clear shared state if a new session was established in the meantime. A
+   * sign-in does not advance the generation — only an ending does — so the
+   * generation alone cannot tell the difference.
+   */
+  private adoptions = 0;
+
   /** Fraction of the token's life at which renewal fires, as on the web (spec §4.1). */
   private static readonly RENEW_AT = 0.75;
 
@@ -362,6 +372,13 @@ export class NativeAuthStrategy extends AuthService {
   async renewNow(): Promise<void> {
     const generation = this.sessionGeneration;
     const stored = await this.secure.get(REFRESH_TOKEN_KEY);
+
+    // The read is an await too. A sign-out and a fresh sign-in can both land
+    // while it is suspended, and then this branch would end a session it knows
+    // nothing about — the same mistake the post-request check below exists to
+    // prevent, on the path that reaches it first.
+    if (generation !== this.sessionGeneration) return;
+
     if (!stored) {
       await this.abandonSession();
       return;
@@ -405,10 +422,23 @@ export class NativeAuthStrategy extends AuthService {
       return;
     }
 
-    // Unreachable, not refused. The stored token may still be perfectly
-    // good, so keep it and stay signed out — the next launch or the next
-    // explicit sign-in retries it. Discarding a valid credential because the
-    // network blinked would force a login the realm never asked for.
+    // Unreachable, not refused. Neither credential is known to be bad: the
+    // stored refresh token may be perfectly good, and so may the access token
+    // still in memory — renewal fires at 75% of the token's life, so a
+    // quarter of it is still ahead. Ending the session at the first failed
+    // attempt would turn a network blink into an interactive login the realm
+    // never asked for, a minute before it was due.
+    //
+    // So keep both and try again. `scheduleRenewal` recomputes from the
+    // token's own `exp`, which makes the retry interval 75% of whatever life
+    // remains — a backoff that converges on expiry without a number chosen
+    // here. Only once there is no life left is there nothing to keep.
+    const user = this.currentUser();
+    if (user && user.expiresAt * 1000 > Date.now()) {
+      this.scheduleRenewal();
+      return;
+    }
+
     this.clearRenewal();
     this.token.set(null);
   }
@@ -428,6 +458,24 @@ export class NativeAuthStrategy extends AuthService {
     // token request against sign-out.
     this.sessionGeneration++;
     this.clearRenewal();
+
+    // A sign-in already in flight is abandoned with the session. Bumping the
+    // generation is not enough on its own: `handleCallback` captures whatever
+    // generation is current when the return arrives, which after this line is
+    // the NEW one, so the exchange would succeed and adopt — an authorization
+    // flow begun before the sign-out signing the user back in after it.
+    // Signing out is the later instruction and it wins.
+    this.abandonPendingSignIn('Sign-in was abandoned by a sign-out.');
+    // Closes the login page still sitting in front of the app. Harmless when
+    // no browser is open.
+    try {
+      await this.browser.close();
+    } catch {
+      // Nothing depends on the tab closing; the session is ending regardless.
+    }
+
+    // Recorded before the asynchronous work below, and compared after it.
+    const adoptions = this.adoptions;
 
     let stored: string | null = null;
     try {
@@ -464,6 +512,13 @@ export class NativeAuthStrategy extends AuthService {
         }),
       );
     }
+
+    // A sign-in that STARTED after this sign-out did and completed while the
+    // revocation was in flight owns the session now — the checkout 401 path
+    // can do exactly that. Clearing shared state here would delete its
+    // credential and sign it out, on behalf of a session that ended before it
+    // began. The user's most recent completed action wins.
+    if (this.adoptions !== adoptions) return;
 
     await this.abandonSession();
   }
@@ -522,6 +577,7 @@ export class NativeAuthStrategy extends AuthService {
       return;
     }
 
+    this.adoptions++;
     this.scheduleRenewal();
     // One residual is left here knowingly: a write suspended long enough to
     // cross a sign-out AND a fresh sign-in lands on top of the new session's
@@ -557,11 +613,11 @@ export class NativeAuthStrategy extends AuthService {
    * rejection rather than a resolution, because a caller's success path means
    * "signed in" and nobody is.
    */
-  private abandonPendingSignIn(): void {
+  private abandonPendingSignIn(reason = 'Sign-in was dismissed before it completed.'): void {
     const pending = this.pending;
     if (!pending) return;
     this.pending = null;
-    pending.reject(new Error('Sign-in was dismissed before it completed.'));
+    pending.reject(new Error(reason));
   }
 
   /**
