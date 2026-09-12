@@ -405,6 +405,51 @@ def checkout_root(path):
         current = parent
 
 
+def linked_worktree(path, checkouts):
+    """`path`'s checkout root, when that root is a worktree of an anchor's repo.
+
+    **Found by walking into it rather than by reading the code.** `/branch`
+    forks a sibling worktree and the session moves into it, so `cwd` is an
+    anchor and the ordinary path works. A session standing in the PARENT
+    checkout and editing that sibling is a different case: the worktree is a
+    checkout, but not one of the three `anchors` knows about, so the target
+    resolved outside every anchor and `outside_offence` refused it. That is a
+    real edit refused for being in the wrong checkout rather than for landing
+    somewhere its path does not spell, which is not this file's subject.
+
+    **Admitting "any checkout" would be the wrong repair**, and it is worth
+    saying why: a permission rule's paths are relative to THIS project, so
+    `Edit(.claude/scripts/**)` matches nothing in a different repository's
+    tree — admitting one would hand the session another repository's machinery
+    with no rule able to name it. So the test is narrower: the root must be a
+    LINKED WORKTREE of a repository an anchor already stands in.
+
+    Read from the `.git` file rather than by running git, which a hook on every
+    write cannot afford: a linked worktree's `.git` is a file reading
+    `gitdir: <main>/.git/worktrees/<name>`, and a main checkout's is a
+    directory, so the file's existence is itself half the test.
+    """
+    root = checkout_root(path)
+    if root is None:
+        return None
+    marker = os.path.join(root, ".git")
+    if not os.path.isfile(marker):
+        return None
+    try:
+        with open(marker, encoding="utf-8") as handle:
+            text = handle.read().strip()
+    except OSError:
+        return None
+    if not text.startswith("gitdir:"):
+        return None
+    gitdir = os.path.realpath(text.split(":", 1)[1].strip())
+    for spelled_root, real_root, traits in checkouts:
+        for base in (spelled_root, real_root):
+            if under(gitdir, os.path.join(base, ".git"), traits):
+                return root
+    return None
+
+
 def anchors(event):
     """The checkouts this guard is standing in, as (spelled, resolved) pairs.
 
@@ -534,6 +579,17 @@ def offence(event):
     joined = spelled if os.path.isabs(spelled) else os.path.join(cwd, spelled)
     lexical = os.path.normpath(os.path.abspath(joined))
     resolved = os.path.realpath(joined)
+
+    # A sibling worktree of a repository an anchor stands in becomes an anchor
+    # itself, so the target is JUDGED there rather than refused for being
+    # outside. It narrows nothing: the loop below still requires every anchor
+    # containing the target to agree, which is the property `anchors` rests its
+    # trust in `CLAUDE_PROJECT_DIR` on.
+    sibling = linked_worktree(lexical, checkouts)
+    if sibling is not None and not any(
+            same(sibling, root, traits) for root, _, traits in checkouts):
+        checkouts = checkouts + [
+            (sibling, os.path.realpath(sibling), traits_of(sibling))]
 
     # **Every anchor containing the target must agree, and the first form said
     # ANY.** One agreeing anchor was enough to admit the write, so a second

@@ -758,6 +758,54 @@ class WhatThisGuardIsNotTheSubjectOf(GuardCase):
         # still admitted everything.
         self.assertAdmitted(os.path.join(self.outside, "loot.txt"))
 
+    def test_a_sibling_worktree_of_this_repository_is_judged_not_refused(self):
+        """The false positive the allow-list introduced, found by walking into it.
+
+        `/branch` forks a sibling worktree and the session moves into it, so
+        `cwd` is an anchor and the ordinary path works. A session standing in
+        the PARENT and editing that sibling is the case that broke: the
+        worktree is a checkout, but not one of the three `anchors` knows, so
+        the target resolved outside every anchor and was refused — a real edit
+        refused for being in the wrong checkout rather than for landing
+        somewhere its path does not spell, which is not this guard's subject.
+
+        The repair is narrow on purpose. Admitting "any checkout" would hand
+        the session another repository's machinery with no rule able to name
+        it, because a permission rule's paths are relative to THIS project. So
+        the root must be a linked worktree of a repository an anchor stands in,
+        read from the `.git` file rather than by running git.
+        """
+        # Built by hand rather than by `git worktree add`, for the reason the
+        # fixture's own `.git` is a bare directory: this suite's checkout is a
+        # shape, not a repository. The shape is all the guard reads — a `.git`
+        # FILE naming a gitdir under the anchor's own `.git`.
+        worktree = os.path.join(self.outside, "linked-worktree")
+        os.makedirs(os.path.join(worktree, "docs"), exist_ok=True)
+        self.write(
+            os.path.join(worktree, ".git"),
+            "gitdir: "
+            + os.path.join(self.root, ".git", "worktrees", "linked") + "\n")
+        self.assertAdmitted(os.path.join(worktree, "docs", "note.md"))
+
+        # **And the narrowness, which is the half that matters.** A checkout
+        # whose gitdir belongs to some other repository is still refused — a
+        # permission rule's paths are relative to THIS project, so nothing
+        # could name that tree's machinery.
+        stranger = os.path.join(self.outside, "stranger")
+        os.makedirs(os.path.join(stranger, ".claude"), exist_ok=True)
+        self.write(
+            os.path.join(stranger, ".git"),
+            "gitdir: " + os.path.join(self.outside, "elsewhere", ".git",
+                                      "worktrees", "x") + "\n")
+        self.assertRefused(os.path.join(stranger, ".claude", "settings.json"))
+
+        # A main checkout is not a linked worktree either: its `.git` is a
+        # directory, which is the cheap half of the test.
+        other = os.path.join(self.outside, "other-repo")
+        os.makedirs(os.path.join(other, ".git"), exist_ok=True)
+        os.makedirs(os.path.join(other, ".claude"), exist_ok=True)
+        self.assertRefused(os.path.join(other, ".claude", "settings.json"))
+
     def test_the_harness_state_root_is_admitted(self):
         # The second of the two roots the docstring names. Judged rather than
         # written: a `Write` target need not exist, and this suite has no
