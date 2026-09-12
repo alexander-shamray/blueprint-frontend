@@ -97,13 +97,37 @@ jobs:
   # Python is pinned to 3.12 because that is what the two PreToolUse hooks are
   # invoked as in `.claude/settings.json`; running the suite on a different
   # interpreter would verify something other than what a developer runs.
+  # **The matrix is not thoroughness, it is the module's own claim.**
+  # `test_edit_target_guard.py` says "CI runs this module on Linux, Windows
+  # and macOS for exactly that reason", and the reason is that it asserts
+  # three PLATFORM properties rather than assuming them: how `..` resolves
+  # after a link, which POSIX does against the target and Windows collapses
+  # first; whether the filesystem folds case, which is the mount's answer and
+  # not the platform's; and which link primitives exist at all. A single
+  # ubuntu runner would leave the Windows junction path and the macOS
+  # case-insensitive path unexercised while the docstring claimed otherwise —
+  # a stated coverage nothing enforces, which is the failure this repository
+  # ranks critical. Raised by Copilot against PR #13 round 8, against the job
+  # added in round 7. The suite runs in well under a minute, so three runners
+  # is a cheap way to make a sentence true.
   harness:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      # `setUpModule` FAILS rather than skips on a missing tool, so jq has to
+      # be present on every runner rather than only where it happens to ship.
+      # It is on the ubuntu image already; the other two need a line.
+      - if: runner.os == 'Windows'
+        run: choco install jq --no-progress -y
+      - if: runner.os == 'macOS'
+        run: brew install jq
       - name: The suite reads `git ls-files`, so the checkout must be a real one
         run: git rev-parse --is-inside-work-tree
       - run: python -m unittest discover -s .claude/scripts -p 'test_*.py' -v

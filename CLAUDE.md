@@ -45,7 +45,7 @@ src/theme/, src/styles.css   Ionic's variables and the global sheet
 e2e/                   the Playwright smoke, against a real stack
 android/, ios/         committed, not generated here; CI compiles the manifest a developer edits
 capacitor.config.ts    the one file that decides what `cap sync` writes into both
-.github/workflows/     ci — the web, e2e, android and ios-config jobs, and one left commented out
+.github/workflows/     ci — the jobs `docs/client-architecture.md` §14 names, including `harness`
 .claude/               commands, agents, hooks, scripts, the reviewer sandbox
 docs/                  this file's table, above
 ```
