@@ -1738,6 +1738,10 @@ class LabelHelperHasNoFreeParameter(unittest.TestCase):
         self.assertEqual(2, self.run_helper("security", "--force").returncode)
 
     def test_force_is_never_spelled(self):
+        # `self.HELPER`, which for this class is the LABEL helper. A rewrite
+        # scoped to a string rather than to a class pointed both of this
+        # class's source cases at the issue-filing library, because the
+        # neighbour two classes down carries the same two test names.
         text = self.HELPER.read_text(encoding="utf-8")
         code = "\n".join(
             line for line in text.splitlines() if not line.lstrip().startswith("#")
@@ -1778,6 +1782,11 @@ class IssueHelperHasNoFreeParameter(unittest.TestCase):
     """
 
     HELPER = SCRIPTS / "gh-issue-create.sh"
+    SWEEP_HELPER = SCRIPTS / "gh-sweep-issue-create.sh"
+    # Everything both entry points share, since #19 split the route out of the
+    # argument list: the source assertions below read this rather than either
+    # wrapper, because this is where the shape they assert lives.
+    LIBRARY = SCRIPTS / "gh-issue-filing.sh"
 
     def setUp(self):
         self.dir = tempfile.mkdtemp(prefix="issue-stub-")
@@ -1815,8 +1824,17 @@ class IssueHelperHasNoFreeParameter(unittest.TestCase):
     def run_helper(self, *args, body=""):
         env = dict(os.environ)
         env["PATH"] = self.dir + os.pathsep + env["PATH"]
+        # **The route was the third argument until #19 and is now the choice
+        # of script.** Every case below still spells which provenance it is
+        # filing under, which is what keeps them readable — but the word now
+        # selects an entry point instead of being handed to one, and neither
+        # entry point has an argument that could carry the other's.
+        helper = self.HELPER
+        if args and args[-1] in ("sweep", "hand"):
+            helper = self.SWEEP_HELPER if args[-1] == "sweep" else self.HELPER
+            args = args[:-1]
         return subprocess.run(
-            [BASH, str(self.HELPER), *args],
+            [BASH, str(helper), *args],
             capture_output=True, text=True, input=body, env=env,
         )
 
@@ -1840,13 +1858,18 @@ class IssueHelperHasNoFreeParameter(unittest.TestCase):
         self.assert_refused_before_gh(result)
         self.assertIn(
             "usage: gh-issue-create.sh <security|bug> <critical|high|medium|low>"
-            " <sweep|hand> < title, blank line, body ending in the trailer",
+            " < title, blank line, body ending in the hand-filed trailer",
             result.stderr,
         )
+        sweep = subprocess.run(
+            [BASH, str(self.SWEEP_HELPER)], capture_output=True, text=True)
+        self.assertEqual(2, sweep.returncode)
+        self.assertIn("usage: gh-sweep-issue-create.sh", sweep.stderr)
 
-    def test_the_argument_count_is_exactly_three(self):
+    def test_the_argument_count_is_exactly_two(self):
         # A title on the command line is the free parameter the fifth review
         # round named: it crossed the parent's shell before the helper ran.
+        # Two rather than three since #19 — the route is the script now.
         self.assert_refused_before_gh(self.run_helper("bug", body=self.STDIN))
         self.assert_refused_before_gh(self.run_helper("bug", "low", body=self.STDIN))
         self.assert_refused_before_gh(self.run_helper("a title", "bug", "low", "sweep", body=self.STDIN))
@@ -1892,15 +1915,24 @@ class IssueHelperHasNoFreeParameter(unittest.TestCase):
         self.assert_refused_before_gh(self.run_helper("bug", "low", "sweep", body="a title\n"))
         self.assert_refused_before_gh(self.run_helper("bug", "low", "sweep", body="a title"))
 
-    def test_a_route_outside_the_two_is_refused(self):
-        # #184: the route decides which fixed line the body must end with, and
-        # it is a closed set like the other two. A spelling outside it is
-        # refused rather than defaulted — a default is precisely how the
-        # unconditional provenance claim would come back.
-        for route in ("sweeps", "Sweep", "auto", "sweep --force", "-R other/repo", ""):
-            with self.subTest(route=route):
-                self.assert_refused_before_gh(
-                    self.run_helper("bug", "low", route, body=self.STDIN))
+    def test_neither_entry_point_takes_a_route_at_all(self):
+        # **#184 made the route a closed set; #19 made it not an argument.**
+        # A closed set still let the caller choose, and both sweeps held a
+        # prefix grant — so the model picked the sentence asserting that a
+        # second read-only auditor verified the finding. Now a third argument
+        # is refused by arity, whichever word it is and whichever entry point
+        # receives it.
+        for helper in (self.HELPER, self.SWEEP_HELPER):
+            for route in ("sweep", "hand", "sweeps", "-R other/repo", ""):
+                with self.subTest(helper=helper.name, route=route):
+                    env = dict(os.environ)
+                    env["PATH"] = self.dir + os.pathsep + env["PATH"]
+                    out = subprocess.run(
+                        [BASH, str(helper), "bug", "low", route],
+                        capture_output=True, text=True, input=self.STDIN,
+                        env=env)
+                    self.assertEqual(2, out.returncode, out.stderr)
+                    self.assertEqual([], self.calls())
 
     def test_each_route_requires_the_line_that_is_true_of_it(self):
         # **The point of #184, stated as a test rather than as a sentence.**
@@ -1960,7 +1992,7 @@ class IssueHelperHasNoFreeParameter(unittest.TestCase):
         env["PATH"] = self.dir + os.pathsep + env["PATH"]
         script = (
             'case "$(command -v gh)" in */issue-stub-*/gh) ;; *) exit 97 ;; esac\n'
-            f"bash {str(self.HELPER)!r} bug high sweep <<'ISSUE_BODY_END'\n"
+            f"bash {str(self.SWEEP_HELPER)!r} bug high <<'ISSUE_BODY_END'\n"
             "a title\n"
             "\n"
             f"{body}"
@@ -1991,7 +2023,7 @@ class IssueHelperHasNoFreeParameter(unittest.TestCase):
         env["PATH"] = self.dir + os.pathsep + env["PATH"]
         script = (
             'case "$(command -v gh)" in */issue-stub-*/gh) ;; *) exit 97 ;; esac\n'
-            f"bash {str(self.HELPER)!r} security high sweep <<'ISSUE_BODY_END'\n"
+            f"bash {str(self.SWEEP_HELPER)!r} security high <<'ISSUE_BODY_END'\n"
             f"{title}\n"
             "\n"
             "the body\n"
@@ -2028,7 +2060,7 @@ class IssueHelperHasNoFreeParameter(unittest.TestCase):
         self.assertEqual("*", (d / "conv").read_text(encoding="utf-8").strip())
 
     def test_force_is_never_spelled(self):
-        text = self.HELPER.read_text(encoding="utf-8")
+        text = self.LIBRARY.read_text(encoding="utf-8")
         code = "\n".join(
             line for line in text.splitlines() if not line.lstrip().startswith("#")
         )
@@ -2036,22 +2068,63 @@ class IssueHelperHasNoFreeParameter(unittest.TestCase):
         self.assertNotIn(" -f ", code)
 
     def test_the_repository_is_resolved_rather_than_accepted(self):
-        text = self.HELPER.read_text(encoding="utf-8")
+        text = self.LIBRARY.read_text(encoding="utf-8")
         self.assertIn("gh repo view --json nameWithOwner", text)
         self.assertIn('--repo "$repo"', text)
 
     def test_the_command_shape_is_the_one_the_sweeps_describe(self):
         # Each of these is a claim a sweep's step 4 makes about the helper, and
         # a source assertion is what stops the two drifting apart silently.
-        text = self.HELPER.read_text(encoding="utf-8")
+        text = self.LIBRARY.read_text(encoding="utf-8")
         self.assertIn("MSYS2_ARG_CONV_EXCL='*' gh issue create", text)
         self.assertIn('--repo "$repo"', text)
         self.assertIn('--label "$kind"', text)
         self.assertIn('--label "$severity"', text)
         self.assertIn("--body-file -", text)
 
+    def test_a_sweep_cannot_reach_the_hand_route(self):
+        # **The half that makes the split enforcement rather than tidiness
+        # (#19).** `allowed-tools` is an auto-approval list, so granting the
+        # sweeps only `gh-sweep-issue-create.sh` withholds nothing on its own —
+        # the parameterised route has to be denied by name. Each sweep is
+        # judged by its own frontmatter, so a new sweep that grants neither
+        # fails this until somebody decides which route it files under.
+        seen = 0
+        for name in ("security-sweep.md", "bug-sweep.md"):
+            text = (COMMANDS / name).read_text(encoding="utf-8")
+            allowed = " ".join(
+                re.findall(r"^allowed-tools:\s*(.+)$", text, re.MULTILINE))
+            denied = " ".join(
+                re.findall(r"^disallowed-tools:\s*(.+)$", text, re.MULTILINE))
+            with self.subTest(command=name):
+                self.assertIn(
+                    "bash .claude/scripts/gh-sweep-issue-create.sh:*", allowed)
+                self.assertNotIn(
+                    "bash .claude/scripts/gh-issue-create.sh:*", allowed)
+                self.assertIn(
+                    "Bash(bash .claude/scripts/gh-issue-create.sh:*)", denied)
+                seen += 1
+        self.assertEqual(2, seen)
+
+    def test_each_entry_point_files_one_route_and_cannot_name_the_other(self):
+        # Driven end to end through the stub: the hand entry point refuses a
+        # body carrying the sweep's trailer and the sweep entry point refuses
+        # the hand one, so neither can be talked into the other's claim by the
+        # body either.
+        result = self.run_helper("bug", "low", "hand", body=self.STDIN)
+        self.assert_refused_before_gh(result)
+        result = self.run_helper("bug", "low", "sweep", body=self.HAND_STDIN)
+        self.assert_refused_before_gh(result)
+
+        # And each accepts its own, which is the positive control: a split
+        # where both halves refuse everything would satisfy the two above.
+        result = self.run_helper("bug", "low", "sweep", body=self.STDIN)
+        self.assertEqual(0, result.returncode, result.stderr)
+        result = self.run_helper("bug", "low", "hand", body=self.HAND_STDIN)
+        self.assertEqual(0, result.returncode, result.stderr)
+
     def test_both_labels_go_through_the_sibling_helper(self):
-        text = self.HELPER.read_text(encoding="utf-8")
+        text = self.LIBRARY.read_text(encoding="utf-8")
         self.assertIn('"$here/gh-label-ensure.sh" "$kind"', text)
         self.assertIn('"$here/gh-label-ensure.sh" "$severity"', text)
 
@@ -2543,7 +2616,17 @@ class CopilotFeedHelpersAreTheOnlyIntake(unittest.TestCase):
             grant for path in COMMANDS.glob("*.md")
             for grant in self.granted_bash(path) if grant.startswith("gh ")
         ]
-        self.assertGreater(len(seen), 4)
+        # **Two, and it was more than four until #16.** `gh pr create` and
+        # `gh pr merge --merge` became fixed helpers in that change, so the
+        # count fell — which is the fix working rather than a parser that went
+        # blind. The two that remain are named here, so this cannot pass on an
+        # empty list the way a bare threshold could, and a new raw `gh` grant
+        # is still judged by the case above.
+        self.assertGreaterEqual(len(seen), 2)
+        for expected in ("gh pr diff", "gh pr checks"):
+            self.assertTrue(
+                any(grant.startswith(expected) for grant in seen),
+                f"expected a raw `{expected}` grant to still exist: {seen}")
         for banned in ("gh pr view", "gh pr list", "gh api"):
             self.assertNotIn(banned, self.GH_GRANTS_THAT_CANNOT_REACH_A_FEED)
 

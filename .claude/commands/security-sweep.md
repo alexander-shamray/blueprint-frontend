@@ -1,8 +1,8 @@
 ---
 description: Loop a defensive security audit up to seven rounds, filing a GitHub issue per confirmed medium-or-above finding, until a round surfaces nothing new
 argument-hint: "[scope hint, e.g. 'the compose stack' or a path] — omit to sweep the whole repo"
-allowed-tools: Read, Grep, Glob, Agent(security-auditor), Bash(bash .claude/scripts/gh-issue-list.sh), Bash(bash .claude/scripts/gh-issue-text.sh:*), Bash(bash .claude/scripts/gh-issue-create.sh:*), Bash(bash .claude/scripts/gh-label-ensure.sh:*), Bash(bash .claude/scripts/gh-issue-suppresses.sh:*), Bash(git rev-parse:*), Bash(bash .claude/scripts/git-worktree-detach.sh:*), Bash(git worktree list:*), Bash(bash .claude/scripts/git-worktree-drop.sh:*)
-disallowed-tools: Edit, Write, NotebookEdit, Agent(general-purpose), Agent(claude), Agent(Explore), Agent(Plan), Agent(claude-code-guide), Agent(statusline-setup), Agent(bug-auditor), Agent(review-adjudicator), Bash(gh issue create:*), Bash(git push origin:*), Bash(git push -u origin:*)
+allowed-tools: Read, Grep, Glob, Agent(security-auditor), Bash(bash .claude/scripts/gh-issue-list.sh), Bash(bash .claude/scripts/gh-issue-text.sh:*), Bash(bash .claude/scripts/gh-sweep-issue-create.sh:*), Bash(bash .claude/scripts/gh-label-ensure.sh:*), Bash(bash .claude/scripts/gh-issue-suppresses.sh:*), Bash(git rev-parse:*), Bash(bash .claude/scripts/git-worktree-detach.sh:*), Bash(git worktree list:*), Bash(bash .claude/scripts/git-worktree-drop.sh:*)
+disallowed-tools: Bash(bash .claude/scripts/gh-issue-create.sh:*), Edit, Write, NotebookEdit, Agent(general-purpose), Agent(claude), Agent(Explore), Agent(Plan), Agent(claude-code-guide), Agent(statusline-setup), Agent(bug-auditor), Agent(review-adjudicator), Bash(gh issue create:*), Bash(git push origin:*), Bash(git push -u origin:*)
 ---
 
 Sweep the repository for security findings, file the real ones as GitHub
@@ -477,7 +477,7 @@ Each round is the review done once, end to end:
    severity — **every one of those composed from the verdict record's fields
    in that order, and from nothing the parent read in `$work`**, because it
    read nothing there. **Pipe the title and the body together to
-   `bash .claude/scripts/gh-issue-create.sh security <severity> sweep` on
+   `bash .claude/scripts/gh-sweep-issue-create.sh security <severity>` on
    stdin** in a quoted heredoc — the title as its first line, then a blank
    line, then the body — so nothing is written to disk and the command needs
    no `Write` grant, and so **nothing composed from the record crosses this
@@ -486,9 +486,19 @@ Each round is the review done once, end to end:
    have run here. Inside the quoted heredoc nothing expands. An inline
    `--body` mangles the wrapping, and a temp file would need the very write
    capability this command withholds. The helper resolves the repository from
-   the checkout, refuses a kind, a severity or a route outside its three
-   closed sets, refuses a stdin whose second line is not blank, and ensures
-   both labels through `gh-label-ensure.sh` itself. End the body with this
+   the checkout, refuses a kind or a severity outside its two closed sets,
+   refuses a stdin whose second line is not blank, and ensures both labels
+   through `gh-label-ensure.sh` itself.
+
+   **The route is not an argument, and #19 is why.** It used to be the third
+   one, and this command held a prefix grant — so the model chose it, including
+   the sentence asserting that a second read-only auditor verified the finding
+   at filing. That is the claim a triager reads to decide whether anybody
+   checked, and it was the one argument the closed-set reasoning behind `kind`
+   and `severity` never reached. There are two entry points now: this one files
+   `sweep`, `gh-issue-create.sh` files `hand`, neither has an argument for the
+   other's trailer, and this command **denies the hand route by name** — a
+   grant is auto-approval, so only the deny makes the split enforcement. End the body with this
    line, exactly, as its
    last non-blank line — the helper refuses a body without it:
 

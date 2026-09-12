@@ -699,7 +699,12 @@ fi
 # anything.
 ran="$work/repo/$sentinel"
 if [ -L "$ran" ] || [ ! -f "$ran" ]; then
-  echo "grok finished its turn but left no $sentinel, so nothing shows that /review-branch ran; refusing to read a missing suggestions.md as a clean pass" >&2
+  # **Deliberately not the words the success line uses.** That line is "grok
+  # finished its turn", and `test_a_status_line_replaces_it_on_stderr` asserts
+  # exactly one line in this file says it — a helper that goes quiet on success
+  # is one nobody can tell from a helper that did not run, and two lines saying
+  # it would make the case that guards that unable to tell either.
+  echo "grok ended its turn without leaving $sentinel, so nothing shows that /review-branch ran; refusing to read a missing suggestions.md as a clean pass" >&2
   exit 17
 fi
 echo "grok finished its turn (stopReason \"$stop\") — findings, if any, are in suggestions.md" >&2

@@ -1091,21 +1091,51 @@ traffic. Raised by Copilot, and the premise is the half that failed; a passing
 case pins the verdict and names what to invert if the harness ever stops
 normalising.
 
-**Its residual is the half the harness itself needs, stated rather than
-rounded up.** The subject is a target spelled *inside* a checkout the session
-is standing in; a path spelled entirely outside one is not judged, because
-the session's memory and scratch state are written that way by absolute path
-and refusing them would take both with it. Nothing in the exposure this
-closes can spell one — a review row is one plain repository-relative path and
-the adjudicator drops a row that is not — so what is owed is a rule about
-which out-of-tree paths are legitimate, which is a different argument from
-this one. The residual is a passing test, not a paragraph alone.
+**Its residual was the half the harness itself needs, and the sentence naming
+what was owed is what got paid (#21).** The subject is a target spelled
+*inside* a checkout the session is standing in; a path spelled entirely
+outside one was not judged, because the session's memory and scratch state are
+written that way by absolute path and refusing them would take both with it.
+That was argued against the wrong threat: it reads as though the alternative
+were refusing everything, when what was owed — this paragraph said so — is "a
+rule about which out-of-tree paths are legitimate". Meanwhile `/review-branch`
+holds an unrestricted `Write`, consumes untrusted branch text and runs
+unattended inside `/ship`, so an injected diff could name a shell profile, an
+SSH key or a credential, and the fallback allowed it.
+
+**It is an allow-list now: the platform temp directory the scratchpad is
+created under, and `~/.claude`.** Within that second root the harness's own
+control surface is refused as well — `settings.json`, `.credentials.json`,
+`hooks/`, `commands/`, `agents/`, `plugins/` — because the root is admitted for
+STATE and a credential is not state, which is this repository's own argument
+about its `.claude/` applied one level up where the grant is wider. Each root
+is matched in both its spelled and resolved forms, since macOS reaches `TMPDIR`
+through a link and comparing against the spelling alone would refuse the
+scratchpad on every macOS host. **What is left**: the temp root is admitted
+whole rather than the session's own subdirectory within it, because no
+environment variable names the scratchpad and deriving it would be a guess the
+hook cannot check.
 **The sweeps' item 5 (#75) closed by the same shape** — a second read-only
-dispatch returns a verdict, the parent opens nothing in `$work`, and
-`gh-issue-create.sh` leaves `gh issue create` with no free parameter — so
+dispatch returns a verdict, the parent opens nothing in `$work`, and the issue
+helper leaves `gh issue create` with no free parameter — so
 the two residuals #149 named as one class went in one change, and the raw
 `Bash(gh issue create:*)` is denied by name in both sweeps now that the
 fifth entry's measurement exists.
+
+**One parameter escaped that reasoning for a while, and it was the one
+asserting the finding had been checked (#19).** The route — `sweep` or `hand` —
+decides the fixed trailer the body must end with, and both sweeps held a prefix
+grant on the script, so the model chose it along with the kind and the
+severity. A hand-filed or injected finding claiming `sweep` asserts a
+verification that did not happen, which is the same shape as a gate that passes
+vacuously, in the sentence a triager reads to decide whether anybody looked.
+The filing logic is now a sourced library with two entry points that each pass
+a constant — `gh-sweep-issue-create.sh` and `gh-issue-create.sh` — and the
+sweeps grant the first while **denying the second by name**, since a grant is
+auto-approval and only a deny refuses. **The residual**: nothing stops a
+session invoking the sweep entry point by hand, because no `gh` rule exists at
+all and it is a `bash` invocation like any other. What the split removes is the
+case that runs unattended over a tree that is prompt-injection input.
 
 **The two sweeps are one shape asking two questions**, split by what makes a
 finding rather than by where they look. `/security-sweep` files what an
