@@ -201,10 +201,11 @@ rather than here. Three rules reach every session, so they stay:
   harness's own suite** — it covers the deny lists, the frontmatter grants,
   the helper shapes and the hooks. It reads `git ls-files`, so a new tracked
   root file or top-level tree fails it until somebody decides which side of
-  the boundary it is on. Run it after any change under `.claude/`; the
-  interpreter is `py -3.12` on Windows and `python` elsewhere, which is what
-  CI's `harness` job uses on all three platforms, and `docs/testing.md` owns
-  the prerequisite.
+  the boundary it is on. Run it after any change under `.claude/`. Any Python
+  3.12 will do — `py -3.12` on Windows, `python` elsewhere — and CI's
+  `harness` job runs `python` on all three platforms, Windows included, so
+  that is the spelling to use when reproducing it. `docs/testing.md` owns the
+  prerequisite; the hooks' `py` wiring above is a different question.
 
 ### What was not ported, and is therefore missing
 
