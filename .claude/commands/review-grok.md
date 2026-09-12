@@ -154,11 +154,17 @@ pointer becomes a third copy of it.
    and `Write` and refuses one that does not land where its path spells, so
    a link into a denied tree — or out of the checkout altogether — is
    refused by the harness rather than by this paragraph (#181).
-   **The premise it replaced is still true and still gated**: this
+   **The premise it replaced is still true and is now gated here too**: this
    repository tracks no symbolic link, the helper suite fails on any mode
-   `120000` in `git ls-files -s` on every push, and this invocation cannot
-   create one because `Write` and `Edit` make regular files and `Bash` is
-   denied. What that premise never covered is **the branch under review
+   `120000` in `git ls-files -s`, and this invocation cannot create one
+   because `Write` and `Edit` make regular files and `Bash` is denied. **The
+   middle clause used to say "on every push" and was false when it
+   arrived** — it described the repository this harness came from, and
+   nothing here ran the suite at all, so a premise offered as defence in
+   depth rested on a gate that did not exist. `.github/workflows/ci.yml` has
+   a `harness` job now; it runs on pull requests and on pushes to `main`,
+   which is what "gated" means in this repository and is narrower than the
+   sentence it replaces. What that premise never covered is **the branch under review
    itself** — the branch is what introduces files, and this command runs
    over it locally before CI has said anything about it. The guard is what
    covers it; the premise stays beside it as defence in depth.

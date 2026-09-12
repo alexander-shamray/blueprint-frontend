@@ -78,6 +78,36 @@ jobs:
             compose.log
             test-results/
 
+  # The harness's own suite, and it is here because three files in `.claude/`
+  # argued from a premise this repository did not make true. `/review-grok`
+  # says the tracked-symlink premise is "still gated" because "the helper suite
+  # fails on any mode 120000 in `git ls-files -s` on every push" — which was a
+  # statement about the repository this harness came from. Nothing here ran it,
+  # so a premise offered as defence in depth was resting on a gate that did not
+  # exist. Copilot's seventh round on PR #13 found the neighbouring overclaims;
+  # this one was found by sweeping for the same class.
+  #
+  # It needs no Node and no Docker. The cases that mention `docker run` assert
+  # things about the TEXT of `grok-review.sh`, which is the point of writing a
+  # gate's test against what the gate is looking at. What it does need is bash,
+  # grep, git and jq, and `setUpModule` FAILS rather than skips when one is
+  # missing — a skip on a missing tool reports a pass, which is the fail-open
+  # this suite exists to refuse.
+  #
+  # Python is pinned to 3.12 because that is what the two PreToolUse hooks are
+  # invoked as in `.claude/settings.json`; running the suite on a different
+  # interpreter would verify something other than what a developer runs.
+  harness:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: The suite reads `git ls-files`, so the checkout must be a real one
+        run: git rev-parse --is-inside-work-tree
+      - run: python -m unittest discover -s .claude/scripts -p 'test_*.py' -v
+
   # Spec §8 step 3. The Android project is committed, not generated here, so
   # this job compiles the same manifest a developer edits — a job that ran
   # `cap add android` first would rebuild the project from the template every

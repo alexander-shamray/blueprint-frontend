@@ -92,8 +92,13 @@ is the master copy.** If the form you corrected is one of the ones it names,
 the change has to reach both in this pass — a rule in two places that moves
 in one of them is the drift the split was accepted in order to buy.
 
-Update any count the change invalidates. `docs/style-guide.md` cites site
-counts as evidence and a stale one is a defect.
+**Do not write a site count into the guide, and remove one you find.**
+`docs/change-locality.md` §2 forbids a document stating a number of sites in
+the present tense, and this step used to instruct the opposite — keep the
+counts current — which is how the guide came to carry `23 sites do this`
+until a review round removed it. State the convention and let the corpus be
+its own inventory. A count belongs in the commit body or the PR body, where
+§2 permits it as a measurement taken at a named commit.
 
 ## 4. Reconcile the linters
 

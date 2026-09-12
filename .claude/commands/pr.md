@@ -155,8 +155,9 @@ Read `closingIssuesReferences` out of that JSON and check it against the
 State the check result in the body — `npm run lint`, `npm test` and
 `npm run build`, via `bash .claude/scripts/npm-checks.sh all` — and report it
 as it actually came out. Say plainly when the Playwright suite was not run;
-it needs the backend's Compose stack, and CI is the only place it runs on
-every push.
+it needs the backend's Compose stack, and CI is the only place it runs — on
+pull requests and on pushes to `main`, not on every push. `docs/testing.md`
+owns the trigger contract.
 
 ## Before opening
 

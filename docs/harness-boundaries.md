@@ -2,8 +2,8 @@
 
 **What the agent harness grants this repository's commands, what it refuses
 them, and every place a grant is wider than the operation it was added for.**
-This was `CLAUDE.md`'s *What cuts across them* section until it reached 582
-lines. It is load-bearing whenever you touch `.claude/` — a command's
+This was `CLAUDE.md`'s *What cuts across them* section until it outgrew a
+primer. It is load-bearing whenever you touch `.claude/` — a command's
 frontmatter, a helper script, `settings.json`, a hook, a subagent profile — and
 inert for every other kind of change, which is what earns it a file rather than
 a permanent seat in every session's context.
