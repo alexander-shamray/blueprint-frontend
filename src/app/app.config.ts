@@ -10,6 +10,7 @@ import { provideRouter, RouteReuseStrategy } from '@angular/router';
 import { IonicRouteStrategy, provideIonicAngular } from '@ionic/angular';
 import { routes } from './app.routes';
 import { authInterceptor } from '@core/auth/auth.interceptor';
+import { rateLimitInterceptor } from '@core/errors/rate-limit.interceptor';
 import { provideAuth } from '@core/auth/auth.providers';
 import { CartStore } from '@core/cart/cart.store';
 
@@ -34,7 +35,12 @@ export const appConfig: ApplicationConfig = {
     // a page-local workaround.
     { provide: RouteReuseStrategy, useClass: IonicRouteStrategy },
     provideRouter(routes),
-    provideHttpClient(withInterceptors([authInterceptor])),
+    // Order between these two does not matter, and that is deliberate rather
+    // than lucky: `rateLimitInterceptor` picks its bucket from the route and
+    // the method, which is how the gateway picks its limiter policy, so it
+    // reads nothing off the request that `authInterceptor` has to have
+    // written first.
+    provideHttpClient(withInterceptors([authInterceptor, rateLimitInterceptor])),
     provideAuth(),
     // The cart survives a restart on every platform (spec §3). Restoring it
     // before the first render keeps the tab badge from flashing zero.

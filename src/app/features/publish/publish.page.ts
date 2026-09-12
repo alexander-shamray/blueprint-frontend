@@ -9,7 +9,7 @@ import { CatalogRefresh } from '@core/catalog/catalog-refresh';
 import { PERMISSIONS, PublishProductCommand } from '@core/api/types';
 import { ALREADY_COMMITTED, CommandIdentity } from '@core/commands/command-id';
 import { DisplayError, mapError } from '@core/errors/error-mapper';
-import { RetryCountdown } from '@core/errors/retry-countdown';
+import { RateLimitWindows } from '@core/errors/rate-limit';
 import { ErrorBannerComponent } from '@shared/error-banner.component';
 
 /**
@@ -67,7 +67,7 @@ import { ErrorBannerComponent } from '@shared/error-banner.component';
     <ion-header><ion-toolbar><ion-title>Publish</ion-title></ion-toolbar></ion-header>
 
     <ion-content>
-      <app-error-banner [error]="error()" [retryInSeconds]="rateLimit.remaining()" />
+      <app-error-banner [error]="error() ?? rateLimit.refusal()" [retryInSeconds]="rateLimit.remaining()" />
 
       <form [formGroup]="form" (ngSubmit)="publish()">
         <ion-item><ion-input label="Name" formControlName="name" required></ion-input></ion-item>
@@ -134,11 +134,13 @@ export class PublishPage {
   readonly publishedId = this.publishedIdState.asReadonly();
 
   /**
-   * Spec §6's 429 row. Declared after `error`, which it reads: field
-   * initialisers run in order, and it needs this injection context for its
-   * effect and its DestroyRef.
+   * Spec §6's 429 row — the gateway's authenticated bucket, shared with Get
+   * quote, Place order and Cancel order. This is the page the issue's worked
+   * example ends on: a 429 from Get quote used to leave Publish enabled
+   * against a bucket the client already knew was empty, and the second
+   * refusal was the customer's first hint.
    */
-  readonly rateLimit = new RetryCountdown(this.error);
+  readonly rateLimit = inject(RateLimitWindows).authenticated;
 
   /**
    * One automatic replay per successful round trip — the same bound

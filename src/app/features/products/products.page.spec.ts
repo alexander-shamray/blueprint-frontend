@@ -1,4 +1,5 @@
-import { provideHttpClient } from '@angular/common/http';
+import { HttpClient, provideHttpClient, withInterceptors } from '@angular/common/http';
+import { rateLimitInterceptor } from '@core/errors/rate-limit.interceptor';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -27,7 +28,13 @@ describe('ProductsPage', () => {
     TestBed.configureTestingModule({
       imports: [ProductsPage],
       providers: [
-        provideHttpClient(),
+        // The real interceptor. The 429 window is no longer driven by this
+        // page's error signal — `rateLimitInterceptor` opens it from the
+        // response — so a spec without it would be testing a page whose
+        // rate-limit binding nothing can ever set. `authInterceptor` is not
+        // here because nothing in that window depends on it any more: the
+        // bucket is picked from the route, not from the bearer.
+        provideHttpClient(withInterceptors([rateLimitInterceptor])),
         provideHttpClientTesting(),
         CartStore,
         { provide: CartPersistence, useValue: { read: async () => [], write: async () => undefined } },
@@ -210,6 +217,36 @@ describe('ProductsPage', () => {
     expect(next.request.params.get('cursor')).toBe('cursor-3');
     next.flush(page(0, null));
     await fixture.whenStable();
+  });
+
+  it('keeps the infinite scroll quiet while the catalogue window is open, error or not', async () => {
+    controller
+      .expectOne((r) => r.url === 'http://localhost:5000/api/v1/catalog/products')
+      .flush(page(20, 'cursor-2'));
+    await fixture.whenStable();
+    expect(fixture.componentInstance.canLoadMore()).toBe(true);
+
+    // The refusal arrives on a catalogue read this page did not make, so its
+    // own `error()` stays null. How the window came to be open is not the
+    // page's business — that is the point of a window shared across the
+    // bucket — and the scroll must not re-arm into a limiter the client
+    // already knows is closed. `errorSignal` alone cannot express this state:
+    // it says "MY last attempt failed", and the bucket is not this page's.
+    TestBed.inject(HttpClient)
+      .get('http://localhost:5000/api/v1/catalog/products')
+      .subscribe({ error: () => undefined });
+    controller
+      .expectOne((r) => r.url === 'http://localhost:5000/api/v1/catalog/products')
+      .flush(null, {
+        status: 429,
+        statusText: 'Too Many Requests',
+        headers: { 'Retry-After': '30' },
+      });
+    await fixture.whenStable();
+
+    expect(fixture.componentInstance.error()).toBeNull();
+    expect(fixture.componentInstance.hasMore()).toBe(true);
+    expect(fixture.componentInstance.canLoadMore()).toBe(false);
   });
 
   it('disables Try again while a 429 window is open', async () => {

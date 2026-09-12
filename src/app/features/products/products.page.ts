@@ -11,7 +11,7 @@ import { ProductSummary } from '@core/api/types';
 import { CartStore } from '@core/cart/cart.store';
 import { CatalogRefresh } from '@core/catalog/catalog-refresh';
 import { DisplayError, mapError } from '@core/errors/error-mapper';
-import { RetryCountdown } from '@core/errors/retry-countdown';
+import { RateLimitWindows } from '@core/errors/rate-limit';
 import { ErrorBannerComponent } from '@shared/error-banner.component';
 
 /**
@@ -31,7 +31,7 @@ import { ErrorBannerComponent } from '@shared/error-banner.component';
     <ion-header><ion-toolbar><ion-title>Products</ion-title></ion-toolbar></ion-header>
 
     <ion-content>
-      <app-error-banner [error]="error()" [retryInSeconds]="rateLimit.remaining()" />
+      <app-error-banner [error]="error() ?? rateLimit.refusal()" [retryInSeconds]="rateLimit.remaining()" />
 
       <!--
         The way back from a failed load — of ANY page, not just the first.
@@ -128,13 +128,18 @@ export class ProductsPage {
   readonly hasMore: Signal<boolean> = this.hasMoreSignal.asReadonly();
 
   /**
-   * Spec §6's 429 row, for this page's action. Constructed here, in a field
-   * initialiser, because RetryCountdown needs an injection context for its
-   * effect and its DestroyRef — the same place `new CommandIdentity()` is
-   * built on the pages that have one. `error` above must be declared first:
-   * field initialisers run in order.
+   * Spec §6's 429 row — and the one page whose bucket is NOT the one every
+   * other action shares.
+   *
+   * `GET /api/v1/catalog/**` is the single route the gateway gives its
+   * `anonymous` limiter policy, and it does so for everyone: a signed-in
+   * customer's listing takes that route too, keyed on their IP rather than on
+   * them. It is the tightest budget in the system — a fixed window of 100 a
+   * minute with no queue, against 300 a minute for everything else — and the
+   * infinite scroll below is what draws on it. Publish POSTs to this exact
+   * URL and is limited by the other bucket entirely.
    */
-  readonly rateLimit = new RetryCountdown(this.error);
+  readonly rateLimit = inject(RateLimitWindows).catalogue;
 
   /**
    * Whether the infinite scroll may ask for another page on its own.
@@ -145,8 +150,18 @@ export class ProductsPage {
    * scroll stays quiet so it cannot hammer a limiter, and the Try again
    * button above is how the user says otherwise. Clearing the error (which a
    * successful load does) re-arms the scroll at the cursor it left off at.
+   *
+   * The rate-limit window is a third reason, and it is not covered by the
+   * second: since the windows became shared, "a 429 is open on the catalogue
+   * bucket" and "this page has an error" are different states — a refusal can
+   * arrive on a request this page never made. Without the check, the scroll
+   * re-arms and fires straight into a limiter the client already knows is
+   * closed, which is precisely the loop the paragraph above says it exists to
+   * prevent.
    */
-  readonly canLoadMore = computed(() => this.hasMoreSignal() && this.errorSignal() === null);
+  readonly canLoadMore = computed(
+    () => this.hasMoreSignal() && this.errorSignal() === null && !this.rateLimit.blocked(),
+  );
 
   constructor() {
     this.load();

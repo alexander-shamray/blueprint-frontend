@@ -31,7 +31,7 @@ describe('ErrorBannerComponent', () => {
   it('renders the seconds the page is counting, not the number the response carried', () => {
     const fixture = TestBed.createComponent(ErrorBannerComponent);
     fixture.componentRef.setInput('error', rateLimited);
-    // What the page's RetryCountdown has ticked down to. The response said 60;
+    // What the shared RateLimitWindow has ticked down to. The response said 60;
     // 43 seconds of it have passed. The banner used to render the mapped
     // number once and never touch it again, so it went on saying 60.
     fixture.componentRef.setInput('retryInSeconds', 17);

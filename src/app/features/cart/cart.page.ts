@@ -11,7 +11,7 @@ import { AuthService } from '@core/auth/auth.service';
 import { CartStore } from '@core/cart/cart.store';
 import { CheckoutHandoff } from '@core/cart/checkout-handoff';
 import { DisplayError, mapError } from '@core/errors/error-mapper';
-import { RetryCountdown } from '@core/errors/retry-countdown';
+import { RateLimitWindows } from '@core/errors/rate-limit';
 import { ErrorBannerComponent } from '@shared/error-banner.component';
 
 /** Spec §5.2. */
@@ -27,7 +27,7 @@ import { ErrorBannerComponent } from '@shared/error-banner.component';
     <ion-header><ion-toolbar><ion-title>Cart</ion-title></ion-toolbar></ion-header>
 
     <ion-content>
-      <app-error-banner [error]="error()" [retryInSeconds]="rateLimit.remaining()" />
+      <app-error-banner [error]="error() ?? rateLimit.refusal()" [retryInSeconds]="rateLimit.remaining()" />
 
       <ion-list>
         @for (line of lines(); track line.productId) {
@@ -168,11 +168,14 @@ export class CartPage {
   readonly error = this.errorState.asReadonly();
 
   /**
-   * Spec §6's 429 row. Declared after `error`, which it reads: field
-   * initialisers run in order, and it needs the injection context this
-   * one runs in for its effect and its DestroyRef.
+   * Spec §6's 429 row — the gateway's authenticated bucket, not a countdown
+   * of this page's own. Get quote draws on the same 300-a-minute token bucket
+   * as Place order, Cancel order and Publish, keyed on the subject claim, so
+   * a refusal of any of them is a refusal of this one and the button must
+   * know it. It no longer reads `error`: the window is opened by
+   * `rateLimitInterceptor` from the response itself.
    */
-  readonly rateLimit = new RetryCountdown(this.error);
+  readonly rateLimit = inject(RateLimitWindows).authenticated;
 
   /**
    * The quote, or null once the basket has moved underneath it — the same

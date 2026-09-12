@@ -74,8 +74,8 @@ platform said; a failure is what this attempt did. The error branch used to set
 `hasMore` false, which reads as "there is nothing more to fetch" — so one 429 or
 one 503 on page two ended pagination for the session, and no retry window
 closing could bring it back. Now the failure is recorded as an error,
-`canLoadMore` is `hasMore && no error`, and a **Try again** control resumes from
-the cursor that failed (on a first-page failure that cursor is null, so resuming
+`canLoadMore` is `hasMore && no error && no open rate-limit window`, and a
+**Try again** control resumes from the cursor that failed (on a first-page failure that cursor is null, so resuming
 and restarting are the same request). The control is itself disabled for the
 length of a 429's window, which is the other half of spec §6's 429 row — see
 §10.
@@ -425,6 +425,105 @@ being absent altogether — five cases, which is every shape `mapError` can be
 handed. The client's answer to all of them is the same, and that is the point:
 *unreadable* is a fact about the response, and saying what you do not know does
 not require knowing why you do not know it.
+
+**The scope the client models is the scope the gateway enforces, and for a
+while it was not.** Reading the number right is only half of honouring a 429;
+the other half is knowing what the refusal covers.
+
+The gateway has two limiter policies and picks between them **by route**.
+`Gateway.Api/appsettings.json` names a `RateLimiterPolicy` on each YARP route,
+and `Program.cs` defines the two it names:
+
+| Route | Match | Policy | Budget |
+| --- | --- | --- | --- |
+| `catalog-public` | `GET /api/v1/catalog/**` | `anonymous` | fixed window, 100/min, keyed on remote IP, no queue |
+| `catalog-write` | `POST /api/v1/catalog/**` | `authenticated` | token bucket, 300/min, keyed on the subject claim, queue of 10 |
+| `ordering` | `/api/v1/orders/**` | `authenticated` | " |
+| `inventory-admin` | `/api/v1/inventory/**` | `authenticated` | " |
+| `web-bff` | `/bff/**` | `authenticated` | " |
+
+Two things in that table are easy to get wrong, and this client got both wrong
+in turn. The first is that the *method* is part of the route: publish POSTs to
+the exact URL the listing GETs — `catalog.api.ts` builds one `base` for both —
+and the two are limited by different buckets with different keys and a
+threefold difference in budget. The second is that `anonymous` names the
+policy, not the caller. A signed-in customer's listing takes `catalog-public`
+too, because the route is what selects the policy; their listing is limited at
+100 a minute keyed on their IP, while their quote is limited at 300 a minute
+keyed on their subject. (The authenticated policy's key falls back to the IP
+when there is no signed-in user, which is reachable: `UseRateLimiter` runs
+after `UseAuthentication` but *before* `UseAuthorization`, so an unauthenticated
+request to an authenticated route is limited before it is refused.)
+
+This client used to model all of that as one countdown per page: a
+`RetryCountdown` field on Cart, Checkout, Order placed, Products and Publish,
+each watching its own page's error signal. Five independent clocks over two
+shared buckets, and the mismatch was visible to a customer. A 429 on Get quote
+disabled Get quote; switching to Products left every control there live,
+because that tab was constructed before the refusal and never heard about it;
+the next publish hit the same empty bucket and was refused again. The client
+knew that would happen and did not say so. Worse for Checkout and Order placed,
+which are pushed routes rather than tab roots: leaving and returning mid-window
+built a fresh countdown at zero, and the wait vanished without ever being
+served.
+
+So the windows moved to `core/errors/rate-limit.ts`, and there are exactly two
+of them, because the gateway has exactly two policies. `RateLimitWindows`
+provides `catalogue` and `authenticated` in root; Products binds the first and
+the four authenticated actions bind the second. `catalogue` is named for what
+it governs rather than for the gateway's own policy name, because "anonymous"
+is actively misleading from this side — it is the window a signed-in customer's
+listing lands in as well.
+
+The intermediate version of this is worth recording, because it looked right
+and was not. It partitioned by whether the request carried an `Authorization`
+header, on the reasoning that `authInterceptor` attaches a bearer to every
+gateway request once there is one. That rule files a signed-in catalogue
+refusal — the tightest budget in the system, and the one the infinite scroll
+draws on — against the ordering bucket, so Get quote, Place order, Cancel and
+Publish would all go dead for a limit that does not govern them, and Products
+would go dead for a Publish refusal it never shared a bucket with. Signed in,
+the two windows collapse into one. That is the single-window design this
+section's own reasoning rejects, arrived at by accident.
+
+What opens a window is `rateLimitInterceptor`, not a page, and that is forced
+rather than tidy: a refusal provoked by one page has to disable the actions on
+every other page drawing on the same bucket, and a page reporting its own
+errors can only ever silence itself. Because the partition comes from the route
+and the method, the interceptor reads nothing another interceptor must have
+written first — so its position in the chain does not matter, which is one
+fewer invariant than the header-based version needed.
+
+Three rules govern closing a window, and all three come from one observation:
+the limiter either admits a request or rejects it with a 429, so anything else
+coming back means this request was admitted. A response of any status closes
+the window. A failure that is not a 429 closes it too — a 503 came from
+*behind* the limiter, and keeping the action dead for the rest of the minute
+would be this client enforcing a limit the gateway is not. A status of 0 — a
+network failure, a timeout, a CORS rejection — changes nothing, because nothing
+reached the limiter or nothing came back from it, and releasing an action on no
+evidence just walks it into another refusal. (The authenticated policy's queue
+of 10 is the one case where an admission is not proof the bucket had tokens
+when the request arrived: a queued lease is granted at replenishment, which is
+the moment the bucket refills, so the window is stale by then either way. The
+anonymous policy queues nothing.)
+
+Two smaller properties, both of which the per-page countdown could afford to
+ignore and an app-scoped window cannot. The countdown is computed from a
+deadline rather than decremented once per tick, because a tick is not a second:
+a backgrounded tab throttles its timers to roughly one a minute and a suspended
+Capacitor WebView stops them entirely, so counting ticks means coming back to
+the app after a minute away and finding 29 seconds left on a window that
+expired while you were gone. And a close carries the window's epoch as it stood
+when its request went out, so a slow success cannot cancel a window some other
+request's refusal opened while it was in flight.
+
+The honest caveat: 300 requests a minute with a queue of 10, and 100 a minute
+for the catalogue. No human tapping buttons reaches either. This was never a
+bug users were hitting. It is the model being wrong in a way that becomes a
+real one the moment a retry loop or a polling screen is added — and the
+catalogue's infinite scroll is the closest thing this client has to one, which
+is why `canLoadMore` consults the window and not just its own last error.
 
 ## 11. The gateway is the only host the client calls — and Publish needed a route for that to stay true
 
