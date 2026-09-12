@@ -13,7 +13,7 @@ import { CartStore } from '@core/cart/cart.store';
 import { CheckoutHandoff } from '@core/cart/checkout-handoff';
 import { ALREADY_COMMITTED, CommandIdentity } from '@core/commands/command-id';
 import { DisplayError, mapError } from '@core/errors/error-mapper';
-import { RetryCountdown } from '@core/errors/retry-countdown';
+import { RateLimitWindows } from '@core/errors/rate-limit';
 import { ErrorBannerComponent } from '@shared/error-banner.component';
 
 /**
@@ -39,7 +39,7 @@ import { ErrorBannerComponent } from '@shared/error-banner.component';
     </ion-header>
 
     <ion-content>
-      <app-error-banner [error]="error()" [retryInSeconds]="rateLimit.remaining()" />
+      <app-error-banner [error]="error() ?? rateLimit.refusal()" [retryInSeconds]="rateLimit.remaining()" />
 
       <form [formGroup]="form" (ngSubmit)="placeOrder()">
         <ion-item><ion-input label="Line 1" formControlName="line1" required></ion-input></ion-item>
@@ -117,11 +117,14 @@ export class CheckoutPage {
   readonly error = this.errorState.asReadonly();
 
   /**
-   * Spec §6's 429 row. Declared after `error`, which it reads — field
-   * initialisers run in order — and in an injection context, which is what
-   * its effect and its DestroyRef need.
+   * Spec §6's 429 row — the gateway's authenticated bucket, shared with Get
+   * quote, Cancel order and Publish. Checkout is a PUSHED route rather than a
+   * tab root, so the previous per-page countdown died with the page: leaving
+   * and coming back mid-window built a fresh one at zero and the wait
+   * silently vanished. This one outlives the navigation because the window
+   * belongs to the session, not to the screen.
    */
-  readonly rateLimit = new RetryCountdown(this.error);
+  readonly rateLimit = inject(RateLimitWindows).authenticated;
 
   /**
    * One automatic replay per successful round trip. A 401 answered by a

@@ -426,6 +426,64 @@ handed. The client's answer to all of them is the same, and that is the point:
 *unreadable* is a fact about the response, and saying what you do not know does
 not require knowing why you do not know it.
 
+**The scope the client models is the scope the gateway enforces, and for a
+while it was not.** Reading the number right is only half of honouring a 429;
+the other half is knowing what the refusal covers. `Gateway.Api/Program.cs`
+partitions its limiter two ways and neither of them is by route. The
+`authenticated` policy is a token bucket keyed on the subject claim — one
+bucket per *user*, 300 tokens a minute, drawn on by quote, order, cancel,
+publish and any catalogue read that carried a bearer. The anonymous policy is a
+fixed window keyed on IP, with its own budget, for reads made by someone who
+has not signed in.
+
+This client used to model that as one countdown per page: a `RetryCountdown`
+field on Cart, Checkout, Order placed, Products and Publish, each watching its
+own page's error signal. Four independent clocks over one shared bucket, and
+the mismatch was visible to a customer. A 429 on Get quote disabled Get quote;
+switching to Products left every control there live, because that tab was
+constructed before the refusal and never heard about it; the next publish or
+the next page of the catalogue hit the same empty bucket and was refused again.
+The client knew that would happen and did not say so. Worse for Checkout and
+Order placed, which are pushed routes rather than tab roots: leaving and
+returning mid-window built a fresh countdown at zero, and the wait vanished
+without ever being served.
+
+So the windows moved to `core/errors/rate-limit.ts`, and there are exactly two
+of them, because the gateway has exactly two buckets. `RateLimitWindows`
+provides `authenticated` and `anonymous` in root; the four authenticated
+actions bind the first, and Products binds `catalogue`, which is the choice
+between them. That last one is the part worth stating plainly: the listing is
+anonymous *at the endpoint*, but `authInterceptor` attaches the bearer to every
+gateway request once there is one, so a signed-in customer's catalogue read is
+keyed on their subject like everything else they do. Which bucket a listing
+draws on is a fact about the session, not about the route, and `catalogue`
+moves the moment they sign in.
+
+What opens a window is `rateLimitInterceptor`, not a page. That is forced
+rather than tidy — the partition is decided by whether the request carried a
+bearer, and a page does not know that about its own request. The interceptor
+does, because it is handed the request after `authInterceptor` has run, which
+is why the registration order in `app.config.ts` is load-bearing: reverse the
+pair and every signed-in refusal is filed as anonymous, silently, with the
+original defect restored. `rate-limit.interceptor.spec.ts` pins that reversal
+as a test rather than leaving it as a warning.
+
+Three rules govern the window, and all three come from the same observation —
+the limiter rejects with 429 and nothing else, so anything else that comes back
+is proof the request was admitted. A response of any status closes the window.
+A failure that is not a 429 closes it too: a 503 came from *behind* the
+limiter, and keeping the action dead for the rest of the minute would be this
+client enforcing a limit the gateway is not. A status of 0 — a network failure,
+a timeout, a CORS rejection — changes nothing, because nothing reached the
+limiter or nothing came back from it, and releasing an action on no evidence
+just walks it into another refusal.
+
+The honest caveat: the authenticated budget is 300 requests a minute with a
+queue of 10, so no human tapping buttons reaches it. This was never a bug users
+were hitting. It is the model being wrong in a way that becomes a real one the
+moment a retry loop or a polling screen is added — and the page that had it
+worst, Publish, is the page whose action is least recoverable.
+
 ## 11. The gateway is the only host the client calls — and Publish needed a route for that to stay true
 
 `catalog-public` matches `GET` alone, and the route file argues the restriction

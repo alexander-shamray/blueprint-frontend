@@ -11,7 +11,7 @@ import { ProductSummary } from '@core/api/types';
 import { CartStore } from '@core/cart/cart.store';
 import { CatalogRefresh } from '@core/catalog/catalog-refresh';
 import { DisplayError, mapError } from '@core/errors/error-mapper';
-import { RetryCountdown } from '@core/errors/retry-countdown';
+import { RateLimitWindows } from '@core/errors/rate-limit';
 import { ErrorBannerComponent } from '@shared/error-banner.component';
 
 /**
@@ -31,7 +31,7 @@ import { ErrorBannerComponent } from '@shared/error-banner.component';
     <ion-header><ion-toolbar><ion-title>Products</ion-title></ion-toolbar></ion-header>
 
     <ion-content>
-      <app-error-banner [error]="error()" [retryInSeconds]="rateLimit.remaining()" />
+      <app-error-banner [error]="error() ?? rateLimit.refusal()" [retryInSeconds]="rateLimit.remaining()" />
 
       <!--
         The way back from a failed load — of ANY page, not just the first.
@@ -128,13 +128,18 @@ export class ProductsPage {
   readonly hasMore: Signal<boolean> = this.hasMoreSignal.asReadonly();
 
   /**
-   * Spec §6's 429 row, for this page's action. Constructed here, in a field
-   * initialiser, because RetryCountdown needs an injection context for its
-   * effect and its DestroyRef — the same place `new CommandIdentity()` is
-   * built on the pages that have one. `error` above must be declared first:
-   * field initialisers run in order.
+   * Spec §6's 429 row — and the one page where WHICH gateway bucket applies
+   * is not fixed.
+   *
+   * The listing is anonymous at the endpoint, so a signed-out visitor's read
+   * lands in the gateway's anonymous policy: a fixed window keyed on IP. But
+   * `authInterceptor` attaches the bearer to every gateway request once there
+   * is one, so the same read by a signed-in customer is keyed on their
+   * subject and draws on the authenticated token bucket instead — the same
+   * bucket as Get quote and Publish. `catalogue` is that choice, made from
+   * the session rather than from the route, and it moves when they sign in.
    */
-  readonly rateLimit = new RetryCountdown(this.error);
+  readonly rateLimit = inject(RateLimitWindows).catalogue;
 
   /**
    * Whether the infinite scroll may ask for another page on its own.

@@ -1,4 +1,6 @@
-import { provideHttpClient } from '@angular/common/http';
+import { provideHttpClient, withInterceptors } from '@angular/common/http';
+import { authInterceptor } from '@core/auth/auth.interceptor';
+import { rateLimitInterceptor } from '@core/errors/rate-limit.interceptor';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { ActivatedRoute, convertToParamMap, provideRouter } from '@angular/router';
@@ -32,7 +34,11 @@ function mount(id: string): { fixture: ComponentFixture<OrderPlacedPage>; paramM
     imports: [OrderPlacedPage],
     providers: [
       provideRouter([]),
-      provideHttpClient(),
+      // The real interceptor pair, in app order. The 429 window is no longer
+        // driven by this page's error signal — `rateLimitInterceptor` opens it
+        // from the response — so a spec that left them out would be testing a
+        // page whose rate-limit binding nothing can ever set.
+        provideHttpClient(withInterceptors([authInterceptor, rateLimitInterceptor])),
       provideHttpClientTesting(),
       {
         provide: AuthService,

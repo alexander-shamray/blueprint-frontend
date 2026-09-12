@@ -93,10 +93,12 @@ export class ErrorBannerComponent {
   readonly error = input.required<DisplayError | null>();
 
   /**
-   * Seconds left in a 429's window, counted by the PAGE (see
-   * `RetryCountdown`), because the page is what has to disable the action for
-   * that long and the number on screen must come from the same clock as the
-   * disabled button. This component renders; it does not own a timer.
+   * Seconds left in a 429's window, counted by the shared `RateLimitWindow`
+   * the page binds (see `core/errors/rate-limit.ts`), because the number on
+   * screen and the disabled button must come from the same clock — two
+   * intervals started from one refusal would drift apart, and this banner
+   * could say "you can try again now" while the button was still dead. This
+   * component renders; it does not own a timer.
    *
    * Optional, with the mapped `retryAfterSeconds` as the fallback: a caller
    * that passes nothing gets the platform's figure stated once, which is what

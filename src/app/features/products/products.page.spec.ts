@@ -1,7 +1,11 @@
-import { provideHttpClient } from '@angular/common/http';
+import { provideHttpClient, withInterceptors } from '@angular/common/http';
+import { authInterceptor } from '@core/auth/auth.interceptor';
+import { rateLimitInterceptor } from '@core/errors/rate-limit.interceptor';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { signal } from '@angular/core';
+import { AuthService } from '@core/auth/auth.service';
 import { CartStore } from '@core/cart/cart.store';
 import { CartPersistence } from '@core/cart/cart.persistence';
 import { CatalogRefresh } from '@core/catalog/catalog-refresh';
@@ -27,10 +31,19 @@ describe('ProductsPage', () => {
     TestBed.configureTestingModule({
       imports: [ProductsPage],
       providers: [
-        provideHttpClient(),
+        // The real interceptor pair, in app order. The 429 window is no longer
+        // driven by this page's error signal — `rateLimitInterceptor` opens it
+        // from the response — so a spec that left them out would be testing a
+        // page whose rate-limit binding nothing can ever set.
+        provideHttpClient(withInterceptors([authInterceptor, rateLimitInterceptor])),
         provideHttpClientTesting(),
         CartStore,
         { provide: CartPersistence, useValue: { read: async () => [], write: async () => undefined } },
+        // Signed OUT, which is the case this page is unusual for: with no
+        // bearer the gateway partitions a catalogue read by IP, so the
+        // refusals below land in the anonymous window and `rateLimit` —
+        // bound to `catalogue` — follows that one.
+        { provide: AuthService, useValue: { user: () => signal(null), accessToken: () => null } },
       ],
     });
 

@@ -11,7 +11,7 @@ import { OrderingApi } from '@core/api/ordering.api';
 import { AuthService } from '@core/auth/auth.service';
 import { CancelReason, PERMISSIONS } from '@core/api/types';
 import { DisplayError, mapError } from '@core/errors/error-mapper';
-import { RetryCountdown } from '@core/errors/retry-countdown';
+import { RateLimitWindows } from '@core/errors/rate-limit';
 import { ALREADY_COMMITTED } from '@core/commands/command-id';
 import { ErrorBannerComponent } from '@shared/error-banner.component';
 
@@ -38,7 +38,7 @@ import { ErrorBannerComponent } from '@shared/error-banner.component';
     </ion-header>
 
     <ion-content>
-      <app-error-banner [error]="error()" [retryInSeconds]="rateLimit.remaining()" />
+      <app-error-banner [error]="error() ?? rateLimit.refusal()" [retryInSeconds]="rateLimit.remaining()" />
 
       @if (alreadyCommitted()) {
         <ion-item>
@@ -145,11 +145,12 @@ export class OrderPlacedPage {
   readonly error = this.errorState.asReadonly();
 
   /**
-   * Spec §6's 429 row. After `error`, which it reads — field initialisers
-   * run in order — and in the injection context its effect and DestroyRef
-   * need.
+   * Spec §6's 429 row — the gateway's authenticated bucket, shared with Get
+   * quote, Place order and Publish. Like Checkout this is a pushed route, so
+   * a countdown owned by the page was one that leaving and returning reset to
+   * zero; this window belongs to the session instead.
    */
-  readonly rateLimit = new RetryCountdown(this.error);
+  readonly rateLimit = inject(RateLimitWindows).authenticated;
 
   /** One automatic replay per round trip; see `signInAndReplay()` below. */
   private replayedAfterSignIn = false;
