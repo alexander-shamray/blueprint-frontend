@@ -67,12 +67,17 @@ const config: CapacitorConfig = {
   // being written flat, and why the ci `android` job asserts a release sync
   // produces neither.
   //
-  // Deliberately NOT done here: `server.androidScheme: 'http'`. It would
-  // clear both blocks at once, and `http://localhost` is still a secure
-  // context so `crypto.subtle` keeps minting the S256 challenge — but it
-  // changes the origin the gateway and the realm each have to admit, and
-  // those two origins are the whole of #6 and half of §15. One origin for
-  // every build is worth more than one fewer key here.
+  // Deliberately NOT done here: `server.androidScheme: 'http'`. It clears
+  // block 2 ONLY, and that is easy to get wrong: `androidScheme` feeds the
+  // local asset server's URL and the bridge's same-origin check
+  // (`Bridge.getScheme()`) and nothing else, so it cannot reach
+  // `usesCleartextTraffic` or the platform's NetworkSecurityPolicy. An
+  // `http://10.0.2.2` request from an `http://localhost` page is still
+  // ERR_CLEARTEXT_NOT_PERMITTED and still needs `server.cleartext`. So it is
+  // not the one-key alternative it looks like: it trades `allowMixedContent`
+  // for a change to the origin the gateway and the realm each have to admit,
+  // and those two origins are the whole of #6 and half of §15. One origin
+  // for every build is worth more than one fewer key here.
   //
   // iOS is untouched: the simulator reaches the host at `localhost` with no
   // alias, and its cleartext question is App Transport Security in

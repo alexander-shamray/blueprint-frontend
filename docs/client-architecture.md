@@ -1087,18 +1087,26 @@ neither. The ci job asserts both directions, because a release APK that ships
 cleartext would pass every other check in that file, and a gate that only
 tested the off direction would keep passing if a Capacitor major moved a key.
 
-`server.androidScheme: 'http'` would clear both blocks with one key, and
-`http://localhost` is still a secure context so `crypto.subtle` keeps minting
-the S256 challenge. It is not what was chosen: it changes the origin the
-gateway and the realm each have to admit, and those origins are the subject of
-the gateway-origin note above and the realm-origin note below. One origin for
-every build is worth more than one fewer key. iOS is untouched — the simulator reaches the host at `localhost`
-with no alias, and its cleartext question is App Transport Security in
-`Info.plist`, not either key here.
+`server.androidScheme: 'http'` looks like a one-key alternative and is not
+one. It clears the second block only: `androidScheme` feeds the local asset
+server's URL and the bridge's same-origin check (`Bridge.getScheme()`) and
+nothing else, so it never reaches `usesCleartextTraffic` or the platform's
+`NetworkSecurityPolicy`. An `http://10.0.2.2` call from an `http://localhost`
+page is still `ERR_CLEARTEXT_NOT_PERMITTED`, and `server.cleartext` is still
+required. What it actually trades is `allowMixedContent` for a change to the
+origin the gateway and the realm each have to admit — the subject of the
+gateway-origin note above and the realm-origin note below. One origin for
+every build is worth more than one fewer key.
 
-**One thing is known to block the first device run, and it is not fixed here.**
-It was found by review rather than by running anything, which is itself the
-argument for running it.
+iOS is untouched — the simulator reaches the host at `localhost` with no alias,
+and its cleartext question is App Transport Security in `Info.plist`, not
+either key here.
+
+**One more thing is known to block the first device run, and it is not fixed
+here.** One blocker is already above and is the gateway's CORS list, which step
+1 of the round trip below is how to settle locally. This is the second, it is a
+different host, and it was found by review rather than by running anything —
+which is itself the argument for running it.
 
 *The token exchange is a browser `fetch`, and the realm grants it no origin.*
 `native-auth.strategy.ts` posts to Keycloak's token endpoint with `fetch`,
