@@ -302,14 +302,26 @@ it never sees a `Bash` call at all. Every `Edit(...)` rule in this file is
 therefore defence in depth against a model that reaches for the editing tools,
 not a bound on what this command can write.
 
-`/review-grok` is the one command that closes it, by denying `Bash` whole — its
-body argues exactly this case, from the round that measured it. The commands
-that cannot follow it are the ones whose helpers *are* their API. What stands
-for them is that every granted `Bash` entry names a fixed helper or a read-only
-git verb, so a redirect has to be appended by the model itself rather than
-supplied by anything it read. That is a weaker property and it is the true one.
-Closing it needs the argv guard to refuse a redirect whose target is a denied
-path, which is a change to the hook and is tracked separately.
+`/review-grok` was the one command that closed it, by denying `Bash` whole —
+its body argues exactly this case, from the round that measured it. The
+commands that cannot follow it are the ones whose helpers *are* their API. What
+stood for them was that every granted `Bash` entry names a fixed helper or a
+read-only git verb, so a redirect had to be appended by the model itself rather
+than supplied by anything it read: a weaker property, and the true one.
+
+**Closed now, in the place that sentence named (#20).** `guard-git-argv.py`
+already parsed redirections in order to strip them, so the targets were in hand
+and what was missing was a rule about them. A redirection that OPENS its target
+is refused when the path names the machinery trees or a toolchain root file;
+reading through `<` is untouched, since reading the machinery is what half this
+command does. The three measured above are refused, and the write no longer
+lands. So the `Edit(...)` rules in this file and the hook now bound the same
+surface from two sides, which is what the paragraph above said they did not.
+
+The residual that replaces it, because closing one is not closing the class: a
+redirection is not the only way a command writes — `tee`, `cp`, `sed -i` and an
+interpreter all do, and none is judged. What made the redirection worth closing
+first is that it rides on a command that is already approved.
 
 **`node_modules/` is denied too, and the sentence that used to stand here was
 wrong.** It is gitignored, so no enumeration built on `git ls-files` names it,

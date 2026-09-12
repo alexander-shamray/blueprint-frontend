@@ -653,6 +653,13 @@ allowed command, or an interpreter reached through one, alters source that
 is silently available too, which is the premise stated at the top of this
 section. So the denies raise the cost and do not close the class.
 
+**The redirection half of that is closed since #20**, and the rest of the
+sentence stands: `guard-git-argv.py` now judges a redirection's target and
+refuses one naming the machinery or the toolchain, while an interpreter reached
+through a granted command is still unjudged.
+`docs/harness-boundaries.md` owns the boundary and the residual that replaces
+this one.
+
 **The honest boundary is the worktree, not the tool list.** What actually
 bounds this command is that it audits a detached copy under a temp root and
 files issues; the tool denies stop the obvious path and the shape checks stop

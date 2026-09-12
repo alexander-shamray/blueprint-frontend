@@ -1167,9 +1167,11 @@ same argument as never calling a branch clean because asking failed.
       `.claude/settings.json` denies `Edit(.claude/scripts/**)`, so a
       granted name means the helper as reviewed, and widening one is a
       human's edit to a reviewed file, made with the deny lifted. (The deny
-      is defence in depth, like the push rules: `Bash` redirection can still
-      write a file, and no prefix list enumerates every spelling of write.
-      What it removes is the quiet path — the session's own editing tools.)
+      is defence in depth, like the push rules: no prefix list enumerates
+      every spelling of write, and an interpreter reached through a granted
+      command is still unjudged. What it removes is the quiet path — the
+      session's own editing tools. The redirection spelling it used to name
+      here is refused by `guard-git-argv.py` since #20.)
 
       (For the curious: the request target accepts both `Copilot` and
       `copilot-pull-request-reviewer[bot]`; the finished review's *author*

@@ -205,15 +205,36 @@ why its own tree denies are called defence in depth there. `/pr`, `/ship`,
 raised it against PR #13. They now carry the path denies; none of them can
 deny `Bash`, because fixed helpers are their API.
 
-**So the honest statement of the boundary is narrower than the deny list
-looks.** What holds is that every granted `Bash` entry names a fixed helper or
-a read-only git verb, so a redirect must be appended by the model rather than
-supplied by anything it read; and that the editing tools themselves are
-path-scoped and target-resolved. What does not hold is "this command cannot
-write there". Closing it needs the argv guard to refuse a redirect whose
-target is a denied path — the machinery is present, since #183 already parses
-redirections — and that is a change to the hook with its own test surface,
-tracked rather than made here.
+**So the honest statement of the boundary was narrower than the deny list
+looked**, and the paragraphs above are kept in the past tense they were written
+in rather than rewritten, because a residual's history is how the next reader
+knows what the fix was for. What held was that every granted `Bash` entry names
+a fixed helper or a read-only git verb, so a redirect had to be appended by the
+model rather than supplied by anything it read; and that the editing tools
+themselves are path-scoped and target-resolved. What did not hold was "this
+command cannot write there".
+
+**It is closed now, in the place the paragraph above named (#20).**
+`guard-git-argv.py` already parsed redirections in order to strip them — #183's
+work — so the targets were in hand and what was missing was a rule about them.
+It has one: `redirection_spans` carries the operator and the target word with
+each span, and a redirection that OPENS its target refuses a path naming the
+machinery trees or a toolchain root file. Read redirections are untouched,
+since reading the machinery is what half these commands are for.
+
+Three things about that rule are worth stating here rather than only in the
+hook. **A hook is handed a command and never the frontmatter that granted it**,
+so the protected set cannot be derived at run time the way
+`test_grok_helpers.py` derives the frontmatter denies from the frontmatter;
+what stands instead is a case whose subject is the list, asserting it covers
+`MACHINERY_TREES` and every tracked root file. **A target built by a command
+substitution is refused rather than guessed at**, and a parameter expansion is
+admitted — the module docstring's own residual, unchanged. And **a redirection
+is not the only way a command writes**: `tee`, `cp`, `sed -i` and an
+interpreter all do, and none is judged. What made the redirection the case
+worth closing is that it rides on a command that is already approved and needs
+no grant of its own; everything else in that list has to be granted first, and
+none of it is.
 
 **`.claude/hooks/**` joined the list when the first hook landed, and the way it
 joined is the lesson.** It had been excluded on a stated condition — "no hook is
