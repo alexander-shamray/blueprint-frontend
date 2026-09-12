@@ -49,3 +49,6 @@ Thumbs.db
 # Playwright e2e run artifacts (task 16 smoke)
 /test-results/
 /playwright-report/
+
+# Python — the hooks and their suite under .claude/ are scripts, not a package.
+__pycache__/
