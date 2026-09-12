@@ -68,6 +68,14 @@ reads each of them out of the backend's Compose files and says which line, and
 a client that needed one changed would be a client the backend has to
 accommodate. Do not "fix" a port here.
 
+**This table is the one place they are written down, and everything else
+cites it.** `change-locality.md` §2 gives every fact one owner: the owner of
+a port *value* is the environment file above, and the owner of *what a local
+e2e run needs* is this table. `/ship`, `/review-branch`, `/bug-sweep`,
+`npm-checks.sh` and `CLAUDE.md` each name the prerequisite and point here
+rather than repeating the number — they used to repeat it, which is how one
+port change would have left five stale copies behind.
+
 **There is no skip path, and that is the rule rather than an omission.**
 `e2e/smoke.spec.ts`'s `beforeAll` asserts the gateway is answering and fails
 with a message naming the address when it is not. `retries: 0` for the same

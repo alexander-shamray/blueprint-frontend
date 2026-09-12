@@ -88,8 +88,9 @@ npm run emulator:android    # build for the emulator and sync; relaxes cleartext
 Inside a command or a chain, use `bash .claude/scripts/npm-checks.sh
 [all|fast|lint|test|build]` instead, which holds no free parameter.
 **It has no `e2e` mode**, because Playwright needs the backend's Compose stack
-on :5000 and a downloaded browser, and a suite that passed because nothing was
-listening would be worse than none. Three things hold first: **`npm ci`, never
+and a downloaded browser — `docs/testing.md` owns which, and on which ports —
+and a suite that passed because nothing was listening would be worse than
+none. Three things hold first: **`npm ci`, never
 `npm install`**, because `install` may rewrite the lockfile; **a fresh
 worktree has no `node_modules`** and the first check in it fails on a missing
 `ng` binary; and **lint, the unit suite and the web build cover none of the

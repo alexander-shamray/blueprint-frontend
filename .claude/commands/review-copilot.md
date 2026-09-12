@@ -2,6 +2,7 @@
 description: Triage Copilot's review comments on a PR — verify each before acting on it
 argument-hint: "[PR number — omit for the current branch's PR]"
 allowed-tools: Read, Grep, Glob, Edit, Bash(bash .claude/scripts/pr-for-branch.sh:*), Bash(bash .claude/scripts/pr-locality.sh:*), Bash(gh pr diff:*), Bash(bash .claude/scripts/pr-review-comments.sh:*), Bash(bash .claude/scripts/pr-review-bodies.sh:*), Bash(bash .claude/scripts/pr-issue-comments.sh:*), Bash(bash .claude/scripts/pr-comment-reply.sh:*), Bash(bash .claude/scripts/pr-review-threads.sh:*), Bash(bash .claude/scripts/pr-thread-resolve.sh:*), Bash(git log:*), Bash(git diff:*), Bash(git branch --list:*), Bash(git branch --show-current), Bash(git branch -a)
+disallowed-tools: Bash(git push:*)
 ---
 
 Work through the Copilot review on PR $1 — if empty, the PR for the current

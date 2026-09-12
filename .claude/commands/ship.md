@@ -678,10 +678,10 @@ same argument as never calling a branch clean because asking failed.
    nothing and says which.
 
    **The Playwright suite is CI's and is not run here.** `npm run e2e` needs
-   the backend's Compose stack answering on :5000 and a downloaded browser,
-   neither of which this step can assume; the `e2e` job in
-   `.github/workflows/ci.yml` is where it runs on every push. Say plainly
-   that it was not run rather than implying the suite was green.
+   the backend's Compose stack and a downloaded browser, neither of which
+   this step can assume and both of which `docs/testing.md` owns; the `e2e`
+   job in `.github/workflows/ci.yml` is where it runs on every push. Say
+   plainly that it was not run rather than implying the suite was green.
 
    **A native change adds one more, and it is the one nothing else covers.**
    A diff touching `capacitor.config.ts`, `android/**` or `ios/**` is not

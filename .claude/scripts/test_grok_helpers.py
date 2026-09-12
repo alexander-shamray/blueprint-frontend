@@ -3636,10 +3636,10 @@ class CommandsEnforceTheEditingBoundariesTheyState(unittest.TestCase):
         self.assertNotIn("$mode\"", source.replace('"$mode" in', ""))
 
     def test_the_check_runner_offers_no_e2e_mode(self):
-        # Playwright needs a browser download and the backend's Compose stack
-        # on :5000. A mode that ran it where neither exists would pass because
-        # nothing was listening, which is the fail-open shape every gate in
-        # this repository is written against. CI owns that suite.
+        # Playwright needs a browser download and the backend's Compose stack.
+        # A mode that ran it where neither exists would pass because nothing
+        # was listening, which is the fail-open shape every gate in this
+        # repository is written against. CI owns that suite.
         source = (SCRIPTS / "npm-checks.sh").read_text(encoding="utf-8")
         self.assertNotIn("npm run e2e", source)
 
@@ -3699,6 +3699,60 @@ class CommandsEnforceTheEditingBoundariesTheyState(unittest.TestCase):
         # an inventory read from it is blind here by construction.
         self.assertNotIn(".git", self.tracked_root_files())
         self.assertNotIn(".git", self.tracked_trees())
+
+    # `.claude/settings.json` auto-approves `Bash(git push origin:*)` and
+    # `Bash(git push -u origin:*)` for every session, and `allowed-tools` is an
+    # auto-approval list rather than a whitelist — so a command whose own
+    # frontmatter never mentions push can still push, and its narrow
+    # `allowed-tools` withholds nothing. Only a deny refuses.
+    #
+    # The two sweeps already carried the narrow denies; five other commands did
+    # not, and three of those read untrusted input by design. Raised by Copilot
+    # against PR #13, five times, once per command.
+    #
+    # **The rule is derived rather than listed**, which is the whole point: a
+    # command is judged by its own frontmatter, so a new command that neither
+    # grants nor denies push fails this until somebody decides which it is.
+    # A hard-coded list of the five would have gone stale on the sixth.
+    PUBLISHING = ("pr.md", "ship.md")
+
+    def test_a_command_that_does_not_publish_cannot_push(self):
+        for path in sorted(COMMANDS.glob("*.md")):
+            text = path.read_text(encoding="utf-8")
+            allowed = " ".join(
+                re.findall(r"^allowed-tools:\s*(.+)$", text, re.MULTILINE))
+            denied = " ".join(
+                re.findall(r"^disallowed-tools:\s*(.+)$", text, re.MULTILINE))
+
+            grants_push = "Bash(git push" in allowed
+            with self.subTest(command=path.name):
+                if path.name in self.PUBLISHING:
+                    self.assertTrue(
+                        grants_push,
+                        "a publishing command is expected to grant push")
+                    continue
+                self.assertFalse(
+                    grants_push,
+                    "only the publishing commands may grant push")
+                # `Bash` on its own removes the tool, which covers push and
+                # everything else; /review-grok is admitted by this branch.
+                covered = (
+                    "Bash(git push" in denied
+                    or re.search(r"(^|,\s*)Bash(\s*,|\s*$)", denied) is not None
+                )
+                self.assertTrue(
+                    covered,
+                    f"{path.name} neither grants nor denies push, so the global "
+                    "settings allow reaches it")
+
+    def test_the_settings_really_do_auto_approve_push(self):
+        # The positive control. If the global allow were ever removed, the case
+        # above would still pass while protecting nothing, which is the vacuous
+        # gate this repository ranks critical.
+        allow = json.loads(SETTINGS.read_text(encoding="utf-8"))
+        entries = allow["permissions"]["allow"]
+        self.assertIn("Bash(git push origin:*)", entries)
+        self.assertIn("Bash(git push -u origin:*)", entries)
 
     def test_the_one_legitimate_output_stays_writable(self):
         # The other side, and the reason the root is enumerated rather than

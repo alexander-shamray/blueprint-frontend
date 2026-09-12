@@ -2,6 +2,7 @@
 description: Apply one code-style form corpus-wide, then record it in docs/style-guide.md and the linters
 argument-hint: "<the corrected form — paste the code as it should read>"
 allowed-tools: Read, Grep, Glob, Edit, Bash(git diff:*), Bash(wc:*), Bash(ls:*), Bash(bash .claude/scripts/npm-checks.sh:*)
+disallowed-tools: Bash(git push:*)
 ---
 
 A corrected code form has been given:

@@ -35,11 +35,11 @@
 # environment with no credentials, or not at all.
 #
 # `e2e` is deliberately NOT one of the modes. Playwright needs a browser
-# download and the backend's Compose stack on :5000, neither of which exists in
-# the sandbox the external reviewer runs in; a mode that silently passed because
-# nothing was listening would be worse than no mode at all. E2E is CI's job — see
-# the `e2e` job in .github/workflows/ci.yml — and `docs/testing.md` says what a
-# local run needs.
+# download and the backend's Compose stack, neither of which exists in the
+# sandbox the external reviewer runs in; a mode that silently passed because
+# nothing was listening would be worse than no mode at all. E2E is CI's job —
+# see the `e2e` job in .github/workflows/ci.yml — and `docs/testing.md` owns
+# what a local run needs, ports included.
 set -euo pipefail
 
 mode="${1:-all}"
