@@ -261,6 +261,33 @@ that would have copied the host's session into a container — so the first
 real review behind it is that measurement, and the proxy logs a `deny` line
 naming any host it refuses.
 
+**A third residual stood behind both of those and was the one that decided
+what the other two were worth: the image was built from the branch it was
+about to review (#15).** `grok-review.sh` resolved its build context from its
+own location — this checkout's `.claude/sandbox` — and during `/ship` this
+checkout is on the branch under review. So a branch that edited `Dockerfile`
+or `egress-proxy.py` chose what the image does, and the image is then handed
+the credentials the paragraph above narrows: a `RUN` step executes at build
+time with the network, `ENTRYPOINT` and `USER` decide what runs with
+`auth.json` mounted, and `egress-proxy.py` **is** the allow-list, so editing it
+removes the confinement rather than widening it. Binding the image by digest
+ruled out a concurrent build swapping the tag and said nothing about this
+branch's own content; denying `.claude/**` to the review commands stops an
+agent writing those files and says nothing about a branch that arrives with
+them written, which is what an external review is for.
+
+**The context is now written out of `refs/remotes/origin/main` with `git
+archive`, and a branch that changes `.claude/sandbox/**` refuses the run.**
+`git archive` rather than a per-file `git show`, so the trusted revision
+decides which files the context holds and a file added to the image later
+travels without the script being edited. The refusal is the half a script
+cannot perform: building the branch's sandbox change from a revision that does
+not carry it would be a check that quietly does the wrong thing, so the run
+stops and names the human step — read that diff, merge it, then review. **What
+this does not close**: `origin/main` is trusted because it is what a human
+merged, which is a claim about the review process rather than about a
+mechanism here, and a compromised `main` builds a compromised reviewer.
+
 Stated here as well as in the script because `/ship` and both
 sweeps cite `CLAUDE.md` as where the boundary and its residuals are recorded,
 and it forwards here — the residual this file's header argues, not a second

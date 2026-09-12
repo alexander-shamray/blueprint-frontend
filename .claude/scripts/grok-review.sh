@@ -226,7 +226,44 @@ docker info >/dev/null 2>&1 ||
 command -v jq >/dev/null 2>&1 ||
   { echo "jq is required: the reviewer's verdict is JSON and its root stopReason must be parsed rather than matched" >&2; exit 14; }
 
-sandbox=$(cd "$(dirname "${BASH_SOURCE[0]}")/../sandbox" && pwd)
+# **The reviewer's image was built from the branch it is about to review
+# (#15).** The build context used to be `$(dirname "$BASH_SOURCE")/../sandbox`
+# — this checkout's own `.claude/sandbox` — and during `/ship` this checkout is
+# ON the branch under review. So a branch that edited `Dockerfile` or
+# `egress-proxy.py` decided what the image does, and the image is then handed,
+# at `docker run`, either `XAI_API_KEY` or writable copies of
+# `~/.grok/auth.json`, `agent_id` and `config.toml`, where `auth.json` carries
+# a refresh-token-bearing OAuth session. A `RUN` step executes at build time
+# with the network; `ENTRYPOINT` and `USER` decide what runs with those
+# credentials mounted; and `egress-proxy.py` is the whole of the egress
+# allow-list, so editing it removes the boundary `docs/harness-boundaries.md`
+# advertises.
+#
+# **What already stood was not enough, and the shape of the gap is worth
+# keeping.** The image is bound by digest rather than by tag, so what was built
+# is what runs — but that rules out a concurrent build swapping the tag, not
+# this branch's own content. `.claude/**` is denied to `/review-grok` and to
+# `/review-branch`, so an agent cannot write these files; a branch ARRIVING
+# with them already written is the case, and that is exactly what an external
+# review is for.
+#
+# So the context is materialised from `origin/main` rather than read from the
+# working tree. `git archive` is used rather than a per-file `git show` so that
+# the trusted revision decides which files the context holds — a list spelled
+# here would omit the next file somebody adds to the image.
+trusted=refs/remotes/origin/main
+git rev-parse --verify --quiet "$trusted" >/dev/null ||
+  { echo "no $trusted: the reviewer's image is built from the trusted revision rather than from the branch under review (#15); fetch first" >&2; exit 15; }
+# And a branch that CHANGES the sandbox stops the run rather than being built
+# from a revision that does not carry its change. Silently reviewing under the
+# old image would make this check a thing that quietly does the wrong thing;
+# the answer is a human reading that diff and merging it, which is the half of
+# the fix a script cannot perform.
+if ! git diff --quiet "$trusted" "$branch" -- .claude/sandbox; then
+  echo "$branch changes .claude/sandbox — the reviewer's own image and its egress allow-list (#15)." >&2
+  echo "That is a build input to the security boundary, so it is reviewed and merged by a human before any review runs over this branch." >&2
+  exit 15
+fi
 work=$(mktemp -d "${TMPDIR:-/tmp}/grok-review-XXXXXX")
 result=$(mktemp "${TMPDIR:-/tmp}/grok-review-result-XXXXXX")
 auth=$(mktemp -d "${TMPDIR:-/tmp}/grok-review-auth-XXXXXX")
@@ -244,6 +281,17 @@ cleanup() {
 }
 trap cleanup EXIT
 chmod 700 "$auth"
+
+# The build context, written out of the trusted revision. `--strip-components`
+# lands the sandbox's own files at the context root, which is where the
+# `Dockerfile` expects its siblings — the context was that directory before.
+# Under `$work` so that `cleanup` already removes it.
+sandbox="$work/sandbox"
+mkdir -p "$sandbox"
+git archive --format=tar "$trusted" .claude/sandbox |
+  tar -x -C "$sandbox" --strip-components=2
+[ -f "$sandbox/Dockerfile" ] ||
+  { echo "$trusted carries no .claude/sandbox/Dockerfile to build the reviewer from (#15)" >&2; exit 15; }
 
 # A clone, not a worktree. A worktree's .git is a file pointing back into this
 # checkout, and that path is precisely what the container must not mount — git

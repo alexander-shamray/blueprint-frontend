@@ -2119,6 +2119,90 @@ class EveryReviewerRunIsBehindTheProxy(unittest.TestCase):
         self.assertTrue((SCRIPTS.parent / "sandbox" / "egress-proxy.py").is_file())
 
 
+class TheReviewerImageIsNotBuiltFromTheBranchItReviews(unittest.TestCase):
+    """#15 — the build context was this checkout's own `.claude/sandbox`.
+
+    During `/ship` this checkout is ON the branch under review, so a branch
+    that edited `Dockerfile` or `egress-proxy.py` decided what the image does —
+    and the image is then handed `XAI_API_KEY` or writable copies of
+    `~/.grok/auth.json`, which carries a refresh-token-bearing OAuth session.
+
+    Binding the image by digest, which already stood, rules out a concurrent
+    build swapping the tag and says nothing about this branch's own content.
+    Denying `.claude/**` to the review commands stops an agent WRITING those
+    files and says nothing about a branch that arrives with them written, which
+    is exactly what an external review is for.
+
+    Source-subject cases, because nothing here can run a review; the one
+    behavioural case below drives the materialisation, which needs no docker.
+    """
+
+    def source(self):
+        return REVIEW.read_text(encoding="utf-8")
+
+    def test_the_context_is_not_the_working_trees_sandbox(self):
+        # The regression negative. The old line resolved the context from the
+        # script's own location, which is the checkout the branch is in.
+        text = self.source()
+        self.assertNotIn('/../sandbox" && pwd)', text)
+        self.assertIn('sandbox="$work/sandbox"', text)
+
+    def test_the_context_is_written_out_of_the_trusted_revision(self):
+        text = self.source()
+        self.assertIn("trusted=refs/remotes/origin/main", text)
+        self.assertIn('git archive --format=tar "$trusted" .claude/sandbox',
+                      text)
+        # `git archive` rather than a per-file `git show`: the trusted revision
+        # decides which files the context holds, so a file added to the image
+        # later travels without this script being edited.
+        self.assertNotIn('git show "$trusted":.claude/sandbox', text)
+
+    def test_the_build_reads_the_materialised_context(self):
+        text = self.source().replace("\\\n", " ")
+        # `$(docker build` rather than `docker build`, which also matches the
+        # error message one line down that names the command it is about.
+        build = [line for line in text.splitlines()
+                 if "$(docker build" in line
+                 and not line.lstrip().startswith("#")]
+        self.assertEqual(1, len(build), build)
+        self.assertIn('"$sandbox_host/Dockerfile"', build[0])
+        self.assertIn('sandbox_host=$(host_path "$sandbox")', text)
+
+    def test_a_branch_that_changes_the_sandbox_stops_the_run(self):
+        # The half a script cannot perform: reviewing under the old image
+        # instead would make this check a thing that quietly does the wrong
+        # thing, so it refuses and names the human step.
+        text = self.source()
+        self.assertIn(
+            'git diff --quiet "$trusted" "$branch" -- .claude/sandbox', text)
+        self.assertIn("exit 15", text)
+
+    def test_the_materialisation_lands_the_dockerfile_at_the_context_root(self):
+        # The behavioural half, run against this repository's own `origin/main`
+        # — `--strip-components` is off-by-one-shaped, and a context missing its
+        # `Dockerfile` would fail inside docker rather than here.
+        root = SCRIPTS.parent.parent
+        head = subprocess.run(
+            [GIT, "rev-parse", "--verify", "--quiet",
+             "refs/remotes/origin/main"],
+            cwd=str(root), capture_output=True, text=True)
+        if head.returncode != 0:
+            self.skipTest("no origin/main in this checkout")
+        out = tempfile.mkdtemp(prefix="sandbox-context-")
+        self.addCleanup(shutil.rmtree, out, ignore_errors=True)
+        script = (
+            f'set -euo pipefail\n'
+            f'git archive --format=tar refs/remotes/origin/main '
+            f'.claude/sandbox | tar -x -C {Path(out).as_posix()!r} '
+            f'--strip-components=2\n'
+        )
+        result = subprocess.run([BASH, "-c", script], cwd=str(root),
+                                capture_output=True, text=True)
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertTrue((Path(out) / "Dockerfile").is_file())
+        self.assertTrue((Path(out) / "egress-proxy.py").is_file())
+
+
 class CopilotFeedFilter(unittest.TestCase):
     """#56 — the three Copilot feeds arrived unfiltered into a command holding `Edit`.
 
