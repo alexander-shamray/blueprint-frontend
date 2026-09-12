@@ -927,7 +927,8 @@ you anything on the day it trips.
 
 ## 14. What CI runs, and the one test that is left failing
 
-`.github/workflows/ci.yml` has five jobs. The `web` job installs from the
+`.github/workflows/ci.yml` names the jobs, and is the source of truth for
+which exist. The `web` job installs from the
 lockfile and runs `npm run lint`, `npm test` and `npm run build`. The Angular
 unit-test builder runs once and exits rather than watching, which is checked
 locally with `CI=true npm test` — a watch-mode test step does not fail a build,

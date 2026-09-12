@@ -52,8 +52,9 @@ the only component in `src/` using `templateUrl`. Verified by grep, in both
 directions — it is the only component without `OnPush` and the only one with a
 `templateUrl`. Bringing it into line is a change to `src/`, which no document
 may make on its own account; until somebody decides, a reviewer flagging it is
-reporting a known exception rather than a defect. Raised by Copilot against
-PR #13, which is what a guide contradicting the code it governs earns.
+reporting a known exception rather than a defect. A guide that contradicts
+the code it governs is a guide nobody can apply, which is why this is
+written down rather than left to be rediscovered.
 
 ## Prose
 
