@@ -131,6 +131,30 @@ const PLATFORM_DEFAULTS = {
 } as const;
 
 /**
+ * Puts one borrowed environment variable back exactly as it was found.
+ *
+ * Assigning the saved value straight back is wrong for a variable that was
+ * never set: `process.env['X'] = undefined ?? ''` leaves `X` DEFINED and
+ * empty, which is a different state from absent — `'X' in process.env` and
+ * `process.env['X'] !== undefined` both flip. `BLUEPRINT_EMULATOR` is absent
+ * in an ordinary `npm test` run, so the straightforward restore leaks exactly
+ * that, and a Vitest worker runs other spec files afterwards.
+ *
+ * Nothing in this repository reads either variable by presence today — the
+ * config compares both against a string — so this is hygiene rather than a
+ * bug fixed. It is the kind that stops being hygiene the moment somebody
+ * writes `if ('BLUEPRINT_EMULATOR' in process.env)` and spends an afternoon
+ * on why it depends on which specs ran first.
+ */
+function restoreEnv(key: string, original: string | undefined): void {
+  if (original === undefined) {
+    delete process.env[key];
+    return;
+  }
+  process.env[key] = original;
+}
+
+/**
  * Loads the real root `capacitor.config.ts` under a chosen sync environment.
  *
  * The module reads `process.env` at load time — that is the whole mechanism of
@@ -277,6 +301,40 @@ describe('the origin a config asks for', () => {
   });
 });
 
+/**
+ * The restore itself, pinned. This file borrows two process-wide variables and
+ * the only evidence it gives them back correctly is the function that does it,
+ * so the function is asserted rather than trusted — the same reason the model
+ * above is. A key that was absent has to come back absent, which is the case
+ * a straight assignment gets wrong and the one that actually arises here.
+ */
+describe('restoring a borrowed environment variable', () => {
+  const KEY = 'BLUEPRINT_WEBVIEW_ORIGIN_SPEC_SCRATCH';
+
+  afterEach(() => {
+    delete process.env[KEY];
+  });
+
+  it('deletes a key that was absent rather than blanking it', () => {
+    process.env[KEY] = 'set by a test';
+
+    restoreEnv(KEY, undefined);
+
+    expect(KEY in process.env).toBe(false);
+    expect(process.env[KEY]).toBeUndefined();
+  });
+
+  it('puts back a value that was there, including an empty one', () => {
+    delete process.env[KEY];
+    restoreEnv(KEY, 'original');
+    expect(process.env[KEY]).toBe('original');
+
+    restoreEnv(KEY, '');
+    expect(KEY in process.env).toBe(true);
+    expect(process.env[KEY]).toBe('');
+  });
+});
+
 describe('the WebView origin the realm grants', () => {
   const lifecycle = process.env['npm_lifecycle_event'];
   const emulator = process.env['BLUEPRINT_EMULATOR'];
@@ -286,8 +344,8 @@ describe('the WebView origin the realm grants', () => {
   });
 
   afterEach(() => {
-    process.env['npm_lifecycle_event'] = lifecycle ?? '';
-    process.env['BLUEPRINT_EMULATOR'] = emulator ?? '';
+    restoreEnv('npm_lifecycle_event', lifecycle);
+    restoreEnv('BLUEPRINT_EMULATOR', emulator);
     vi.resetModules();
   });
 
