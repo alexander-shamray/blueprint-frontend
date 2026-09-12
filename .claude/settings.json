@@ -24,7 +24,18 @@
     "deny": [
       "Edit(.remember/**)",
       "Edit(./.remember/**)",
+      "Edit(.claude/scripts/**)",
+      "Edit(./.claude/scripts/**)",
+      "Edit(.claude/sandbox/**)",
+      "Edit(./.claude/sandbox/**)",
+      "Edit(.claude/commands/**)",
+      "Edit(./.claude/commands/**)",
+      "Edit(.claude/agents/**)",
+      "Edit(./.claude/agents/**)",
+      "Edit(.claude/hooks/**)",
+      "Edit(./.claude/hooks/**)",
       "Edit(.claude/settings.json)",
+      "Edit(./.claude/settings.json)",
       "Edit(.claude/settings.local.json)",
       "Edit(./.claude/settings.local.json)",
       "Bash(*grok-ledger.sh * reserve*)",
@@ -60,7 +71,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "py -3.12 \"${CLAUDE_PROJECT_DIR}/.claude/hooks/guard-git-argv.py\"",
+            "command": "sh \"${CLAUDE_PROJECT_DIR}/.claude/hooks/run-guard.sh\" guard-git-argv.py",
             "statusMessage": "checking git argv"
           }
         ]
@@ -70,7 +81,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "py -3.12 \"${CLAUDE_PROJECT_DIR}/.claude/hooks/guard-edit-target.py\"",
+            "command": "sh \"${CLAUDE_PROJECT_DIR}/.claude/hooks/run-guard.sh\" guard-edit-target.py",
             "statusMessage": "checking edit target"
           }
         ]

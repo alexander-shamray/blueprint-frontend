@@ -8101,9 +8101,10 @@ class TheGitArgvGuard(unittest.TestCase):
             f"{HOOK.name} is not among the registered Bash hooks: {commands}",
         )
         self.assertTrue(
-            any("py -3.12" in c for c in commands),
-            "the hook must run on the 3.12 floor, like every other Python here",
+            any("run-guard.sh" in c for c in commands),
+            f"the hook must run through the launcher: {commands}",
         )
+
 
     def test_the_hook_directory_is_a_control_surface_and_is_denied(self):
         # It grants nothing, but it RUNS on every Bash call, so a session able
@@ -8117,6 +8118,116 @@ class TheGitArgvGuard(unittest.TestCase):
             with self.subTest(prefix=prefix):
                 self.assertIn(f"Edit({prefix}.claude/hooks/**)", deny)
 
+
+class TheHookWiringRunsOnMoreThanOneOperatingSystem(unittest.TestCase):
+    """#23 — both hooks were wired to `py -3.12`, the Windows Python launcher.
+
+    `py` ships with Python on Windows and nowhere else: a standard 3.12 on
+    macOS or Linux provides `python3` and no `py`, so the command could not
+    start and every `Bash`, `Edit` and `Write` call failed before the guard
+    ran. Loud and total rather than silent, which is the right direction, and
+    still unusable.
+
+    **The `harness` job could not have caught this and still cannot.** It runs
+    `python -m unittest` directly, so it exercises the hook MODULES on three
+    platforms and the wiring through `settings.json` on none. A green matrix
+    says the guards are correct, not that they run. These cases are the subject
+    test for the wiring itself, which is the only thing that closes that gap
+    from inside the repository.
+    """
+
+    LAUNCHER = SCRIPTS.parent / "hooks" / "run-guard.sh"
+
+    def commands(self):
+        settings = json.loads(SETTINGS.read_text(encoding="utf-8"))
+        return [
+            h.get("command", "")
+            for entry in settings.get("hooks", {}).get("PreToolUse", [])
+            for h in entry.get("hooks", [])
+        ]
+
+    def test_no_hook_command_names_a_windows_only_interpreter(self):
+        found = self.commands()
+        self.assertTrue(found, "no PreToolUse hook is registered at all")
+        for command in found:
+            with self.subTest(command=command):
+                self.assertNotIn("py -3.12", command)
+                # And not the other direction either: `python3` on Windows is
+                # the Microsoft Store execution alias, present on PATH and not
+                # Python, so naming it directly trades one broken platform for
+                # another.
+                self.assertNotRegex(command, r"(^|\s)python3(\s|$)")
+
+    def test_every_hook_goes_through_the_launcher(self):
+        for command in self.commands():
+            with self.subTest(command=command):
+                self.assertIn("run-guard.sh", command)
+                self.assertIn("${CLAUDE_PROJECT_DIR}", command)
+
+    def test_the_launcher_probes_py_before_python3(self):
+        # **The order is the whole of what this file decides, and it is a
+        # measurement.** On Windows `python3` resolves to the Store alias, so a
+        # launcher probing it first finds something on every host and the wrong
+        # thing on that one. `py` exists only where it is right.
+        code = "\n".join(
+            line for line in self.LAUNCHER.read_text(encoding="utf-8").splitlines()
+            if not line.lstrip().startswith("#"))
+        self.assertLess(code.find("command -v py"), code.find("python3"))
+        self.assertIn("exec py -3.12", code)
+        self.assertIn("exec python3", code)
+
+    def test_the_launcher_execs_once_rather_than_falling_back(self):
+        # `py -3.12 … || python3 …` re-runs the hook whenever the first
+        # invocation exits non-zero for a real reason — and for a `PreToolUse`
+        # hook a real reason includes printing a deny, so a refusal would be
+        # emitted twice and judged twice.
+        #
+        # Asked as "no line chains two interpreters" rather than "no `||`
+        # anywhere", which was the first spelling and was wrong: the argument
+        # check and the closed-set case both use `||` for their own refusals,
+        # so the assertion failed on the guard rails rather than on a fallback.
+        code = [line for line
+                in self.LAUNCHER.read_text(encoding="utf-8").splitlines()
+                if not line.lstrip().startswith("#")]
+        for line in code:
+            if "exec " in line:
+                with self.subTest(line=line):
+                    self.assertNotIn("||", line)
+                    self.assertNotIn("&&", line)
+        execs = [line for line in code if "exec " in line]
+        self.assertEqual(2, len(execs), execs)
+
+    def test_the_launcher_takes_a_closed_set_of_hook_names(self):
+        # `settings.json` is the only caller and it names one of two files; a
+        # launcher taking any path would be a way to run an arbitrary script
+        # through the hook wiring.
+        for bad in ("../scripts/npm-checks.sh", "/etc/passwd", "",
+                    "guard-git-argv.py extra"):
+            with self.subTest(argument=bad):
+                out = subprocess.run(
+                    [BASH, str(self.LAUNCHER), bad],
+                    capture_output=True, text=True)
+                self.assertEqual(2, out.returncode, out.stdout)
+
+    def test_the_launcher_runs_each_hook_it_admits(self):
+        # The positive control, end to end: an argument the closed set admits
+        # reaches the module and produces a verdict. Without this the case
+        # above passes against a launcher that refuses everything.
+        event = json.dumps({"tool_name": "Bash",
+                            "tool_input": {"command": "ls > package.json"}})
+        out = subprocess.run(
+            [BASH, str(self.LAUNCHER), "guard-git-argv.py"],
+            input=event, capture_output=True, text=True)
+        self.assertEqual(0, out.returncode, out.stderr)
+        self.assertIn("permissionDecision", out.stdout)
+
+        event = json.dumps({"tool_name": "Write", "cwd": str(SCRIPTS),
+                            "tool_input": {}})
+        out = subprocess.run(
+            [BASH, str(self.LAUNCHER), "guard-edit-target.py"],
+            input=event, capture_output=True, text=True)
+        self.assertEqual(0, out.returncode, out.stderr)
+        self.assertIn("permissionDecision", out.stdout)
 
 if __name__ == "__main__":
     unittest.main()
