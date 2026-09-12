@@ -44,10 +44,25 @@ const config: CapacitorConfig = {
   // and Info.plist's CFBundleURLTypes; what sends the URI is
   // `environment.auth.nativeRedirectUri`.
   //
-  // It survived because the Capacitor CLI only TRANSPILES this file — a config
-  // key that types fine to `unknown` and a key nothing reads look identical to
-  // `cap sync`. `webview-origin.spec.ts` imports this module, so it is now in
-  // a program that type-checks, which is what surfaced it.
+  // It was not ignored on the way to the device, which is what made it worth
+  // removing rather than leaving: `cap sync` serialises whatever this object
+  // holds, so the key was written into
+  // `android/app/src/main/assets/capacitor.config.json` on every sync and read
+  // by nothing at the other end. Measured both ways — with the key restored the
+  // generated file carries a `plugins.App.launchUrl`, and without it the file
+  // has three entries and no `plugins` at all.
+  //
+  // It survived because the Capacitor CLI only TRANSPILES this file, so a key
+  // nothing reads and a key that compiles look identical to `cap sync`.
+  // `webview-origin.spec.ts` imports this module, which put it in a
+  // type-checked program for the first time and is what surfaced the key: the
+  // error is TS2353, excess property in an object literal. `PluginsConfig`
+  // does carry an open index signature, and on its own that would have taken
+  // `launchUrl` without complaint — what rejects it is `@capacitor/app`'s own
+  // module augmentation declaring `App` as a NAMED property, which wins over
+  // the index signature for that key. The check is real but it is the App
+  // plugin's to make; a plugin that augmented nothing would still admit
+  // anything.
   // Reaching the host from the emulator over plain HTTP is blocked TWICE, and
   // each block has its own key — setting either one alone changes nothing,
   // which is why issue #7's `server.cleartext` was half a fix:

@@ -1039,10 +1039,21 @@ configuration as `{ disableBackButtonHandler?: boolean }`, and the only
 Browser plugin — an Android API call, not a key anything looks up. So it was
 inert, and it read as load-bearing —
 the worse of the two failures, because a scheme change that updated it and
-missed a real copy would look done. It survived because the Capacitor CLI only
-TRANSPILES that file, so a key nothing reads and a key that type-checks are the
-same file to `cap sync`. What surfaced it is the spec below importing the
-module, which puts it in a program that type-checks for the first time.
+missed a real copy would look done. Nor was it dropped on the way to the
+device: `cap sync` serialises whatever the config object holds, so the key was
+written into the generated `capacitor.config.json` on every sync and read by
+nothing at the other end — measured both ways, with the key restored and
+without it.
+
+It survived because the Capacitor CLI only TRANSPILES that file, so a key
+nothing reads and a key that compiles are the same file to `cap sync`. What
+surfaced it is the spec below importing the module, which puts it in a
+type-checked program for the first time. The rejection is narrower than it
+looks and worth stating exactly: `PluginsConfig` carries an open index
+signature that would have admitted `launchUrl` on its own, and what refuses it
+is `@capacitor/app`'s module augmentation declaring `App` as a named property,
+which wins over the index signature for that key. So the compiler catches this
+for plugins that describe their own configuration, and not for the others.
 
 **The Android intent filter matches the host as well as the scheme.** `<data
 android:scheme="blueprint" android:host="auth" />` rather than the scheme
