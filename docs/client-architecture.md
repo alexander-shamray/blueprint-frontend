@@ -866,11 +866,16 @@ fails with a message naming the address if it is not. That follows the backend's
 own rule, stated in `docs/backend-architecture/12-test-strategy.md`: "A skip on
 a missing daemon fails open: CI goes green on a runner whose Docker broke."
 
-**One of the three smoke tests is failing on the development machine, and it is
-left failing.** `demo browses, quotes, orders and cancels` gets as far as
-placing the order and receives a Bad Gateway from the edge, because
-`ordering-api` is not running: `deploy/compose/services/ordering.yml` makes it
-depend on `rabbitmq` being healthy, and on this host RabbitMQ cannot bind 5672
+**All three smoke tests pass in CI. One of them fails on the development
+machine, and it is left failing there.** CI is the authority on this, and it
+says the client is fine: the `e2e` job builds the stack from the backend's
+`main` on a clean runner and reports `3 passed`. What follows is a fact about
+one host, recorded because that host is where the tests are usually run.
+
+`demo browses, quotes, orders and cancels` gets as far as placing the order and
+receives a Bad Gateway from the edge, because `ordering-api` is not running:
+`deploy/compose/services/ordering.yml` makes it depend on `rabbitmq` being
+healthy, and on this host RabbitMQ cannot bind 5672
 or 15672 — a native `erl.exe` already holds them. That is an environment fact
 about one machine rather than a defect in the client, and every step before the
 order passes: sign-in, browsing, adding two products, quoting, reaching
