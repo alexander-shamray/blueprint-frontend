@@ -1005,11 +1005,12 @@ that names the permission it lacks.
 
 ## 15. The native shell: one scheme, two origins, and a round trip nobody has run
 
-Phase B adds Android and iOS around the same web build. Five facts about that
-are worth writing down: three are host decisions this client only obeys, one is
-a local relaxation with a gate on it, and the last is a gap.
+Phase B adds Android and iOS around the same web build. What is worth writing
+down about it sorts into four kinds: host decisions this client only obeys, one
+local relaxation with a gate on it, one contract whose two halves live in two
+repositories that cannot see each other, and a gap.
 
-**The callback scheme is repeated in seven places, and none of them can
+**The callback scheme is repeated in six places, and none of them can
 import another.** The realm's `mobile-app` client registers exactly one
 redirect URI, `blueprint://auth/callback`
 (`deploy/compose/keycloak/realm-export.json`), and Keycloak compares it as a
@@ -1018,18 +1019,28 @@ string. Every copy is an independent change point:
 | Where | What it is for |
 |---|---|
 | `environment.ts`, `environment.development.ts`, `environment.android.ts` | `auth.nativeRedirectUri` — what the strategy actually sends. Three files, because each build configuration carries its own whole `Environment`. |
-| `capacitor.config.ts` | the App plugin's `launchUrl` |
 | `android/app/src/main/AndroidManifest.xml` | the intent filter that makes Android hand the return to this app |
 | `ios/App/App/Info.plist` | `CFBundleURLTypes`, the same job on iOS |
 | `deploy/compose/keycloak/realm-export.json` (backend repo) | the only redirect URI Keycloak will accept |
 
-Seven is six too many and there is nowhere better to put it: three are
+Six is five too many and there is nowhere better to put it: three are
 TypeScript here, two are native manifests, one is JSON in another repository.
 The three environment files are the one group that could be collapsed — they
 differ only in host — and they are not, because `Environment` is deliberately
 one flat shape per build with no inheritance between them (§2). A scheme
-change has to visit all seven, and a miss shows up as a sign-in that completes
+change has to visit all six, and a miss shows up as a sign-in that completes
 in the browser and returns nowhere.
+
+**It was seven, and the seventh did nothing.** `capacitor.config.ts` carried
+the same URI as `plugins.App.launchUrl`, and this table used to list it. No
+such key exists: `@capacitor/app` declares the App plugin's entire
+configuration as `{ disableBackButtonHandler?: boolean }`, and no Capacitor
+source names `launchUrl` anywhere. It was inert, and it read as load-bearing —
+the worse of the two failures, because a scheme change that updated it and
+missed a real copy would look done. It survived because the Capacitor CLI only
+TRANSPILES that file, so a key nothing reads and a key that type-checks are the
+same file to `cap sync`. What surfaced it is the spec below importing the
+module, which puts it in a program that type-checks for the first time.
 
 **The Android intent filter matches the host as well as the scheme.** `<data
 android:scheme="blueprint" android:host="auth" />` rather than the scheme
@@ -1102,26 +1113,62 @@ iOS is untouched — the simulator reaches the host at `localhost` with no alias
 and its cleartext question is App Transport Security in `Info.plist`, not
 either key here.
 
-**One more thing is known to block the first device run, and it is not fixed
-here.** One blocker is already above and is the gateway's CORS list, which step
-1 of the round trip below is how to settle locally. This is the second, it is a
-different host, and it was found by review rather than by running anything —
-which is itself the argument for running it.
+**The token exchange is a second browser request, to a different host, and the
+realm now grants the origin it comes from.** The gateway note above is one hop;
+this is the other one, and fixing either does nothing for the other.
+`native-auth.strategy.ts` posts the authorization code to Keycloak's token
+endpoint with `fetch`, which on a device is a cross-origin request from the
+WebView's own origin — `https://localhost` on Android, `capacitor://localhost`
+on iOS. `webOrigins` on the `mobile-app` client is what decides whether the
+WebView may READ the answer, and it used to be `[]`. It now names both
+(`realm-export.json`), which is the symmetrical fix to the
+gateway one and keeps `fetch` plain `fetch`.
 
-*The token exchange is a browser `fetch`, and the realm grants it no origin.*
-`native-auth.strategy.ts` posts to Keycloak's token endpoint with `fetch`,
-which on a device is a request from the WebView's origin — `https://localhost`
-on Android, `capacitor://localhost` on iOS. The realm's `mobile-app` client
-declares `"webOrigins": []` (`realm-export.json`), so Keycloak returns no
-`Access-Control-Allow-Origin` and the WebView discards the response before
-this code sees it. Note this is a SEPARATE hop from the gateway CORS question
-above: the gateway is not in this path at all, Keycloak is. Two ways out, and
-they are not equivalent: add the native origins to the realm client (a backend
-change, and the symmetrical fix to the gateway one), or enable Capacitor's
-`CapacitorHttp` so `fetch` is serviced by the native HTTP stack and CORS never
-applies. The second needs no backend change but patches `fetch` process-wide,
-which would also reroute every `HttpClient` call to the gateway — not a change
-to make without a device to check it on.
+*The alternative, and why it was not taken.* Capacitor's `CapacitorHttp` would
+have `fetch` serviced by the native HTTP stack, where CORS never applies, and
+needs no backend change at all. It also patches `fetch` and `XMLHttpRequest`
+process-wide, so every `HttpClient` call to the gateway stops being a browser
+request too — which would take the gateway's CORS story, the `Retry-After`
+exposure §10 depends on, and anything else assuming browser semantics with it.
+One realm field is a smaller blast radius than that, and nobody has a device
+attached to check the larger one on.
+
+*The values are this repository's to keep, and a test now keeps them.* The
+backend's realm gate (`deploy/keycloak/realm_check.py`, `check_web_origins`)
+asserts the obligation — granted, non-empty, no wildcard, every entry a real
+browser origin — and deliberately declines to assert WHICH origins, because
+what a packaged app's origin actually is comes out of `capacitor.config.ts`
+here. Pinning literals there would fail a realm that had been corrected rather
+than one that had drifted. So the contract has two halves in two repositories
+and neither side can see the other: `webview-origin.spec.ts` holds this one,
+asserting that the config's four origin-moving fields — `server.url`,
+`hostname`, `androidScheme`, `iosScheme` — still produce exactly the pair the
+realm was told to expect, for a release sync and for both selectors of the
+emulator gate. The tempting `androidScheme: 'http'` above is precisely the edit
+it exists to catch: it would move the Android origin to `http://localhost`,
+which the realm does not grant and which nothing else here would notice.
+
+Three of those four fields are normally absent, so the origin comes from a
+default held in Java and Swift rather than from anything in this repository.
+The spec reads those defaults out of the installed platform sources
+(`CapConfig.java`, `Bridge.java`, `CAPInstanceDescriptor.swift`) instead of
+writing them down, because a test that wrote them down would only agree with
+itself: a Capacitor major that moved a default would move this app's origin off
+a grant that stayed exactly where it was. Every way of failing to find one
+throws rather than falling back — a guard that quietly substituted its own
+assumption for a default it could no longer locate would keep passing at the
+moment it stopped meaning anything.
+
+*Why a guard rather than a strategy test.* This failure is silent on both
+sides. `application/x-www-form-urlencoded` is CORS-safelisted and a public
+client sends no `Authorization` header, so there is no preflight to fail: the
+request goes out, Keycloak mints a token, and the browser discards the response
+for want of a matching `Access-Control-Allow-Origin`. The code is spent,
+`fetch` rejects with a `TypeError`, `post()` reports `unreachable`, and the
+user gets a sign-in that failed for no stated reason. Every one of the
+strategy's unit tests injects a `fetch` mock, which is exactly the layer that
+cannot see a browser refusing to hand over a real response — the bug was read
+out of the realm export, not observed on a device.
 
 **What has not been done.** No device or emulator has run this client. The
 Android project builds a debug APK, the native strategy is covered by
@@ -1130,12 +1177,20 @@ generated — none of that is the same as a round trip through a real system
 browser. Most of those forty exist because review found a bug, which is
 worth noting: unit tests around a mocked `fetch` and a mocked browser can pin
 every decision this class makes and still say nothing about the origin above,
-because that is the platform refusing a request the mocks always allow. Plan Task 20
+because that is the platform refusing a request the mocks always allow. The
+guard added with it does not change that either — it asserts that this config
+still produces the origin the realm grants, which is a statement about two
+files and not about a WebView. Plan Task 20
 is that round trip, and it is deliberately still open. Running it means, in
 order:
 
 1. Bring up the backend's Compose stack, and add `https://localhost` to the
-   gateway's `Cors__Origins__*` as above.
+   gateway's `Cors__Origins__*` as above. The realm side needs no edit — the
+   export names both native origins — but Keycloak imports a realm only when
+   it does not already have one, and `start-dev` keeps its database inside the
+   container. A keycloak container that imported the realm before those
+   origins were added is still serving the empty `webOrigins`; recreate it
+   rather than restarting it.
 2. `npm run emulator:android`, then `npm run emulator:android:run`. The
    relaxations of the note above are set by the flag that first script
    carries, and `cap run` re-syncs by default — so the launch has to pass

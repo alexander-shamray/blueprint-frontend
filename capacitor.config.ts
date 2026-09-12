@@ -32,21 +32,20 @@ const config: CapacitorConfig = {
   appId: 'dev.ashamray.blueprint',
   appName: 'Blueprint',
   webDir: 'dist/blueprint-frontend/browser',
-  // The custom scheme the system browser returns to after the authorization
-  // code flow (spec §4.2). It must match the mobile-app realm client's
-  // redirectUris exactly — Keycloak compares the string.
+  // Deliberately NOT here: the `blueprint://auth/callback` redirect URI. This
+  // file carried it as `plugins.App.launchUrl`, which is not a key anything
+  // reads — `@capacitor/app` declares the App plugin's whole configuration as
+  // `{ disableBackButtonHandler?: boolean }` and no Capacitor source mentions
+  // `launchUrl` at all. It was inert config that read as load-bearing, and
+  // §15 counted it as one of the places a scheme change has to visit. What
+  // actually hands the return to this app is the AndroidManifest intent filter
+  // and Info.plist's CFBundleURLTypes; what sends the URI is
+  // `environment.auth.nativeRedirectUri`.
   //
-  // This is one of several independent copies, and none of them can import
-  // another: `environment.auth.nativeRedirectUri` in each of the three
-  // environment files (what the strategy actually sends), this `launchUrl`,
-  // `android/app/src/main/AndroidManifest.xml`'s intent filter and
-  // `ios/App/App/Info.plist`'s CFBundleURLTypes (what makes each OS hand the
-  // return to this app), and the realm export in the backend repository. A
-  // scheme change has to visit every one of them; docs/client-architecture.md
-  // §15 lists them for that reason.
-  plugins: {
-    App: { launchUrl: 'blueprint://auth/callback' },
-  },
+  // It survived because the Capacitor CLI only TRANSPILES this file — a config
+  // key that types fine to `unknown` and a key nothing reads look identical to
+  // `cap sync`. `webview-origin.spec.ts` imports this module, so it is now in
+  // a program that type-checks, which is what surfaced it.
   // Reaching the host from the emulator over plain HTTP is blocked TWICE, and
   // each block has its own key — setting either one alone changes nothing,
   // which is why issue #7's `server.cleartext` was half a fix:
@@ -75,9 +74,13 @@ const config: CapacitorConfig = {
   // `http://10.0.2.2` request from an `http://localhost` page is still
   // ERR_CLEARTEXT_NOT_PERMITTED and still needs `server.cleartext`. So it is
   // not the one-key alternative it looks like: it trades `allowMixedContent`
-  // for a change to the origin the gateway and the realm each have to admit,
-  // and those two origins are the whole of #6 and half of §15. One origin
-  // for every build is worth more than one fewer key here.
+  // for a change to the origin the gateway and the realm each have to admit.
+  // The realm admits `https://localhost` and `capacitor://localhost` by name
+  // now (#6), so moving the Android origin to `http://localhost` would revoke
+  // a grant that stayed exactly where it was, silently — the token exchange is
+  // a browser `fetch` and CORS is what answers it. `webview-origin.spec.ts`
+  // fails on that edit, for the emulator sync and the release one alike. One
+  // origin for every build is worth more than one fewer key here.
   //
   // iOS is untouched: the simulator reaches the host at `localhost` with no
   // alias, and its cleartext question is App Transport Security in
