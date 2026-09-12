@@ -3726,7 +3726,13 @@ class CommandsEnforceTheEditingBoundariesTheyState(unittest.TestCase):
     # redirection on any granted Bash command writes what Edit(...) refuses" —
     # and answered it by denying Bash whole, and four other Edit-or-Write
     # holders inherited neither the argument nor the denies.
-    MACHINERY_TREES = (".claude", ".github", "android", "ios", ".git")
+    # `node_modules` is in this set and is not tracked, which is the point:
+    # `node_modules/.bin` holds every executable npm-checks.sh invokes, and a
+    # command that could write there turns the next check into execution.
+    # review-branch.md once claimed no granted tool wrote outside the
+    # enumerated trees; Edit and Write have no path scope, so that was false.
+    MACHINERY_TREES = (".claude", ".github", "android", "ios", ".git",
+                       "node_modules")
 
     # /style-pass EDITS .editorconfig, .prettierrc, eslint.config.js and
     # CLAUDE.md by design — its own sections 3 and 4 require it — so it is

@@ -94,8 +94,23 @@ import traceback
 # harness, so without this line the read grant is wider than the Read tool it
 # sits beside. Raised by Copilot against PR #13; the deny in settings.json is
 # beside it as defence in depth, and this is the half that is not a speed bump.
+#
+# `--ext-diff` and `--textconv` are the fifth and sixth, and they are the
+# ones that execute. Neither carries a command itself — they ENABLE a command
+# git already has in configuration, `diff.external` and `diff.*.textconv`.
+# The `git -c` list below refuses setting those keys inline and never
+# refused activating an existing one, which is a boundary with the door left
+# open on the other side: a developer host can carry either key already, and
+# `.git/config` is writable through the redirection residual this file does
+# not close (#20). Measured in a scratch repository — with
+# `diff.external` set, `git diff --ext-diff` RAN it and printed its output.
+# So `git diff`, `git log` and `git show`, granted everywhere as read-only,
+# were host code execution one flag away. Raised by Copilot against PR #13.
+#
+# `--no-ext-diff` is the safe direction and stays admitted: neither the
+# prefix test nor the abbreviation test matches it against these names.
 FORBIDDEN_FLAGS = ("--output", "--upload-pack", "--receive-pack", "--exec",
-                   "--no-index")
+                   "--no-index", "--ext-diff", "--textconv")
 
 # Judged against a whole element, and only on a subcommand that takes a
 # repository — a branch name, a path or a commit body may carry the sequence
@@ -2812,8 +2827,9 @@ def _offence(command, depth, judged):
                         abbreviation and flag.startswith(name)):
                     return (
                         f"`git ... {flag}` is refused: it reaches outside the "
-                        "repository this grant was for — writing, executing, or "
-                        "in --no-index's case reading a path git would not "
+                        "repository this grant was for — writing, executing a "
+                        "configured command (--ext-diff, --textconv), or in "
+                        "--no-index's case reading a path git would not "
                         "otherwise open — and the settings deny it matches only "
                         "the unquoted spelling. This hook compares the resolved "
                         "argv, and any unambiguous abbreviation of it."
