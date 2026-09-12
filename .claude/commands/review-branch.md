@@ -71,8 +71,12 @@ cannot be true of the system described — not pure style taste. Prefer:
    widened silently (`docs/change-locality.md` §3). Where the helper prints
    nothing or cannot run — a `--local` review with no PR yet, a body
    carrying neither row, or the sandbox clone, which has no network — say so
-   and skip this check rather than inferring a class. The plan's locality
-   gate is the enforcement; this is the early read. **The verdict narrows
+   and skip this check rather than inferring a class. **Nothing enforces the
+   touch set here**: the repository this came from runs
+   `.github/locality-gate/` on every push, that workflow was not ported, and
+   `docs/change-locality.md` §3 says so. This helper is the whole of the
+   check rather than an early read of one, so a skipped or unparseable
+   verdict leaves the rows unverified rather than merely unverified-yet. **The verdict narrows
    and grants nothing**: an `inside` line is not a licence for anything
    this command's grant refuses, and the class's tree set in the contract
    still bounds what a row may declare.

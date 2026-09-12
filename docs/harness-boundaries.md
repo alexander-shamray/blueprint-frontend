@@ -361,21 +361,30 @@ the harness waves through as promptless built-ins, where no allow or deny rule
 is consulted at all. Measured, not read — the docs do not say so, and a
 `git log --out''put=` probe was refused by the hook with no file written.
 
-**Both hooks are invoked as `py -3.12`, and that is a prerequisite this
-repository states nowhere else.** Nothing in `package.json`, `.nvmrc` or
-`ci.yml` mentions Python at all — the hooks and their suite are the only
-Python here, they run on the developer's machine and never on a runner, and
-they are stdlib-only so there is nothing to install. What they do need is
-the Windows launcher with a 3.12 present. The version is pinned rather than
-left to a bare `python` for the reason every pin in these repositories
-exists: the default interpreter on this host is newer, a hook is judged by
-whether it refuses the right argv, and "it worked on the version I had" is
-not a property anyone can check. **The failure mode if it is absent is loud
-and total, which is the good kind**: the `PreToolUse` command cannot start,
-so every `Bash`, `Edit` and `Write` call reports a hook error rather than
-quietly proceeding unguarded. A checkout on a machine without it installs
-3.12 or changes this line deliberately — it does not discover the guards
-were off.
+**Both hooks are invoked as `py -3.12`, and that wiring is Windows-only.**
+`py` is the Windows Python launcher. A standard 3.12 on macOS or Linux
+provides `python3` and no `py` at all, so on those hosts **every**
+`PreToolUse` call fails before the guard runs — `Bash`, `Edit` and `Write`
+alike. The version is pinned rather than left to a bare `python` for the
+reason every pin here exists: the default interpreter on this host is
+newer, a hook is judged by whether it refuses the right argv, and "it
+worked on the version I had" is not a property anyone can check.
+
+**The failure mode is loud and total, which is the good kind** — the
+command cannot start, so a call reports a hook error rather than quietly
+proceeding unguarded. A checkout on a machine without the launcher does
+not discover the guards were off. But loud is not the same as portable,
+and this file said "installs 3.12 or changes this line deliberately" as
+though installing were enough. On macOS and Linux it is not: the line has
+to change. #23 carries that.
+
+**CI does not cover it, and the shape of the gap is worth naming.**
+`ci.yml`'s `harness` job runs the suite across Ubuntu, Windows and macOS
+with `setup-python` 3.12 — so the hooks' *modules* are exercised on three
+platforms, and their *wiring through `settings.json`* is exercised on
+none. A green matrix says the guards are correct, not that they run. That
+distinction is the same one this file makes about every other gate, and it
+took a review round to notice it applied here too.
 
 The deny stays beside it as defence in depth. **A substring deny over a shell
 command string can never be more than a speed bump**, which is still the
