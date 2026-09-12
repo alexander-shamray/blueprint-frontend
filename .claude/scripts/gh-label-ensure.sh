@@ -57,7 +57,23 @@ repo=$(gh repo view --json nameWithOwner --jq .nameWithOwner) ||
 # grep -x afterwards: searching for `low` also returns `slow` if one ever
 # exists, and a helper that concluded "already there" from a near miss would
 # leave the sweep filing against a label that does not exist.
-existing=$(gh label list --repo "$repo" --search "$label" --json name --jq '.[].name') ||
+#
+# **`gh label list` defaults to 30 and this read it as the whole set (#22).**
+# The consequence is quiet and wrong in the direction that stops work: an
+# existing label past the page reads as absent, the create below then fails,
+# and the sweep aborts even though the label it needed was there. `--limit`
+# pages internally, and a response holding exactly the limit is refused rather
+# than returned — the same rule the other feed helpers now follow, because a
+# truncated listing is a wrong answer and not a smaller one.
+LABEL_LIMIT=1000
+labels_matching() {
+  local out
+  out=$(gh label list --repo "$repo" --search "$label" --limit "$LABEL_LIMIT" --json name --jq '.[].name') || return 1
+  [ "$(grep -c . <<<"$out" || true)" -lt "$LABEL_LIMIT" ] ||
+    { echo "gh label list returned exactly $LABEL_LIMIT rows for $label in $repo, so the listing may be truncated and this helper cannot tell whether the label exists" >&2; exit 3; }
+  printf '%s' "$out"
+}
+existing=$(labels_matching) ||
   { echo "cannot list $repo's labels" >&2; exit 3; }
 if grep -qx -- "$label" <<<"$existing"; then
   echo "label $label already exists in $repo"
@@ -78,7 +94,7 @@ if ! gh label create "$label" \
   --repo "$repo" \
   --color "$colour" \
   --description "$description"; then
-  again=$(gh label list --repo "$repo" --search "$label" --json name --jq '.[].name') ||
+  again=$(labels_matching) ||
     { echo "cannot confirm whether $label exists in $repo after a failed create" >&2; exit 3; }
   grep -qx -- "$label" <<<"$again" ||
     { echo "could not create label $label in $repo" >&2; exit 3; }

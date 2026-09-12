@@ -55,7 +55,34 @@ repo=$(gh repo view --json nameWithOwner --jq .nameWithOwner) ||
 # establish whose it was, which is the fail-open direction.
 [ -n "$repo" ] ||
   { echo "this checkout's repository resolved to nothing" >&2; exit 2; }
-gh pr list --state all --head "$branch" --json number,state,url,headRepository |
-  jq --arg repo "$repo" \
-    '[ .[] | select((.headRepository.nameWithOwner // "") == $repo)
-       | {number, state, url} ]'
+# **`--head` matches a branch NAME, so this returned every pull request that
+# has ever used it, in whatever order the API gave (#24).** A branch name
+# reused after a merge — ordinary, and nothing in `/branch` prevents it —
+# leaves an older `MERGED` row beside a newer `OPEN` one. `/ship` step 0 reads
+# a `MERGED` row as proof the branch is finished and tears the workspace down;
+# `/pr` has the mirror of it and creates a duplicate. That is the worst answer
+# this chain can give: not a refusal and not a red check, but a confident
+# teardown of live work, justified by a true statement about a different pull
+# request.
+#
+# So the selection is bounded here rather than left to the caller: the rows are
+# filtered to this repository, sorted, and **the newest alone is returned**.
+# `ship.md` already says "the newest row" in as many words; this is what makes
+# that true. Sorted by `number`, which GitHub assigns monotonically per
+# repository, so it needs no date parsing to be a total order.
+#
+# **And the page is bounded where the field set was not (#22).** `gh pr list`
+# defaults to 30 and has no `--paginate`; a popular branch name across forks
+# can fill it, and this helper's own repository filter runs AFTER the page is
+# taken — so the row that matters could be the one left off. `--limit` pages
+# internally, and a response holding exactly the limit is refused rather than
+# returned, because a truncated listing here is a wrong answer and not a
+# smaller one.
+limit=1000
+rows=$(gh pr list --state all --head "$branch" --limit "$limit" \
+         --json number,state,url,headRepository)
+[ "$(jq 'length' <<<"$rows")" -lt "$limit" ] ||
+  { echo "gh pr list returned exactly $limit rows for $branch, so the listing may be truncated and the newest row cannot be established" >&2; exit 4; }
+jq --arg repo "$repo" \
+  '[ .[] | select((.headRepository.nameWithOwner // "") == $repo)
+     | {number, state, url} ] | sort_by(.number) | reverse | .[0:1]' <<<"$rows"

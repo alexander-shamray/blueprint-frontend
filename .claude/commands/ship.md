@@ -197,6 +197,17 @@ no PR has ever existed for this branch; otherwise the newest row reads `OPEN`,
 distinguishes — including the two that used to need a second call and the one
 that used to need a failed one.
 
+**"The newest row" was this paragraph's claim before it was the helper's
+behaviour, and the gap was #24.** `--head` matches a branch NAME, so the
+listing held every pull request that had ever used it, in whatever order the
+API gave — and a branch name reused after a merge leaves an older `MERGED` row
+beside a newer `OPEN` one. This step reads `MERGED` as finished and tears the
+workspace down, so the wrong row here is a confident teardown of live work
+justified by a true statement about a different pull request. The helper now
+returns **at most one row**, the newest in this repository, so the sentence
+above and the code agree. A truncated listing exits non-zero rather than
+answering.
+
 **`pr-state.sh` cannot be that read, and the reason is an exit
 code rather than a preference.** With no PR for the current branch it exits
 non-zero, and *forked but never PR'd* is what step 1 produces on every run —
@@ -354,8 +365,9 @@ same argument as never calling a branch clean because asking failed.
    git fetch origin main                      # or the next read is stale
    git status --short                         # empty: nothing uncommitted
    git log origin/main..HEAD                  # empty: nothing main lacks
-   bash .claude/scripts/pr-for-branch.sh <branch>   # a row with state MERGED:
-                                                   # it landed. Any other row
+   bash .claude/scripts/pr-for-branch.sh <branch>   # the one row it returns,
+                                                   # with state MERGED: it
+                                                   # landed. Any other state
                                                    # is a PR, not a merge.
    ```
 
@@ -365,7 +377,9 @@ same argument as never calling a branch clean because asking failed.
    run. Classifying the ordinary case through a failed command, in a chain
    whose first stop rule is that a non-zero exit means the step did not run,
    is a contradiction rather than a nicety. `pr-for-branch.sh` answers with a
-   row or with `[]`, measured both ways on this repository.
+   row or with `[]`, measured both ways on this repository — **one row at
+   most, the newest in this repository**, which is what makes reading "a row
+   with state MERGED" safe on a branch name that has been used twice (#24).
 
    **It is not filtered to merged, and the read above must do that itself.**
    The call it replaced was `gh pr list --state merged --head <branch>`, where

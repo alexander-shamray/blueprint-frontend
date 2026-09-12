@@ -524,13 +524,32 @@ if [ "$probe_rc" -ne 0 ] && [ -n "${XAI_API_KEY:-}" ] &&
   grep -ioE "$limit_re" <<<"$key_probe" | head -1 >&2
   exit 12
 fi
+# **A preflight that failed for any other reason is an authentication failure,
+# and it used to fall through and reserve a slot (#17).** File presence is what
+# selects the OAuth path, and a session that is expired, revoked or corrupt
+# passes that test and fails this probe with an auth-shaped answer. Neither
+# limit branch above matches it, so `probe_rc` stayed non-zero, the script
+# reserved a check and the review then died — spending a slot on a run that
+# could not start, which contradicts the ordering the next comment states as
+# the accounting rule.
+#
+# Distinct from 12 on purpose: a skip does not stop `/ship`'s loop and this
+# must, because every subsequent round would spend a slot the same way. The
+# probe's output is not echoed — it is the reviewer's, and #52 is why the
+# reviewer's text does not cross back to the caller.
+if [ "$probe_rc" -ne 0 ]; then
+  echo "the reviewer's preflight failed for a reason that is not a usage limit — the selected credential is expired, revoked or corrupt; refusing before a check is reserved" >&2
+  exit 16
+fi
 
 # The reservation, and its POSITION is the accounting rule rather than an
 # implementation detail: **every path that can refuse before this line spends
 # nothing** — a dirty tree, no daemon, a missing credential, a bad
-# suggestions.md shape, and all three of the usage-limit skips above. That is
-# why exit 12 has no release to post and why the release verb has no caller left
-# in this repository.
+# suggestions.md shape, a branch that changes the reviewer's own sandbox, all
+# three of the usage-limit skips above, and a preflight that failed for any
+# other reason. That last one is the newest and it was the exception: it fell
+# through to this line and reserved (#17). That is why exit 12 has no release to
+# post and why the release verb has no caller left in this repository.
 #
 # Stated as an ordering rather than as "spent if and only if the model call was
 # launched", which is what this comment used to say and is not true of the

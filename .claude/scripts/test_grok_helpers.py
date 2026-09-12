@@ -3474,6 +3474,144 @@ class BothSweepsAgreeOnWhatSuppresses(unittest.TestCase):
                 self.assertIn("tracked by the gate's test", self.sweep(name))
 
 
+class AFeedHelperReturnsTheWholeAnswer(unittest.TestCase):
+    """#22 and #24 — five helpers read a bounded page and reported it as the set.
+
+    Every one of these exists so a command can read a feed through a fixed field
+    set instead of a raw `gh` grant. The field set was fixed and **the page was
+    not**, so each returned a prefix of the answer and its caller read it as the
+    whole answer — a quiet wrong answer rather than an error, differently
+    consequential per caller and never visible as truncation.
+
+    `copilot-request-count.sh` already slurps `--paginate` output before
+    counting and says why in its own header. The same reasoning was never
+    applied to the feeds themselves.
+    """
+
+    # The five, with what bounded each.
+    REST_CAPPED = ("pr-for-branch.sh", "gh-issue-list.sh", "gh-label-ensure.sh")
+    GRAPHQL_CONNECTIONS = ("pr-issue-comments.sh", "pr-review-bodies.sh")
+
+    def source(self, name):
+        return (SCRIPTS / name).read_text(encoding="utf-8")
+
+    def code(self, name):
+        return "\n".join(line for line in self.source(name).splitlines()
+                         if not line.lstrip().startswith("#"))
+
+    def test_the_graphql_connections_are_cursor_paginated(self):
+        # `gh pr view --json comments` and `--json reviews` are GraphQL
+        # connections with no cursor path: gh asks for one page and reports it
+        # as the feed. These two hid later items BEFORE `copilot_partition` saw
+        # them, so the helper printed an admitted/dropped count that reads as a
+        # complete filter over an incomplete feed — and `/review-copilot`
+        # reports those counts as the evidence its filter ran.
+        for name in self.GRAPHQL_CONNECTIONS:
+            with self.subTest(helper=name):
+                code = self.code(name)
+                self.assertNotIn("gh pr view", code)
+                self.assertIn("gh api graphql --paginate --slurp", code)
+                # gh's `--paginate` for GraphQL requires both of these: the
+                # variable spelled `$endCursor`, and the connection returning
+                # the page info it advances on.
+                self.assertIn("$endCursor", code)
+                self.assertIn("pageInfo{ hasNextPage endCursor }", code)
+
+    def test_the_capped_listings_detect_their_cap(self):
+        # `gh pr list`, `gh issue list` and `gh label list` have no
+        # `--paginate`, so the bound is detected rather than removed: a
+        # response holding exactly the limit is refused. A truncated listing
+        # here is a wrong answer, not a smaller one.
+        for name in self.REST_CAPPED:
+            with self.subTest(helper=name):
+                code = self.code(name)
+                self.assertIn("--limit", code)
+                self.assertRegex(code, r"-lt \"\$(LIMIT|LABEL_LIMIT|limit)\"")
+
+    def _pr_list_stub(self, rows, repo="acme/widgets"):
+        d = tempfile.mkdtemp(prefix="prlist-stub-")
+        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
+        payload = Path(d) / "rows.json"
+        payload.write_text(json.dumps(rows), encoding="utf-8")
+        gh = Path(d) / "gh"
+        gh.write_text(
+            "#!/usr/bin/env bash\n"
+            'case "$*" in\n'
+            f"  *\"repo view\"*) echo {repo!r}; exit 0 ;;\n"
+            f"  *\"pr list\"*) cat {payload.as_posix()!r}; exit 0 ;;\n"
+            "esac\n"
+            'echo "stub gh: unexpected call: $*" >&2; exit 99\n',
+            encoding="utf-8",
+        )
+        gh.chmod(0o755)
+        env = dict(os.environ)
+        env["PATH"] = d + os.pathsep + env["PATH"]
+        return subprocess.run(
+            [BASH, str(SCRIPTS / "pr-for-branch.sh"), "feat/reused"],
+            capture_output=True, text=True, env=env,
+        )
+
+    @staticmethod
+    def _row(number, state, repo="acme/widgets"):
+        return {
+            "number": number, "state": state,
+            "url": f"https://example.invalid/{number}",
+            "headRepository": {"nameWithOwner": repo},
+        }
+
+    def test_the_newest_row_wins_over_an_older_merged_one(self):
+        # **#24, and it is the worst answer this chain can produce.** `--head`
+        # matches a branch NAME, so a name reused after a merge leaves an older
+        # `MERGED` row beside a newer `OPEN` one — and `/ship` step 0 reads a
+        # `MERGED` row as proof the branch is finished and tears the workspace
+        # down. Not a refusal, not a red check: a confident teardown of live
+        # work, justified by a true statement about a different pull request.
+        #
+        # The merged row is given FIRST, which is what the API's arbitrary
+        # order can do and what the old code would have handed back.
+        result = self._pr_list_stub([self._row(3, "MERGED"),
+                                     self._row(9, "OPEN")])
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual([{"number": 9, "state": "OPEN",
+                           "url": "https://example.invalid/9"}],
+                         json.loads(result.stdout))
+
+    def test_a_fork_row_is_not_this_repositorys_row(self):
+        # The other half of the same query: a fork's pull request can carry the
+        # same head name, and it must not become the answer even when it is the
+        # newest row of all.
+        result = self._pr_list_stub([self._row(9, "OPEN"),
+                                     self._row(40, "OPEN", "stranger/widgets")])
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual([9], [r["number"] for r in json.loads(result.stdout)])
+
+    def test_a_branch_with_no_row_here_is_still_empty(self):
+        # The positive control for the two above: selecting the newest row must
+        # not invent one.
+        result = self._pr_list_stub([self._row(40, "OPEN", "stranger/widgets")])
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual([], json.loads(result.stdout))
+
+    def test_a_listing_that_fills_the_page_is_refused(self):
+        # The cap detector, driven rather than grepped. Exactly the limit back
+        # means the listing may be truncated, and the newest row cannot be
+        # established from a prefix.
+        rows = [self._row(n, "CLOSED") for n in range(1, 1001)]
+        result = self._pr_list_stub(rows)
+        self.assertEqual(4, result.returncode)
+        self.assertEqual("", result.stdout.strip())
+        self.assertIn("truncated", result.stderr)
+
+    def test_one_row_short_of_the_page_is_not_refused(self):
+        # The boundary the case above rests on: 999 is an answer, 1000 is a
+        # prefix. Without this the detector could refuse every listing and
+        # still pass.
+        rows = [self._row(n, "CLOSED") for n in range(1, 1000)]
+        result = self._pr_list_stub(rows)
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual([999], [r["number"] for r in json.loads(result.stdout)])
+
+
 class ThreadStub:
     """A `gh` on PATH answering the three calls pr-review-threads.sh makes.
 

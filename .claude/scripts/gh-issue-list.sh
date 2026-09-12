@@ -33,4 +33,17 @@ set -euo pipefail
 # finding already filed and fixed must not be re-filed. `--limit 1000`, because
 # the default 30 hides older issues and a de-duplication gate that cannot see an
 # issue reports a duplicate as new.
-gh issue list --state all --limit 1000 --json number,title,state,labels
+#
+# **And 1000 is still a bound, which is what #17 and #22 are about.** Past it
+# the older issues are omitted and a sweep files a duplicate while reporting a
+# clean de-duplication — the fail-open shape those sweeps exist to refuse,
+# occurring in the gate itself. `gh issue list` has no `--paginate`, so the cap
+# is detected instead: a response holding exactly the limit is refused rather
+# than returned. This repository has far fewer issues than that, so the path is
+# latent — which is the reason to close it now rather than when it is not.
+LIMIT=1000
+issues=$(gh issue list --state all --limit "$LIMIT" --json number,title,state,labels)
+[ "$(jq 'length' <<<"$issues")" -lt "$LIMIT" ] ||
+  { echo "gh issue list returned exactly $LIMIT issues, so the listing is truncated and de-duplicating against it would report a duplicate as new" >&2; exit 3; }
+printf '%s
+' "$issues"

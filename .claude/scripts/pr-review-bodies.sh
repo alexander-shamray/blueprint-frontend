@@ -26,6 +26,27 @@ pr="${1:?usage: pr-review-bodies.sh <pr-number>}"
 # run, where the same call inline would reach jq as an empty --argjson and
 # report a parse error instead of the missing owner.
 admitted=$(copilot_admitted_json)
-gh pr view "$pr" --json reviews |
-  jq '.reviews // []' |
+# **The same bounded page as `pr-issue-comments.sh`, and on the feed that
+# matters most (#22).** `gh pr view --json reviews` is a GraphQL connection
+# with no cursor path, so a first page was reported as the whole feed — and
+# this is where the `<details><summary>Suppressed comments</summary>` block
+# arrives, which `ship.md` records as where every real finding against this
+# machinery has actually come from. A page-shaped answer here is a suppressed
+# finding missed with nothing indicating it.
+#
+# Cursor-paginated for the reason and in the shape the sibling helper argues.
+owner=$(gh repo view --json owner --jq .owner.login)
+repo=$(gh repo view --json name --jq .name)
+gh api graphql --paginate --slurp -f query='
+  query($owner:String!,$repo:String!,$pr:Int!,$endCursor:String){
+    repository(owner:$owner,name:$repo){
+      pullRequest(number:$pr){
+        reviews(first:100, after:$endCursor){
+          pageInfo{ hasNextPage endCursor }
+          nodes{ author{ login } body state url submittedAt }
+        }
+      }
+    }
+  }' -F owner="$owner" -F repo="$repo" -F pr="$pr" |
+  jq '[ .[].data.repository.pullRequest.reviews.nodes[] ]' |
   copilot_partition "$admitted" '.author.login' '.submittedAt' 'review bodies'

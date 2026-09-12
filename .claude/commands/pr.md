@@ -162,7 +162,9 @@ owns the trigger contract.
 ## Before opening
 
 - `bash .claude/scripts/pr-for-branch.sh` — an OPEN row means you are
-  updating, not creating. Say so and stop.
+  updating, not creating. Say so and stop. It returns the newest row for this
+  repository and no other, so a branch name reused after a merge cannot show
+  the old `MERGED` row here and have this command open a duplicate (#24).
 - `bash .claude/scripts/npm-checks.sh all` — lint, tests and build, green
   before the PR opens, or said plainly in the body if not.
 
