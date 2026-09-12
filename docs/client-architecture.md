@@ -866,3 +866,79 @@ what proves `CatalogRefresh`, rather than navigation, is doing the work), and
 the `browser` user sees no Publish tab and is refused a direct navigation to
 `/tabs/publish`, landing on `/tabs/account?denied=catalog:write` with the banner
 that names the permission it lacks.
+
+---
+
+## 15. The native shell: one scheme, two origins, and a round trip nobody has run
+
+Phase B adds Android and iOS around the same web build. Four facts about that
+are worth writing down, because three of them are host decisions this client
+only obeys and the fourth is a gap.
+
+**The callback scheme is one string in three files, and none of them can
+import the other two.** The realm's `mobile-app` client registers exactly one
+redirect URI, `blueprint://auth/callback`
+(`deploy/compose/keycloak/realm-export.json`), and Keycloak compares it as a
+string. This client therefore repeats it in
+`environment.auth.nativeRedirectUri` (what the strategy sends),
+`capacitor.config.ts` (the App plugin's `launchUrl`), and
+`android/app/src/main/AndroidManifest.xml` plus `ios/App/App/Info.plist` (what
+makes the operating system hand the return to this app at all). Three copies
+is two too many, and there is no fourth place to put it: one is TypeScript in
+this repository, one is a JSON export in another, and two are native manifests.
+
+**The Android intent filter matches the host as well as the scheme.** `<data
+android:scheme="blueprint" android:host="auth" />` rather than the scheme
+alone, because the narrower filter is the one that matches the single redirect
+URI the realm registers. The activity's generated
+`android:launchMode="singleTask"` is what makes the return land in the running
+task rather than in a second copy of the application — without it the returning
+intent would start a fresh instance whose heap has no PKCE verifier in it, and
+the exchange would fail for the same reason the web strategy's
+`HybridOAuthStorage` exists to prevent on its own platform.
+
+**A packaged native build is a different origin from the dev server.**
+Capacitor serves the bundle from `https://localhost` on Android and
+`capacitor://localhost` on iOS. The gateway's CORS list
+(`deploy/compose/services/gateway.yml`, `Cors__Origins__*`) admits
+`http://localhost:5173` — the Angular dev server — and neither native origin.
+So a packaged build talking to the Compose stack is refused at the edge until
+that origin is added, and this is a real deployment question rather than a
+client defect: the spec does not cover it, and the fix belongs in the backend's
+configuration next to the origin it already lists. Locally, adding
+`https://localhost` as `Cors__Origins__1` is enough to test with. (The two
+native origins are secure contexts, which is also why
+`native-auth.strategy.ts` can rely on `crypto.subtle` for its S256 challenge;
+jsdom has no `crypto.subtle` at all, which is why its spec stubs Node's
+WebCrypto over it rather than asserting a stand-in digest.)
+
+**The emulator reaches the host at `10.0.2.2`, not `localhost`.** Inside an
+Android emulator `localhost` is the emulator. `environment.android.ts` carries
+the host alias for the gateway and for Keycloak, and `ng build --configuration
+android` (`npm run build:android`) is what selects it. Which environment a
+build carries stays a build-time file replacement, as it is for the web: a
+client that sniffed its own host would be deciding its configuration from the
+thing the configuration is supposed to decide.
+
+**What has not been done.** No device or emulator has run this client. The
+Android project builds a debug APK, the native strategy is covered by eleven
+unit tests with no device attached, and the iOS project is generated — none of
+that is the same as a round trip through a real system browser. Plan Task 20
+is that round trip, and it is deliberately still open. Running it means, in
+order:
+
+1. Bring up the backend's Compose stack, and add `https://localhost` to the
+   gateway's `Cors__Origins__*` as above.
+2. `npm run build:android && npx cap sync android && npx cap run android`.
+3. Sign in: the system browser must open (not a web view inside the app), and
+   the return must land back in the running app rather than in a new copy of
+   it.
+4. Browse, quote, order, cancel — the same path `e2e/smoke.spec.ts` drives on
+   the web.
+5. Force-stop the app and relaunch: the cart must survive (Capacitor
+   Preferences) and the session must survive too (the refresh token in secure
+   storage), which is the one behaviour that differs from the web by design
+   and the sentence the account page shows because of it.
+
+Until somebody runs that, the honest claim about this client on a device is
+that it compiles and its logic is tested, and nothing more.

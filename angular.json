@@ -88,6 +88,17 @@
                   "with": "src/app/core/config/environment.development.ts"
                 }
               ]
+            },
+            "android": {
+              "optimization": false,
+              "extractLicenses": false,
+              "sourceMap": true,
+              "fileReplacements": [
+                {
+                  "replace": "src/app/core/config/environment.ts",
+                  "with": "src/app/core/config/environment.android.ts"
+                }
+              ]
             }
           },
           "defaultConfiguration": "production"
