@@ -6570,8 +6570,17 @@ An Android emulator reaches the host at `10.0.2.2`, not `localhost`. Add `src/ap
 - [ ] **Step 2: Run the round trip**
 
 ```bash
-npm run build && npx cap sync android && npx cap run android
+npm run emulator:android      # ng build --configuration android, then a FLAGGED cap sync
+npm run emulator:android:run  # cap run android --no-sync
 ```
+
+Not `npm run build && npx cap sync android && npx cap run android`, for three
+reasons: `npm run build` carries `environment.ts` and so points at the
+production hosts rather than at `10.0.2.2`; an unflagged `cap sync` leaves out
+the cleartext and mixed-content keys the emulator needs (#7), so every call
+fails before its host is reached; and `cap run` re-syncs by default, which
+would undo a flagged sync even if you had done one. See
+`client-architecture.md` §15.
 
 Walk the smoke by hand: sign in through the system browser, confirm the return on `blueprint://auth/callback`, browse, quote, order, cancel. Confirm the cart survives a force-stop and relaunch.
 
