@@ -153,10 +153,26 @@ async function loadConfig(env: Record<string, string>): Promise<CapacitorConfig>
  * Four fields move it, and each is a way to revoke the realm's grant without
  * touching the realm: `server.url` replaces the local asset server outright
  * (live reload), while `hostname` and the two scheme keys each override one
- * half of the platform default above. Android narrows this a little at
- * runtime — `CapConfig.validateScheme` accepts `http` and `https` and ignores
- * anything else — which is a reason there are fewer ways to get it wrong, not
- * a reason to stop checking.
+ * half of the platform default above.
+ *
+ * THIS IS THE ORIGIN THE CONFIG ASKS FOR, WHICH IS NOT ALWAYS THE ONE THE
+ * PLATFORM SERVES, and the gap is deliberate. Both platforms validate the
+ * scheme and fall back to their default, by rules this cannot reproduce:
+ * `CapConfig.validateScheme` refuses exactly eight schemes (`file`, `ftp`,
+ * `ftps`, `ws`, `wss`, `about`, `blob`, `data`) and merely WARNS about any
+ * other non-`http(s)` one before applying it, while iOS lowercases
+ * `iosScheme` and falls back unless `WKWebView.handlesURLScheme(scheme)` is
+ * false — a WebKit call with no source to read, so modelling iOS faithfully is
+ * not available at any price, and modelling Android alone would be arbitrary.
+ *
+ * What matters is the DIRECTION of the divergence, and it only goes one way.
+ * The model can name an origin the platform would have rescued — a config
+ * asking for `data` fails this suite though the runtime would keep `https` —
+ * and it cannot do the reverse, because an origin that matches the granted
+ * pair is one both platforms apply verbatim. So the guard is over-strict and
+ * never over-permissive, which for a guard is the correct side to be wrong on:
+ * the cost is a failure on a config nobody should be writing, and the failure
+ * it refuses to produce is a silent pass on one that moved the origin.
  */
 function webViewOrigin(config: CapacitorConfig, platform: 'android' | 'ios'): string {
   const server = config.server ?? {};
@@ -238,6 +254,26 @@ describe('the origin a config asks for', () => {
   it('falls back to the platform defaults when the config overrides nothing', () => {
     expect(webViewOrigin({}, 'android')).toBe(ANDROID_ORIGIN);
     expect(webViewOrigin({}, 'ios')).toBe(IOS_ORIGIN);
+  });
+
+  /**
+   * The one place the model and the runtime part company, pinned so that it
+   * stays a decision. `data` is on `CapConfig.validateScheme`'s refusal list,
+   * so a device would ignore it and serve `https://localhost` — the granted
+   * origin — while this reports what the config asked for and the suite below
+   * fails. That is the over-strict direction the function's comment argues
+   * for, and it is asserted here rather than described, because a divergence
+   * nobody wrote a test for is indistinguishable from one nobody noticed.
+   *
+   * A scheme Capacitor merely warns about is NOT in that group: `ionic` is
+   * applied verbatim on Android, so reporting it is the model agreeing with
+   * the runtime rather than diverging from it.
+   */
+  it('reports what the config asked for, even where the platform would refuse it', () => {
+    expect(webViewOrigin({ server: { androidScheme: 'data' } }, 'android')).toBe('data://localhost');
+    expect(webViewOrigin({ server: { androidScheme: 'ionic' } }, 'android')).toBe(
+      'ionic://localhost',
+    );
   });
 });
 
