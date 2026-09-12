@@ -936,7 +936,21 @@ class TheWiringWithoutWhichNoneOfTheAboveRuns(unittest.TestCase):
                 with self.subTest(matcher=matcher, alternative=alternative):
                     self.assertIn(alternative, tools)
 
-    def test_the_hook_runs_on_the_312_floor(self):
+    def test_the_hook_runs_through_the_portable_launcher(self):
+        """The 3.12 floor is still the floor; `py -3.12` is no longer the wiring.
+
+        **This case asserted `py -3.12` and #23 is what that cost.** `py` is the
+        Windows Python launcher and ships nowhere else, so on macOS or Linux the
+        hook command could not start and every `Edit`, `Write` and `Bash` call
+        failed before the guard ran. Two cases pinned the broken spelling — this
+        one and its twin in `test_grok_helpers.py` — and both passed on the only
+        platform where it worked.
+
+        `run-guard.sh` chooses the interpreter and keeps the floor: `py -3.12`
+        where `py` exists, `python3` where it does not. Asserted here as "goes
+        through the launcher" rather than as an interpreter name, because naming
+        one is the mistake this replaces.
+        """
         commands = [
             h.get("command") or ""
             for entry in self.registered() for h in (entry.get("hooks") or [])
@@ -945,8 +959,13 @@ class TheWiringWithoutWhichNoneOfTheAboveRuns(unittest.TestCase):
         self.assertTrue(commands)
         for command in commands:
             with self.subTest(command=command):
-                self.assertIn("py -3.12", command)
+                self.assertIn("run-guard.sh", command)
                 self.assertIn("CLAUDE_PROJECT_DIR", command)
+                self.assertNotIn("py -3.12", command)
+        # The floor itself, read from the launcher rather than from the wiring.
+        launcher = (SCRIPTS.parent / "hooks" / "run-guard.sh").read_text(
+            encoding="utf-8")
+        self.assertIn("exec py -3.12", launcher)
 
     def test_the_argv_guard_is_still_registered_beside_it(self):
         # A second entry under the same event is the shape most likely to be
