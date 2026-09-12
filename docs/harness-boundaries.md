@@ -182,6 +182,37 @@ Changing any of them is a human's edit, made with the deny lifted. Like the
 push denies it is defence in depth — `Bash` redirection can still write a file
 — but it removes the quiet path.
 
+**The `Edit` denies do not bound what a command can WRITE, and this paragraph
+is here because four commands read as though they did.** A redirection on any
+granted `Bash` command writes what `Edit(...)` refuses. Measured on this
+repository's own hook rather than reasoned about: `ls > .claude/settings.json`,
+`wc -l README.md > package.json` and even `git log --oneline > package.json` are
+all admitted, and the file is overwritten. `guard-git-argv.py` strips
+redirections in order to judge the argv and never refuses the write one
+performs; `guard-edit-target.py` is registered on
+`Edit|Write|NotebookEdit|MultiEdit` and never sees a `Bash` call.
+
+**This was known for one command and never generalised**, which is this
+repository's most-repeated failure wearing its usual clothes.
+`.claude/commands/review-grok.md` argues the case in full — "a redirection on
+any granted `Bash` command writes what `Edit(...)` refuses, so
+`ls … > .claude/…` was a path into the machinery a record could steer" — and
+answers it by denying `Bash` whole, which is why that command is immune and
+why its own tree denies are called defence in depth there. `/pr`, `/ship`,
+`/review-copilot` and `/style-pass` inherited neither half until Copilot
+raised it against PR #13. They now carry the path denies; none of them can
+deny `Bash`, because fixed helpers are their API.
+
+**So the honest statement of the boundary is narrower than the deny list
+looks.** What holds is that every granted `Bash` entry names a fixed helper or
+a read-only git verb, so a redirect must be appended by the model rather than
+supplied by anything it read; and that the editing tools themselves are
+path-scoped and target-resolved. What does not hold is "this command cannot
+write there". Closing it needs the argv guard to refuse a redirect whose
+target is a denied path — the machinery is present, since #183 already parses
+redirections — and that is a change to the hook with its own test surface,
+tracked rather than made here.
+
 **`.claude/hooks/**` joined the list when the first hook landed, and the way it
 joined is the lesson.** It had been excluded on a stated condition — "no hook is
 configured here" — which was true, and which is the kind of exemption that

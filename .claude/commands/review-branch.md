@@ -287,6 +287,26 @@ belt to the exact names' braces, so if that syntax turned out inert in a
 `disallowed-tools` value the demonstrated vector would still be closed. Do not
 read them as the control; read the names as the control.
 
+**A redirection on any granted `Bash` command still writes what these refuse,
+and that is a residual rather than a closed boundary.** Measured against this
+repository's own hook, not reasoned about: `ls > .claude/settings.json` and
+`wc -l README.md > package.json` are both admitted, and so is
+`git log --oneline > package.json` — `guard-git-argv.py` strips redirections in
+order to judge the argv and never refuses the write one performs, and
+`guard-edit-target.py` is registered on `Edit|Write|NotebookEdit|MultiEdit`, so
+it never sees a `Bash` call at all. Every `Edit(...)` rule in this file is
+therefore defence in depth against a model that reaches for the editing tools,
+not a bound on what this command can write.
+
+`/review-grok` is the one command that closes it, by denying `Bash` whole — its
+body argues exactly this case, from the round that measured it. The commands
+that cannot follow it are the ones whose helpers *are* their API. What stands
+for them is that every granted `Bash` entry names a fixed helper or a read-only
+git verb, so a redirect has to be appended by the model itself rather than
+supplied by anything it read. That is a weaker property and it is the true one.
+Closing it needs the argv guard to refuse a redirect whose target is a denied
+path, which is a change to the hook and is tracked separately.
+
 **And one thing this list does not reach: `node_modules/`.** It is gitignored,
 so no enumeration built on `git ls-files` names it, and `node_modules/.bin`
 holds every executable the scripts above invoke. Nothing here denies writing

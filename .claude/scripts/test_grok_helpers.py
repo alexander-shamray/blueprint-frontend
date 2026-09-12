@@ -3716,6 +3716,63 @@ class CommandsEnforceTheEditingBoundariesTheyState(unittest.TestCase):
     # A hard-coded list of the five would have gone stale on the sixth.
     PUBLISHING = ("pr.md", "ship.md")
 
+    # The machinery a command that APPLIES findings has no business in. Held
+    # here rather than per-command because the point is the surface: a new
+    # command that grants an editing tool is judged against this set, not
+    # against whatever the last one happened to list.
+    #
+    # Raised by Copilot against PR #13 round 4, and the reason it was a real
+    # gap is worth keeping: /review-grok had argued the whole case — "a
+    # redirection on any granted Bash command writes what Edit(...) refuses" —
+    # and answered it by denying Bash whole, and four other Edit-or-Write
+    # holders inherited neither the argument nor the denies.
+    MACHINERY_TREES = (".claude", ".github", "android", "ios", ".git")
+
+    # /style-pass EDITS .editorconfig, .prettierrc, eslint.config.js and
+    # CLAUDE.md by design — its own sections 3 and 4 require it — so it is
+    # exempt from the toolchain half and not from the machinery half. An
+    # exemption is named here so that adding one is a visible decision.
+    TOOLCHAIN_EXEMPT = ("style-pass.md",)
+
+    def _editing_commands(self):
+        for path in sorted(COMMANDS.glob("*.md")):
+            text = path.read_text(encoding="utf-8")
+            allowed = " ".join(
+                re.findall(r"^allowed-tools:\s*(.+)$", text, re.MULTILINE))
+            if re.search(r"(^|,\s*)(Edit|Write)(\s*,|\s*$)", allowed):
+                yield path.name, " ".join(self.disallowed(path.name))
+
+    def test_every_editing_command_denies_the_machinery(self):
+        seen = 0
+        for name, denied in self._editing_commands():
+            seen += 1
+            for tree in self.MACHINERY_TREES:
+                for prefix in ("", "./"):
+                    with self.subTest(command=name, tree=tree, prefix=prefix):
+                        self.assertIn(f"Edit({prefix}{tree}/**)", denied)
+        # The positive control: an empty generator would satisfy every case
+        # above, which is the vacuous gate this repository ranks critical.
+        self.assertGreater(seen, 3, "found almost no editing commands")
+
+    def test_every_editing_command_denies_the_toolchain(self):
+        for name, denied in self._editing_commands():
+            if name in self.TOOLCHAIN_EXEMPT:
+                continue
+            for target in ("package.json", "eslint.config.js", ".npmrc",
+                           "CLAUDE.md"):
+                for prefix in ("", "./"):
+                    with self.subTest(command=name, target=target,
+                                      prefix=prefix):
+                        self.assertIn(f"Edit({prefix}{target})", denied)
+
+    def test_the_toolchain_exemption_is_real(self):
+        # The other side: an exemption nobody needs is one that quietly widens.
+        # /style-pass must actually say it edits those files, or the exemption
+        # should go rather than be inherited.
+        text = (COMMANDS / "style-pass.md").read_text(encoding="utf-8")
+        for named in (".prettierrc", "eslint.config.js", ".editorconfig"):
+            self.assertIn(named, text)
+
     def test_a_command_that_does_not_publish_cannot_push(self):
         for path in sorted(COMMANDS.glob("*.md")):
             text = path.read_text(encoding="utf-8")
