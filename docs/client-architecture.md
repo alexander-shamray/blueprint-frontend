@@ -828,7 +828,7 @@ you anything on the day it trips.
 
 ## 14. What CI runs, and the one test that is left failing
 
-`.github/workflows/ci.yml` has two jobs. The `web` job installs from the
+`.github/workflows/ci.yml` has four jobs. The `web` job installs from the
 lockfile and runs `npm run lint`, `npm test` and `npm run build`. The Angular
 unit-test builder runs once and exits rather than watching, which is checked
 locally with `CI=true npm test` — a watch-mode test step does not fail a build,
@@ -841,6 +841,24 @@ minutes, and runs the Playwright smoke against it. It is deliberately not
 `continue-on-error`: a smoke that is allowed to fail is a smoke nobody reads. On
 any outcome it captures `docker compose logs`; on failure it uploads those logs
 together with `test-results/`.
+
+The `android` job compiles the committed Android project — `npm ci`, `npm run
+build`, `npx cap sync android`, `./gradlew assembleDebug`. The sync step is not
+optional: `android/app/src/main/assets/public` is gitignored, so a fresh
+checkout has no web assets in the native project at all until it runs. The job
+needs no Android SDK setup step because the `ubuntu-24.04` runner image ships
+`android-36` — which is what `android/variables.gradle` compiles against — and
+sets `ANDROID_HOME` itself.
+
+The `ios-config` job is a configuration check and says so: `npx cap sync ios`
+copies web assets and writes `Package.swift` and `capacitor.config.json`, and
+it does not compile Swift. It catches a plugin missing from the iOS project or
+a config that stopped parsing, and nothing else. The compile is a fifth job
+left commented out in the same file: it needs a macOS runner, it costs a runner
+minute per push, and enabling it is uncommenting it. It invokes `xcodebuild
+-project ios/App/App.xcodeproj`, not `-workspace` — Capacitor 8 generates a
+Swift Package Manager project (`ios/App/CapApp-SPM` plus `Package.swift`) and
+there is no `App.xcworkspace` to point at.
 
 The smoke has no retries (`playwright.config.ts`, `retries: 0`) and no skip
 path: `e2e/smoke.spec.ts`'s `beforeAll` asserts the gateway is answering and
