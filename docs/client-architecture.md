@@ -876,6 +876,16 @@ about one machine rather than a defect in the client, and every step before the
 order passes: sign-in, browsing, adding two products, quoting, reaching
 checkout, filling the address form.
 
+That test has a second failure mode worth telling apart from this one, because
+both are environmental and they look nothing alike. If it fails EARLIER — at
+`Total:`, with a `Method Not Allowed` banner on the cart — the running
+`web-bff` container is older than backend PR #201: the quote became a POST in
+that PR (ADR-045), this client sends POST, and an image built before it routes
+only GET. `docker compose up -d --build web-bff` in the backend repository is
+the fix, and `docker ps --format '{{.Image}} {{.CreatedAt}}'` is how to see it
+coming. A 405 at the quote is a stale image; a Bad Gateway at the order is
+RabbitMQ.
+
 Marking it skipped would make the suite green on a machine where ordering does
 not work — exactly the fail-open the rule above refuses. Leaving it red costs a
 red run and states something true. The other two tests pass against the real
