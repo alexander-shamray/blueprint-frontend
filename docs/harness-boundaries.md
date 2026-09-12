@@ -59,9 +59,11 @@ why.** The first said "nine command files" — wrong on both halves, since the
 files are `ship.md`, `security-sweep.md` and `bug-sweep.md`, and they carry
 several mentions each of which only some are the sandbox residual. The second
 tried to repair that with a command a reader could run,
-`grep -l 'CLAUDE.md' .claude/commands/` — which returns **eleven** files,
-because most commands mention `CLAUDE.md` for reasons that have nothing to do
-with this residual. **A check offered as the fix for a miscount, that counts
+`grep -l 'CLAUDE.md' .claude/commands/` — which returns most of the
+directory, because commands mention `CLAUDE.md` for reasons that have nothing
+to do with this residual. The number that stood here was itself stale by the
+time it was ported, in the paragraph arguing against hard-coded counts, which
+Copilot enjoyed pointing out and was right to. **A check offered as the fix for a miscount, that counts
 something else, is the miscount with a shell prompt in front of it.** Both were
 caught by review. What a reader can check is the three names above; naming a
 small fixed set is not a total, and it cannot go stale without one of those

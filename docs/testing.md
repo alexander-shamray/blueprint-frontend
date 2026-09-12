@@ -86,7 +86,12 @@ broke.
 **So no command runs it.** `npm-checks.sh` offers no `e2e` mode, `/ship` and
 `/review-branch` both say plainly that the suite was not run rather than
 implying it was green, and the external reviewer's sandbox has no Node at all.
-CI's `e2e` job is where it runs on every push.
+CI's `e2e` job is where it runs — on pull requests, and on pushes to `main`.
+**Not on every push**, which this said and which `ci.yml` contradicts in its
+own opening comment: the triggers are `push: branches: [main]` and
+`pull_request`, deliberately, because an unqualified `push:` ran both jobs
+twice for every commit on a PR branch. So a commit pushed to a branch with no
+pull request open runs nothing at all, and is verified by nothing.
 
 ## What no unit test covers
 

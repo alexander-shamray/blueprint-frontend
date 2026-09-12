@@ -45,6 +45,16 @@ The forms a reviewer flags most often. Each is a decision, not an oversight.
 | **Relative imports *within* one area** | `./cart.persistence` from inside `core/cart/` says "my own neighbour"; `@core/cart/cart.persistence` from the same directory says nothing more and reads as a cross-area import |
 | **British prose with literal dashes, and identifiers left alone** | `behaviour` in a sentence, `ChangeDetectionStrategy` in code. An identifier is a name, not a word to be corrected |
 
+**`src/app/app.ts` is the one exception to both of the rules above, and it is
+an exception rather than an oversight.** It is the bootstrapped root shell: it
+carries no `changeDetection` and so runs Angular's default strategy, and it is
+the only component in `src/` using `templateUrl`. Verified by grep, in both
+directions — it is the only component without `OnPush` and the only one with a
+`templateUrl`. Bringing it into line is a change to `src/`, which no document
+may make on its own account; until somebody decides, a reviewer flagging it is
+reporting a known exception rather than a defect. Raised by Copilot against
+PR #13, which is what a guide contradicting the code it governs earns.
+
 ## Prose
 
 - **Wraps at 80 columns.** Tables, links and code fences may exceed it.

@@ -51,9 +51,16 @@ change quoted from the review is a risk with no benefit.
 - The **settled choices**, by pointer: `docs/style-guide.md` tabulates the
   house forms an external reviewer flags most often — single quotes,
   `inject()` over constructor parameters, signals over `BehaviorSubject`,
-  `protected` template members, British prose beside real identifier
-  spellings. Read that table before adjudicating a style finding, and reject
-  those by naming the row.
+  a `private` signal exposed through `asReadonly()`, British prose beside
+  real identifier spellings. Read that table before adjudicating a style
+  finding, and reject those by naming the row.
+
+  **Member visibility is NOT on that table and a finding about it is not a
+  `reject-rule`.** The guide leaves it open on purpose — the corpus does two
+  things and it says so — and an adjudicator that rejected such a finding by
+  citing a settled choice would be enforcing a convention this repository
+  has deliberately not adopted. Return `decision` and let a person settle it.
+  This profile did list it as settled, which Copilot caught against PR #13.
 - **The locality contract**, by pointer: `docs/change-locality.md` §2 is
   the owner of what a document may and may not restate, and this profile
   does not copy its list — a copy here had already dropped one of its

@@ -27,7 +27,8 @@ of each one. A value that "looks wrong" here is usually correct against a fact
 you have not read yet.
 
 The application is **standalone, zoneless and signal-based**: no NgModules, no
-`BehaviorSubject` state, `OnPush` everywhere. Identity is
+`BehaviorSubject` state, and `OnPush` on every component but the bootstrapped
+root shell — `docs/style-guide.md` owns that exception and why it stands. Identity is
 `angular-oauth2-oidc` against Keycloak, with two strategies — a web one and a
 native one — behind one interface. There is no refresh token in the browser
 (§2), permissions are claims rather than roles (§3), and the client never
