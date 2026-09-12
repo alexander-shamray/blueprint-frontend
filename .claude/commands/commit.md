@@ -64,8 +64,11 @@ British spelling in prose, identifiers left alone.>
   closure: GitHub's linker does not read markdown, so a `` `Closes #30` ``
   quoted inside an argument links exactly as hard as a real one. PR #116
   closed two issues its own body said stayed open, from commits written before
-  the claim was narrowed. `/pr` carries the other half of this rule, and
-  `.github/closure-gate/` gates the two against each other.
+  the claim was narrowed. `/pr` carries the other half of this rule.
+  **Nothing gates the two against each other here** — the backend these
+  commands came from runs `.github/closure-gate/` on every push and on every
+  description edit, and that workflow was not ported. So the reconciliation
+  is checked by reading, and `/pr` says how.
 - Keep the `Co-Authored-By:` and `Claude-Session:` trailers.
 
 ## Steps

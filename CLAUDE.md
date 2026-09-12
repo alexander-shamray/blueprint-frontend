@@ -41,10 +41,10 @@ src/app/features/      account cart checkout order-placed products publish — o
 src/app/shared/        components every feature may import
 src/app/tabs/          the shell; app.routes.ts and app.config.ts are the composition roots
 src/theme/, src/styles.css   Ionic's variables and the global sheet
-e2e/                   the Playwright smoke — three tests, against a real stack
+e2e/                   the Playwright smoke, against a real stack
 android/, ios/         committed, not generated here; CI compiles the manifest a developer edits
 capacitor.config.ts    the one file that decides what `cap sync` writes into both
-.github/workflows/     ci — four jobs: web, e2e, android, ios-config (a fifth is commented out)
+.github/workflows/     ci — the web, e2e, android and ios-config jobs, and one left commented out
 .claude/               commands, agents, hooks, scripts, the reviewer sandbox
 docs/                  this file's table, above
 ```
@@ -191,10 +191,10 @@ rather than here. Three rules reach every session, so they stay:
   lands complete and goes last, and a restore is verified by reading the file,
   never by trying what it forbids.
 - **`py -3.12 -m unittest discover -s .claude/scripts -p 'test_*.py'` is the
-  harness's own suite** — 392 tests over the deny lists, the frontmatter
-  grants, the helper shapes and the hooks. It reads `git ls-files`, so a new
-  tracked root file or top-level tree fails it until somebody decides which
-  side of the boundary it is on. Run it after any change under `.claude/`.
+  harness's own suite** — it covers the deny lists, the frontmatter grants,
+  the helper shapes and the hooks. It reads `git ls-files`, so a new tracked
+  root file or top-level tree fails it until somebody decides which side of
+  the boundary it is on. Run it after any change under `.claude/`.
 
 ### What was not ported, and is therefore missing
 

@@ -5,8 +5,9 @@ cannot say.
 
 **This file restates neither.** `package.json` is the list of invocations and
 `ci.yml` is the list of jobs; [`client-architecture.md`](client-architecture.md)
-§14 owns **what CI runs, and the one test that is left failing on the
-development machine** — read it before concluding a red smoke is a defect.
+§14 owns **what CI runs, and which smoke tests are left failing on the
+development machine and why** — read it before concluding a red smoke is a
+defect.
 What follows is the rest: the prerequisites, the wrapper, and the three things
 that have actually cost time here.
 
@@ -102,6 +103,6 @@ before editing it. It registers Ionic's custom elements once — without which a
 page test renders an empty `<ion-content>` and asserts nothing — and it
 eagerly imports `@ionic/core` to put the gesture-controller chunk in the
 module registry before any test runs. That second import is the fix for an
-`EnvironmentTeardownError` that turned a run of 151 passing tests into exit 1
-in CI and reproduced nowhere locally. It is a load-bearing import with no
+`EnvironmentTeardownError` that turned a wholly passing run into exit 1 in CI
+and reproduced nowhere locally. It is a load-bearing import with no
 binding; a linter that offers to remove it is wrong.

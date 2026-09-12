@@ -28,8 +28,9 @@ A lower layer cites a higher one by name. It never copies the value.
    superseded in place with the old claim kept, never silently rewritten.
 4. **The design spec**, `docs/superpowers/plans/`'s companion at
    [`docs/superpowers/specs/2026-09-10-blueprint-frontend-design.md`](superpowers/specs/2026-09-10-blueprint-frontend-design.md)
-   — §1–§11, the rule and the reason. **It is outranked by §3 wherever
-   `client-architecture.md` §12 says so**, and §12 exists precisely because
+   — §1–§11, the rule and the reason. **It is outranked by item 3 of this
+   list — `client-architecture.md` — wherever that document's §12 says so**,
+   and §12 exists precisely because
    execution found several of the spec's claims untrue. Read §12 before
    citing a spec section as settled.
 5. **Git.** The commit body argues the change, the PR body is the house form,
@@ -137,7 +138,7 @@ One worktree and one branch per agent, via `/branch`. Safe to run at once:
 
 | Agent owns | Notes |
 |---|---|
-| one slice under `src/app/features/**` and its specs | six exist: account, cart, checkout, order-placed, products, publish |
+| one slice under `src/app/features/**` and its specs | one directory each under `features/`; the tree is the inventory |
 | one area under `src/app/core/**` and its specs | never two agents on `core/errors` or `core/auth` at once |
 | `src/app/shared/**` | one agent only; every feature imports it |
 | one of `.github/**`, `android/**`, `ios/**`, or one document under `docs/` | one document per agent |

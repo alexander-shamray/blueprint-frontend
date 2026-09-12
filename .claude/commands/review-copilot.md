@@ -162,9 +162,11 @@ next reviewer reads as settled.
 > kept an unfiltered route. **No command grants `Bash(gh pr view:*)` — or
 > `Bash(gh pr list:*)`, which reaches `--json reviews,comments` just as
 > directly and took a third review round to notice — any more.** `ship.md`
-> reads a PR's state through `pr-state.sh`, `pr.md` feeds the closure gate
-> through `pr-closure-input.sh`, all three resolve a branch's PR through
-> `pr-for-branch.sh`, and every one fixes its field set.
+> reads a PR's state through `pr-state.sh`, `pr.md` reads GitHub's own
+> closing-issue parse through `pr-closure-input.sh` — for a comparison a
+> person makes, since the gate that consumed it was not ported — all three
+> resolve a branch's PR through `pr-for-branch.sh`, and every one fixes its
+> field set.
 > Whether a skill inherits its caller's grants has still never been measured
 > here; the point is that it no longer decides anything.
 

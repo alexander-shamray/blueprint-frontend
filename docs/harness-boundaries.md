@@ -134,9 +134,10 @@ credentials the following `docker run` mounts in.
 
 **The last three arrived with #33, and the argument for them is the first two's
 applied one level up.** `commands/`, `agents/` and `settings.json` are the
-files that *grant* what the first two protect. Ten commands carry an
-unrestricted `Edit` or `Write` and three of them read untrusted input by
-design, so a single applied edit could append a grant to a command's
+files that *grant* what the first two protect. Several commands carry an
+unrestricted `Edit` or `Write`, and the ones that read untrusted input by
+design are among them, so a single applied edit could append a grant to a
+command's
 `allowed-tools`, remove a line from this deny list, or rewrite
 `.claude/agents/security-auditor.md` — whose read-only guarantee is precisely
 its `Read, Grep, Glob` tool list, as `/security-sweep` says outright: read-only
@@ -545,8 +546,10 @@ Copilot review body out of `gh pr list --state all --limit 1 --json
 number,reviews`. Three commands kept that grant for the harmless job of finding
 a branch's pull request, and it was a complete bypass of all three filtering
 helpers. **No command grants `Bash(gh pr view:*)` or `Bash(gh pr list:*)` any
-more**: `ship.md` reads state through `pr-state.sh`, `pr.md` feeds the closure
-gate through `pr-closure-input.sh`, every command that needs a branch's PR
+more**: `ship.md` reads state through `pr-state.sh`, `pr.md` reads GitHub's
+own closing-issue parse through `pr-closure-input.sh` — for a comparison a
+person makes here, the gate that consumed it having not been ported — every
+command that needs a branch's PR
 resolves it through `pr-for-branch.sh` — the test that pins the helper lists
 them — `review-branch.md`, `review-copilot.md` and `ship.md` judge a
 PR's changed paths against the body's `| Class |` and `| Touch set |` rows

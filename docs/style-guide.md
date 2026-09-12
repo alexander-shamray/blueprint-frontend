@@ -39,7 +39,7 @@ The forms a reviewer flags most often. Each is a decision, not an oversight.
 | **`ChangeDetectionStrategy.OnPush` on every component** | The application is zoneless; `Default` there is a claim about change detection that nothing makes true |
 | **Signals over `BehaviorSubject` for state** | `computed()` composes without a subscription to leak, and the templates read a signal by calling it. RxJS stays for HTTP and for genuine event streams |
 | **Inline `template:` backtick strings, not `templateUrl`** | The component and its markup are one unit and one diff; the comments that argue a template's shape sit inside it, where a `.html` file could not carry them |
-| **A `private` signal, exposed through `asReadonly()`** | 23 sites do this. The writer is the class's own business and the reader is everybody's; one field carrying both is how a template ends up able to set state |
+| **A `private` signal, exposed through `asReadonly()`** | The prevailing form across `core/` and the pages. The writer is the class's own business and the reader is everybody's; one field carrying both is how a template ends up able to set state |
 | **`readonly` on every interface field carrying wire data** | A wire type is a record of what the server said. A client that mutates one has lost the ability to say what it was told |
 | **Path aliases `@core/`, `@shared/`, `@features/`** | They are `tsconfig.json`'s `paths` and they are what `eslint.config.js` restricts. A deep relative import is the spelling the boundary rules cannot see |
 | **Relative imports *within* one area** | `./cart.persistence` from inside `core/cart/` says "my own neighbour"; `@core/cart/cart.persistence` from the same directory says nothing more and reads as a cross-area import |

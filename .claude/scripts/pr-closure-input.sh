@@ -1,7 +1,13 @@
 #!/usr/bin/env bash
-# Feed the closure gate — a PR's number, url, body, commits, GitHub's own
-# closing-issue parse and the head oid, as JSON on stdout. Read-only, fixed
-# field set.
+# Feed pr.md's closure check — a PR's number, url, body, commits, GitHub's
+# own closing-issue parse and the head oid, as JSON on stdout. Read-only,
+# fixed field set.
+#
+# **The consumer is a person here, not a gate.** In the repository this came
+# from, `.github/closure-gate/closure_gate.py` read this on every push and
+# every description edit; that workflow was not ported, so what reads this
+# output is whoever runs `/pr`. Saying otherwise would make a missing control
+# look enforced, which is the one way a missing control does real damage.
 #
 # **Exists so that pr.md need not hold `Bash(gh pr view:*)` (#56).** This was
 # the third command carrying that grant, after review-copilot.md and ship.md,
@@ -10,7 +16,7 @@
 # argument for writing the gate's test against the surface instead of against
 # the instance.
 #
-# The field set is exactly what closure_gate.py reads, and it is fixed here for
+# The field set is exactly what that comparison needs, and it is fixed here for
 # the reason every helper in this directory fixes its endpoint: a caller that
 # chooses its own fields can choose `reviews`, which is the unfiltered route
 # the three feed helpers exist to close.
