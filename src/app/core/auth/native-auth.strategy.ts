@@ -34,6 +34,13 @@ export interface SecureStore {
 export interface SystemBrowser {
   open(options: { url: string }): Promise<void>;
   close(): Promise<void>;
+  /**
+   * Fires when the user dismisses the browser. Needed because `signIn()`
+   * settles on the outcome of the flow (#3), and a sign-in the user backed
+   * out of produces no callback at all — without this its promise would
+   * never settle and every awaiting caller would wait for the life of the app.
+   */
+  onFinished(handler: () => void): Promise<void>;
 }
 
 export interface UrlOpenEvents {
@@ -53,7 +60,13 @@ export const SECURE_STORAGE = new InjectionToken<SecureStore>('SECURE_STORAGE', 
 });
 
 export const SYSTEM_BROWSER = new InjectionToken<SystemBrowser>('SYSTEM_BROWSER', {
-  factory: (): SystemBrowser => Browser,
+  factory: (): SystemBrowser => ({
+    open: (options) => Browser.open(options),
+    close: () => Browser.close(),
+    onFinished: async (handler) => {
+      await Browser.addListener('browserFinished', handler);
+    },
+  }),
 });
 
 export const URL_OPEN_EVENTS = new InjectionToken<UrlOpenEvents>('URL_OPEN_EVENTS', {
@@ -117,13 +130,24 @@ export class NativeAuthStrategy extends AuthService {
   });
 
   /**
-   * The pending flow's one-time values. In memory only, and correctly so: a
-   * native sign-in never destroys this heap the way a web redirect does — the
-   * system browser opens over the app, it does not replace it — so there is
+   * The sign-in currently in flight: its one-time PKCE values and the promise
+   * `signIn()` handed its caller. All of it in memory, and correctly so — a
+   * native sign-in never destroys this heap the way a web redirect does; the
+   * system browser opens over the app rather than replacing it, so there is
    * nothing to survive and nothing to write down.
+   *
+   * One object rather than four fields because they are one fact, and because
+   * the invariant that matters is that they move together: settling the
+   * promise while leaving the verifier behind, or minting a second verifier
+   * under a promise already waiting on the first, are both #3.
    */
-  private verifier: string | null = null;
-  private state: string | null = null;
+  private pending: {
+    readonly promise: Promise<void>;
+    readonly resolve: () => void;
+    readonly reject: (reason: unknown) => void;
+    readonly verifier: string;
+    readonly state: string;
+  } | null = null;
 
   private renewalTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -135,6 +159,7 @@ export class NativeAuthStrategy extends AuthService {
       // Registered before the stored credential is read, so a callback that
       // arrives while the restore is still in flight is not dropped.
       await this.urlOpen.onUrlOpen((url) => void this.handleCallback(url));
+      await this.browser.onFinished(() => this.abandonPendingSignIn());
 
       const stored = await this.secure.get(REFRESH_TOKEN_KEY);
       if (stored) await this.renewNow();
@@ -148,13 +173,37 @@ export class NativeAuthStrategy extends AuthService {
     }
   }
 
+  /**
+   * Opens the flow and resolves when it has COMPLETED — not when the browser
+   * opened (#3). `Browser.open()` resolving says a tab is showing, nothing
+   * about whether anybody authenticated, and callers act on this promise as
+   * though it meant the latter: `CheckoutPage.signInAndReplay()` replays the
+   * customer's order on it, which under the old timing meant replaying with
+   * the same expired token and collecting a second 401.
+   *
+   * Rejects when the exchange fails or the user dismisses the browser, so a
+   * caller's failure path runs instead of its success path. It never leaves
+   * the promise unsettled: the dismissal listener `initialize()` registers is
+   * the backstop for the flow that produces no callback at all.
+   */
   async signIn(): Promise<void> {
+    // A second sign-in while one is in flight used to open a second browser
+    // and overwrite the verifier the first was waiting to redeem, invalidating
+    // whichever tab the user was part-way through. Hand back the flow already
+    // running instead: both callers then settle on the one outcome.
+    if (this.pending) return this.pending.promise;
+
     const verifier = randomUrlSafe(32);
     const challenge = await s256(verifier);
     const state = randomUrlSafe(16);
 
-    this.verifier = verifier;
-    this.state = state;
+    let resolve!: () => void;
+    let reject!: (reason: unknown) => void;
+    const promise = new Promise<void>((res, rej) => {
+      resolve = res;
+      reject = rej;
+    });
+    this.pending = { promise, resolve, reject, verifier, state };
 
     const params = new URLSearchParams({
       client_id: environment.auth.nativeClientId,
@@ -166,7 +215,17 @@ export class NativeAuthStrategy extends AuthService {
       state,
     });
 
-    await this.browser.open({ url: `${endpoint('auth')}?${params}` });
+    try {
+      await this.browser.open({ url: `${endpoint('auth')}?${params}` });
+    } catch (failure) {
+      // No browser opened, so no callback and no dismissal event will ever
+      // come. Clear the flow and fail the caller directly rather than leave a
+      // promise nothing can settle.
+      this.pending = null;
+      throw failure;
+    }
+
+    return promise;
   }
 
   /**
@@ -174,24 +233,25 @@ export class NativeAuthStrategy extends AuthService {
    * because AndroidManifest.xml and Info.plist claim the `blueprint` scheme.
    */
   async handleCallback(url: string): Promise<void> {
+    const pending = this.pending;
     const params = new URL(url).searchParams;
     const code = params.get('code');
 
-    if (!code || params.get('state') !== this.state) {
-      // Refuse, and deliberately leave the pending verifier and state in
-      // place. Clearing them here would let anyone able to fire an intent at
-      // this app cancel a sign-in in progress by sending one callback with
-      // the wrong state; the legitimate return would then arrive to find no
-      // verifier and fail. Nothing is spent, so nothing needs resetting.
+    if (!pending || !code || params.get('state') !== pending.state) {
+      // Refuse, and deliberately leave the pending flow in place. Clearing it
+      // here would let anyone able to fire an intent at this app cancel a
+      // sign-in in progress by sending one callback with the wrong state; the
+      // legitimate return would then arrive to find no verifier and fail.
+      // Nothing is spent, so nothing needs resetting.
       return;
     }
 
-    const verifier = this.verifier;
     // Spent now, before the exchange: this code and verifier are single-use,
     // and a replayed callback must not get a second exchange out of them.
-    this.verifier = null;
-    this.state = null;
-    if (!verifier) return;
+    // Clearing it before `browser.close()` below also means the dismissal
+    // listener sees no pending flow when closing fires browserFinished, so a
+    // successful sign-in cannot reject itself.
+    this.pending = null;
 
     const result = await this.post(
       endpoint('token'),
@@ -200,7 +260,7 @@ export class NativeAuthStrategy extends AuthService {
         client_id: environment.auth.nativeClientId,
         redirect_uri: environment.auth.nativeRedirectUri,
         code,
-        code_verifier: verifier,
+        code_verifier: pending.verifier,
       }),
     );
 
@@ -209,7 +269,17 @@ export class NativeAuthStrategy extends AuthService {
     // exchange strands the user on it.
     await this.browser.close();
 
-    if (result.outcome === 'ok' && result.body.access_token) await this.adopt(result.body);
+    if (result.outcome === 'ok' && result.body.access_token) {
+      await this.adopt(result.body);
+      pending.resolve();
+      return;
+    }
+
+    // The code came back and could not be redeemed — a spent code, a realm
+    // mid-restart, a network that dropped between the redirect and the POST.
+    // Reject so the caller's failure path runs: replaying an order here would
+    // send it with no new token and collect the same 401 that started this.
+    pending.reject(new Error('The authorization code could not be exchanged for a token.'));
   }
 
   /**
@@ -290,7 +360,7 @@ export class NativeAuthStrategy extends AuthService {
 
   /** The pending flow's `state`, for the callback to be checked against. */
   pendingState(): string | null {
-    return this.state;
+    return this.pending?.state ?? null;
   }
 
   private async adopt(tokens: TokenResponse): Promise<void> {
@@ -303,6 +373,19 @@ export class NativeAuthStrategy extends AuthService {
     if (tokens.refresh_token) await this.secure.set(REFRESH_TOKEN_KEY, tokens.refresh_token);
 
     this.scheduleRenewal();
+  }
+
+  /**
+   * The user closed the system browser without completing the flow. There is
+   * no callback coming, so settle the promise `signIn()` handed out — a
+   * rejection rather than a resolution, because a caller's success path means
+   * "signed in" and nobody is.
+   */
+  private abandonPendingSignIn(): void {
+    const pending = this.pending;
+    if (!pending) return;
+    this.pending = null;
+    pending.reject(new Error('Sign-in was dismissed before it completed.'));
   }
 
   private async abandonSession(): Promise<void> {

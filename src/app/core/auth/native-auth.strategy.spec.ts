@@ -44,8 +44,13 @@ describe('NativeAuthStrategy', () => {
   // parameters, so `mock.calls[0][0]` has a type and the unused-parameter
   // rule has nothing to object to.
   const browser = {
+    /** Set by onFinished; a test calls it to dismiss the browser. */
+    finished: null as (() => void) | null,
     open: vi.fn<(options: { url: string }) => Promise<void>>(async () => undefined),
     close: vi.fn<() => Promise<void>>(async () => undefined),
+    onFinished: vi.fn(async (h: () => void) => {
+      browser.finished = h;
+    }),
   };
   /** Stands in for @capacitor/app's appUrlOpen, so a test can deliver the return itself. */
   const urlOpen = {
@@ -61,6 +66,7 @@ describe('NativeAuthStrategy', () => {
     store.clear();
     vi.clearAllMocks();
     urlOpen.handler = null;
+    browser.finished = null;
     fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);
     // jsdom's Crypto implements getRandomValues and randomUUID and nothing
@@ -93,8 +99,37 @@ describe('NativeAuthStrategy', () => {
     vi.unstubAllGlobals();
   });
 
+  /**
+   * Starts a sign-in and returns its promise WITHOUT awaiting it: since #3 the
+   * promise settles when the flow completes, not when the browser opens, so
+   * awaiting `signIn()` here would wait for a callback the test has not sent
+   * yet. `signIn` awaits the S256 digest before opening the browser, which is
+   * more than one microtask deep, so spin a bounded number of them rather
+   * than guessing a count.
+   */
+  async function startSignIn(): Promise<{ flow: Promise<void> }> {
+    const flow = strategy.signIn();
+    // `vi.waitFor`, not a microtask spin: `signIn` awaits the SHA-256 digest
+    // first, and Node's WebCrypto runs that on the libuv threadpool, so it
+    // settles on a macrotask that draining microtasks never reaches. waitFor
+    // advances the fake clock, which does.
+    await vi.waitFor(() => expect(browser.open).toHaveBeenCalled());
+    // Wrapped in an object, not returned bare: `await` flattens a promise of
+    // a promise, so returning `flow` from an async function would await the
+    // sign-in itself — the very thing these tests must not do yet.
+    return { flow };
+  }
+
+  /** Delivers the return leg with the pending state, as the OS would. */
+  function deliverCallback(code = 'abc'): Promise<void> {
+    return strategy.handleCallback(
+      `blueprint://auth/callback?code=${code}&state=${strategy.pendingState()}`,
+    );
+  }
+
   it('opens the SYSTEM browser, never a web view', async () => {
-    await strategy.signIn();
+    void startSignIn();
+    await vi.waitFor(() => expect(browser.open).toHaveBeenCalled());
 
     const url = browser.open.mock.calls[0][0].url;
     // Derived, not literal: the unit-test target declares no
@@ -115,10 +150,9 @@ describe('NativeAuthStrategy', () => {
   it('keeps the access token in memory and the refresh token in secure storage', async () => {
     fetchMock.mockResolvedValue(tokenResponse('refresh-1'));
 
-    await strategy.signIn();
-    await strategy.handleCallback(
-      'blueprint://auth/callback?code=abc&state=' + strategy.pendingState(),
-    );
+    const { flow } = await startSignIn();
+    await deliverCallback();
+    await flow;
 
     expect(strategy.accessToken()).not.toBeNull();
     expect(strategy.user()()?.username).toBe('demo');
@@ -134,11 +168,82 @@ describe('NativeAuthStrategy', () => {
   it('refuses a callback whose state does not match the pending one', async () => {
     fetchMock.mockResolvedValue(tokenResponse('refresh-1'));
 
-    await strategy.signIn();
+    void startSignIn();
+    await vi.waitFor(() => expect(browser.open).toHaveBeenCalled());
     await strategy.handleCallback('blueprint://auth/callback?code=abc&state=not-the-pending-state');
 
     expect(fetchMock).not.toHaveBeenCalled();
     expect(strategy.accessToken()).toBeNull();
+    // The pending flow is untouched, so the legitimate return still works.
+    expect(strategy.pendingState()).not.toBeNull();
+  });
+
+  it('does not resolve until the user has actually signed in (#3)', async () => {
+    fetchMock.mockResolvedValue(tokenResponse('refresh-1'));
+    const { flow } = await startSignIn();
+
+    let settled = false;
+    void flow.then(
+      () => (settled = true),
+      () => (settled = true),
+    );
+
+    // Everything that is not the callback has now had its chance to run.
+    await vi.advanceTimersByTimeAsync(0);
+
+    // This is the whole bug in #3: `Browser.open()` resolving means the tab
+    // is showing, not that anybody typed a password. A caller that acted here
+    // — CheckoutPage.signInAndReplay does — would replay its order with the
+    // same expired token and collect a second 401.
+    expect(settled).toBe(false);
+    expect(strategy.accessToken()).toBeNull();
+
+    await deliverCallback();
+    await flow;
+
+    expect(strategy.accessToken()).not.toBeNull();
+  });
+
+  it('rejects when the exchange fails, so a caller does not replay into a refusal', async () => {
+    fetchMock.mockResolvedValue({ ok: false, status: 400, json: async () => ({}) });
+    const { flow } = await startSignIn();
+
+    await deliverCallback();
+
+    await expect(flow).rejects.toThrow(/could not be exchanged/i);
+    expect(strategy.accessToken()).toBeNull();
+  });
+
+  it('rejects when the browser is dismissed without returning, rather than dangling forever', async () => {
+    // initialize registers the browserFinished listener; without it a
+    // cancelled sign-in would leave its promise unsettled for the life of
+    // the app, and CheckoutPage would wait on it forever.
+    await strategy.initialize();
+    const { flow } = await startSignIn();
+
+    browser.finished?.();
+
+    await expect(flow).rejects.toThrow(/dismissed/i);
+  });
+
+  it('refuses to open a second browser while a sign-in is pending', async () => {
+    fetchMock.mockResolvedValue(tokenResponse('refresh-1'));
+    const { flow: first } = await startSignIn();
+    const pendingState = strategy.pendingState();
+
+    const second = strategy.signIn();
+    await vi.advanceTimersByTimeAsync(0);
+
+    // One browser, and the first flow's verifier and state intact. Two
+    // `signIn()` calls used to mean two tabs and a verifier overwritten
+    // underneath whichever one the user was part-way through (#3).
+    expect(browser.open).toHaveBeenCalledOnce();
+    expect(strategy.pendingState()).toBe(pendingState);
+
+    await deliverCallback();
+    await Promise.all([first, second]);
+
+    expect(strategy.accessToken()).not.toBeNull();
   });
 
   it('replaces the stored refresh token on every renewal, because rotation is on', async () => {
