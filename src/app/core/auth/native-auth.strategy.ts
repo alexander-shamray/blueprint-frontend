@@ -203,8 +203,12 @@ export class NativeAuthStrategy extends AuthService {
     // running instead: both callers then settle on the one outcome.
     if (this.pending) return this.pending.promise;
 
+    // Both random values are synchronous, so the whole record can be built
+    // and claimed BEFORE this method's first await. That ordering is the
+    // guard: claiming the slot after `await s256(...)` let two callers racing
+    // inside that await both pass the check above, and the loser's promise
+    // was then overwritten and abandoned unsettled.
     const verifier = randomUrlSafe(32);
-    const challenge = await s256(verifier);
     const state = randomUrlSafe(16);
 
     let resolve!: () => void;
@@ -214,6 +218,8 @@ export class NativeAuthStrategy extends AuthService {
       reject = rej;
     });
     this.pending = { promise, resolve, reject, verifier, state };
+
+    const challenge = await s256(verifier);
 
     const params = new URLSearchParams({
       client_id: environment.auth.nativeClientId,
@@ -229,10 +235,13 @@ export class NativeAuthStrategy extends AuthService {
       await this.browser.open({ url: `${endpoint('auth')}?${params}` });
     } catch (failure) {
       // No browser opened, so no callback and no dismissal event will ever
-      // come. Clear the flow and fail the caller directly rather than leave a
-      // promise nothing can settle.
+      // come. Reject the record rather than only throwing: a caller that
+      // joined this flow holds `promise` and nothing else would ever settle
+      // it. Returning the now-rejected promise below gives this caller the
+      // same failure by the same route, so there is one rejection path
+      // instead of two.
       this.pending = null;
-      throw failure;
+      reject(failure);
     }
 
     return promise;
@@ -302,7 +311,19 @@ export class NativeAuthStrategy extends AuthService {
     await this.browser.close();
 
     if (result.outcome === 'ok' && result.body.access_token) {
-      await this.adopt(result.body);
+      try {
+        await this.adopt(result.body);
+      } catch (failure) {
+        // `adopt` puts the access token in memory before it writes the
+        // refresh token, so a store that refuses the write leaves a half
+        // session behind: a token in memory, no renewal scheduled, and a
+        // promise nobody is left to settle. Undo the half and fail the
+        // caller.
+        this.clearRenewal();
+        this.token.set(null);
+        pending.reject(failure);
+        return;
+      }
       pending.resolve();
       return;
     }
@@ -365,7 +386,15 @@ export class NativeAuthStrategy extends AuthService {
   }
 
   async signOut(): Promise<void> {
-    const stored = await this.secure.get(REFRESH_TOKEN_KEY);
+    let stored: string | null = null;
+    try {
+      stored = await this.secure.get(REFRESH_TOKEN_KEY);
+    } catch {
+      // A store that cannot be read cannot be revoked from either, and there
+      // is nothing to revoke WITH. Carry on and clear locally: rejecting here
+      // left the access token in memory and the UI signed in because the
+      // Keychain was briefly busy, which is the one outcome nobody asked for.
+    }
 
     if (stored) {
       // Revoke BEFORE clearing. Clearing first would leave a live refresh
@@ -414,6 +443,7 @@ export class NativeAuthStrategy extends AuthService {
   }
 
   private async adopt(tokens: TokenResponse): Promise<void> {
+    const generation = this.sessionGeneration;
     this.token.set(tokens.access_token ?? null);
 
     // Replace, because rotation is on: the token just redeemed is dead and
@@ -421,6 +451,22 @@ export class NativeAuthStrategy extends AuthService {
     // expected from this realm, and overwriting a working credential with
     // nothing would be worse than leaving it, so absent means keep.
     if (tokens.refresh_token) await this.secure.set(REFRESH_TOKEN_KEY, tokens.refresh_token);
+
+    // Checking the generation before calling `adopt` is not enough: the write
+    // above is itself an await, and a sign-out crossing it put the credential
+    // back into storage the user had just had cleared. Undo rather than
+    // schedule — this call is adopting a session that has already ended.
+    if (generation !== this.sessionGeneration) {
+      this.token.set(null);
+      try {
+        await this.secure.remove(REFRESH_TOKEN_KEY);
+      } catch {
+        // Nothing more to try. The in-memory token is gone, which is what
+        // decides what this client does next, and the entry left behind is
+        // refused at the realm.
+      }
+      return;
+    }
 
     this.scheduleRenewal();
   }

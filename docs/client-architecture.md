@@ -848,7 +848,9 @@ optional: `android/app/src/main/assets/public` is gitignored, so a fresh
 checkout has no web assets in the native project at all until it runs. The job
 needs no Android SDK setup step because the `ubuntu-24.04` runner image ships
 `android-36` — which is what `android/variables.gradle` compiles against — and
-sets `ANDROID_HOME` itself.
+sets `ANDROID_HOME` itself. That job therefore pins `runs-on: ubuntu-24.04`
+rather than following the other three onto `ubuntu-latest`: the claim above is
+about an image, and `ubuntu-latest` is a label that moves.
 
 The `ios-config` job is a configuration check and says so: `npx cap sync ios`
 copies web assets and writes `Package.swift` and `capacitor.config.json`, and
@@ -996,9 +998,14 @@ calls "not intended for use in production" — or TLS on the Compose stack.
 Choosing without an emulator to verify against would be guessing.
 
 **What has not been done.** No device or emulator has run this client. The
-Android project builds a debug APK, the native strategy is covered by eleven
-unit tests with no device attached, and the iOS project is generated — none of
-that is the same as a round trip through a real system browser. Plan Task 20
+Android project builds a debug APK, the native strategy is covered by
+twenty-seven unit tests with no device attached, and the iOS project is
+generated — none of that is the same as a round trip through a real system
+browser. Most of those twenty-seven exist because review found a bug, which is
+worth noting: unit tests around a mocked `fetch` and a mocked browser can pin
+every decision this class makes and still say nothing about the two things
+below, because both are the platform refusing a request the mocks always
+allow. Plan Task 20
 is that round trip, and it is deliberately still open. Running it means, in
 order:
 

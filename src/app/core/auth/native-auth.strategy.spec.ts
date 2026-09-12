@@ -353,6 +353,97 @@ describe('NativeAuthStrategy', () => {
     expect(challenge).toBe(expected);
   });
 
+  it('two callers racing before the digest resolves still get one browser and one outcome', async () => {
+    fetchMock.mockResolvedValue(tokenResponse('refresh-1'));
+
+    // Synchronously, with no await between them: the in-flight guard has to
+    // hold across `signIn`'s FIRST await (the S256 digest), not merely at its
+    // entry. Guarding at entry while claiming the slot after the digest let
+    // both callers through, and the loser's promise was abandoned unsettled.
+    const first = strategy.signIn();
+    const second = strategy.signIn();
+
+    await vi.waitFor(() => expect(browser.open).toHaveBeenCalled());
+    expect(browser.open).toHaveBeenCalledOnce();
+
+    await deliverCallback();
+    await expect(Promise.all([first, second])).resolves.toBeDefined();
+  });
+
+  it('fails every joined caller when the browser cannot be opened at all', async () => {
+    browser.open.mockRejectedValueOnce(new Error('no browser available'));
+
+    const first = strategy.signIn();
+    const second = strategy.signIn();
+
+    await expect(first).rejects.toThrow(/no browser/);
+    // The second caller holds the same promise. Clearing the record without
+    // settling it left this one waiting for the life of the app.
+    await expect(second).rejects.toThrow(/no browser/);
+    expect(strategy.pendingState()).toBeNull();
+  });
+
+  it('rejects the flow when the token arrives but secure storage refuses it', async () => {
+    fetchMock.mockResolvedValue(tokenResponse('refresh-1'));
+    secure.set.mockRejectedValueOnce(new Error('keychain is locked'));
+    const { flow } = await startSignIn();
+
+    await deliverCallback();
+
+    await expect(flow).rejects.toThrow(/keychain/);
+    // adopt() puts the access token in memory BEFORE it writes the refresh
+    // token, so a throw there used to leave a half-session: a token in
+    // memory, a promise nobody would ever settle, and no renewal scheduled.
+    expect(strategy.accessToken()).toBeNull();
+  });
+
+  it('does not leave a refresh token behind when sign-out lands during the storage write', async () => {
+    store.set(REFRESH_TOKEN_KEY, 'refresh-1');
+
+    // Suspend adopt()'s write, sign out underneath it, then let it finish.
+    let releaseWrite!: () => void;
+    secure.set.mockImplementationOnce(
+      (k: string, v: string) =>
+        new Promise<undefined>((resolve) => {
+          releaseWrite = () => {
+            store.set(k, v);
+            resolve(undefined);
+          };
+        }),
+    );
+    fetchMock.mockResolvedValue(tokenResponse('refresh-2'));
+    const renewal = strategy.renewNow();
+    await vi.waitFor(() => expect(secure.set).toHaveBeenCalled());
+
+    await strategy.signOut();
+    releaseWrite();
+    await renewal;
+
+    // The generation check before adopt() is not enough on its own: the write
+    // inside adopt() is itself an await, and a sign-out crossing it put the
+    // credential back into storage the user had just cleared.
+    expect(store.has(REFRESH_TOKEN_KEY)).toBe(false);
+    expect(strategy.accessToken()).toBeNull();
+  });
+
+  it('signs out locally even when the credential cannot be read', async () => {
+    // A live session first, so there is something for sign-out to clear.
+    store.set(REFRESH_TOKEN_KEY, 'refresh-1');
+    fetchMock.mockResolvedValue(tokenResponse('refresh-2'));
+    await strategy.renewNow();
+    expect(strategy.accessToken()).not.toBeNull();
+
+    // Now the store goes unreadable, for THIS call and not the setup above.
+    secure.get.mockRejectedValueOnce(new Error('keychain is locked'));
+
+    await expect(strategy.signOut()).resolves.toBeUndefined();
+
+    // A store that cannot be read cannot be revoked from either. Rejecting
+    // here left the access token in memory and the UI signed in because the
+    // Keychain was briefly busy, which is the one outcome nobody asked for.
+    expect(strategy.accessToken()).toBeNull();
+  });
+
   it('replaces the stored refresh token on every renewal, because rotation is on', async () => {
     store.set(REFRESH_TOKEN_KEY, 'refresh-1');
     fetchMock.mockResolvedValue(tokenResponse('refresh-2'));
