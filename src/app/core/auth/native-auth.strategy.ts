@@ -339,8 +339,9 @@ export class NativeAuthStrategy extends AuthService {
     await this.browser.close();
 
     if (result.outcome === 'ok' && result.body.access_token) {
+      let adopted: boolean;
       try {
-        await this.adopt(result.body, generation);
+        adopted = await this.adopt(result.body, generation);
       } catch (failure) {
         // `adopt` puts the access token in memory before it writes the
         // refresh token, so a store that refuses the write leaves a half
@@ -352,7 +353,18 @@ export class NativeAuthStrategy extends AuthService {
         pending.reject(failure);
         return;
       }
-      pending.resolve();
+
+      if (adopted) {
+        pending.resolve();
+        return;
+      }
+
+      // `adopt` declined: the session this code was minted for ended while the
+      // exchange was in flight. Resolving anyway would tell the caller that
+      // authentication completed when there is no access token to show for it
+      // — and `CheckoutPage.signInAndReplay()` acts on exactly that, replaying
+      // the order straight into another 401.
+      pending.reject(new Error('The session ended before sign-in completed.'));
       return;
     }
 
@@ -547,10 +559,10 @@ export class NativeAuthStrategy extends AuthService {
    * the session these tokens belong to, and adopting them afterwards would
    * undo it.
    */
-  private async adopt(tokens: TokenResponse, generation: number): Promise<void> {
+  private async adopt(tokens: TokenResponse, generation: number): Promise<boolean> {
     if (generation !== this.sessionGeneration) {
       await this.discard(tokens.refresh_token);
-      return;
+      return false;
     }
 
     this.token.set(tokens.access_token ?? null);
@@ -574,7 +586,7 @@ export class NativeAuthStrategy extends AuthService {
       // no help: two sessions minted a second apart from the same realm
       // produce byte-identical JWTs.)
       await this.discard(tokens.refresh_token);
-      return;
+      return false;
     }
 
     this.adoptions++;
@@ -587,6 +599,7 @@ export class NativeAuthStrategy extends AuthService {
     // does not offer, or a write queue re-checking the generation inside its
     // critical section — a lot of machinery for a millisecond window whose
     // consequence repairs itself on the next renewal.
+    return true;
   }
 
   /**

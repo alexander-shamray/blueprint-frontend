@@ -493,7 +493,13 @@ describe('NativeAuthStrategy', () => {
 
     releaseExchange(tokenResponse('refresh-1'));
     await callback;
-    await flow.catch(() => undefined);
+
+    // The flow must REJECT, not resolve. Swallowing the outcome here hid a
+    // real bug: `adopt` correctly declined to adopt, and `handleCallback`
+    // then resolved anyway — telling CheckoutPage.signInAndReplay() that
+    // authentication had completed, so it replayed the order with no access
+    // token and collected another 401.
+    await expect(flow).rejects.toThrow(/session ended/i);
 
     // handleCallback captures the generation BEFORE the exchange; adopting on
     // the generation current when the response lands would sign the user
@@ -577,7 +583,7 @@ describe('NativeAuthStrategy', () => {
 
     releaseExchange(tokenResponse('stale-1'));
     await callback;
-    await flow.catch(() => undefined);
+    await expect(flow).rejects.toThrow(/session ended/i);
 
     expect(store.get(REFRESH_TOKEN_KEY)).toBe('brand-new-2');
     expect(strategy.user()()?.username).toBe('second-session');
