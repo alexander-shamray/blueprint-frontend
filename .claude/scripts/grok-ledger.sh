@@ -279,6 +279,52 @@ case "$op" in
     # allowed check from one the ceiling cut off — both read as N spent.
     # The marker says which; any later reservation supersedes it.
     [ -z "$mode" ] || usage
+    # **The marker is trusted and nothing validated it (#18).** `status`
+    # reports `converged` and a resumed `/ship` reads that as "the loop is
+    # done, skip review" — so this verb could assert a convergence that never
+    # happened, on rounds that were never run, and only prose stood between
+    # the two. The comments a hundred lines up record the matching incident one
+    # operation over: a trusted `Grok check 9/6 — converged: loop clean` that
+    # `status` did not catch, and a resumed run that skipped review entirely.
+    #
+    # **Copilot proposed denying the verb, and that is the wrong fix** —
+    # `/ship` legitimately calls it, so the deny would stop the chain one step
+    # from the end. State validation is the right shape: the helper reads the
+    # ledger it is about to write and refuses unless the rounds it claims are
+    # already on it.
+    #
+    # Two conditions, and neither is the whole of "two clean rounds" — this
+    # helper cannot see a review's findings and must not pretend to. What it
+    # CAN establish is that the rounds exist and that this is the latest of
+    # them: `n` must be the highest slot currently reserved, so a marker cannot
+    # name a round nobody ran; and at least two slots must be reserved, because
+    # a loop that converges on two consecutive clean passes cannot have had
+    # fewer than two. What remains unvalidated is whether those rounds were
+    # clean, which lives in `suggestions.md` and not here.
+    read_rows ||
+      { echo "the ledger's trust check failed; refusing to post a convergence marker" >&2; exit 3; }
+    reserved=$(emit_rows | awk -F'\t' '
+      $2 ~ /converged/ { next }
+      {
+        split($2, a, "/")
+        sub(/^Grok check /, "", a[1])
+        state[a[1] + 0] = ($2 ~ /released/) ? "released" : "reserved"
+      }
+      END {
+        max = 0; count = 0
+        for (i in state)
+          if (state[i] == "reserved") {
+            count++
+            if (i + 0 > max) max = i + 0
+          }
+        print max "\t" count
+      }')
+    highest="${reserved%%$(printf '\t')*}"
+    spent="${reserved##*$(printf '\t')}"
+    [ "$n" -eq "$highest" ] ||
+      { echo "refusing to converge at $n: the highest reserved check on PR $pr is $highest, so this marker would claim a round that did not run" >&2; exit 5; }
+    [ "$spent" -ge 2 ] ||
+      { echo "refusing to converge at $n: only $spent check(s) are reserved on PR $pr, and convergence is two consecutive clean rounds" >&2; exit 5; }
     body="Grok check $n/$CEILING — converged: loop clean"
     ;;
   *) usage ;;

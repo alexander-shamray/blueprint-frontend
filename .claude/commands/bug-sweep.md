@@ -851,6 +851,23 @@ it here the same way — running the fan-out in a container that mounts only
 edit-denied from. Until that decision is taken, the path check above is the
 mitigation and this is the residual, named rather than hidden.
 
+**One half of it is closed, and it was the half a path rule could never have
+reached (#18).** "Root every path under `$work`" is a rule about the SPELLING
+of a path, and a git worktree preserves tracked symbolic links — so
+`$work/leak -> ~/.ssh/id_rsa` is an absolute path under `$work` whose target is
+not, and `Read`, `Grep` and `Glob` all follow it. No discipline about spellings
+catches that, and the auditor profile cannot either: those three tools are
+exactly what an auditor is left with. `git-worktree-detach.sh` now refuses a
+pinned commit carrying any tracked link, before the worktree exists — asked of
+the pinned COMMIT rather than of `main`, because the commit is what the
+worktree materialises and the branch is where a link would arrive.
+`/review-grok` has carried that argument for its own clone all along; this is
+the sweeps inheriting it.
+
+What stays open is the rest of the paragraph above: a crafted file can still
+name a host path in prose, and only the path rule and the verify step stand
+against an agent that follows it.
+
 ## Where it stops
 
 **A round is clean when it files no new issue** — every candidate either failed

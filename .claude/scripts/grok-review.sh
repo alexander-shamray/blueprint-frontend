@@ -159,6 +159,15 @@ limit_re='rate.?limit|quota|usage limit|usage balance|balance exhausted|too many
 # grok 1.0.5's `--output-format json` and its own headless-mode documentation.
 stop_ok=end_turn
 
+# The evidence a review actually happened, written by `/review-branch` as its
+# final act and validated below before a missing suggestions.md is read as a
+# clean pass (#18). Spelled once, here, because the command that writes it and
+# the check that reads it must not drift apart — `review-branch.md` names the
+# same string and `test_grok_helpers.py` asserts the two agree. Gitignored, so
+# a standalone `/review-branch` run does not dirty the tree the dirty-tree
+# check above refuses.
+sentinel=.grok-review-ran
+
 # Docker on Windows wants a Windows path in --volume; elsewhere the path is
 # already right. cygpath exists only under MSYS/Git Bash, which is the tell.
 host_path() {
@@ -213,6 +222,15 @@ pr=$(gh pr list --head "$branch" --state open --json number,headRepository \
 status=$(git status --porcelain)
 [ -z "$(grep -v '^?? suggestions.md$' <<<"$status" || true)" ] ||
   { echo "tree has uncommitted changes; commit before the review, or the reviewer reads a state the PR does not carry" >&2; exit 3; }
+# **The allow-list is right about the untracked file and blind to a tracked one
+# (#18).** `?? suggestions.md` is the untracked scratch file this exception is
+# for. A clean TRACKED `suggestions.md` does not appear in `git status` at all,
+# so a branch that commits one passes here, the clone carries it, and the import
+# path's `rm -f suggestions.md` then deletes a file belonging to the branch.
+# Asked of the index rather than of the status, because the status is exactly
+# where a clean tracked file is invisible.
+! git ls-files --error-unmatch suggestions.md >/dev/null 2>&1 ||
+  { echo "suggestions.md is tracked on this branch; the review owns that path and would delete it. Remove it from the branch, or rename the branch's file" >&2; exit 3; }
 # The daemon, not just the CLI. `command -v docker` passes on a machine whose
 # Docker Desktop is installed and stopped — which is the common case, not an
 # exotic one — and the build then fails with Docker's own generic status
@@ -661,6 +679,29 @@ fi
 # The findings still cross, deliberately and by ONE route: suggestions.md,
 # imported below under the shape guards. One reviewer-controlled artefact, named
 # and checked, beats the same text arriving twice with only one arrival guarded.
+# **A clean `end_turn` is not evidence the reviewer ran (#18).** It proves the
+# model emitted a completed response and nothing more: it does not prove the
+# model invoked `/review-branch`, opened the clone, or read one line of the
+# diff. A model that ends its turn without a tool call leaves no
+# suggestions.md — and every check above passes, so the round was reported as
+# a clean pass. A round that did not happen, counted as one that found
+# nothing, which is the fail-open shape this file refuses everywhere else.
+#
+# So the reviewer is required to leave evidence it produced. `/review-branch`
+# writes the sentinel as its final act, this validates it, and only then is a
+# missing suggestions.md read as "nothing to report".
+#
+# **Judged as a shape, never read.** The file is reviewer-controlled and sits
+# on the container's side of the boundary, so a link planted there would be
+# dereferenced by a host process against host paths — the crossing this file
+# guards on every other artefact. Existence and regular-file-ness are the whole
+# of what is asked; its content decides nothing, so its content cannot steer
+# anything.
+ran="$work/repo/$sentinel"
+if [ -L "$ran" ] || [ ! -f "$ran" ]; then
+  echo "grok finished its turn but left no $sentinel, so nothing shows that /review-branch ran; refusing to read a missing suggestions.md as a clean pass" >&2
+  exit 17
+fi
 echo "grok finished its turn (stopReason \"$stop\") — findings, if any, are in suggestions.md" >&2
 # Import the one artefact the review owns. Its absence is the clean verdict —
 # trustworthy only because the checks above have ruled out a cancelled run.

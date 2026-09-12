@@ -207,6 +207,21 @@ this branch did not touch, where the owner site is already correct.
    pass is clean; **replace** it when the new pass has findings.
 7. **`suggestions.md` is working state.** Never commit it. Do not add it to
    the index. Say so if the user is about to ship.
+8. **Write `.grok-review-ran` at the repo root, as the last thing you do** —
+   one line, any content. It is gitignored, so it dirties nothing.
+
+   **This is the evidence that the review happened, and it exists because a
+   finished turn is not that evidence (#18).** `grok-review.sh` reads an
+   absent `suggestions.md` as "nothing to report", and it could only tell that
+   apart from "the reviewer never looked" by the model's root `stopReason` —
+   which proves a completed response and not a single tool call. A model that
+   ended its turn without opening the clone left no `suggestions.md` and was
+   counted as a clean round. So the file's absence is now a refusal rather
+   than a pass, and writing it is the one step that cannot be skipped by a
+   review that decided there was nothing to say.
+
+   Its **content is never read** — only that it exists and is a regular file —
+   so nothing written here steers anything on the host.
 
 ---
 

@@ -3474,6 +3474,134 @@ class BothSweepsAgreeOnWhatSuppresses(unittest.TestCase):
                 self.assertIn("tracked by the gate's test", self.sweep(name))
 
 
+class TheFourPortedResiduals(unittest.TestCase):
+    """#18 — four residuals in machinery ported verbatim from the backend.
+
+    Each stands against that repository too, which is why they were filed
+    rather than fixed inside the port: fixing here forks the two copies, and
+    that is a cost to pay deliberately rather than by accident.
+    """
+
+    def source(self, name, where=SCRIPTS):
+        return (where / name).read_text(encoding="utf-8")
+
+    def code(self, name):
+        return "\n".join(line for line in self.source(name).splitlines()
+                         if not line.lstrip().startswith("#"))
+
+    # ---- 1. the sweeps' $work containment is lexical ------------------------
+
+    def test_a_pinned_commit_with_a_tracked_link_is_refused(self):
+        # A git worktree preserves tracked symbolic links, so a link inside the
+        # snapshot is an absolute path under `$work` whose TARGET is not — and
+        # `Read`, `Grep` and `Glob` follow it. The auditor profile cannot close
+        # that: those three tools are exactly what an auditor is left with.
+        code = self.code("git-worktree-detach.sh")
+        self.assertIn('git ls-tree -r "$commit"', code)
+        self.assertIn('$1 == "120000"', code)
+        # Before the directory exists, so a refusal leaves nothing behind.
+        self.assertLess(code.find("ls-tree"), code.find("mktemp -d"))
+
+    def test_both_sweeps_state_the_half_that_is_closed(self):
+        # The other half of #18.1: `/review-grok` carried this argument and the
+        # sweeps did not, which is what let the read half go unnoticed while
+        # the write half was closed twice.
+        for name in ("security-sweep.md", "bug-sweep.md"):
+            with self.subTest(command=name):
+                text = self.source(name, COMMANDS)
+                self.assertIn("`git-worktree-detach.sh` now refuses a", text)
+                self.assertIn("tracked link", text)
+
+    def test_this_repository_has_no_tracked_link_to_refuse(self):
+        # The positive control, and the reason the case above is a source test:
+        # if `main` carried a link the sweeps could not run at all, so this
+        # asserts the refusal is not silently blocking every sweep.
+        out = subprocess.run(
+            [GIT, "ls-tree", "-r", "HEAD"], cwd=str(SCRIPTS.parent.parent),
+            capture_output=True, text=True)
+        self.assertEqual(0, out.returncode, out.stderr)
+        links = [l for l in out.stdout.splitlines() if l.startswith("120000 ")]
+        self.assertEqual([], links)
+
+    # ---- 2. converge posted a trusted marker with nothing validating it -----
+
+    def test_converge_validates_the_rounds_it_claims(self):
+        # `status` reports `converged` and a resumed `/ship` reads that as "the
+        # loop is done, skip review", so this verb could assert a convergence
+        # that never happened. Copilot proposed denying the verb; that is the
+        # wrong fix, because `/ship` legitimately calls it and the deny would
+        # stop the chain one step from the end.
+        code = self.code("grok-ledger.sh")
+        # From the branch to the body it sets. `*) usage ;;` cannot be the
+        # terminator: the `case "$mode"` above has one too, so `find` returns
+        # the earlier offset and the slice comes back empty — which every
+        # `assertIn` below would then have failed against, loudly, rather than
+        # passing vacuously. It did.
+        start = code.find("  converge)")
+        self.assertNotEqual(-1, start)
+        end = code.find("converged: loop clean", start)
+        converge = code[start:end]
+        self.assertIn("read_rows", converge)
+        self.assertIn('[ "$n" -eq "$highest" ]', converge)
+        self.assertIn('[ "$spent" -ge 2 ]', converge)
+
+    def test_converge_is_not_denied_to_the_session(self):
+        # The half the fix had to preserve: `ship.md` names `count`, `status`
+        # and `converge` as the verbs it invokes, and `.claude/settings.json`
+        # denies only `reserve` and `release`.
+        deny = json.loads(SETTINGS.read_text(encoding="utf-8"))["permissions"]["deny"]
+        joined = " ".join(deny)
+        self.assertIn("reserve", joined)
+        self.assertIn("release", joined)
+        self.assertNotIn("converge", joined)
+
+    # ---- 3. a clean end_turn is not evidence the reviewer ran ---------------
+
+    def test_a_missing_sentinel_is_not_a_clean_pass(self):
+        # `end_turn` proves the model emitted a completed response. It does not
+        # prove it invoked `/review-branch`, opened the clone, or read one line
+        # of the diff — so a model that ended its turn without a tool call left
+        # no suggestions.md and was reported as a round that found nothing.
+        code = self.code("grok-review.sh")
+        self.assertIn("sentinel=.grok-review-ran", code)
+        self.assertIn('ran="$work/repo/$sentinel"', code)
+        self.assertIn('[ -L "$ran" ] || [ ! -f "$ran" ]', code)
+        # Judged as a shape and never read: the file is on the container's side
+        # of the boundary, so its content must decide nothing.
+        self.assertNotIn('cat "$ran"', code)
+
+    def test_the_sentinel_is_spelled_the_same_in_both_places(self):
+        # The command writes it and the script validates it, so a drift between
+        # the two spellings turns the check into one that always refuses — or,
+        # worse, is quietly relaxed to make the refusal stop.
+        name = ".grok-review-ran"
+        self.assertIn(f"sentinel={name}", self.code("grok-review.sh"))
+        self.assertIn(name, self.source("review-branch.md", COMMANDS))
+        ignore = (SCRIPTS.parent.parent / ".gitignore").read_text(encoding="utf-8")
+        self.assertIn(name, ignore)
+
+    def test_the_sentinel_step_is_the_last_one_review_branch_takes(self):
+        # A sentinel written before the work is evidence of nothing.
+        text = self.source("review-branch.md", COMMANDS)
+        self.assertIn("as the last thing you do", text)
+
+    # ---- 4. a tracked suggestions.md passes the pre-clone allow-list --------
+
+    def test_a_tracked_suggestions_md_is_refused(self):
+        # The dirty-tree allow-list accepts `?? suggestions.md`, correctly, for
+        # the untracked scratch file it is meant to be. A CLEAN tracked one does
+        # not appear in `git status` at all, so a branch that commits one passes
+        # — and the import path's `rm -f suggestions.md` then deletes a file
+        # belonging to the branch.
+        code = self.code("grok-review.sh")
+        self.assertIn(
+            "git ls-files --error-unmatch suggestions.md", code)
+        # Asked of the index, and asked beside the status check rather than
+        # after the clone: the clone is what would carry it.
+        self.assertLess(code.find("ls-files --error-unmatch"),
+                        code.find("git clone"))
+
+
 class AFeedHelperReturnsTheWholeAnswer(unittest.TestCase):
     """#22 and #24 — five helpers read a bounded page and reported it as the set.
 
