@@ -17,19 +17,19 @@ function jwt(payload: Record<string, unknown>): string {
 }
 
 /** A token that expires five minutes from the frozen clock, as the realm's does. */
-function fiveMinuteToken(): string {
+function fiveMinuteToken(username = 'demo'): string {
   return jwt({
-    preferred_username: 'demo',
+    preferred_username: username,
     sub: 's',
     permission: ['orders:write'],
     exp: Math.floor(Date.now() / 1000) + 300,
   });
 }
 
-function tokenResponse(refresh: string) {
+function tokenResponse(refresh: string, username = 'demo') {
   return {
     ok: true,
-    json: async () => ({ access_token: fiveMinuteToken(), refresh_token: refresh }),
+    json: async () => ({ access_token: fiveMinuteToken(username), refresh_token: refresh }),
   };
 }
 
@@ -65,6 +65,14 @@ describe('NativeAuthStrategy', () => {
   beforeEach(() => {
     store.clear();
     vi.clearAllMocks();
+    // clearAllMocks resets recorded calls but KEEPS implementations, so a
+    // test that makes the store fail would otherwise leak that failure into
+    // every test after it. Re-establish the working store each time.
+    secure.get.mockImplementation(async (k: string) => store.get(k) ?? null);
+    secure.set.mockImplementation(async (k: string, v: string) => void store.set(k, v));
+    secure.remove.mockImplementation(async (k: string) => void store.delete(k));
+    browser.open.mockImplementation(async () => undefined);
+    browser.close.mockImplementation(async () => undefined);
     urlOpen.handler = null;
     browser.finished = null;
     fetchMock = vi.fn();
@@ -441,6 +449,205 @@ describe('NativeAuthStrategy', () => {
     // A store that cannot be read cannot be revoked from either. Rejecting
     // here left the access token in memory and the UI signed in because the
     // Keychain was briefly busy, which is the one outcome nobody asked for.
+    expect(strategy.accessToken()).toBeNull();
+  });
+
+  it('settles the flow when the S256 digest itself fails', async () => {
+    // crypto.subtle missing or refusing. The pending record is claimed before
+    // this await, so a throw here used to leave it set and unsettled — and
+    // the NEXT sign-in joined that promise forever, with no browser ever
+    // opened and so no dismissal event to rescue it.
+    vi.stubGlobal('crypto', {
+      getRandomValues: webcrypto.getRandomValues.bind(webcrypto),
+      subtle: { digest: () => Promise.reject(new Error('no subtle crypto')) },
+    });
+
+    await expect(strategy.signIn()).rejects.toThrow(/no subtle crypto/);
+    expect(strategy.pendingState()).toBeNull();
+
+    // And the next attempt is a fresh flow rather than a join onto a dead one.
+    vi.stubGlobal('crypto', webcrypto);
+    const { flow } = await startSignIn();
+    expect(strategy.pendingState()).not.toBeNull();
+    void flow.catch(() => undefined);
+  });
+
+  it('does not resurrect the session when sign-out crosses the code exchange', async () => {
+    // The exchange is in flight when the user signs out.
+    let releaseExchange!: (value: unknown) => void;
+    fetchMock.mockImplementationOnce(
+      () => new Promise((resolve) => (releaseExchange = resolve)),
+    );
+    const { flow } = await startSignIn();
+    const callback = deliverCallback();
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled());
+
+    fetchMock.mockResolvedValue({ ok: true, json: async () => ({}) });
+    await strategy.signOut();
+
+    releaseExchange(tokenResponse('refresh-1'));
+    await callback;
+    await flow.catch(() => undefined);
+
+    // handleCallback captures the generation BEFORE the exchange; adopting on
+    // the generation current when the response lands would sign the user
+    // straight back in after they left.
+    expect(strategy.accessToken()).toBeNull();
+    expect(store.has(REFRESH_TOKEN_KEY)).toBe(false);
+  });
+
+  it('a stale renewal does not tear down a session that started after it', async () => {
+    store.set(REFRESH_TOKEN_KEY, 'refresh-1');
+
+    // A renewal whose write is suspended; the user signs out, then signs in
+    // again, before it resumes.
+    let releaseWrite!: () => void;
+    secure.set.mockImplementationOnce(
+      (k: string, v: string) =>
+        new Promise<undefined>((resolve) => {
+          releaseWrite = () => {
+            store.set(k, v);
+            resolve(undefined);
+          };
+        }),
+    );
+    fetchMock.mockResolvedValue(tokenResponse('stale'));
+    const stale = strategy.renewNow();
+    await vi.waitFor(() => expect(secure.set).toHaveBeenCalled());
+
+    fetchMock.mockResolvedValue({ ok: true, json: async () => ({}) });
+    await strategy.signOut();
+
+    // A whole new session, established while the stale write is still parked.
+    store.set(REFRESH_TOKEN_KEY, 'brand-new');
+    // A different username, so this session's token is a different string
+    // from the stale one and the assertions below cannot pass by accident.
+    fetchMock.mockResolvedValue(tokenResponse('brand-new-2', 'second-session'));
+    await strategy.renewNow();
+    expect(strategy.user()()?.username).toBe('second-session');
+
+    releaseWrite();
+    await stale;
+
+    // What is guaranteed: the new session is NOT logged out. An unconditional
+    // rollback cleared the token signal and deleted the shared key, which
+    // ended a session that had nothing to do with the renewal being undone.
+    expect(strategy.user()()?.username).toBe('second-session');
+
+    // What is NOT guaranteed, and is documented rather than fixed: the stale
+    // write was already in flight, so it landed on top of the new session's
+    // value before the rollback removed it. The new session therefore has no
+    // STORED credential until its next renewal writes one — it stays signed
+    // in on the token in memory, and the window self-heals. Closing it would
+    // need a compare-and-set the Preferences/Keychain API does not offer, or a
+    // write queue holding a generation check inside its critical section; both
+    // are a lot of machinery for a window measured in milliseconds whose
+    // consequence repairs itself. What matters is that the stale value does
+    // not survive to be presented to Keycloak.
+    expect(store.get(REFRESH_TOKEN_KEY)).not.toBe('stale');
+  });
+
+  it('a late exchange does not delete the credential of the session that replaced it', async () => {
+    // The distinguishing case for `discard`'s value check. Here the stale
+    // tokens never reach storage at all — the exchange is still in flight
+    // when the session ends — so at rollback time the key holds the NEW
+    // session's value. Removing by key alone would delete it.
+    let releaseExchange!: (value: unknown) => void;
+    fetchMock.mockImplementationOnce(
+      () => new Promise((resolve) => (releaseExchange = resolve)),
+    );
+    const { flow } = await startSignIn();
+    const callback = deliverCallback();
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled());
+
+    fetchMock.mockResolvedValue({ ok: true, json: async () => ({}) });
+    await strategy.signOut();
+
+    // A whole new session while that exchange is still parked.
+    store.set(REFRESH_TOKEN_KEY, 'brand-new');
+    fetchMock.mockResolvedValue(tokenResponse('brand-new-2', 'second-session'));
+    await strategy.renewNow();
+    expect(store.get(REFRESH_TOKEN_KEY)).toBe('brand-new-2');
+
+    releaseExchange(tokenResponse('stale-1'));
+    await callback;
+    await flow.catch(() => undefined);
+
+    expect(store.get(REFRESH_TOKEN_KEY)).toBe('brand-new-2');
+    expect(strategy.user()()?.username).toBe('second-session');
+  });
+
+  it('does not let the renewal timer fire while the revocation is in flight', async () => {
+    store.set(REFRESH_TOKEN_KEY, 'refresh-1');
+    fetchMock.mockResolvedValue(tokenResponse('refresh-2'));
+    await strategy.renewNow();
+    fetchMock.mockClear();
+
+    // Sign out, with the revocation request parked.
+    let releaseRevoke!: (value: unknown) => void;
+    fetchMock.mockImplementationOnce(
+      () => new Promise((resolve) => (releaseRevoke = resolve)),
+    );
+    const signOut = strategy.signOut();
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+
+    // Long enough for the 75% renewal to come due. Sign-out ends the session
+    // BEFORE it reads or revokes anything, so the timer is already cancelled:
+    // a renewal firing here would redeem the very token being revoked and
+    // rotate it to one nothing will ever revoke.
+    await vi.advanceTimersByTimeAsync(300_000);
+    expect(fetchMock).toHaveBeenCalledOnce();
+
+    releaseRevoke({ ok: true, json: async () => ({}) });
+    await signOut;
+
+    expect(store.has(REFRESH_TOKEN_KEY)).toBe(false);
+  });
+
+  it('reports a sign-out that could not clear the stored credential', async () => {
+    store.set(REFRESH_TOKEN_KEY, 'refresh-1');
+    fetchMock.mockResolvedValue(tokenResponse('refresh-2'));
+    await strategy.renewNow();
+
+    // Revocation unreachable AND the store refusing to remove or overwrite:
+    // the credential survives, and initialize() would restore it on the next
+    // launch — a sign-out that silently did not sign anybody out.
+    fetchMock.mockRejectedValue(new TypeError('Failed to fetch'));
+    secure.remove.mockRejectedValue(new Error('keychain is locked'));
+    secure.set.mockRejectedValue(new Error('keychain is locked'));
+
+    await expect(strategy.signOut()).rejects.toThrow(/keychain/);
+
+    // Memory is cleared regardless — the user asked to sign out.
+    expect(strategy.accessToken()).toBeNull();
+  });
+
+  it('neutralises the stored credential when it cannot be removed', async () => {
+    store.set(REFRESH_TOKEN_KEY, 'refresh-1');
+    fetchMock.mockResolvedValue(tokenResponse('refresh-2'));
+    await strategy.renewNow();
+
+    fetchMock.mockResolvedValue({ ok: true, json: async () => ({}) });
+    secure.remove.mockRejectedValueOnce(new Error('cannot remove'));
+
+    await expect(strategy.signOut()).resolves.toBeUndefined();
+
+    // Overwritten with an empty value rather than left intact: `read` treats
+    // empty as absent, so the next launch restores nothing.
+    expect(store.get(REFRESH_TOKEN_KEY)).toBe('');
+    expect(strategy.accessToken()).toBeNull();
+  });
+
+  it('does not leave a half-session when a renewal cannot write the rotated token', async () => {
+    store.set(REFRESH_TOKEN_KEY, 'refresh-1');
+    fetchMock.mockResolvedValue(tokenResponse('refresh-2'));
+    secure.set.mockRejectedValueOnce(new Error('keychain is locked'));
+
+    await expect(strategy.renewNow()).rejects.toThrow(/keychain/);
+
+    // `adopt` sets the access token before it writes, and `initialize`
+    // swallows what `renewNow` throws — so without a rollback here a locked
+    // Keychain at launch left a token in memory that nothing would renew.
     expect(strategy.accessToken()).toBeNull();
   });
 

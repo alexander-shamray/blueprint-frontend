@@ -219,7 +219,19 @@ export class NativeAuthStrategy extends AuthService {
     });
     this.pending = { promise, resolve, reject, verifier, state };
 
-    const challenge = await s256(verifier);
+    let challenge: string;
+    try {
+      challenge = await s256(verifier);
+    } catch (failure) {
+      // The record is claimed above, before this await, which is what makes
+      // the in-flight guard work — and what makes a throw here dangerous: it
+      // would leave the record set and its promise unsettled, and the next
+      // sign-in would join a flow that has no browser and so no dismissal
+      // event to rescue it. Settle and release the slot.
+      this.pending = null;
+      reject(failure);
+      return promise;
+    }
 
     const params = new URLSearchParams({
       client_id: environment.auth.nativeClientId,
@@ -287,6 +299,12 @@ export class NativeAuthStrategy extends AuthService {
       return;
     }
 
+    // Captured before the exchange, and handed to `adopt` below. A sign-out
+    // can land while the exchange is in flight, and adopting on whatever
+    // generation is current when the response arrives would sign the user
+    // straight back in after they left.
+    const generation = this.sessionGeneration;
+
     // Spent now, before the exchange: this code and verifier are single-use,
     // and a replayed callback must not get a second exchange out of them.
     // Clearing it before `browser.close()` below also means the dismissal
@@ -312,7 +330,7 @@ export class NativeAuthStrategy extends AuthService {
 
     if (result.outcome === 'ok' && result.body.access_token) {
       try {
-        await this.adopt(result.body);
+        await this.adopt(result.body, generation);
       } catch (failure) {
         // `adopt` puts the access token in memory before it writes the
         // refresh token, so a store that refuses the write leaves a half
@@ -364,7 +382,17 @@ export class NativeAuthStrategy extends AuthService {
     if (generation !== this.sessionGeneration) return;
 
     if (result.outcome === 'ok' && result.body.access_token) {
-      await this.adopt(result.body);
+      try {
+        await this.adopt(result.body, generation);
+      } catch (failure) {
+        // Same half-session `handleCallback` guards against, on the path that
+        // matters more: `initialize` calls this and swallows what it throws,
+        // so a Keychain that refuses the write at launch would otherwise
+        // leave an access token in memory that nothing will ever renew.
+        this.clearRenewal();
+        this.token.set(null);
+        throw failure;
+      }
       return;
     }
 
@@ -386,6 +414,21 @@ export class NativeAuthStrategy extends AuthService {
   }
 
   async signOut(): Promise<void> {
+    // Ends the session BEFORE anything is read or revoked. Two things follow
+    // from doing it first: the timer cannot start a new renewal, and a
+    // renewal already in flight fails `adopt`'s generation check instead of
+    // rotating the very token this method is about to revoke.
+    //
+    // It does not make the race impossible. A renewal that has already
+    // reached Keycloak can still rotate R1 to R2 before the revocation
+    // arrives, and then the revoke of R1 is refused and R2 lives at the realm
+    // until its idle timeout — with nobody holding it, because `adopt`'s
+    // rollback discards it. That residual is the same one the unreachable
+    // case accepts, and closing it properly would mean serialising every
+    // token request against sign-out.
+    this.sessionGeneration++;
+    this.clearRenewal();
+
     let stored: string | null = null;
     try {
       stored = await this.secure.get(REFRESH_TOKEN_KEY);
@@ -442,8 +485,19 @@ export class NativeAuthStrategy extends AuthService {
     return this.pending?.state ?? null;
   }
 
-  private async adopt(tokens: TokenResponse): Promise<void> {
-    const generation = this.sessionGeneration;
+  /**
+   * Takes a token set into the session, but only for the session it was
+   * minted for. `generation` is the value the CALLER read before its network
+   * request, not the value current now: a sign-out during that request ends
+   * the session these tokens belong to, and adopting them afterwards would
+   * undo it.
+   */
+  private async adopt(tokens: TokenResponse, generation: number): Promise<void> {
+    if (generation !== this.sessionGeneration) {
+      await this.discard(tokens.refresh_token);
+      return;
+    }
+
     this.token.set(tokens.access_token ?? null);
 
     // Replace, because rotation is on: the token just redeemed is dead and
@@ -452,23 +506,49 @@ export class NativeAuthStrategy extends AuthService {
     // nothing would be worse than leaving it, so absent means keep.
     if (tokens.refresh_token) await this.secure.set(REFRESH_TOKEN_KEY, tokens.refresh_token);
 
-    // Checking the generation before calling `adopt` is not enough: the write
-    // above is itself an await, and a sign-out crossing it put the credential
-    // back into storage the user had just had cleared. Undo rather than
-    // schedule — this call is adopting a session that has already ended.
+    // Checking before the write is not enough: the write is itself an await,
+    // and a sign-out crossing it put the credential back into storage the
+    // user had just had cleared.
     if (generation !== this.sessionGeneration) {
-      this.token.set(null);
-      try {
-        await this.secure.remove(REFRESH_TOKEN_KEY);
-      } catch {
-        // Nothing more to try. The in-memory token is gone, which is what
-        // decides what this client does next, and the entry left behind is
-        // refused at the realm.
-      }
+      // Undo only what THIS call did, and note what that excludes: the
+      // in-memory token is deliberately NOT cleared here. The generation only
+      // moves through `abandonSession`, which sets it to null itself and does
+      // so after this call put it there — so whatever is in the signal now
+      // belongs to a session that came later, and clearing it would log out
+      // the session that replaced this one. (Comparing the token strings is
+      // no help: two sessions minted a second apart from the same realm
+      // produce byte-identical JWTs.)
+      await this.discard(tokens.refresh_token);
       return;
     }
 
     this.scheduleRenewal();
+    // One residual is left here knowingly: a write suspended long enough to
+    // cross a sign-out AND a fresh sign-in lands on top of the new session's
+    // stored value, and the rollback above then removes it, leaving the new
+    // session signed in on its in-memory token with nothing stored until its
+    // next renewal. Closing that would need a compare-and-set the storage API
+    // does not offer, or a write queue re-checking the generation inside its
+    // critical section — a lot of machinery for a millisecond window whose
+    // consequence repairs itself on the next renewal.
+  }
+
+  /**
+   * Removes a stored refresh token only if it is still the one named — so a
+   * rollback from an ended session cannot delete the credential of the
+   * session that replaced it. The key is fixed and shared; the value is what
+   * identifies the owner.
+   */
+  private async discard(refreshToken: string | undefined): Promise<void> {
+    if (!refreshToken) return;
+    try {
+      if ((await this.secure.get(REFRESH_TOKEN_KEY)) === refreshToken) {
+        await this.secure.remove(REFRESH_TOKEN_KEY);
+      }
+    } catch {
+      // A store that cannot be read or written cannot be tidied. The session
+      // this value belonged to has ended either way.
+    }
   }
 
   /**
@@ -484,16 +564,37 @@ export class NativeAuthStrategy extends AuthService {
     pending.reject(new Error('Sign-in was dismissed before it completed.'));
   }
 
+  /**
+   * Ends the session: no token in memory, no renewal scheduled, and nothing
+   * left in storage for `initialize` to restore.
+   *
+   * THROWS if the stored credential survives. That is deliberate and it
+   * corrects an earlier comment here which claimed a leftover entry was
+   * harmless because the realm would refuse it — true only if the revocation
+   * got through. When revocation failed AND the entry cannot be removed, the
+   * credential is still live and `initialize()` restores it on the next
+   * launch: a sign-out that silently signed nobody out. Memory is cleared
+   * either way, so the caller's failure path reports an incomplete sign-out
+   * rather than an imaginary one.
+   */
   private async abandonSession(): Promise<void> {
     this.sessionGeneration++;
     this.clearRenewal();
     this.token.set(null);
+
     try {
       await this.secure.remove(REFRESH_TOKEN_KEY);
-    } catch {
-      // A store that cannot be written to cannot be cleared either. The
-      // in-memory token is already gone, which is what decides what this
-      // client does next; a stale entry left behind is refused at the realm.
+      return;
+    } catch (removeFailure) {
+      // Second attempt by a different route: an empty value is what `read`
+      // already treats as no cart— here, as no credential (`if (!stored)` in
+      // renewNow and initialize). A store that refuses a delete may still
+      // accept an overwrite.
+      try {
+        await this.secure.set(REFRESH_TOKEN_KEY, '');
+      } catch {
+        throw removeFailure;
+      }
     }
   }
 
