@@ -828,7 +828,7 @@ you anything on the day it trips.
 
 ## 14. What CI runs, and the one test that is left failing
 
-`.github/workflows/ci.yml` has two jobs. The `web` job installs from the
+`.github/workflows/ci.yml` has four jobs. The `web` job installs from the
 lockfile and runs `npm run lint`, `npm test` and `npm run build`. The Angular
 unit-test builder runs once and exits rather than watching, which is checked
 locally with `CI=true npm test` — a watch-mode test step does not fail a build,
@@ -842,21 +842,56 @@ minutes, and runs the Playwright smoke against it. It is deliberately not
 any outcome it captures `docker compose logs`; on failure it uploads those logs
 together with `test-results/`.
 
+The `android` job compiles the committed Android project — `npm ci`, `npm run
+build`, `npx cap sync android`, `./gradlew assembleDebug`. The sync step is not
+optional: `android/app/src/main/assets/public` is gitignored, so a fresh
+checkout has no web assets in the native project at all until it runs. The job
+needs no Android SDK setup step because the `ubuntu-24.04` runner image ships
+`android-36` — which is what `android/variables.gradle` compiles against — and
+sets `ANDROID_HOME` itself. That job therefore pins `runs-on: ubuntu-24.04`
+rather than following the other three onto `ubuntu-latest`: the claim above is
+about an image, and `ubuntu-latest` is a label that moves.
+
+The `ios-config` job is a configuration check and says so: `npx cap sync ios`
+copies web assets and writes `Package.swift` and `capacitor.config.json`, and
+it does not compile Swift. It catches a plugin missing from the iOS project or
+a config that stopped parsing, and nothing else. The compile is a fifth job
+left commented out in the same file: it needs a macOS runner, it costs a runner
+minute per push, and enabling it is uncommenting it. It invokes `xcodebuild
+-project ios/App/App.xcodeproj`, not `-workspace` — Capacitor 8 generates a
+Swift Package Manager project (`ios/App/CapApp-SPM` plus `Package.swift`) and
+there is no `App.xcworkspace` to point at.
+
 The smoke has no retries (`playwright.config.ts`, `retries: 0`) and no skip
 path: `e2e/smoke.spec.ts`'s `beforeAll` asserts the gateway is answering and
 fails with a message naming the address if it is not. That follows the backend's
 own rule, stated in `docs/backend-architecture/12-test-strategy.md`: "A skip on
 a missing daemon fails open: CI goes green on a runner whose Docker broke."
 
-**One of the three smoke tests is failing on the development machine, and it is
-left failing.** `demo browses, quotes, orders and cancels` gets as far as
-placing the order and receives a Bad Gateway from the edge, because
-`ordering-api` is not running: `deploy/compose/services/ordering.yml` makes it
-depend on `rabbitmq` being healthy, and on this host RabbitMQ cannot bind 5672
+**All three smoke tests pass in CI. One of them fails on the development
+machine, and it is left failing there.** CI is the authority on this, and it
+says the client is fine: the `e2e` job builds the stack from the backend's
+`main` on a clean runner and reports `3 passed`. What follows is a fact about
+one host, recorded because that host is where the tests are usually run.
+
+`demo browses, quotes, orders and cancels` gets as far as placing the order and
+receives a Bad Gateway from the edge, because `ordering-api` is not running:
+`deploy/compose/services/ordering.yml` makes it depend on `rabbitmq` being
+healthy, and on this host RabbitMQ cannot bind 5672
 or 15672 — a native `erl.exe` already holds them. That is an environment fact
 about one machine rather than a defect in the client, and every step before the
 order passes: sign-in, browsing, adding two products, quoting, reaching
 checkout, filling the address form.
+
+That test has a second failure mode worth telling apart from this one, because
+both are environmental and they look nothing alike. If it fails EARLIER — at
+`Total:`, with a `Method Not Allowed` banner on the cart — the running
+`web-bff` container is older than backend PR #201: the quote became a POST in
+that PR (ADR-045), this client sends POST, and an image built before it routes
+only GET. `docker compose up -d --build web-bff` in the backend repository is
+the fix, and `docker ps --format '{{.Image}} {{.CreatedAt}}'` is how to see it
+coming. A 405 at the quote is a stale image; a Bad Gateway at the order is
+RabbitMQ.
 
 Marking it skipped would make the suite green on a machine where ordering does
 not work — exactly the fail-open the rule above refuses. Leaving it red costs a
@@ -866,3 +901,126 @@ what proves `CatalogRefresh`, rather than navigation, is doing the work), and
 the `browser` user sees no Publish tab and is refused a direct navigation to
 `/tabs/publish`, landing on `/tabs/account?denied=catalog:write` with the banner
 that names the permission it lacks.
+
+---
+
+## 15. The native shell: one scheme, two origins, and a round trip nobody has run
+
+Phase B adds Android and iOS around the same web build. Four facts about that
+are worth writing down, because three of them are host decisions this client
+only obeys and the fourth is a gap.
+
+**The callback scheme is repeated in seven places, and none of them can
+import another.** The realm's `mobile-app` client registers exactly one
+redirect URI, `blueprint://auth/callback`
+(`deploy/compose/keycloak/realm-export.json`), and Keycloak compares it as a
+string. Every copy is an independent change point:
+
+| Where | What it is for |
+|---|---|
+| `environment.ts`, `environment.development.ts`, `environment.android.ts` | `auth.nativeRedirectUri` — what the strategy actually sends. Three files, because each build configuration carries its own whole `Environment`. |
+| `capacitor.config.ts` | the App plugin's `launchUrl` |
+| `android/app/src/main/AndroidManifest.xml` | the intent filter that makes Android hand the return to this app |
+| `ios/App/App/Info.plist` | `CFBundleURLTypes`, the same job on iOS |
+| `deploy/compose/keycloak/realm-export.json` (backend repo) | the only redirect URI Keycloak will accept |
+
+Seven is six too many and there is nowhere better to put it: three are
+TypeScript here, two are native manifests, one is JSON in another repository.
+The three environment files are the one group that could be collapsed — they
+differ only in host — and they are not, because `Environment` is deliberately
+one flat shape per build with no inheritance between them (§2). A scheme
+change has to visit all seven, and a miss shows up as a sign-in that completes
+in the browser and returns nowhere.
+
+**The Android intent filter matches the host as well as the scheme.** `<data
+android:scheme="blueprint" android:host="auth" />` rather than the scheme
+alone, because the narrower filter is the one that matches the single redirect
+URI the realm registers. The activity's generated
+`android:launchMode="singleTask"` is what makes the return land in the running
+task rather than in a second copy of the application — without it the returning
+intent would start a fresh instance whose heap has no PKCE verifier in it, and
+the exchange would fail for the same reason the web strategy's
+`HybridOAuthStorage` exists to prevent on its own platform.
+
+**A packaged native build is a different origin from the dev server.**
+Capacitor serves the bundle from `https://localhost` on Android and
+`capacitor://localhost` on iOS. The gateway's CORS list
+(`deploy/compose/services/gateway.yml`, `Cors__Origins__*`) admits
+`http://localhost:5173` — the Angular dev server — and neither native origin.
+So a packaged build talking to the Compose stack is refused at the edge until
+that origin is added, and this is a real deployment question rather than a
+client defect: the spec does not cover it, and the fix belongs in the backend's
+configuration next to the origin it already lists. Locally, adding
+`https://localhost` as `Cors__Origins__1` is enough to test with. (The two
+native origins are secure contexts, which is also why
+`native-auth.strategy.ts` can rely on `crypto.subtle` for its S256 challenge;
+jsdom has no `crypto.subtle` at all, which is why its spec stubs Node's
+WebCrypto over it rather than asserting a stand-in digest.)
+
+**The emulator reaches the host at `10.0.2.2`, not `localhost`.** Inside an
+Android emulator `localhost` is the emulator. `environment.android.ts` carries
+the host alias for the gateway and for Keycloak, and `ng build --configuration
+android` (`npm run build:android`) is what selects it. Which environment a
+build carries stays a build-time file replacement, as it is for the web: a
+client that sniffed its own host would be deciding its configuration from the
+thing the configuration is supposed to decide.
+
+**Two things are known to block the first device run, and neither is fixed
+here.** Both were found by review rather than by running anything, which is
+itself the argument for running it.
+
+*The token exchange is a browser `fetch`, and the realm grants it no origin.*
+`native-auth.strategy.ts` posts to Keycloak's token endpoint with `fetch`,
+which on a device is a request from the WebView's origin — `https://localhost`
+on Android, `capacitor://localhost` on iOS. The realm's `mobile-app` client
+declares `"webOrigins": []` (`realm-export.json`), so Keycloak returns no
+`Access-Control-Allow-Origin` and the WebView discards the response before
+this code sees it. Note this is a SEPARATE hop from the gateway CORS question
+below: the gateway is not in this path at all, Keycloak is. Two ways out, and
+they are not equivalent: add the native origins to the realm client (a backend
+change, and the symmetrical fix to the gateway one), or enable Capacitor's
+`CapacitorHttp` so `fetch` is serviced by the native HTTP stack and CORS never
+applies. The second needs no backend change but patches `fetch` process-wide,
+which would also reroute every `HttpClient` call to the gateway — not a change
+to make without a device to check it on.
+
+*The emulator configuration is cleartext, and the WebView is not.*
+`environment.android.ts` points at `http://10.0.2.2:5000` and
+`http://10.0.2.2:8080`, while Capacitor serves the page from `https://localhost`
+— `androidScheme` defaults to `https` (`@capacitor/cli` declarations) and
+`server.cleartext` defaults to `false`, with cleartext disabled outright from
+API 28. So those requests are blocked twice over, as mixed content and as
+cleartext, before either host is reached. The fixes are a config decision
+rather than a typo: `androidScheme: 'http'` (localhost stays a secure context,
+so `crypto.subtle` keeps working, but the origin the gateway must admit
+changes again), `server.cleartext: true` — which Capacitor's own documentation
+calls "not intended for use in production" — or TLS on the Compose stack.
+Choosing without an emulator to verify against would be guessing.
+
+**What has not been done.** No device or emulator has run this client. The
+Android project builds a debug APK, the native strategy is covered by
+forty unit tests with no device attached, and the iOS project is
+generated — none of that is the same as a round trip through a real system
+browser. Most of those forty exist because review found a bug, which is
+worth noting: unit tests around a mocked `fetch` and a mocked browser can pin
+every decision this class makes and still say nothing about the two things
+below, because both are the platform refusing a request the mocks always
+allow. Plan Task 20
+is that round trip, and it is deliberately still open. Running it means, in
+order:
+
+1. Bring up the backend's Compose stack, and add `https://localhost` to the
+   gateway's `Cors__Origins__*` as above.
+2. `npm run build:android && npx cap sync android && npx cap run android`.
+3. Sign in: the system browser must open (not a web view inside the app), and
+   the return must land back in the running app rather than in a new copy of
+   it.
+4. Browse, quote, order, cancel — the same path `e2e/smoke.spec.ts` drives on
+   the web.
+5. Force-stop the app and relaunch: the cart must survive (Capacitor
+   Preferences) and the session must survive too (the refresh token in secure
+   storage), which is the one behaviour that differs from the web by design
+   and the sentence the account page shows because of it.
+
+Until somebody runs that, the honest claim about this client on a device is
+that it compiles and its logic is tested, and nothing more.

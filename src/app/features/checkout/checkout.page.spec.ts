@@ -190,6 +190,54 @@ describe('CheckoutPage', () => {
     controller.expectNone('http://localhost:5000/api/v1/orders');
   });
 
+  it('replays only after sign-in has actually completed, not merely been started', async () => {
+    // The guard for issue #3. The stub above resolves immediately with no
+    // token change, which models neither real strategy: WebAuthStrategy
+    // navigates away and never comes back, and NativeAuthStrategy used to
+    // resolve the moment the system browser opened — so this page replayed
+    // the order while still holding the token the edge had just refused.
+    //
+    // Here signIn resolves only once a token is in place, and the assertion
+    // is on the ORDER of those two events: the replay must not be in flight
+    // before the sign-in it is waiting on has finished.
+    let signedIn = false;
+    signIn.mockImplementation(async () => {
+      // The replay must not have gone out yet at this point.
+      controller.expectNone('http://localhost:5000/api/v1/orders');
+      signedIn = true;
+    });
+
+    fixture.componentInstance.placeOrder();
+    const first = controller.expectOne('http://localhost:5000/api/v1/orders');
+    const firstId = first.request.body.commandId;
+
+    first.flush({ title: 'Unauthorized', status: 401 }, { status: 401, statusText: 'Unauthorized' });
+    await fixture.whenStable();
+
+    expect(signedIn).toBe(true);
+    const replay = controller.expectOne('http://localhost:5000/api/v1/orders');
+    expect(replay.request.body.commandId).toBe(firstId);
+
+    replay.flush('44444444-4444-4444-4444-444444444444', { status: 200, statusText: 'OK' });
+    await fixture.whenStable();
+  });
+
+  it('does not replay when sign-in fails or is dismissed', async () => {
+    // NativeAuthStrategy rejects when the user backs out of the system
+    // browser or the code cannot be exchanged (#3). Replaying then would put
+    // the order on the wire with the same refused token; the banner is the
+    // honest outcome.
+    signIn.mockRejectedValue(new Error('Sign-in was dismissed before it completed.'));
+
+    fixture.componentInstance.placeOrder();
+    const first = controller.expectOne('http://localhost:5000/api/v1/orders');
+    first.flush({ title: 'Unauthorized', status: 401 }, { status: 401, statusText: 'Unauthorized' });
+    await fixture.whenStable();
+
+    controller.expectNone('http://localhost:5000/api/v1/orders');
+    expect(fixture.componentInstance.error()).not.toBeNull();
+  });
+
   it('invokes sign-in on a 401 and replays the order under the same commandId', async () => {
     fixture.componentInstance.placeOrder();
     const first = controller.expectOne('http://localhost:5000/api/v1/orders');

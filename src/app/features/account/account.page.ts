@@ -110,14 +110,14 @@ export class AccountPage {
    * carries `use.refresh.tokens: "false"`, so the browser genuinely cannot
    * survive a reload, and saying so is more useful than a silent sign-out.
    *
-   * The `false` branch is not live on any strategy that exists today —
-   * `sessionEndsOnReload` is `true` in `WebAuthStrategy` and nothing else
-   * implements `AuthService` yet, since native auth is Phase B. It stays
-   * here because spec §5.6 mandates both sentences and spec §4's
-   * one-interface-two-implementations is the point of the abstraction: this
-   * is the contract Phase B's native strategy must satisfy, pinned now so it
-   * cannot drift before that strategy exists to honour it — not a
-   * description of anything this client does today.
+   * Both branches are live as of plan Task 19: `sessionEndsOnReload` is
+   * `true` in `WebAuthStrategy` and `false` in `NativeAuthStrategy`, whose
+   * refresh token really does sit in the Keychain or
+   * EncryptedSharedPreferences and really is replaced on every renewal
+   * (the realm's `revokeRefreshToken: true`, `refreshTokenMaxReuse: 0`).
+   * Which sentence a user sees is decided by the factory in
+   * auth.providers.ts and by nothing on this page, which is spec §4's
+   * one-interface-two-implementations doing its job.
    */
   readonly tokenPosture = computed(() =>
     this.auth.sessionEndsOnReload

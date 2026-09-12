@@ -10,8 +10,12 @@ browsing, permissions as claims, idempotent commands held across a failure,
 three different 409s that mean three different things, and a quote whose total
 the client is forbidden to recompute.
 
-**Phase A (this branch) is the web client.** Phase B adds Capacitor, native
-auth and the mobile builds.
+**Phase A is the web client. Phase B adds Capacitor, native auth and the
+mobile projects** — both are here. What Phase B does NOT include is a round
+trip on real hardware: the Android project builds a debug APK and the native
+auth strategy is unit-tested with no device attached, but nobody has signed in
+on a phone yet. `docs/client-architecture.md` §15 says so and carries the
+checklist for doing it.
 
 ## Running it
 
@@ -63,11 +67,31 @@ comment naming the backend file or realm setting that fixes it.
 ## Testing
 
 ```bash
-npm test                                        # 157 unit and component tests
+npm test                                        # 234 unit and component tests
 npm run lint
 npm run build
 npm run e2e                                     # Playwright, needs the stack up
 ```
+
+## The native builds
+
+```bash
+npm run build:android                           # 10.0.2.2, for an emulator
+npx cap sync android
+(cd android && ./gradlew assembleDebug)          # APK under android/app/build/outputs
+
+npm run build && npx cap sync ios               # generates on any OS; compiles on a Mac
+```
+
+`android/` and `ios/` are committed rather than generated, because each holds
+one hand edit a generator would drop: the `blueprint://auth/callback` intent
+filter in `AndroidManifest.xml` and the matching `CFBundleURLTypes` in
+`Info.plist`. Those are what hand the system browser's redirect back to the
+app, and without them sign-in opens, succeeds, and returns nowhere.
+
+A packaged native build is served from `https://localhost` (Android) or
+`capacitor://localhost` (iOS), which is **not** an origin the gateway's CORS
+list admits — see §15 before pointing one at the Compose stack.
 
 The e2e smoke runs against the real Compose stack and is never skipped when the
 platform is missing — it fails on connection instead. The backend's own rule is

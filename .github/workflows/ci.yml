@@ -77,3 +77,68 @@ jobs:
           path: |
             compose.log
             test-results/
+
+  # Spec §8 step 3. The Android project is committed, not generated here, so
+  # this job compiles the same manifest a developer edits — a job that ran
+  # `cap add android` first would rebuild the project from the template every
+  # time and quietly drop the blueprint:// intent filter, which is the one
+  # part of it that is not generated.
+  android:
+    # Pinned, unlike the other three jobs, because this one has a dependency
+    # on the IMAGE and not just on Linux: it uses the Android SDK the runner
+    # ships (variables.gradle compiles against android-36) instead of
+    # installing one. `ubuntu-latest` is a moving label, so a future image
+    # migration could drop that platform and break this build with no change
+    # to the project. Bumping this pin is a deliberate act with one thing to
+    # re-check.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - run: npm ci
+      - run: npm run build
+      # `sync` after `build`, always: it is what copies dist into
+      # android/app/src/main/assets/public, and that directory is gitignored,
+      # so the checkout has no web assets in it at all until this runs.
+      - run: npx cap sync android
+      - run: ./gradlew assembleDebug
+        working-directory: android
+
+  # Spec §8 step 4, and a CONFIGURATION check only: `cap sync ios` copies web
+  # assets and writes Package.swift and capacitor.config.json. It does not
+  # compile Swift, so it catches a plugin that is missing from the iOS project
+  # or a config that no longer parses, and nothing about whether the app
+  # builds. The compile lives in the disabled job below; enabling it is one
+  # line and costs a macOS runner minute per push, which is why it is off
+  # rather than an oversight.
+  ios-config:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npx cap sync ios
+
+  # ios-build:
+  #   runs-on: macos-latest
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - uses: actions/setup-node@v4
+  #       with: { node-version-file: .nvmrc, cache: npm }
+  #     - run: npm ci && npm run build && npx cap sync ios
+  #     # -project, not -workspace: Capacitor 8 generates a Swift Package
+  #     # Manager project (ios/App/CapApp-SPM plus Package.swift) and there is
+  #     # no App.xcworkspace to point at. A -workspace invocation fails with
+  #     # "does not exist" rather than with anything about Swift.
+  #     - run: xcodebuild -project ios/App/App.xcodeproj -scheme App -sdk iphonesimulator build
