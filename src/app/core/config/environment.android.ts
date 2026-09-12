@@ -27,6 +27,15 @@ import type { Environment } from './environment.model';
  * anything at runtime: which environment file a build carries is a build-time
  * replacement, and a client that sniffed its own host would be deciding its
  * configuration from the thing the configuration is supposed to decide.
+ *
+ * That build alone is not enough to make these addresses reachable, which is
+ * why `npm run emulator:android` runs it and the sync together. The two
+ * `http://` values below are cleartext, and the WebView serves the page from
+ * `https://localhost` — so the platform refuses them and the page refuses
+ * them, for two independent reasons needing two different Capacitor keys. Both
+ * are gated on the emulator flag in `capacitor.config.ts`, which explains
+ * them; a plain `cap sync` leaves them off and every call here fails before
+ * its host is reached (#7).
  */
 export const environment: Environment = {
   production: false,

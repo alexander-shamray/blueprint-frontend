@@ -67,7 +67,7 @@ comment naming the backend file or realm setting that fixes it.
 ## Testing
 
 ```bash
-npm test                                        # 234 unit and component tests
+npm test                                        # 257 unit and component tests
 npm run lint
 npm run build
 npm run e2e                                     # Playwright, needs the stack up
@@ -76,9 +76,9 @@ npm run e2e                                     # Playwright, needs the stack up
 ## The native builds
 
 ```bash
-npm run build:android                           # 10.0.2.2, for an emulator
-npx cap sync android
-(cd android && ./gradlew assembleDebug)          # APK under android/app/build/outputs
+npm run emulator:android                        # 10.0.2.2, for an emulator
+npm run emulator:android:run                    # launches it; --no-sync, see below
+(cd android && ./gradlew assembleDebug)          # or just the APK, under android/app/build/outputs
 
 npm run build && npx cap sync ios               # generates on any OS; compiles on a Mac
 ```
@@ -88,6 +88,14 @@ one hand edit a generator would drop: the `blueprint://auth/callback` intent
 filter in `AndroidManifest.xml` and the matching `CFBundleURLTypes` in
 `Info.plist`. Those are what hand the system browser's redirect back to the
 app, and without them sign-in opens, succeeds, and returns nowhere.
+
+`emulator:android` rather than `build:android` plus a bare `cap sync`, because
+the emulator's `http://10.0.2.2` addresses are refused twice over — by the
+platform's cleartext policy and as mixed content on an `https://localhost`
+page — and the two Capacitor keys that lift those are gated on a flag only that
+script sets. `emulator:android:run` passes `--no-sync` for the same reason: a
+plain `cap run` re-syncs, which would overwrite the flagged sync with a release
+one and fail exactly as if the keys were never set. §15 has the mechanism.
 
 A packaged native build is served from `https://localhost` (Android) or
 `capacitor://localhost` (iOS), which is **not** an origin the gateway's CORS
