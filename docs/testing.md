@@ -47,6 +47,15 @@ sibling worktree carries the lockfile and none of what it pins. The first
 check in it fails on a missing `ng` binary, which reads like a broken
 toolchain rather than an uninstalled one. Run `npm ci` once after moving in.
 
+**The harness suite needs bash, grep, git, jq and `py -3.12`, and its
+`setUpModule` fails rather than skips when one is missing** — a skip on a
+missing tool reports a pass, which is the fail-open it exists to refuse. The
+shell helpers are written for **bash 3.2**, which is what macOS ships as
+`/bin/bash`; `.claude/scripts/grok-ledger.sh` used an associative array until
+CI's three-OS matrix went red on macOS with `declare: -A: invalid option`.
+Nothing had ever run these helpers there. If you add a bash-4 construct —
+`declare -A`, `mapfile`, `${var,,}` — the macOS runner is what will tell you.
+
 **`npm test` must exit, not watch.** The Angular unit-test builder runs once
 and exits here, and `CI=true npm test` is how that is confirmed locally. A
 watch-mode test step does not fail a build — it consumes the job's entire

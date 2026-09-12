@@ -130,14 +130,34 @@ mode="${4:-}"
 # jq string spends one level on its own escaping: \\( reaches the regex
 # engine as \(, where a bare \( would be jq's interpolation syntax.
 ledger_rows() {
-  local id login body verdict perm out row_slot row_den
-  declare -A seen=()
+  local id login body verdict perm out row_slot row_den seen record
+  # **A newline-delimited string, not `declare -A`, and that is portability
+  # rather than taste.** Associative arrays are bash 4, and macOS ships bash
+  # 3.2 as /bin/bash — Apple stopped updating it at the GPLv3 boundary — so
+  # `declare -A` there fails with `invalid option`, `$login` is then an unbound
+  # variable under `set -u`, and this function dies. It dies CLOSED, printing
+  # "the ledger's trust check failed; refusing to print a count", which is the
+  # right direction and still leaves the Grok loop unusable on macOS.
+  #
+  # Found by CI rather than by reading: the harness job gained a three-OS
+  # matrix and macOS went red on the first run, twenty-odd cases deep in the
+  # ledger classes. Nothing had ever run these helpers on macOS.
+  #
+  # The record separator is a TAB and the field separator is the same one the
+  # reader below already uses. A GitHub login is `[A-Za-z0-9-]` — no tab, no
+  # newline, no regex metacharacter but `-`, which is inert after `^` — so the
+  # anchored grep below cannot be steered by a login, and `grep` is already one
+  # of the four tools `setUpModule` requires. The memo exists to avoid a second
+  # collaborators API call per author, and it still does: a grep per comment is
+  # not the cost this is saving.
+  seen=""
   gh api "repos/{owner}/{repo}/issues/$pr/comments" --paginate \
     --jq '.[]
       | select(.body | test("^Grok check ('"$LEDGER_READ_SLOTS"')/('"$LEDGER_DENOMINATORS"') — (reserved \\((full|recheck)\\)|released: skipped on limits|converged: loop clean)$"))
       | "\(.id)\t\(.user.login)\t\(.body)"' |
   while IFS=$'\t' read -r id login body; do
-    verdict="${seen[$login]:-}"
+    record=$(printf '%s' "$seen" | grep -m1 -e "^${login}$(printf '\t')" || true)
+    verdict="${record#*$(printf '\t')}"
     if [ -z "$verdict" ]; then
       if out=$(gh api "repos/{owner}/{repo}/collaborators/$login/permission" \
                  --jq .permission 2>&1); then
@@ -151,7 +171,8 @@ ledger_rows() {
         echo "cannot verify $login's repository permission: $out" >&2
         exit 3
       fi
-      seen[$login]=$verdict
+      seen="${seen}${login}$(printf '\t')${verdict}
+"
     fi
     [ "$verdict" = trusted ] || continue
     # **The pairing check lives HERE, in the shared reader, and it did not at
