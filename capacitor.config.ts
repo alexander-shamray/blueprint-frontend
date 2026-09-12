@@ -35,8 +35,10 @@ const config: CapacitorConfig = {
   // Deliberately NOT here: the `blueprint://auth/callback` redirect URI. This
   // file carried it as `plugins.App.launchUrl`, which is not a key anything
   // reads — `@capacitor/app` declares the App plugin's whole configuration as
-  // `{ disableBackButtonHandler?: boolean }` and no Capacitor source mentions
-  // `launchUrl` at all. It was inert config that read as load-bearing, and
+  // `{ disableBackButtonHandler?: boolean }`, and the only `launchUrl` in any
+  // Capacitor source is `CustomTabsIntent.launchUrl` in the Browser plugin,
+  // which is an Android API call rather than a key anything looks up. It was
+  // inert config that read as load-bearing, and
   // §15 counted it as one of the places a scheme change has to visit. What
   // actually hands the return to this app is the AndroidManifest intent filter
   // and Info.plist's CFBundleURLTypes; what sends the URI is

@@ -1034,8 +1034,10 @@ in the browser and returns nowhere.
 **It was seven, and the seventh did nothing.** `capacitor.config.ts` carried
 the same URI as `plugins.App.launchUrl`, and this table used to list it. No
 such key exists: `@capacitor/app` declares the App plugin's entire
-configuration as `{ disableBackButtonHandler?: boolean }`, and no Capacitor
-source names `launchUrl` anywhere. It was inert, and it read as load-bearing —
+configuration as `{ disableBackButtonHandler?: boolean }`, and the only
+`launchUrl` in any Capacitor source is `CustomTabsIntent.launchUrl` in the
+Browser plugin — an Android API call, not a key anything looks up. So it was
+inert, and it read as load-bearing —
 the worse of the two failures, because a scheme change that updated it and
 missed a real copy would look done. It survived because the Capacitor CLI only
 TRANSPILES that file, so a key nothing reads and a key that type-checks are the
