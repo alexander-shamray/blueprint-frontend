@@ -3474,6 +3474,143 @@ class BothSweepsAgreeOnWhatSuppresses(unittest.TestCase):
                 self.assertIn("tracked by the gate's test", self.sweep(name))
 
 
+class NoCommandHoldsAPrefixGrantThatAdmitsAForbiddenFlag(unittest.TestCase):
+    """#16 — three allow rules whose trailing position defeated the workflow.
+
+    An allow rule cannot exclude a trailing flag; only a deny takes `*` at any
+    position. So `gh pr merge --merge <n> --admin` bypassed step 7's
+    failing-check stop, `gh pr create --repo <other> …` chose a repository, a
+    branch, a base and a body the command never derived, and
+    `git worktree remove <path> -f` defeated the refusal that stops a teardown
+    deleting uncommitted work.
+
+    `ship.md` argued all of this in its own blockquote and answered it with
+    visibility — the step reports the literal invocation. That is a substitute
+    for a control, and this is the control: three helpers that spell their own
+    flags, and the raw grants withdrawn in the same change.
+
+    Asserted over EVERY command rather than the two that had them, for the
+    reason the package-runner case gives: the last time a grant was withdrawn
+    from two files, an issue named a third that a whole-frontmatter test found.
+    """
+
+    WITHDRAWN = ("Bash(gh pr merge", "Bash(gh pr create",
+                 "Bash(git worktree remove")
+
+    REPLACEMENTS = ("gh-pr-merge.sh", "gh-pr-create.sh",
+                    "git-worktree-remove.sh")
+
+    def frontmatter(self, path):
+        return path.read_text(encoding="utf-8").split("---")[1]
+
+    def test_no_command_grants_the_raw_form(self):
+        seen = 0
+        for path in sorted(COMMANDS.glob("*.md")):
+            seen += 1
+            front = self.frontmatter(path)
+            for grant in self.WITHDRAWN:
+                with self.subTest(command=path.name, grant=grant):
+                    self.assertNotIn(grant, front)
+        self.assertGreater(seen, 5, "found almost no commands")
+
+    def test_the_helpers_exist_and_are_granted_where_they_are_used(self):
+        # The positive control: withdrawing three grants and granting nothing
+        # would satisfy the case above and break the chain at its last step.
+        for name in self.REPLACEMENTS:
+            with self.subTest(helper=name):
+                self.assertTrue((SCRIPTS / name).is_file())
+        ship = self.frontmatter(COMMANDS / "ship.md")
+        for name in self.REPLACEMENTS:
+            with self.subTest(command="ship.md", helper=name):
+                self.assertIn(f"bash .claude/scripts/{name}:*", ship)
+        self.assertIn("bash .claude/scripts/gh-pr-create.sh:*",
+                      self.frontmatter(COMMANDS / "pr.md"))
+
+    @staticmethod
+    def _code(name):
+        # Over the CODE, never the file: each of these helpers names the flag
+        # it exists to refuse, in the comment explaining why. A whole-file scan
+        # reads the explanation as the defect — it did.
+        return "\n".join(
+            line for line
+            in (SCRIPTS / name).read_text(encoding="utf-8").splitlines()
+            if not line.lstrip().startswith("#"))
+
+    def test_the_helpers_spell_the_flags_they_replaced(self):
+        merge = self._code("gh-pr-merge.sh")
+        self.assertIn('gh pr merge --merge --repo "$repo" '
+                      '--match-head-commit "$oid" "$pr"', merge)
+        self.assertNotIn("--admin", merge)
+        # `--match-head-commit` is a required ARGUMENT, not an optional flag:
+        # ship.md calls it the only guard in step 7 that fails closed and then
+        # relied on prose to make it present.
+        self.assertIn('[ "$#" -eq 2 ]', merge)
+
+        create = self._code("gh-pr-create.sh")
+        self.assertIn('gh pr create --repo "$repo" --base main --head "$branch"',
+                      create)
+
+        remove = self._code("git-worktree-remove.sh")
+        self.assertIn('git worktree remove "$path"', remove)
+        self.assertNotIn("--force", remove)
+        self.assertNotIn(" -f ", remove)
+
+    def test_the_merge_helper_refuses_what_the_grant_admitted(self):
+        # Driven, not grepped. Neither argument can carry a flag, because
+        # neither is admitted unless it matches its shape.
+        for args in (["12", "--admin"], ["12"], ["--admin", "0" * 40],
+                     ["12", "0" * 40, "--admin"], []):
+            with self.subTest(args=args):
+                out = subprocess.run(
+                    [BASH, str(SCRIPTS / "gh-pr-merge.sh"), *args],
+                    capture_output=True, text=True)
+                self.assertEqual(2, out.returncode, out.stderr)
+
+    def test_the_worktree_helper_refuses_a_flag_and_a_stranger(self):
+        for arg in ("-f", "--force", "../x/../../etc", "/tmp/elsewhere",
+                    "../../sibling"):
+            with self.subTest(arg=arg):
+                out = subprocess.run(
+                    [BASH, str(SCRIPTS / "git-worktree-remove.sh"), arg],
+                    capture_output=True, text=True)
+                self.assertEqual(2, out.returncode, out.stderr)
+
+    def test_the_create_helper_refuses_a_body_it_should_not_publish(self):
+        # `--body-file` publishes what it reads, including a file the session's
+        # own `Read` is bounded away from — so the path is resolved and has to
+        # land inside the checkout or under the temp root.
+        outside = Path(os.path.expanduser("~")) / ".gitconfig"
+        if not outside.is_file():
+            outside = Path(os.path.expanduser("~")) / ".bashrc"
+            outside.parent.mkdir(parents=True, exist_ok=True)
+        if outside.is_file():
+            out = subprocess.run(
+                [BASH, str(SCRIPTS / "gh-pr-create.sh"), "title", str(outside)],
+                capture_output=True, text=True, cwd=str(SCRIPTS.parent.parent))
+            self.assertEqual(2, out.returncode, out.stderr)
+            self.assertIn("outside this checkout", out.stderr)
+
+        # And a title that is not one line, which `gh` would otherwise take as
+        # body text with nothing in the report to show what was sent.
+        body = Path(tempfile.mkdtemp(prefix="pr-body-")) / "body.md"
+        self.addCleanup(shutil.rmtree, str(body.parent), ignore_errors=True)
+        body.write_text("body\n", encoding="utf-8")
+        # **The newline is built inside bash rather than passed as an
+        # argument**, and that is not a style choice.
+        # `subprocess.list2cmdline` quotes an argument containing a space or a
+        # tab and NOT one containing a newline, so on Windows `"a\nb"` reached
+        # the shell unquoted, split into two words, and the helper answered
+        # with its usage line — the case failing for the harness's reason
+        # rather than the helper's, which is the shape that gets a real check
+        # deleted as broken.
+        out = subprocess.run(
+            [BASH, "-c", 'exec bash "$0" "$(printf "a\\nb")" "$1"',
+             str(SCRIPTS / "gh-pr-create.sh"), str(body)],
+            capture_output=True, text=True, cwd=str(SCRIPTS.parent.parent))
+        self.assertEqual(2, out.returncode, out.stderr)
+        self.assertIn("more than one line", out.stderr)
+
+
 class TheFourPortedResiduals(unittest.TestCase):
     """#18 — four residuals in machinery ported verbatim from the backend.
 
