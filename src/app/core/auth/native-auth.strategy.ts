@@ -297,7 +297,7 @@ export class NativeAuthStrategy extends AuthService {
       // user with no way to retry cleanly — they had to dismiss the browser
       // and wait for the dismissal path to notice.
       this.pending = null;
-      await this.browser.close();
+      await this.closeBrowserQuietly();
       const reason = params.get('error');
       pending.reject(
         new Error(
@@ -335,8 +335,12 @@ export class NativeAuthStrategy extends AuthService {
 
     // Closed on every outcome: the system browser is showing a page that has
     // already redirected, and leaving it in front of the app on a failed
-    // exchange strands the user on it.
-    await this.browser.close();
+    // exchange strands the user on it. Best-effort, though: `pending` is
+    // already cleared by this point, so a rejection here would skip both the
+    // adoption below and every `pending.reject()`, and the caller of
+    // `signIn()` would wait for the life of the app on a promise nothing can
+    // settle. Closing a tab is not worth that.
+    await this.closeBrowserQuietly();
 
     if (result.outcome === 'ok' && result.body.access_token) {
       let adopted: boolean;
@@ -480,11 +484,7 @@ export class NativeAuthStrategy extends AuthService {
     this.abandonPendingSignIn('Sign-in was abandoned by a sign-out.');
     // Closes the login page still sitting in front of the app. Harmless when
     // no browser is open.
-    try {
-      await this.browser.close();
-    } catch {
-      // Nothing depends on the tab closing; the session is ending regardless.
-    }
+    await this.closeBrowserQuietly();
 
     // Recorded before the asynchronous work below, and compared after it.
     const adoptions = this.adoptions;
@@ -608,6 +608,20 @@ export class NativeAuthStrategy extends AuthService {
    * session that replaced it. The key is fixed and shared; the value is what
    * identifies the owner.
    */
+  /**
+   * Dismisses the system browser and never fails doing it. Every caller is
+   * mid-way through settling something more important than a tab — a flow's
+   * promise, or a session ending — and none of them can afford to be skipped
+   * by a rejection from here.
+   */
+  private async closeBrowserQuietly(): Promise<void> {
+    try {
+      await this.browser.close();
+    } catch {
+      // The tab stays up. Nothing downstream depends on it having gone.
+    }
+  }
+
   private async discard(refreshToken: string | undefined): Promise<void> {
     if (!refreshToken) return;
     try {

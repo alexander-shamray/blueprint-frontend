@@ -719,6 +719,21 @@ describe('NativeAuthStrategy', () => {
     expect(strategy.accessToken()).toBeNull();
   });
 
+  it('settles the flow even when the browser refuses to close', async () => {
+    fetchMock.mockResolvedValue(tokenResponse('refresh-1'));
+    browser.close.mockRejectedValue(new Error('no tab to close'));
+    const { flow } = await startSignIn();
+
+    await deliverCallback();
+
+    // `pending` is cleared before the close, so a rejection there used to skip
+    // both the adoption and every `pending.reject()` — leaving signIn()'s
+    // caller waiting for the life of the app on a promise nothing could
+    // settle. Dismissing a tab is not worth that.
+    await expect(flow).resolves.toBeUndefined();
+    expect(strategy.accessToken()).not.toBeNull();
+  });
+
   it('reports a sign-out that could not clear the stored credential', async () => {
     store.set(REFRESH_TOKEN_KEY, 'refresh-1');
     fetchMock.mockResolvedValue(tokenResponse('refresh-2'));
