@@ -6351,16 +6351,20 @@ const config: CapacitorConfig = {
   appId: 'dev.ashamray.blueprint',
   appName: 'Blueprint',
   webDir: 'dist/blueprint-frontend/browser',
-  // The custom scheme the system browser returns to after the authorization
-  // code flow (spec §4.2). It must match the mobile-app realm client's
-  // redirectUris exactly — Keycloak compares the string.
-  plugins: {
-    App: { launchUrl: 'blueprint://auth/callback' },
-  },
 };
 
 export default config;
 ```
+
+**Corrected after execution: this step used to put the callback URI in this
+file as `plugins.App.launchUrl`, and that key does nothing.** `@capacitor/app`
+declares the App plugin's whole configuration as
+`{ disableBackButtonHandler?: boolean }`, so the key was carried into
+`capacitor.config.json` by `cap sync` and read by nothing. It was removed in
+the branch that closed issue #6, which also put the file into a type-checked
+programme for the first time — writing it back now fails the unit build rather
+than shipping quietly. The two entries below are what actually register the
+scheme; `client-architecture.md` §15 is the current account.
 
 In `android/app/src/main/AndroidManifest.xml`, add an intent filter to the main activity:
 

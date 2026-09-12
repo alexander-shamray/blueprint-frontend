@@ -170,6 +170,77 @@ function webViewOrigin(config: CapacitorConfig, platform: 'android' | 'ios'): st
   return `${declared ?? defaults.scheme}://${server.hostname ?? defaults.hostname}`;
 }
 
+/**
+ * `webViewOrigin` is the model, and the suite below is only as good as it.
+ *
+ * Every assertion further down runs against the real config, which overrides
+ * none of the four fields — so those branches are never taken, and a
+ * `webViewOrigin` that had quietly stopped reading one would keep this file
+ * green while the guard it implements was dead. That is the failure this
+ * describe block exists to make impossible: it drives each branch with a
+ * synthetic config, so the model is pinned before it is trusted.
+ *
+ * The expected values are the ones Capacitor's own resolution produces, not
+ * this function's: an `http` android scheme serves the page from
+ * `http://localhost`, a `hostname` moves BOTH platforms because one field
+ * feeds both, and `server.url` replaces the whole origin rather than a part
+ * of it.
+ */
+describe('the origin a config asks for', () => {
+  it('honours an explicit Android scheme', () => {
+    const config: CapacitorConfig = { server: { androidScheme: 'http' } };
+
+    expect(webViewOrigin(config, 'android')).toBe('http://localhost');
+    expect(webViewOrigin(config, 'ios')).toBe(IOS_ORIGIN);
+  });
+
+  it('honours an explicit iOS scheme', () => {
+    const config: CapacitorConfig = { server: { iosScheme: 'ionic' } };
+
+    expect(webViewOrigin(config, 'ios')).toBe('ionic://localhost');
+    expect(webViewOrigin(config, 'android')).toBe(ANDROID_ORIGIN);
+  });
+
+  it('honours a hostname, and it moves both platforms', () => {
+    const config: CapacitorConfig = { server: { hostname: '10.0.2.2' } };
+
+    expect(webViewOrigin(config, 'android')).toBe('https://10.0.2.2');
+    expect(webViewOrigin(config, 'ios')).toBe('capacitor://10.0.2.2');
+  });
+
+  it('honours a live-reload server.url on both platforms', () => {
+    const config: CapacitorConfig = { server: { url: 'http://10.0.2.2:5173' } };
+
+    expect(webViewOrigin(config, 'android')).toBe('http://10.0.2.2:5173');
+    expect(webViewOrigin(config, 'ios')).toBe('http://10.0.2.2:5173');
+  });
+
+  /**
+   * `server.url` is the WebView's whole origin when it is set, so the scheme
+   * and hostname keys beside it decide nothing. Asserting the precedence
+   * keeps a model that merely happened to read `url` first from passing as
+   * one that reads it instead.
+   */
+  it('lets server.url override the scheme and hostname beside it', () => {
+    const config: CapacitorConfig = {
+      server: {
+        url: 'https://reload.example:8100',
+        androidScheme: 'http',
+        iosScheme: 'ionic',
+        hostname: '10.0.2.2',
+      },
+    };
+
+    expect(webViewOrigin(config, 'android')).toBe('https://reload.example:8100');
+    expect(webViewOrigin(config, 'ios')).toBe('https://reload.example:8100');
+  });
+
+  it('falls back to the platform defaults when the config overrides nothing', () => {
+    expect(webViewOrigin({}, 'android')).toBe(ANDROID_ORIGIN);
+    expect(webViewOrigin({}, 'ios')).toBe(IOS_ORIGIN);
+  });
+});
+
 describe('the WebView origin the realm grants', () => {
   const lifecycle = process.env['npm_lifecycle_event'];
   const emulator = process.env['BLUEPRINT_EMULATOR'];
