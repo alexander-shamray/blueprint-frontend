@@ -47,7 +47,11 @@ sibling worktree carries the lockfile and none of what it pins. The first
 check in it fails on a missing `ng` binary, which reads like a broken
 toolchain rather than an uninstalled one. Run `npm ci` once after moving in.
 
-**The harness suite needs bash, grep, git, jq and `py -3.12`, and its
+**The harness suite needs bash, grep, git, jq and **Python 3.12** — invoked
+as `py -3.12` on Windows and as `python` on macOS and Linux, which is what
+the CI matrix uses. `py` is the Windows launcher and prescribing it here told
+developers on two supported platforms to run something that does not exist.
+Its
 `setUpModule` fails rather than skips when one is missing** — a skip on a
 missing tool reports a pass, which is the fail-open it exists to refuse. The
 shell helpers are written for **bash 3.2**, which is what macOS ships as

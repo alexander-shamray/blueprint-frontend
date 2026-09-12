@@ -197,11 +197,14 @@ rather than here. Three rules reach every session, so they stay:
   `PreToolUse` call fails there before the guard runs. Loud and total rather
   than silent, but not portable; `docs/harness-boundaries.md` argues it and
   #23 tracks the fix.
-- **`py -3.12 -m unittest discover -s .claude/scripts -p 'test_*.py'` is the
+- **`python -m unittest discover -s .claude/scripts -p 'test_*.py'` is the
   harness's own suite** — it covers the deny lists, the frontmatter grants,
   the helper shapes and the hooks. It reads `git ls-files`, so a new tracked
   root file or top-level tree fails it until somebody decides which side of
-  the boundary it is on. Run it after any change under `.claude/`.
+  the boundary it is on. Run it after any change under `.claude/`; the
+  interpreter is `py -3.12` on Windows and `python` elsewhere, which is what
+  CI's `harness` job uses on all three platforms, and `docs/testing.md` owns
+  the prerequisite.
 
 ### What was not ported, and is therefore missing
 

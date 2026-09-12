@@ -16,8 +16,11 @@ moved, never to restate a fact the code already owns.
 A lower layer cites a higher one by name. It never copies the value.
 
 1. **Gates and tests.** Green means the claim they cover is true. Here that
-   is `npm run lint`, the Vitest suite, the Playwright smoke, and the
-   `android` job's two-direction assertion of the emulator relaxations.
+   is `npm run lint`, the Vitest suite, the Playwright smoke, the `android`
+   job's two-direction assertion of the emulator relaxations, and the
+   `harness` job's run of the agent harness's own suite across three
+   platforms. `client-architecture.md` §14 owns which jobs exist; this list
+   names what a green one means rather than restating them.
 2. **Code.** Types, providers, guards, interceptors, environment files,
    route definitions, the ESLint boundary rules. A value a document needs
    lives in one named symbol; the document names the symbol.
