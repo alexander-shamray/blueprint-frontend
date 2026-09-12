@@ -1005,9 +1005,9 @@ that names the permission it lacks.
 
 ## 15. The native shell: one scheme, two origins, and a round trip nobody has run
 
-Phase B adds Android and iOS around the same web build. Four facts about that
-are worth writing down, because three of them are host decisions this client
-only obeys and the fourth is a gap.
+Phase B adds Android and iOS around the same web build. Five facts about that
+are worth writing down: three are host decisions this client only obeys, one is
+a local relaxation with a gate on it, and the last is a gap.
 
 **The callback scheme is repeated in seven places, and none of them can
 import another.** The realm's `mobile-app` client registers exactly one
@@ -1059,14 +1059,46 @@ WebCrypto over it rather than asserting a stand-in digest.)
 **The emulator reaches the host at `10.0.2.2`, not `localhost`.** Inside an
 Android emulator `localhost` is the emulator. `environment.android.ts` carries
 the host alias for the gateway and for Keycloak, and `ng build --configuration
-android` (`npm run build:android`) is what selects it. Which environment a
+android` is what selects it — through `npm run emulator:android`, which is that
+build plus the sync the next note is about. Which environment a
 build carries stays a build-time file replacement, as it is for the web: a
 client that sniffed its own host would be deciding its configuration from the
 thing the configuration is supposed to decide.
 
-**Two things are known to block the first device run, and neither is fixed
-here.** Both were found by review rather than by running anything, which is
-itself the argument for running it.
+**The emulator's cleartext is two blocks, and it takes two keys.**
+`environment.android.ts` points at `http://10.0.2.2:5000` and
+`http://10.0.2.2:8080`, while Capacitor serves the page from
+`https://localhost` — `androidScheme` defaults to `https`. Those requests are
+refused twice over and by different parts of the system, which is why the
+obvious single fix is half a fix:
+
+| Block | Key | What it does |
+|---|---|---|
+| The platform disables cleartext outright (API 28+; `variables.gradle` targets 36) | `server.cleartext` | writes `android:usesCleartextTraffic="true"` into `android/capacitor-cordova-android-plugins`' manifest, which the manifest merger folds into the app's |
+| The page is `https://`, so an `http://` subresource is active mixed content | `android.allowMixedContent` | puts the WebView into `MIXED_CONTENT_ALWAYS_ALLOW` (`Bridge.initWebView`) |
+
+Capacitor's own declarations call both "not intended for use in production",
+and `capacitor.config.ts` is one committed file for every build with no
+`--config` answer to Angular's `fileReplacements`. So both keys are gated on
+the environment of the process running `cap sync`: `npm run emulator:android`
+builds with the android configuration and syncs with the flag set, and any
+other sync — a developer's, the ci `android` job's — produces a build with
+neither. The ci job asserts both directions, because a release APK that ships
+cleartext would pass every other check in that file, and a gate that only
+tested the off direction would keep passing if a Capacitor major moved a key.
+
+`server.androidScheme: 'http'` would clear both blocks with one key, and
+`http://localhost` is still a secure context so `crypto.subtle` keeps minting
+the S256 challenge. It is not what was chosen: it changes the origin the
+gateway and the realm each have to admit, and those origins are the subject of
+the gateway-origin note above and the realm-origin note below. One origin for
+every build is worth more than one fewer key. iOS is untouched — the simulator reaches the host at `localhost`
+with no alias, and its cleartext question is App Transport Security in
+`Info.plist`, not either key here.
+
+**One thing is known to block the first device run, and it is not fixed here.**
+It was found by review rather than by running anything, which is itself the
+argument for running it.
 
 *The token exchange is a browser `fetch`, and the realm grants it no origin.*
 `native-auth.strategy.ts` posts to Keycloak's token endpoint with `fetch`,
@@ -1075,7 +1107,7 @@ on Android, `capacitor://localhost` on iOS. The realm's `mobile-app` client
 declares `"webOrigins": []` (`realm-export.json`), so Keycloak returns no
 `Access-Control-Allow-Origin` and the WebView discards the response before
 this code sees it. Note this is a SEPARATE hop from the gateway CORS question
-below: the gateway is not in this path at all, Keycloak is. Two ways out, and
+above: the gateway is not in this path at all, Keycloak is. Two ways out, and
 they are not equivalent: add the native origins to the realm client (a backend
 change, and the symmetrical fix to the gateway one), or enable Capacitor's
 `CapacitorHttp` so `fetch` is serviced by the native HTTP stack and CORS never
@@ -1083,34 +1115,25 @@ applies. The second needs no backend change but patches `fetch` process-wide,
 which would also reroute every `HttpClient` call to the gateway — not a change
 to make without a device to check it on.
 
-*The emulator configuration is cleartext, and the WebView is not.*
-`environment.android.ts` points at `http://10.0.2.2:5000` and
-`http://10.0.2.2:8080`, while Capacitor serves the page from `https://localhost`
-— `androidScheme` defaults to `https` (`@capacitor/cli` declarations) and
-`server.cleartext` defaults to `false`, with cleartext disabled outright from
-API 28. So those requests are blocked twice over, as mixed content and as
-cleartext, before either host is reached. The fixes are a config decision
-rather than a typo: `androidScheme: 'http'` (localhost stays a secure context,
-so `crypto.subtle` keeps working, but the origin the gateway must admit
-changes again), `server.cleartext: true` — which Capacitor's own documentation
-calls "not intended for use in production" — or TLS on the Compose stack.
-Choosing without an emulator to verify against would be guessing.
-
 **What has not been done.** No device or emulator has run this client. The
 Android project builds a debug APK, the native strategy is covered by
 forty unit tests with no device attached, and the iOS project is
 generated — none of that is the same as a round trip through a real system
 browser. Most of those forty exist because review found a bug, which is
 worth noting: unit tests around a mocked `fetch` and a mocked browser can pin
-every decision this class makes and still say nothing about the two things
-below, because both are the platform refusing a request the mocks always
-allow. Plan Task 20
+every decision this class makes and still say nothing about the origin above,
+because that is the platform refusing a request the mocks always allow. Plan Task 20
 is that round trip, and it is deliberately still open. Running it means, in
 order:
 
 1. Bring up the backend's Compose stack, and add `https://localhost` to the
    gateway's `Cors__Origins__*` as above.
-2. `npm run build:android && npx cap sync android && npx cap run android`.
+2. `npm run emulator:android`, then `npm run emulator:android:run`. The
+   relaxations of the note above are set by the flag that first script
+   carries, and `cap run` re-syncs by default — so the launch has to pass
+   `--no-sync`, which is the only thing the second script is for. A bare `npx
+   cap run android` would silently overwrite the flagged sync with a release
+   one and fail exactly as if the fix were not there.
 3. Sign in: the system browser must open (not a web view inside the app), and
    the return must land back in the running app rather than in a new copy of
    it.

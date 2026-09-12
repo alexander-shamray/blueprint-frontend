@@ -6,6 +6,8 @@
     "start": "ng serve",
     "build": "ng build",
     "build:android": "ng build --configuration android",
+    "emulator:android": "ng build --configuration android && cap sync android",
+    "emulator:android:run": "cap run android --no-sync",
     "watch": "ng build --watch --configuration development",
     "test": "ng test",
     "lint": "ng lint",

@@ -104,10 +104,39 @@ jobs:
           java-version: '21'
       - run: npm ci
       - run: npm run build
+      # The emulator relaxations (#7) are gated on an environment flag in
+      # capacitor.config.ts, and both directions of that gate are worth
+      # asserting: that asking for them works, and that NOT asking leaves them
+      # off. The second is the one that matters — a build that ships cleartext
+      # passes every other check in this file — and the first is what stops it
+      # passing vacuously if a key is ever renamed or a Capacitor major moves
+      # one. Neither is observable from a unit test: both keys leave the
+      # TypeScript and land in files `cap sync` generates.
+      - name: The emulator sync asks for cleartext and mixed content
+        env:
+          BLUEPRINT_EMULATOR: '1'
+        run: |
+          npx cap sync android
+          grep -q 'usesCleartextTraffic="true"' android/capacitor-cordova-android-plugins/src/main/AndroidManifest.xml \
+            || { echo 'An emulator sync did not enable cleartext traffic.' >&2; exit 1; }
+          grep -q '"allowMixedContent": true' android/app/src/main/assets/capacitor.config.json \
+            || { echo 'An emulator sync did not allow mixed content.' >&2; exit 1; }
       # `sync` after `build`, always: it is what copies dist into
       # android/app/src/main/assets/public, and that directory is gitignored,
-      # so the checkout has no web assets in it at all until this runs.
+      # so the checkout has no web assets in it at all until this runs. It also
+      # has to be the LAST sync before gradle, so that the APK below is built
+      # from the release configuration and not from the step above's.
       - run: npx cap sync android
+      - name: The release sync asks for neither
+        run: |
+          if grep -q usesCleartextTraffic android/capacitor-cordova-android-plugins/src/main/AndroidManifest.xml; then
+            echo 'A release sync enabled cleartext traffic.' >&2
+            exit 1
+          fi
+          if grep -q allowMixedContent android/app/src/main/assets/capacitor.config.json; then
+            echo 'A release sync allowed mixed content.' >&2
+            exit 1
+          fi
       - run: ./gradlew assembleDebug
         working-directory: android
 
