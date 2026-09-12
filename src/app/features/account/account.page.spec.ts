@@ -168,16 +168,17 @@ describe('AccountPage', () => {
 
     expect(fixture.componentInstance.tokenPosture()).toBe(sentence);
     // The computed alone is deletable with the template line gone; this is
-    // the live posture of the only AuthService that ships today.
+    // the posture a browser sees, and the sibling test below covers the
+    // posture a device sees.
     expect(fixture.nativeElement.textContent).toContain(sentence);
   });
 
-  it('pins the native token posture sentence — the Phase B contract, not behaviour this client runs today', () => {
-    // sessionEndsOnReload is `true` in WebAuthStrategy and nowhere else: no
-    // native strategy exists yet (Phase B). This sentence cannot be reached
-    // by any running configuration right now; pinning it is how the Phase B
-    // contract survives to the strategy that must satisfy it. A green test
-    // here is not evidence that secure-storage refresh-token rotation works.
+  it('shows the native token posture sentence for a strategy whose session survives a reload', () => {
+    // Reachable for real since plan Task 19: NativeAuthStrategy reports
+    // sessionEndsOnReload === false, which is the `false` branch below. What
+    // this test still does NOT prove is that secure-storage rotation works —
+    // that belongs to native-auth.strategy.spec.ts, which tests it directly.
+    // This one proves only that the page renders the other sentence.
     const { fixture } = mount(demo, false);
     const sentence = 'Refresh token in secure storage, rotated.';
 
