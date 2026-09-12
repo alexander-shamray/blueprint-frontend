@@ -2,7 +2,7 @@
 description: Triage an external review of the branch into a resolution record
 argument-hint: "[path to the review — defaults to suggestions.md] [path to the locality verdict — omit when there is no PR] [path to the branch diff — omit when the caller cannot write one]"
 allowed-tools: Read, Grep, Glob, Edit, Write, Agent(review-adjudicator)
-disallowed-tools: Bash, Edit(.claude/**), Edit(./.claude/**), Edit(.github/**), Edit(./.github/**), Edit(android/**), Edit(./android/**), Edit(ios/**), Edit(./ios/**), Edit(.git/**), Edit(./.git/**), Edit(.git), Edit(./.git), Agent(general-purpose), Agent(claude), Agent(Explore), Agent(Plan), Agent(claude-code-guide), Agent(statusline-setup), Agent(security-auditor), Agent(bug-auditor)
+disallowed-tools: Bash, Edit(.claude/**), Edit(./.claude/**), Edit(.github/**), Edit(./.github/**), Edit(android/**), Edit(./android/**), Edit(ios/**), Edit(./ios/**), Edit(.git/**), Edit(./.git/**), Edit(.git), Edit(./.git), Edit(package.json), Edit(./package.json), Edit(package-lock.json), Edit(./package-lock.json), Edit(npm-shrinkwrap.json), Edit(./npm-shrinkwrap.json), Edit(.npmrc), Edit(./.npmrc), Edit(angular.json), Edit(./angular.json), Edit(tsconfig.json), Edit(./tsconfig.json), Edit(tsconfig.app.json), Edit(./tsconfig.app.json), Edit(tsconfig.spec.json), Edit(./tsconfig.spec.json), Edit(eslint.config.js), Edit(./eslint.config.js), Edit(.prettierrc), Edit(./.prettierrc), Edit(capacitor.config.ts), Edit(./capacitor.config.ts), Edit(playwright.config.ts), Edit(./playwright.config.ts), Edit(ionic.config.json), Edit(./ionic.config.json), Edit(.nvmrc), Edit(./.nvmrc), Edit(.editorconfig), Edit(./.editorconfig), Edit(.gitattributes), Edit(./.gitattributes), Edit(.gitignore), Edit(./.gitignore), Edit(**/*.config.js), Edit(**/*.config.cjs), Edit(**/*.config.mjs), Edit(**/*.config.ts), Edit(**/*.config.mts), Edit(**/package.json), Edit(**/.npmrc), Edit(**/tsconfig*.json), Edit(**/.prettierrc*), Agent(general-purpose), Agent(claude), Agent(Explore), Agent(Plan), Agent(claude-code-guide), Agent(statusline-setup), Agent(security-auditor), Agent(bug-auditor)
 ---
 
 Work through the review at $1 — a file path. **With no argument, the review is
@@ -63,6 +63,22 @@ Save it to a file and name the path.
 > finding whose fix lands there is a `Needs a decision` row and cannot be
 > anything else. The adjudicator returns those as `decision` before this step
 > sees them, and the deny is what holds if it does not.
+>
+> **The toolchain inputs are denied too, and they were not in the first
+> version of this list.** `package.json`, the lockfile, `angular.json`, the
+> `tsconfig*.json` set, `eslint.config.js`, `.prettierrc`, `.npmrc`,
+> `capacitor.config.ts`, `playwright.config.ts` and the `**/*.config.*` class
+> are refused here for a reason the three machinery trees do not cover: this
+> command **applies** an external reviewer's findings, and several of those
+> files are executed by the next thing that builds. `eslint.config.js` and a
+> Vitest config are JavaScript run in order to be loaded, `.npmrc` can set
+> `script-shell`, and a `pre`/`post` entry in `package.json` runs on every
+> `npm` invocation — so an accepted finding that edited one of them would turn
+> the `/review-branch` or `/ship` check that follows into execution of
+> reviewer-controlled code. Raised by Copilot against PR #13, against the port
+> that carried this list over without re-deriving it for this toolchain: the
+> same work had been done for review-branch.md and not for this file. A
+> finding whose fix lands in one of them is a `Needs a decision` row.
 >
 > **What this does not close, stated rather than rounded up.** The record is
 > one hop from the prose, and a row can still name any site under `src/`,

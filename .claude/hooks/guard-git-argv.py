@@ -80,11 +80,22 @@ import shlex
 import sys
 import traceback
 
-# Flags that write or execute rather than inspect. Matched on a PREFIX, so
+# Flags that reach outside what the grant was for. Matched on a PREFIX, so
 # `--exec-path=<dir>` — a directory of binaries for git to run — is the same act
 # as `--exec`; an earlier form matched exactly-or-`=` and admitted it, which the
 # crude substring deny had been catching all along.
-FORBIDDEN_FLAGS = ("--output", "--upload-pack", "--receive-pack", "--exec")
+#
+# Three of the four write or execute. `--no-index` is the odd one and it is here
+# for the same boundary in the other direction: it makes git diff two paths as
+# plain files with no repository involved, so `git diff --no-index <secret>
+# /dev/null` prints that file to stdout. Measured, not reasoned about — it
+# printed this host's ~/.gitconfig. `Bash(git diff:*)` is granted in
+# settings.json and in four commands' frontmatter, and Read is bounded by the
+# harness, so without this line the read grant is wider than the Read tool it
+# sits beside. Raised by Copilot against PR #13; the deny in settings.json is
+# beside it as defence in depth, and this is the half that is not a speed bump.
+FORBIDDEN_FLAGS = ("--output", "--upload-pack", "--receive-pack", "--exec",
+                   "--no-index")
 
 # Judged against a whole element, and only on a subcommand that takes a
 # repository — a branch name, a path or a commit body may carry the sequence
@@ -2800,10 +2811,12 @@ def _offence(command, depth, judged):
                 if element.startswith(flag) or (
                         abbreviation and flag.startswith(name)):
                     return (
-                        f"`git ... {flag}` is refused: it writes or executes "
-                        "rather than inspects, and the settings deny it matches "
-                        "only the unquoted spelling. This hook compares the "
-                        "resolved argv, and any unambiguous abbreviation of it."
+                        f"`git ... {flag}` is refused: it reaches outside the "
+                        "repository this grant was for — writing, executing, or "
+                        "in --no-index's case reading a path git would not "
+                        "otherwise open — and the settings deny it matches only "
+                        "the unquoted spelling. This hook compares the resolved "
+                        "argv, and any unambiguous abbreviation of it."
                     )
             if subcommand not in REPOSITORY_SUBCOMMANDS:
                 continue

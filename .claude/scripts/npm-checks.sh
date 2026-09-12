@@ -9,12 +9,30 @@
 # one turns "run the tests" into "run this". So the script names and the flag
 # sets are fixed here, and the only variable is one word out of a closed set.
 #
-# **This closes the executor and not the manifest.** `package.json` is still a
-# file the session can edit, and every mode below runs whatever its `scripts`
-# block currently says — so the manifest itself has to be out of reach, which is
-# `disallowed-tools`' job in review-branch.md rather than this script's. The same
-# holds for the config files those scripts read (`angular.json`,
-# `eslint.config.js`, `vitest` config) and for `node_modules/.bin`.
+# **This closes the executor and not the manifest, and the gap is wider than an
+# earlier draft of this header admitted.** `package.json` is still a file the
+# session can edit, and every mode below runs whatever its `scripts` block
+# currently says; the same holds for the config files those scripts read
+# (`angular.json`, `eslint.config.js`, the Vitest config) and for
+# `node_modules/.bin`. review-branch.md's `disallowed-tools` denies all of them,
+# and this header used to point there as if that settled it.
+#
+# **It does not, and Copilot was right to say so against PR #13.** A deny stops
+# THIS agent from editing those files. It cannot stop a BRANCH from arriving
+# with them already edited — and /review-branch's whole subject is a branch
+# somebody else wrote. So on an untrusted branch, `npm ci` alone runs any
+# `preinstall`/`postinstall` in the manifest or in any dependency the lockfile
+# names, and every mode below loads configuration that is executed in order to
+# be read. The deny protects the file; nothing here protects the host.
+#
+# **What actually stands is the trust boundary, not this script.** These modes
+# run on the developer's own machine against a branch the developer is
+# reviewing, which is the same act as opening the repository in an editor with
+# a language server — and the external reviewer, the one case where the branch
+# is genuinely untrusted, gets no Node toolchain at all and cannot install one
+# (see .claude/sandbox/Dockerfile). Running these checks on a fork's branch,
+# unattended, is the case this does not cover; do that in a disposable
+# environment with no credentials, or not at all.
 #
 # `e2e` is deliberately NOT one of the modes. Playwright needs a browser
 # download and the backend's Compose stack on :5000, neither of which exists in

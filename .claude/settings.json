@@ -17,7 +17,6 @@
       "Bash(git remote -v)",
       "Bash(ls:*)",
       "Bash(wc:*)",
-      "Bash(comm:*)",
       "Grep",
       "Glob",
       "Read"
@@ -59,6 +58,7 @@
       "Bash(git branch --move:*)",
       "Bash(git branch --force:*)",
       "Bash(git *--output*)",
+      "Bash(git *--no-index*)",
       "Bash(git *--upload-pack*)",
       "Bash(git *--receive-pack*)",
       "Bash(git *--exec*)"
