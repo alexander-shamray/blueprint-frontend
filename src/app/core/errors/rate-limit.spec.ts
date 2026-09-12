@@ -1,7 +1,6 @@
-import { Signal, signal } from '@angular/core';
+import { EnvironmentInjector, createEnvironmentInjector } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { AuthService, CurrentUser } from '@core/auth/auth.service';
 import { DisplayError } from './error-mapper';
 import { RateLimitWindows } from './rate-limit';
 
@@ -12,31 +11,13 @@ const rateLimited = (seconds: number): DisplayError => ({
   retryAfterSeconds: seconds,
 });
 
-const user: CurrentUser = {
-  username: 'someone',
-  subject: 'sub-1',
-  permissions: [],
-  expiresAt: Date.now() + 300_000,
-};
-
-class StubAuth {
-  readonly current = signal<CurrentUser | null>(null);
-  user = (): Signal<CurrentUser | null> => this.current;
-  accessToken = () => (this.current() ? 'the-token' : null);
-}
-
 describe('RateLimitWindows', () => {
   let windows: RateLimitWindows;
-  let auth: StubAuth;
 
   beforeEach(() => {
     vi.useFakeTimers();
-    TestBed.configureTestingModule({
-      providers: [{ provide: AuthService, useClass: StubAuth }],
-    });
-
+    TestBed.configureTestingModule({});
     windows = TestBed.inject(RateLimitWindows);
-    auth = TestBed.inject(AuthService) as unknown as StubAuth;
   });
 
   afterEach(() => {
@@ -45,7 +26,7 @@ describe('RateLimitWindows', () => {
 
   describe('the window itself', () => {
     it('ticks down once a second and blocks the action until the window closes', () => {
-      windows.authenticated.open(rateLimited(3));
+      windows.forPartition('authenticated').open(rateLimited(3));
 
       expect(windows.authenticated.remaining()).toBe(3);
       expect(windows.authenticated.blocked()).toBe(true);
@@ -68,35 +49,67 @@ describe('RateLimitWindows', () => {
       expect(windows.authenticated.remaining()).toBe(0);
     });
 
-    it('opens no window for a Retry-After of zero', () => {
-      windows.authenticated.open({ ...rateLimited(0), retryAfterSeconds: 0 });
+    it('counts wall clock, not ticks, so a suspended app does not resume a dead window', () => {
+      windows.forPartition('authenticated').open(rateLimited(30));
 
+      // The app goes to the background: a throttled browser tab fires its
+      // interval roughly once a minute, and a suspended Capacitor WebView
+      // does not fire it at all. Time passes without ticks — so the clock
+      // moves 30 seconds here and only ONE tick follows it.
+      vi.setSystemTime(Date.now() + 30_000);
+      vi.advanceTimersByTime(1000);
+
+      // Decrementing by one per tick would have this at 29 with the buttons
+      // still dead, half a minute after the platform stopped refusing.
+      expect(windows.authenticated.remaining()).toBe(0);
       expect(windows.authenticated.blocked()).toBe(false);
     });
 
+    it('opens no window for a Retry-After of zero, and nothing to explain either', () => {
+      windows.forPartition('authenticated').open(rateLimited(0));
+
+      expect(windows.authenticated.blocked()).toBe(false);
+      // No wait means no banner is owed: the page that made the request still
+      // renders its own mapped error, and a page that made no request has
+      // nothing to say about this one.
+      expect(windows.authenticated.refusal()).toBeNull();
+    });
+
     it('ends the window on close, without waiting for the clock', () => {
-      windows.authenticated.open(rateLimited(30));
+      windows.forPartition('authenticated').open(rateLimited(30));
       expect(windows.authenticated.blocked()).toBe(true);
 
-      // Something got through the limiter. The action must come back
-      // immediately — the gateway's window was a prediction, and the
-      // prediction has just been overtaken by an answer.
-      windows.authenticated.close();
+      windows.forPartition('authenticated').close();
 
       expect(windows.authenticated.remaining()).toBe(0);
       expect(windows.authenticated.blocked()).toBe(false);
     });
 
     it('restarts the window when a second refusal arrives', () => {
-      windows.authenticated.open(rateLimited(10));
+      windows.forPartition('authenticated').open(rateLimited(10));
       vi.advanceTimersByTime(4000);
       expect(windows.authenticated.remaining()).toBe(6);
 
       // A different refusal with a different budget — the platform's latest
       // word, not a remainder of the first one.
-      windows.authenticated.open(rateLimited(20));
+      windows.forPartition('authenticated').open(rateLimited(20));
 
       expect(windows.authenticated.remaining()).toBe(20);
+    });
+
+    it('ignores a close from before the refusal that is standing', () => {
+      const window = windows.forPartition('authenticated');
+      // What a request holds when it goes out, before anything has been
+      // refused.
+      const epoch = window.epoch;
+
+      window.open(rateLimited(30));
+      // ...and now that earlier request's 200 finally lands. It was admitted,
+      // but it was admitted BEFORE the refusal that is standing, so it is not
+      // evidence about the bucket as it is now.
+      window.close(epoch);
+
+      expect(windows.authenticated.blocked()).toBe(true);
     });
 
     it('carries the refusal that opened it, and drops it when the window closes', () => {
@@ -106,7 +119,7 @@ describe('RateLimitWindows', () => {
       // something the customer did on another tab, and a disabled button with
       // no banner above it is the client knowing and not saying.
       const refusal = rateLimited(30);
-      windows.authenticated.open(refusal);
+      windows.forPartition('authenticated').open(refusal);
 
       expect(windows.authenticated.refusal()).toBe(refusal);
 
@@ -116,54 +129,42 @@ describe('RateLimitWindows', () => {
   });
 
   describe('the two partitions', () => {
-    it('keeps the anonymous window out of an authenticated refusal', () => {
-      // `Gateway.Api/Program.cs`: the authenticated policy partitions by the
-      // subject claim, the anonymous one by IP with its own budget. They are
-      // different buckets, so emptying one says nothing about the other.
-      windows.authenticated.open(rateLimited(30));
+    it('keeps the catalogue window out of an authenticated refusal', () => {
+      // Two policies in `Gateway.Api/appsettings.json`, assigned per route:
+      // the public listing takes a fixed window of 100 a minute per IP, and
+      // everything else a token bucket of 300 a minute per subject. Different
+      // buckets, so emptying one says nothing about the other.
+      windows.forPartition('authenticated').open(rateLimited(30));
 
-      expect(windows.anonymous.blocked()).toBe(false);
-      expect(windows.anonymous.refusal()).toBeNull();
+      expect(windows.catalogue.blocked()).toBe(false);
+      expect(windows.catalogue.refusal()).toBeNull();
     });
 
-    it('keeps the authenticated window out of an anonymous refusal', () => {
-      windows.anonymous.open(rateLimited(30));
+    it('keeps the authenticated window out of a catalogue refusal', () => {
+      windows.forPartition('catalogue').open(rateLimited(30));
 
       expect(windows.authenticated.blocked()).toBe(false);
     });
   });
 
-  describe('the window a catalogue read will land in', () => {
-    it('follows the anonymous window while signed out', () => {
-      windows.anonymous.open(rateLimited(30));
+  it('stops its interval when the injector that owns it is destroyed', () => {
+    // The windows outlive every page, so nothing else will ever stop them.
+    // An interval that survives its injector goes on writing to a signal once
+    // a second for the length of the window — and this app is zoneless, so
+    // nothing would notice it happening.
+    // Provided in the child rather than inherited, so the instance under test
+    // takes its DestroyRef from the injector this test destroys.
+    const injector = createEnvironmentInjector(
+      [RateLimitWindows],
+      TestBed.inject(EnvironmentInjector),
+    );
+    const owned = injector.get(RateLimitWindows).forPartition('authenticated');
+    owned.open(rateLimited(30));
 
-      expect(windows.catalogue.blocked()).toBe(true);
-      expect(windows.catalogue.remaining()).toBe(30);
-    });
+    injector.destroy();
 
-    it('follows the authenticated window while signed in', () => {
-      // The catalogue is anonymous at the endpoint, but `authInterceptor`
-      // attaches the bearer to EVERY gateway request once there is one — so a
-      // signed-in customer's catalogue read is partitioned by their subject
-      // like everything else. Which bucket a listing draws on is a fact about
-      // the session, not about the route.
-      auth.current.set(user);
-      windows.authenticated.open(rateLimited(30));
-
-      expect(windows.catalogue.blocked()).toBe(true);
-      expect(windows.catalogue.remaining()).toBe(30);
-    });
-
-    it('stops following the anonymous window the moment the customer signs in', () => {
-      windows.anonymous.open(rateLimited(30));
-      expect(windows.catalogue.blocked()).toBe(true);
-
-      // Signing in moves the next listing into the user's bucket, which is
-      // full. Leaving Products disabled on the strength of the IP window
-      // would be the client enforcing a limit the gateway is not.
-      auth.current.set(user);
-
-      expect(windows.catalogue.blocked()).toBe(false);
-    });
+    vi.advanceTimersByTime(5000);
+    expect(owned.remaining()).toBe(0);
+    expect(owned.blocked()).toBe(false);
   });
 });

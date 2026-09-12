@@ -35,12 +35,11 @@ export const appConfig: ApplicationConfig = {
     // a page-local workaround.
     { provide: RouteReuseStrategy, useClass: IonicRouteStrategy },
     provideRouter(routes),
-    // Order is load-bearing, not alphabetical. The gateway partitions its
-    // rate limiter by whether a request carried a bearer — one token bucket
-    // per subject, one fixed window per IP — so `rateLimitInterceptor` can
-    // only file a 429 in the right bucket if `authInterceptor` has already
-    // attached the token. Swap these two and every refusal lands in the
-    // anonymous window, including the signed-in ones.
+    // Order between these two does not matter, and that is deliberate rather
+    // than lucky: `rateLimitInterceptor` picks its bucket from the route and
+    // the method, which is how the gateway picks its limiter policy, so it
+    // reads nothing off the request that `authInterceptor` has to have
+    // written first.
     provideHttpClient(withInterceptors([authInterceptor, rateLimitInterceptor])),
     provideAuth(),
     // The cart survives a restart on every platform (spec §3). Restoring it

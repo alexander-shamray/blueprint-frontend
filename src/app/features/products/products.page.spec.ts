@@ -1,11 +1,8 @@
-import { provideHttpClient, withInterceptors } from '@angular/common/http';
-import { authInterceptor } from '@core/auth/auth.interceptor';
+import { HttpClient, provideHttpClient, withInterceptors } from '@angular/common/http';
 import { rateLimitInterceptor } from '@core/errors/rate-limit.interceptor';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { signal } from '@angular/core';
-import { AuthService } from '@core/auth/auth.service';
 import { CartStore } from '@core/cart/cart.store';
 import { CartPersistence } from '@core/cart/cart.persistence';
 import { CatalogRefresh } from '@core/catalog/catalog-refresh';
@@ -31,19 +28,16 @@ describe('ProductsPage', () => {
     TestBed.configureTestingModule({
       imports: [ProductsPage],
       providers: [
-        // The real interceptor pair, in app order. The 429 window is no longer
-        // driven by this page's error signal — `rateLimitInterceptor` opens it
-        // from the response — so a spec that left them out would be testing a
-        // page whose rate-limit binding nothing can ever set.
-        provideHttpClient(withInterceptors([authInterceptor, rateLimitInterceptor])),
+        // The real interceptor. The 429 window is no longer driven by this
+        // page's error signal — `rateLimitInterceptor` opens it from the
+        // response — so a spec without it would be testing a page whose
+        // rate-limit binding nothing can ever set. `authInterceptor` is not
+        // here because nothing in that window depends on it any more: the
+        // bucket is picked from the route, not from the bearer.
+        provideHttpClient(withInterceptors([rateLimitInterceptor])),
         provideHttpClientTesting(),
         CartStore,
         { provide: CartPersistence, useValue: { read: async () => [], write: async () => undefined } },
-        // Signed OUT, which is the case this page is unusual for: with no
-        // bearer the gateway partitions a catalogue read by IP, so the
-        // refusals below land in the anonymous window and `rateLimit` —
-        // bound to `catalogue` — follows that one.
-        { provide: AuthService, useValue: { user: () => signal(null), accessToken: () => null } },
       ],
     });
 
@@ -223,6 +217,36 @@ describe('ProductsPage', () => {
     expect(next.request.params.get('cursor')).toBe('cursor-3');
     next.flush(page(0, null));
     await fixture.whenStable();
+  });
+
+  it('keeps the infinite scroll quiet while the catalogue window is open, error or not', async () => {
+    controller
+      .expectOne((r) => r.url === 'http://localhost:5000/api/v1/catalog/products')
+      .flush(page(20, 'cursor-2'));
+    await fixture.whenStable();
+    expect(fixture.componentInstance.canLoadMore()).toBe(true);
+
+    // The refusal arrives on a catalogue read this page did not make, so its
+    // own `error()` stays null. How the window came to be open is not the
+    // page's business — that is the point of a window shared across the
+    // bucket — and the scroll must not re-arm into a limiter the client
+    // already knows is closed. `errorSignal` alone cannot express this state:
+    // it says "MY last attempt failed", and the bucket is not this page's.
+    TestBed.inject(HttpClient)
+      .get('http://localhost:5000/api/v1/catalog/products')
+      .subscribe({ error: () => undefined });
+    controller
+      .expectOne((r) => r.url === 'http://localhost:5000/api/v1/catalog/products')
+      .flush(null, {
+        status: 429,
+        statusText: 'Too Many Requests',
+        headers: { 'Retry-After': '30' },
+      });
+    await fixture.whenStable();
+
+    expect(fixture.componentInstance.error()).toBeNull();
+    expect(fixture.componentInstance.hasMore()).toBe(true);
+    expect(fixture.componentInstance.canLoadMore()).toBe(false);
   });
 
   it('disables Try again while a 429 window is open', async () => {

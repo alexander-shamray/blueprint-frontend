@@ -1,60 +1,43 @@
 import { HttpClient, provideHttpClient, withInterceptors } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
-import { Signal, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { AuthService, CurrentUser } from '@core/auth/auth.service';
-import { authInterceptor } from '@core/auth/auth.interceptor';
 import { environment } from '@core/config/environment';
 import { RATE_LIMIT_FALLBACK_SECONDS } from './error-mapper';
 import { RateLimitWindows } from './rate-limit';
 import { rateLimitInterceptor } from './rate-limit.interceptor';
 
-const GATEWAY = `${environment.gatewayBaseUrl.replace(/\/+$/, '')}/api/v1/products`;
-
-const user: CurrentUser = {
-  username: 'someone',
-  subject: 'sub-1',
-  permissions: [],
-  expiresAt: Date.now() + 300_000,
-};
-
-class StubAuth {
-  readonly current = signal<CurrentUser | null>(null);
-  user = (): Signal<CurrentUser | null> => this.current;
-  accessToken = () => (this.current() ? 'the-token' : null);
-}
+const BASE = environment.gatewayBaseUrl.replace(/\/+$/, '');
 
 /**
- * Both interceptors, in the order `app.config.ts` registers them.
- *
- * That order is load-bearing rather than incidental: the partition the
- * gateway used is decided by whether the request carried a bearer, and only
- * `authInterceptor` knows that — it is the thing that attaches one. Running
- * this interceptor first would see every request as anonymous and file every
- * refusal in the wrong bucket, so the composition is what these tests
- * exercise, not `rateLimitInterceptor` on its own.
+ * The four gateway URLs this client actually builds, which between them cover
+ * both of the gateway's limiter policies — and cover the pair that makes the
+ * route rule non-obvious: `catalog.api.ts` builds ONE base for the listing and
+ * the publish, so `LISTING` and `PUBLISH` are the same URL under two methods,
+ * limited by two different buckets.
  */
+const LISTING = `${BASE}/api/v1/catalog/products`;
+const PUBLISH = `${BASE}/api/v1/catalog/products`;
+const QUOTE = `${BASE}/bff/v1/checkout/quote`;
+const ORDERS = `${BASE}/api/v1/orders`;
+
 describe('rateLimitInterceptor', () => {
   let http: HttpClient;
   let controller: HttpTestingController;
   let windows: RateLimitWindows;
-  let auth: StubAuth;
 
   beforeEach(() => {
     vi.useFakeTimers();
     TestBed.configureTestingModule({
       providers: [
-        provideHttpClient(withInterceptors([authInterceptor, rateLimitInterceptor])),
+        provideHttpClient(withInterceptors([rateLimitInterceptor])),
         provideHttpClientTesting(),
-        { provide: AuthService, useClass: StubAuth },
       ],
     });
 
     http = TestBed.inject(HttpClient);
     controller = TestBed.inject(HttpTestingController);
     windows = TestBed.inject(RateLimitWindows);
-    auth = TestBed.inject(AuthService) as unknown as StubAuth;
   });
 
   afterEach(() => {
@@ -62,29 +45,55 @@ describe('rateLimitInterceptor', () => {
     vi.useRealTimers();
   });
 
-  const refuse = (url: string, headers: Record<string, string> = { 'Retry-After': '30' }) => {
+  const refuse = (
+    match: Parameters<HttpTestingController['expectOne']>[0],
+    headers: Record<string, string> = { 'Retry-After': '30' },
+  ) => {
     controller
-      .expectOne(url)
+      .expectOne(match)
       .flush(null, { status: 429, statusText: 'Too Many Requests', headers });
   };
 
-  it('files a refusal of a request that carried a bearer under the authenticated window', () => {
-    auth.current.set(user);
-    http.get(GATEWAY).subscribe({ error: () => undefined });
+  it('files a refused catalogue listing under the catalogue window', () => {
+    // `GET /api/v1/catalog/**` is the ONE route the gateway gives its
+    // `anonymous` policy — a fixed window of 100 a minute per IP — and it
+    // does so whether or not the caller is signed in.
+    http.get(LISTING).subscribe({ error: () => undefined });
 
-    refuse(GATEWAY);
+    refuse((r) => r.url === LISTING && r.method === 'GET');
 
-    expect(windows.authenticated.remaining()).toBe(30);
-    expect(windows.anonymous.blocked()).toBe(false);
+    expect(windows.catalogue.remaining()).toBe(30);
+    expect(windows.authenticated.blocked()).toBe(false);
   });
 
-  it('files a refusal of a request with no bearer under the anonymous window', () => {
-    http.get(GATEWAY).subscribe({ error: () => undefined });
+  it('files a refused publish under the authenticated window, at the same URL', () => {
+    // The test that would have caught the bearer-based rule this replaced:
+    // same path, same host, different method, different bucket. YARP's
+    // `catalog-write` route matches POST and names the authenticated policy.
+    http.post(PUBLISH, {}).subscribe({ error: () => undefined });
 
-    refuse(GATEWAY);
+    refuse((r) => r.url === PUBLISH && r.method === 'POST');
 
-    expect(windows.anonymous.remaining()).toBe(30);
-    expect(windows.authenticated.blocked()).toBe(false);
+    expect(windows.authenticated.remaining()).toBe(30);
+    expect(windows.catalogue.blocked()).toBe(false);
+  });
+
+  it('files a refused quote under the authenticated window', () => {
+    http.post(QUOTE, {}).subscribe({ error: () => undefined });
+
+    refuse(QUOTE);
+
+    expect(windows.authenticated.remaining()).toBe(30);
+    expect(windows.catalogue.blocked()).toBe(false);
+  });
+
+  it('files a refused order under the authenticated window', () => {
+    http.post(ORDERS, {}).subscribe({ error: () => undefined });
+
+    refuse(ORDERS);
+
+    expect(windows.authenticated.remaining()).toBe(30);
+    expect(windows.catalogue.blocked()).toBe(false);
   });
 
   it('falls back to a minute when the refusal carries no readable Retry-After', () => {
@@ -92,86 +101,73 @@ describe('rateLimitInterceptor', () => {
     // in `mapError` and is not duplicated here, so a 429 the mapper cannot
     // read a delay from opens the window for the mapper's fallback rather
     // than for `NaN` seconds or a false-fact zero.
-    http.get(GATEWAY).subscribe({ error: () => undefined });
+    http.get(LISTING).subscribe({ error: () => undefined });
 
-    refuse(GATEWAY, {});
+    refuse((r) => r.url === LISTING, {});
 
-    expect(windows.anonymous.remaining()).toBe(RATE_LIMIT_FALLBACK_SECONDS);
+    expect(windows.catalogue.remaining()).toBe(RATE_LIMIT_FALLBACK_SECONDS);
   });
 
   it('closes the window when a later request in the same partition succeeds', () => {
-    http.get(GATEWAY).subscribe({ error: () => undefined });
-    refuse(GATEWAY);
-    expect(windows.anonymous.blocked()).toBe(true);
+    http.get(LISTING).subscribe({ error: () => undefined });
+    refuse((r) => r.url === LISTING);
+    expect(windows.catalogue.blocked()).toBe(true);
 
-    // The limiter rejects with 429 and nothing else, so ANY answer from
-    // behind it is proof that this request was admitted — the bucket has
-    // tokens, whatever the gateway predicted a moment ago.
-    http.get(GATEWAY).subscribe();
-    controller.expectOne(GATEWAY).flush([]);
+    // The limiter admits or rejects, and an admission out of the queue is one
+    // granted at replenishment — so an answer of any kind means the bucket
+    // has tokens now, whatever the gateway predicted a moment ago.
+    http.get(LISTING).subscribe();
+    controller.expectOne(LISTING).flush([]);
 
-    expect(windows.anonymous.blocked()).toBe(false);
+    expect(windows.catalogue.blocked()).toBe(false);
   });
 
   it('closes the window on a failure that is not a refusal', () => {
-    http.get(GATEWAY).subscribe({ error: () => undefined });
-    refuse(GATEWAY);
+    http.get(LISTING).subscribe({ error: () => undefined });
+    refuse((r) => r.url === LISTING);
 
     // A 503 came from behind the limiter too. The request was admitted; the
     // service failed it afterwards. That is a different banner, and not a
     // reason to keep the action disabled for the rest of the minute.
-    http.get(GATEWAY).subscribe({ error: () => undefined });
-    controller.expectOne(GATEWAY).flush(null, { status: 503, statusText: 'Service Unavailable' });
+    http.get(LISTING).subscribe({ error: () => undefined });
+    controller.expectOne(LISTING).flush(null, { status: 503, statusText: 'Service Unavailable' });
 
-    expect(windows.anonymous.blocked()).toBe(false);
+    expect(windows.catalogue.blocked()).toBe(false);
   });
 
   it('leaves the window alone when the request got no answer at all', () => {
-    http.get(GATEWAY).subscribe({ error: () => undefined });
-    refuse(GATEWAY);
+    http.get(LISTING).subscribe({ error: () => undefined });
+    refuse((r) => r.url === LISTING);
 
     // Status 0: a network failure, a timeout, a CORS rejection. Nothing
     // reached the limiter, or nothing came back from it — either way the
     // client has learned nothing about the bucket, and closing the window on
     // no evidence would release the action early and straight into another
     // refusal.
-    http.get(GATEWAY).subscribe({ error: () => undefined });
-    controller.expectOne(GATEWAY).error(new ProgressEvent('error'));
+    http.get(LISTING).subscribe({ error: () => undefined });
+    controller.expectOne(LISTING).error(new ProgressEvent('error'));
 
-    expect(windows.anonymous.blocked()).toBe(true);
+    expect(windows.catalogue.blocked()).toBe(true);
   });
 
-  it('files a signed-in refusal as anonymous when registered BEFORE authInterceptor', () => {
-    // Not a configuration anyone should ship — it is the one `app.config.ts`
-    // warns against, pinned here so the warning is executable rather than a
-    // comment. Reversing the pair makes this interceptor read the request
-    // before the bearer is on it, so a signed-in customer's refusal lands in
-    // the IP bucket: their actions stay enabled against an empty bucket, and
-    // a signed-out visitor's catalogue goes dead for a refusal that was never
-    // theirs. Nothing throws, no test elsewhere notices, and the only symptom
-    // is the original defect coming back wearing the fix's clothes.
-    TestBed.resetTestingModule();
-    TestBed.configureTestingModule({
-      providers: [
-        provideHttpClient(withInterceptors([rateLimitInterceptor, authInterceptor])),
-        provideHttpClientTesting(),
-        { provide: AuthService, useClass: StubAuth },
-      ],
+  it('does not let a success that was already in flight close a newer refusal', () => {
+    // Two requests overlap. The first is admitted, the second is refused and
+    // opens the window, and only then does the first one's 200 arrive. It is
+    // evidence about the bucket as it was BEFORE the refusal, so it must not
+    // cancel a wait the platform has since asked for.
+    http.get(LISTING).subscribe();
+    http.get(LISTING).subscribe({ error: () => undefined });
+
+    const [first, second] = controller.match(LISTING);
+    second.flush(null, {
+      status: 429,
+      statusText: 'Too Many Requests',
+      headers: { 'Retry-After': '30' },
     });
+    first.flush([]);
 
-    const reversedAuth = TestBed.inject(AuthService) as unknown as StubAuth;
-    reversedAuth.current.set(user);
-    const reversedWindows = TestBed.inject(RateLimitWindows);
-    TestBed.inject(HttpClient).get(GATEWAY).subscribe({ error: () => undefined });
-
-    TestBed.inject(HttpTestingController)
-      .expectOne(GATEWAY)
-      .flush(null, { status: 429, statusText: 'Too Many Requests', headers: { 'Retry-After': '30' } });
-
-    expect(reversedWindows.anonymous.blocked()).toBe(true);
-    expect(reversedWindows.authenticated.blocked()).toBe(false);
-
-    TestBed.inject(HttpTestingController).verify();
+    expect(windows.catalogue.blocked()).toBe(true);
+    expect(windows.catalogue.remaining()).toBe(30);
   });
 
   it('ignores a refusal from a host that is not the gateway', () => {
@@ -184,7 +180,7 @@ describe('rateLimitInterceptor', () => {
 
     refuse(keycloak);
 
-    expect(windows.anonymous.blocked()).toBe(false);
+    expect(windows.catalogue.blocked()).toBe(false);
     expect(windows.authenticated.blocked()).toBe(false);
   });
 });

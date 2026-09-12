@@ -1,5 +1,4 @@
 import { provideHttpClient, withInterceptors } from '@angular/common/http';
-import { authInterceptor } from '@core/auth/auth.interceptor';
 import { rateLimitInterceptor } from '@core/errors/rate-limit.interceptor';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
@@ -41,11 +40,13 @@ describe('CartPage', () => {
         // only so the navigation resolves instead of rejecting with
         // NG04002 (no route matches); nothing here renders it.
         provideRouter([{ path: 'tabs/cart/checkout', children: [] }]),
-        // The real interceptor pair, in app order. The 429 window is no longer
-        // driven by this page's error signal — `rateLimitInterceptor` opens it
-        // from the response — so a spec that left them out would be testing a
-        // page whose rate-limit binding nothing can ever set.
-        provideHttpClient(withInterceptors([authInterceptor, rateLimitInterceptor])),
+        // The real interceptor. The 429 window is no longer driven by this
+        // page's error signal — `rateLimitInterceptor` opens it from the
+        // response — so a spec without it would be testing a page whose
+        // rate-limit binding nothing can ever set. `authInterceptor` is not
+        // here because nothing in that window depends on it any more: the
+        // bucket is picked from the route, not from the bearer.
+        provideHttpClient(withInterceptors([rateLimitInterceptor])),
         provideHttpClientTesting(),
         CartStore,
         { provide: CartPersistence, useValue: { read: async () => [], write: async () => undefined } },

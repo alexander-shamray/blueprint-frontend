@@ -128,16 +128,16 @@ export class ProductsPage {
   readonly hasMore: Signal<boolean> = this.hasMoreSignal.asReadonly();
 
   /**
-   * Spec §6's 429 row — and the one page where WHICH gateway bucket applies
-   * is not fixed.
+   * Spec §6's 429 row — and the one page whose bucket is NOT the one every
+   * other action shares.
    *
-   * The listing is anonymous at the endpoint, so a signed-out visitor's read
-   * lands in the gateway's anonymous policy: a fixed window keyed on IP. But
-   * `authInterceptor` attaches the bearer to every gateway request once there
-   * is one, so the same read by a signed-in customer is keyed on their
-   * subject and draws on the authenticated token bucket instead — the same
-   * bucket as Get quote and Publish. `catalogue` is that choice, made from
-   * the session rather than from the route, and it moves when they sign in.
+   * `GET /api/v1/catalog/**` is the single route the gateway gives its
+   * `anonymous` limiter policy, and it does so for everyone: a signed-in
+   * customer's listing takes that route too, keyed on their IP rather than on
+   * them. It is the tightest budget in the system — a fixed window of 100 a
+   * minute with no queue, against 300 a minute for everything else — and the
+   * infinite scroll below is what draws on it. Publish POSTs to this exact
+   * URL and is limited by the other bucket entirely.
    */
   readonly rateLimit = inject(RateLimitWindows).catalogue;
 
@@ -150,8 +150,18 @@ export class ProductsPage {
    * scroll stays quiet so it cannot hammer a limiter, and the Try again
    * button above is how the user says otherwise. Clearing the error (which a
    * successful load does) re-arms the scroll at the cursor it left off at.
+   *
+   * The rate-limit window is a third reason, and it is not covered by the
+   * second: since the windows became shared, "a 429 is open on the catalogue
+   * bucket" and "this page has an error" are different states — a refusal can
+   * arrive on a request this page never made. Without the check, the scroll
+   * re-arms and fires straight into a limiter the client already knows is
+   * closed, which is precisely the loop the paragraph above says it exists to
+   * prevent.
    */
-  readonly canLoadMore = computed(() => this.hasMoreSignal() && this.errorSignal() === null);
+  readonly canLoadMore = computed(
+    () => this.hasMoreSignal() && this.errorSignal() === null && !this.rateLimit.blocked(),
+  );
 
   constructor() {
     this.load();
