@@ -21,6 +21,11 @@ public class ExampleInstrumentedTest {
         // Context of the app under test.
         Context appContext = InstrumentationRegistry.getInstrumentation().getTargetContext();
 
-        assertEquals("com.getcapacitor.app", appContext.getPackageName());
+        // dev.ashamray.blueprint, not the template's com.getcapacitor.app:
+        // app/build.gradle sets that applicationId, so the generated
+        // assertion failed every connected run. CI never runs connected
+        // tests, which is why `assembleDebug` stayed green over a test that
+        // could not pass.
+        assertEquals("dev.ashamray.blueprint", appContext.getPackageName());
     }
 }

@@ -908,17 +908,27 @@ Phase B adds Android and iOS around the same web build. Four facts about that
 are worth writing down, because three of them are host decisions this client
 only obeys and the fourth is a gap.
 
-**The callback scheme is one string in three files, and none of them can
-import the other two.** The realm's `mobile-app` client registers exactly one
+**The callback scheme is repeated in seven places, and none of them can
+import another.** The realm's `mobile-app` client registers exactly one
 redirect URI, `blueprint://auth/callback`
 (`deploy/compose/keycloak/realm-export.json`), and Keycloak compares it as a
-string. This client therefore repeats it in
-`environment.auth.nativeRedirectUri` (what the strategy sends),
-`capacitor.config.ts` (the App plugin's `launchUrl`), and
-`android/app/src/main/AndroidManifest.xml` plus `ios/App/App/Info.plist` (what
-makes the operating system hand the return to this app at all). Three copies
-is two too many, and there is no fourth place to put it: one is TypeScript in
-this repository, one is a JSON export in another, and two are native manifests.
+string. Every copy is an independent change point:
+
+| Where | What it is for |
+|---|---|
+| `environment.ts`, `environment.development.ts`, `environment.android.ts` | `auth.nativeRedirectUri` — what the strategy actually sends. Three files, because each build configuration carries its own whole `Environment`. |
+| `capacitor.config.ts` | the App plugin's `launchUrl` |
+| `android/app/src/main/AndroidManifest.xml` | the intent filter that makes Android hand the return to this app |
+| `ios/App/App/Info.plist` | `CFBundleURLTypes`, the same job on iOS |
+| `deploy/compose/keycloak/realm-export.json` (backend repo) | the only redirect URI Keycloak will accept |
+
+Seven is six too many and there is nowhere better to put it: three are
+TypeScript here, two are native manifests, one is JSON in another repository.
+The three environment files are the one group that could be collapsed — they
+differ only in host — and they are not, because `Environment` is deliberately
+one flat shape per build with no inheritance between them (§2). A scheme
+change has to visit all seven, and a miss shows up as a sign-in that completes
+in the browser and returns nowhere.
 
 **The Android intent filter matches the host as well as the scheme.** `<data
 android:scheme="blueprint" android:host="auth" />` rather than the scheme
@@ -952,6 +962,38 @@ android` (`npm run build:android`) is what selects it. Which environment a
 build carries stays a build-time file replacement, as it is for the web: a
 client that sniffed its own host would be deciding its configuration from the
 thing the configuration is supposed to decide.
+
+**Two things are known to block the first device run, and neither is fixed
+here.** Both were found by review rather than by running anything, which is
+itself the argument for running it.
+
+*The token exchange is a browser `fetch`, and the realm grants it no origin.*
+`native-auth.strategy.ts` posts to Keycloak's token endpoint with `fetch`,
+which on a device is a request from the WebView's origin — `https://localhost`
+on Android, `capacitor://localhost` on iOS. The realm's `mobile-app` client
+declares `"webOrigins": []` (`realm-export.json`), so Keycloak returns no
+`Access-Control-Allow-Origin` and the WebView discards the response before
+this code sees it. Note this is a SEPARATE hop from the gateway CORS question
+below: the gateway is not in this path at all, Keycloak is. Two ways out, and
+they are not equivalent: add the native origins to the realm client (a backend
+change, and the symmetrical fix to the gateway one), or enable Capacitor's
+`CapacitorHttp` so `fetch` is serviced by the native HTTP stack and CORS never
+applies. The second needs no backend change but patches `fetch` process-wide,
+which would also reroute every `HttpClient` call to the gateway — not a change
+to make without a device to check it on.
+
+*The emulator configuration is cleartext, and the WebView is not.*
+`environment.android.ts` points at `http://10.0.2.2:5000` and
+`http://10.0.2.2:8080`, while Capacitor serves the page from `https://localhost`
+— `androidScheme` defaults to `https` (`@capacitor/cli` declarations) and
+`server.cleartext` defaults to `false`, with cleartext disabled outright from
+API 28. So those requests are blocked twice over, as mixed content and as
+cleartext, before either host is reached. The fixes are a config decision
+rather than a typo: `androidScheme: 'http'` (localhost stays a secure context,
+so `crypto.subtle` keeps working, but the origin the gateway must admit
+changes again), `server.cleartext: true` — which Capacitor's own documentation
+calls "not intended for use in production" — or TLS on the Compose stack.
+Choosing without an emulator to verify against would be guessing.
 
 **What has not been done.** No device or emulator has run this client. The
 Android project builds a debug APK, the native strategy is covered by eleven

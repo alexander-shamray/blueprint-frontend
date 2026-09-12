@@ -151,6 +151,16 @@ export class NativeAuthStrategy extends AuthService {
 
   private renewalTimer: ReturnType<typeof setTimeout> | null = null;
 
+  /**
+   * Bumped every time the session ends. A renewal reads it before its request
+   * and again after, and adopts nothing if the number moved: the timer can
+   * have a token request in flight when the user presses Sign out, and that
+   * response — a perfectly valid rotated token — would otherwise write a
+   * credential back into storage the user just asked to have cleared and
+   * signal them back in seconds after they left.
+   */
+  private sessionGeneration = 0;
+
   /** Fraction of the token's life at which renewal fires, as on the web (spec §4.1). */
   private static readonly RENEW_AT = 0.75;
 
@@ -237,12 +247,34 @@ export class NativeAuthStrategy extends AuthService {
     const params = new URL(url).searchParams;
     const code = params.get('code');
 
-    if (!pending || !code || params.get('state') !== pending.state) {
-      // Refuse, and deliberately leave the pending flow in place. Clearing it
-      // here would let anyone able to fire an intent at this app cancel a
-      // sign-in in progress by sending one callback with the wrong state; the
-      // legitimate return would then arrive to find no verifier and fail.
-      // Nothing is spent, so nothing needs resetting.
+    if (!pending || params.get('state') !== pending.state) {
+      // Not this flow's callback. Refuse, and deliberately leave the pending
+      // flow in place: clearing it here would let anyone able to fire an
+      // intent at this app cancel a sign-in in progress by sending one
+      // callback with the wrong state, and the legitimate return would then
+      // arrive to find no verifier and fail. Nothing is spent, so nothing
+      // needs resetting.
+      return;
+    }
+
+    if (!code) {
+      // This IS our flow, and it failed. A denial or a cancellation at the
+      // Keycloak login screen redirects to the same redirect_uri with `error`
+      // and the original `state` and no `code` (RFC 6749 §4.1.2.1). Matching
+      // the state and then returning as though the callback were a stranger's
+      // left the tab sitting over the app with the flow still pending, and the
+      // user with no way to retry cleanly — they had to dismiss the browser
+      // and wait for the dismissal path to notice.
+      this.pending = null;
+      await this.browser.close();
+      const reason = params.get('error');
+      pending.reject(
+        new Error(
+          reason
+            ? `Sign-in failed: ${reason}`
+            : 'The authorization server returned no code and no error.',
+        ),
+      );
       return;
     }
 
@@ -289,6 +321,7 @@ export class NativeAuthStrategy extends AuthService {
    * is stored.
    */
   async renewNow(): Promise<void> {
+    const generation = this.sessionGeneration;
     const stored = await this.secure.get(REFRESH_TOKEN_KEY);
     if (!stored) {
       await this.abandonSession();
@@ -303,6 +336,11 @@ export class NativeAuthStrategy extends AuthService {
         refresh_token: stored,
       }),
     );
+
+    // The session may have ended while that request was in flight. Anything
+    // this response would do now — adopt a token, or clear one that a
+    // sign-out has already cleared — is about a session that no longer exists.
+    if (generation !== this.sessionGeneration) return;
 
     if (result.outcome === 'ok' && result.body.access_token) {
       await this.adopt(result.body);
@@ -333,6 +371,18 @@ export class NativeAuthStrategy extends AuthService {
       // Revoke BEFORE clearing. Clearing first would leave a live refresh
       // token at the realm and nothing left on the device to revoke it with —
       // the session would outlive the sign-out by its full idle timeout.
+      //
+      // The result is deliberately not consulted. A revocation that could not
+      // be delivered leaves a live token at the realm, and the alternative —
+      // keeping the credential on the device and asking the user to try
+      // signing out again — is worse in the case that actually matters. The
+      // realm-side session expires on its own idle timeout and nobody holds a
+      // token to use in the meantime, because the only copy is about to be
+      // deleted. A credential kept on a device whose owner has just said they
+      // are done with it is a credential available to whoever picks the
+      // device up. So: always clear locally, and accept the realm session
+      // outliving the sign-out when the network will not carry the
+      // revocation.
       await this.post(
         endpoint('revoke'),
         new URLSearchParams({
@@ -389,6 +439,7 @@ export class NativeAuthStrategy extends AuthService {
   }
 
   private async abandonSession(): Promise<void> {
+    this.sessionGeneration++;
     this.clearRenewal();
     this.token.set(null);
     try {
@@ -409,10 +460,18 @@ export class NativeAuthStrategy extends AuthService {
     const lifetimeMs = user.expiresAt * 1000 - Date.now();
     if (lifetimeMs <= 0) return;
 
-    this.renewalTimer = setTimeout(
-      () => void this.renewNow(),
-      lifetimeMs * NativeAuthStrategy.RENEW_AT,
-    );
+    this.renewalTimer = setTimeout(() => {
+      // Nothing awaits this call, so `renewNow` rejecting here — a locked
+      // Keychain is the realistic way — would be an unhandled rejection and
+      // would leave the session with a token nobody will renew and no
+      // explanation anywhere. Catch it and end the session instead: the next
+      // protected action prompts an interactive sign-in, which is the only
+      // thing that can help.
+      void this.renewNow().catch(() => {
+        this.clearRenewal();
+        this.token.set(null);
+      });
+    }, lifetimeMs * NativeAuthStrategy.RENEW_AT);
   }
 
   private clearRenewal(): void {
@@ -432,7 +491,16 @@ export class NativeAuthStrategy extends AuthService {
       return { outcome: 'unreachable' };
     }
 
-    if (!response.ok) return { outcome: 'refused' };
+    if (!response.ok) {
+      // A 5xx or a 429 is the identity provider having a bad minute, not a
+      // verdict on the credential — Keycloak restarting, or this client's own
+      // token bucket. `renewNow` deletes the refresh token on a refusal, so
+      // folding these in with `invalid_grant` would turn one bad minute into
+      // a forced interactive sign-in. Only a 4xx that is not a 429 is an
+      // answer about the grant itself.
+      const retryable = response.status >= 500 || response.status === 429;
+      return { outcome: retryable ? 'unreachable' : 'refused' };
+    }
 
     try {
       return { outcome: 'ok', body: (await response.json()) as TokenResponse };

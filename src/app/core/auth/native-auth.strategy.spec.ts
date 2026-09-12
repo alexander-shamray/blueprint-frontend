@@ -246,6 +246,113 @@ describe('NativeAuthStrategy', () => {
     expect(strategy.accessToken()).not.toBeNull();
   });
 
+  it('closes the browser and clears the flow when the callback carries an OAuth error', async () => {
+    const { flow } = await startSignIn();
+    const state = strategy.pendingState();
+
+    // Keycloak answers a denial by redirecting to the SAME redirect_uri with
+    // `error` and the original `state` and no `code`. Treating that as "not
+    // ours" left the tab open over the app with the flow still pending.
+    await strategy.handleCallback(
+      `blueprint://auth/callback?error=access_denied&error_description=denied&state=${state}`,
+    );
+
+    await expect(flow).rejects.toThrow(/access_denied/);
+    expect(browser.close).toHaveBeenCalledOnce();
+    expect(strategy.pendingState()).toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('keeps the stored token when Keycloak answers 503, because a server fault is not a refusal', async () => {
+    store.set(REFRESH_TOKEN_KEY, 'refresh-1');
+    fetchMock.mockResolvedValue({ ok: false, status: 503, json: async () => ({}) });
+
+    await strategy.renewNow();
+
+    // Deleting the credential here would turn one bad minute at the identity
+    // provider into a forced interactive sign-in. Only a refusal of the
+    // GRANT means the token is dead.
+    expect(store.get(REFRESH_TOKEN_KEY)).toBe('refresh-1');
+    expect(strategy.accessToken()).toBeNull();
+  });
+
+  it('keeps the stored token when Keycloak answers 429, for the same reason', async () => {
+    store.set(REFRESH_TOKEN_KEY, 'refresh-1');
+    fetchMock.mockResolvedValue({ ok: false, status: 429, json: async () => ({}) });
+
+    await strategy.renewNow();
+
+    expect(store.get(REFRESH_TOKEN_KEY)).toBe('refresh-1');
+  });
+
+  it('does not sign the user back in when a renewal lands after sign-out', async () => {
+    store.set(REFRESH_TOKEN_KEY, 'refresh-1');
+
+    // A renewal whose response is still in flight when the user signs out.
+    let releaseRenewal!: (value: unknown) => void;
+    fetchMock.mockImplementationOnce(
+      () => new Promise((resolve) => (releaseRenewal = resolve)),
+    );
+    const renewal = strategy.renewNow();
+
+    // Sign out completes while that request is outstanding.
+    fetchMock.mockResolvedValue({ ok: true, json: async () => ({}) });
+    await strategy.signOut();
+    expect(strategy.accessToken()).toBeNull();
+
+    // Now the renewal's response arrives, carrying a perfectly good token.
+    releaseRenewal(tokenResponse('refresh-2'));
+    await renewal;
+
+    // Adopting it would resurrect a session the user ended, and would write a
+    // credential back into storage they asked to have cleared.
+    expect(strategy.accessToken()).toBeNull();
+    expect(store.has(REFRESH_TOKEN_KEY)).toBe(false);
+  });
+
+  it('survives a renewal that throws, rather than raising an unhandled rejection', async () => {
+    store.set(REFRESH_TOKEN_KEY, 'refresh-1');
+    fetchMock.mockResolvedValue(tokenResponse('refresh-2'));
+    await strategy.renewNow();
+
+    // A locked Keychain: the scheduled renewal cannot even read the token.
+    // The timer calls this with no caller to catch it, so the strategy must.
+    secure.get.mockRejectedValueOnce(new Error('keychain is locked'));
+
+    await vi.advanceTimersByTimeAsync(225_000);
+
+    // The assertion is that this test did not fail: vitest fails a test on an
+    // unhandled rejection, which is what `void this.renewNow()` produced.
+    expect(strategy.accessToken()).toBeNull();
+  });
+
+  it('sends a code challenge that is the real S256 digest of the verifier it redeems', async () => {
+    fetchMock.mockResolvedValue(tokenResponse('refresh-1'));
+    const { flow } = await startSignIn();
+
+    const authorizeUrl = new URL(browser.open.mock.calls[0][0].url);
+    const challenge = authorizeUrl.searchParams.get('code_challenge');
+
+    await deliverCallback();
+    await flow;
+
+    // The verifier is private, so take it from the exchange the strategy
+    // actually sent and recompute the digest over it. Asserting only
+    // `code_challenge_method=S256` would pass for a challenge that was a
+    // stand-in, a truncation, or standard base64 — each of which Keycloak
+    // refuses at the exchange, on a device, with no unit test complaining.
+    const body = new URLSearchParams(String(fetchMock.mock.calls[0][1].body));
+    const verifier = body.get('code_verifier');
+    const digest = await webcrypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier!));
+    const expected = Buffer.from(digest)
+      .toString('base64')
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=+$/, '');
+
+    expect(challenge).toBe(expected);
+  });
+
   it('replaces the stored refresh token on every renewal, because rotation is on', async () => {
     store.set(REFRESH_TOKEN_KEY, 'refresh-1');
     fetchMock.mockResolvedValue(tokenResponse('refresh-2'));
@@ -297,6 +404,21 @@ describe('NativeAuthStrategy', () => {
     expect(fetchMock.mock.invocationCallOrder[0]).toBeLessThan(
       secure.remove.mock.invocationCallOrder[0],
     );
+  });
+
+  it('signs out locally even when the revocation cannot be delivered', async () => {
+    store.set(REFRESH_TOKEN_KEY, 'refresh-1');
+    fetchMock.mockRejectedValue(new TypeError('Failed to fetch'));
+
+    await strategy.signOut();
+
+    // A deliberate choice, not an oversight: the realm session outlives the
+    // sign-out until its idle timeout, and nobody holds a token to use in the
+    // meantime because the only copy is gone. Keeping the credential on the
+    // device so the revocation could be retried would leave it available to
+    // whoever picks up a device its owner has finished with.
+    expect(strategy.accessToken()).toBeNull();
+    expect(store.has(REFRESH_TOKEN_KEY)).toBe(false);
   });
 
   it('renews at 75% of the token lifetime read from exp, not at a hard-coded interval', async () => {
