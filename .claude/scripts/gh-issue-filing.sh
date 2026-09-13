@@ -1,10 +1,9 @@
 #!/usr/bin/env bash
 # File one issue on THIS repository, from a sweep or by hand, and nothing
-# else: the kind, severity and route from fixed vocabularies on the command
-# line, the title and the body from stdin, and the repository from the
-# checkout this script is standing in. The route decides which provenance
-# line the body must end with, and #184 is why it is a parameter rather than
-# a constant.
+# else: the kind and severity from fixed vocabularies, the title and body from
+# stdin, and the repository from the checkout this script is standing in. Its
+# two wrappers supply a fixed route, which decides the provenance line the
+# body must end with.
 #
 # `Bash(gh issue create:*)` was a prefix grant, so it bought more than the
 # operation it was added for — the shape every helper in this directory exists
