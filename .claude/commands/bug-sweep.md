@@ -400,7 +400,7 @@ so the summary names the commit the sweep actually read.
 caller's tree, which would silently forfeit the stable-snapshot property this
 section buys. A failed `git worktree add` is a round that could not run,
 reported like any other tool error under *Never fail open* below. **The round
-writes nothing to disk** — issue bodies are piped to `gh-issue-create.sh` on
+writes nothing to disk** — issue bodies are piped to `gh-sweep-issue-create.sh` on
 stdin (the File step), not written to files — so `$work` stays clean and the
 teardown below removes it without `--force`.
 
@@ -501,7 +501,7 @@ or high.** Three gates, and each drops candidates the round must not file:
   blocks a re-file **only while its fix is still present** — if the defect
   **currently reproduces** because the fix was reverted, the bug is back, and
   it re-files rather than being silenced by a closure that no longer holds —
-  **re-files**, because the grant carries `gh-issue-create.sh` and no `reopen`,
+  **re-files**, because the grant carries `gh-sweep-issue-create.sh` and no `reopen`,
   and a duplicate that says why beats a capability this command does not have.
   Re-filing a genuinely-tracked finding is the drift this repo exists to close;
   suppressing a reintroduced one is worse. (The
@@ -735,7 +735,7 @@ Each round is the review done once, end to end:
    deliberately, so that an unverified agent claim never became an issue; the
    property that bought is kept — two independent read-only readings, neither
    able to mutate, must agree — and what it cost is given up: the audited
-   tree no longer enters the one invocation that holds `gh-issue-create.sh`.
+   tree no longer enters the one invocation that holds `gh-sweep-issue-create.sh`.
    A verdict of `refuted` or `outside-root` drops the candidate; a record that
    is not in the declared shape is dropped as malformed and counted; and **a
    record whose `file` and `line` are not the candidate's as dispatched is
@@ -821,7 +821,7 @@ Each round is the review done once, end to end:
    both suppress the conversion and a bare `/` does not.
 
    **The helper closes it, and it is the one thing a helper can do that the
-   grant could not.** `gh-issue-create.sh` sets `MSYS2_ARG_CONV_EXCL` for its
+   grant could not.** `gh-sweep-issue-create.sh` sets `MSYS2_ARG_CONV_EXCL` for its
    own `gh` child, so the conversion never sees the title; the command's grant
    is on the script and is unchanged. Writing the subject in backticks —
    ``/bug-sweep`` — is still the house form for a title that names a command,
@@ -836,7 +836,7 @@ Each round is the review done once, end to end:
 text.** Step 2 no longer opens `$work` in the invocation that files (#75 item
 5), and both directions that paragraph used to name are taken: the fan-out
 contains the auditor, the verify dispatch contains the verifier, the parent
-composes from a record with declared fields, and `gh-issue-create.sh` leaves
+composes from a record with declared fields, and `gh-sweep-issue-create.sh` leaves
 `gh issue create` with no free parameter — the repository is resolved from the
 checkout and the labels are a closed set, so nothing a finding says can choose
 *where* an issue lands. What an issue *says* is the record's fields, and a
@@ -985,7 +985,7 @@ precedence is deny first. A `Write` grant for issue bodies was
 refused here for the reason `/security-sweep` records after trying one: it would
 re-open source editing, and a read-only claim resting on prose while the grant
 permits writing every undenied path is unenforced. Bodies go through
-`gh-issue-create.sh` on stdin for exactly this reason.
+`gh-sweep-issue-create.sh` on stdin for exactly this reason.
 
 **No mutation is scoped by discipline any more, and the last one went the way
 the other two did.** This paragraph has been wrong in both directions: an
@@ -997,7 +997,7 @@ their own status:
 
 - **`Bash(gh issue create:*)` pinned no repository, and is gone.** It was a
   prefix grant, so "always `--repo` for this repository" was prose.
-  `gh-issue-create.sh` resolves the repository from the checkout, closes the
+  `gh-sweep-issue-create.sh` resolves the repository from the checkout, closes the
   label vocabulary, takes the title and the body on stdin so neither crosses
   this shell's command line, and sets `MSYS2_ARG_CONV_EXCL` for its own child
   — the title defect the commands could not close under a prefix match.
