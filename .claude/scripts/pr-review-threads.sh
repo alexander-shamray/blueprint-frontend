@@ -38,6 +38,7 @@ refuse() {
 owner=$(gh repo view --json owner --jq .owner.login)
 repo=$(gh repo view --json name --jq .name)
 cursor=""
+all_rows=""
 while :; do
   resp=$(gh api graphql -f query='
   query($owner:String!,$repo:String!,$pr:Int!,$after:String){
@@ -59,6 +60,7 @@ while :; do
       (.comments.nodes[0].databaseId // "" | tostring),
       (.comments.nodes[0].path // "" | @json)
     ] | @tsv' <<<"$resp")
+  page_rows=""
   while IFS=$'\t' read -r tid resolved cid encoded; do
     [ -n "$tid" ] || continue
     # **`jq` writes CRLF on Windows, and only the LAST field carries the CR.**
@@ -88,8 +90,12 @@ while :; do
       *) refuse "a thread's path is not a plain path" ;; esac
     case "/$path/" in *//*|*/./*|*/../*)
       refuse "a thread's path is not a plain path" ;; esac
-    printf '%s %s %s %s\n' "$tid" "$resolved" "$cid" "$path"
+    page_rows="${page_rows}${page_rows:+$'\n'}${tid} ${resolved} ${cid} ${path}"
   done <<<"$rows"
+  if [ -n "$page_rows" ]; then
+    all_rows="${all_rows}${all_rows:+$'\n'}${page_rows}"
+  fi
   [ "$(jq -r '.data.repository.pullRequest.reviewThreads.pageInfo.hasNextPage' <<<"$resp")" = "true" ] || break
   cursor=$(jq -r '.data.repository.pullRequest.reviewThreads.pageInfo.endCursor' <<<"$resp")
 done
+[ -z "$all_rows" ] || printf '%s\n' "$all_rows"
