@@ -192,11 +192,8 @@ rather than here. Three rules reach every session, so they stay:
 - **`.claude/settings.json` self-locks, not instantaneously** — a change to it
   lands complete and goes last, and a restore is verified by reading the file,
   never by trying what it forbids.
-- **The two hooks are wired as `py -3.12`, which is Windows-only** — a
-  standard 3.12 on macOS or Linux has `python3` and no `py`, so every
-  `PreToolUse` call fails there before the guard runs. Loud and total rather
-  than silent, but not portable; `docs/harness-boundaries.md` argues it and
-  #23 tracks the fix.
+- **The two hooks use `run-guard.sh`**, which locates a compatible Python
+  launcher before invoking the guard.
 - **`python -m unittest discover -s .claude/scripts -p 'test_*.py'` is the
   harness's own suite** — it covers the deny lists, the frontmatter grants,
   the helper shapes and the hooks. It reads `git ls-files`, so a new tracked
