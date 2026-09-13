@@ -174,7 +174,7 @@ Write the body to a scratchpad file and pass its path to the helper; heredocs
 through `gh` mangle the wrapping. Then:
 
 ```bash
-bash .claude/scripts/gh-pr-create.sh "<title>" <path>
+bash .claude/scripts/gh-pr-create.sh "<title>" pr-body.md
 ```
 
 **The helper rather than `gh pr create` since #16.** `Bash(gh pr create:*)` was
@@ -182,9 +182,9 @@ a prefix grant, so a trailing `--repo`, `--head`, `--base` or `--body-file`
 chose a repository, a branch, a base and a body that were not the ones this
 command derived. All four are fixed in the helper now: the repository and the
 branch come from the checkout, the base is the literal `main`, and the body
-file is resolved and required to be a regular file inside this checkout or
-under the temp root — `--body-file` publishes whatever it reads, including a
-file the session's own `Read` is bounded away from.
+file is the caller-created `pr-body.md` at the checkout root — `--body-file`
+publishes whatever it reads, including a file the session's own `Read` is
+bounded away from.
 
 ## Report
 

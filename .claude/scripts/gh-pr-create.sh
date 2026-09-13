@@ -13,9 +13,9 @@
 # **The body file is the one caller-supplied path, and it is where the leak
 # would be.** `--body-file` makes `gh` read a file the session's own `Read`
 # tool may be bounded away from and publish it — so the path is resolved and
-# required to land inside this checkout or under the temp root, which are the
-# two places a body is legitimately written. That is the same allow-list shape
-# `guard-edit-target.py` uses for a write, applied to a read that publishes.
+# required to be the caller-created `pr-body.md` at the checkout root. A broad
+# checkout or temp-root allow-list would turn protected configuration and any
+# other scratch file into publishable input.
 # A symbolic link is refused rather than followed, for the reason every other
 # crossing in this directory refuses one.
 #
@@ -42,13 +42,9 @@ esac
 checkout=$(git rev-parse --show-toplevel) ||
   { echo "not inside a git checkout" >&2; exit 3; }
 checkout=$(cd "$checkout" && pwd -P)
-tmproot=$(cd "${TMPDIR:-/tmp}" 2>/dev/null && pwd -P) || tmproot=""
 resolved=$(cd "$(dirname "$body")" && pwd -P)/$(basename "$body")
-case "$resolved" in
-  "$checkout"/*) ;;
-  *) [ -n "$tmproot" ] && case "$resolved" in "$tmproot"/*) ;; *) false ;; esac ||
-       { echo "the body file is outside this checkout and the temp root, and --body-file publishes what it reads: $resolved" >&2; exit 2; } ;;
-esac
+[ "$resolved" = "$checkout/pr-body.md" ] ||
+  { echo "the PR body must be the caller-created $checkout/pr-body.md" >&2; exit 2; }
 
 branch=$(git branch --show-current)
 [ -n "$branch" ] || { echo "detached HEAD: there is no branch to open a PR for" >&2; exit 3; }

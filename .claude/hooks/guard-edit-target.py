@@ -260,7 +260,7 @@ CONTROL_DIRECTORIES = frozenset({
     "agents", "commands", "hooks", "plugins", "sandbox", "scripts", "skills",
 })
 CONTROL_FILES = frozenset({
-    ".credentials.json", "CLAUDE.md", "settings.json", "settings.local.json",
+    ".credentials.json", "AGENTS.md", "CLAUDE.md", "settings.json", "settings.local.json",
 })
 
 # **Folded copies, because comparing a lowered name against an unlowered set is
@@ -591,6 +591,13 @@ def offence(event):
     # containing the target to agree, which is the property `anchors` rests its
     # trust in `CLAUDE_PROJECT_DIR` on.
     sibling = linked_worktree(lexical, checkouts)
+    if sibling is not None:
+        surface = control_surface(lexical, sibling, traits_of(sibling))
+        if surface is not None:
+            return (
+                f"guard-edit-target: {spelled} targets {surface} in a linked "
+                "worktree, where this session's permission rules do not apply."
+            )
     if sibling is not None and not any(
             same(sibling, root, traits) for root, _, traits in checkouts):
         checkouts = checkouts + [
