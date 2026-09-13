@@ -1383,7 +1383,7 @@ class TheCeilingBindsAndTheReadStaysWider(unittest.TestCase):
         # again is the drift. Every body this file composes takes $CEILING.
         code = "\n".join(code_lines(LEDGER.read_text(encoding="utf-8")))
         self.assertNotIn("/12 —", code)
-        self.assertEqual(3, code.count('body="Grok check $n/$CEILING — '))
+        self.assertEqual(4, code.count('body="Grok check $n/$CEILING — '))
 
     # ---- the election, which the migration could have split ----------------
 
@@ -3745,35 +3745,43 @@ class TheFourPortedResiduals(unittest.TestCase):
 
     # ---- 2. converge posted a trusted marker with nothing validating it -----
 
-    def test_converge_validates_the_rounds_it_claims(self):
+    def test_converge_requires_two_recorded_clean_rounds(self):
         # `status` reports `converged` and a resumed `/ship` reads that as "the
         # loop is done, skip review", so this verb could assert a convergence
         # that never happened. Copilot proposed denying the verb; that is the
-        # wrong fix, because `/ship` legitimately calls it and the deny would
-        # stop the chain one step from the end.
-        code = self.code("grok-ledger.sh")
-        # From the branch to the body it sets. `*) usage ;;` cannot be the
-        # terminator: the `case "$mode"` above has one too, so `find` returns
-        # the earlier offset and the slice comes back empty — which every
-        # `assertIn` below would then have failed against, loudly, rather than
-        # passing vacuously. It did.
-        start = code.find("  converge)")
-        self.assertNotEqual(-1, start)
-        end = code.find("converged: loop clean", start)
-        converge = code[start:end]
-        self.assertIn("read_rows", converge)
-        self.assertIn('[ "$n" -eq "$highest" ]', converge)
-        self.assertIn('[ "$spent" -ge 2 ]', converge)
+        # A reservation proves only that a model call was budgeted. It says
+        # nothing about whether the reviewer ran or found something, so neither
+        # it nor a caller can assert a clean loop.
+        rows = [
+            "101\talice\tGrok check 1/6 — reserved (full)",
+            "102\talice\tGrok check 1/6 — completed: clean",
+            "103\talice\tGrok check 2/6 — reserved (recheck)",
+            "104\talice\tGrok check 2/6 — completed: findings",
+        ]
+        stub = LedgerStub(rows, {"alice": "write"})
+        self.addCleanup(stub.cleanup)
+        result = stub.run("42", "converge", "2")
+        self.assertEqual(5, result.returncode)
+        self.assertIn("not completed clean", result.stderr)
 
-    def test_converge_is_not_denied_to_the_session(self):
-        # The half the fix had to preserve: `ship.md` names `count`, `status`
-        # and `converge` as the verbs it invokes, and `.claude/settings.json`
-        # denies only `reserve` and `release`.
+        rows[-1] = "104\talice\tGrok check 2/6 — completed: clean"
+        stub = LedgerStub(rows, {"alice": "write"})
+        self.addCleanup(stub.cleanup)
+        self.assertEqual(0, stub.run("42", "converge", "2").returncode)
+
+    def test_outcome_and_convergence_writes_are_denied_to_the_session(self):
+        # The review helper alone knows its sentinel and imported verdict. The
+        # session may read count and status, but may not manufacture either
+        # input to the resumed-run marker.
         deny = json.loads(SETTINGS.read_text(encoding="utf-8"))["permissions"]["deny"]
         joined = " ".join(deny)
         self.assertIn("reserve", joined)
         self.assertIn("release", joined)
-        self.assertNotIn("converge", joined)
+        self.assertIn("complete", joined)
+        self.assertIn("converge", joined)
+        review = self.code("grok-review.sh")
+        self.assertIn('complete "$slot" "$outcome"', review)
+        self.assertIn('converge "$slot"', review)
 
     # ---- 3. a clean end_turn is not evidence the reviewer ran ---------------
 

@@ -743,3 +743,19 @@ rm -f suggestions.md
 if [ -f "$out" ]; then
   cp -P "$out" suggestions.md
 fi
+
+# A resumed /ship reads only ledger state. Record this result after the
+# sentinel and import have made suggestions.md a meaningful verdict, then let
+# the helper that owns those facts decide whether two clean rounds converged.
+outcome=clean
+[ -f suggestions.md ] && outcome=findings
+ledger_rc=0
+bash "$ledger" "$pr" complete "$slot" "$outcome" >&2 || ledger_rc=$?
+[ "$ledger_rc" -eq 0 ] ||
+  { echo "could not record the $outcome result for check $slot/$ceiling on PR $pr (ledger exit $ledger_rc)" >&2; exit 18; }
+ledger_rc=0
+bash "$ledger" "$pr" converge "$slot" >&2 || ledger_rc=$?
+case "$ledger_rc" in
+  0|5) ;;
+  *) echo "could not evaluate convergence after check $slot/$ceiling on PR $pr (ledger exit $ledger_rc)" >&2; exit 18 ;;
+esac

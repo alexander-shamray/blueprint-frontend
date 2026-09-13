@@ -979,9 +979,11 @@ same argument as never calling a branch clean because asking failed.
      failed round as a skip could hand spent budget back. **A stated bound that
      any ordering mistake lifts is not a bound.** Invocation and accounting are
      one operation now: the helper posts the reservation itself, and
-     `.claude/settings.json` denies the `reserve` and `release` spellings to
-     this session, leaving `count`, `status` and `converge` as the only ledger
-     verbs you invoke.
+     `.claude/settings.json` denies the `reserve`, `complete`, `converge` and
+     `release` spellings to this session, leaving only `count` and `status` as
+     ledger reads you invoke. After it has proved the reviewer ran and imported
+     its findings, `grok-review.sh` records `clean` or `findings` and evaluates
+     convergence itself; a caller cannot write either a result or a marker.
 
      A reservation is an election, not just a write: two resumed runs can read
      the same count and claim the same slot, so the ledger settles it after
@@ -1039,11 +1041,10 @@ same argument as never calling a branch clean because asking failed.
      edit-denied to the session that invokes it. Keep the running count in
      the report as well — the report line is for the reader, the ledger is
      for the machine — and when the last slot is spent, stop and say the PR
-     reached its Grok ceiling. When the loop ends clean instead, say so on
-     the ledger — `grok-ledger.sh <n> converge <N>` — because a resumed run
-     reading bare spend at the ceiling cannot tell convergence from
-     exhaustion, and the difference is whether it reports the Grok half
-     finished or blocked.
+     reached its Grok ceiling. When the second clean review ends, the review
+     helper records the converged marker itself, because a resumed run reading
+     bare spend at the ceiling cannot tell convergence from exhaustion, and the
+     difference is whether it reports the Grok half finished or blocked.
 
      The ceiling — then one number shared by both loops, where the two now
      differ — was three, and three was wrong. By its seventh Copilot round
