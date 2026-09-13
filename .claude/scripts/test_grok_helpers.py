@@ -3821,6 +3821,12 @@ class TheFourPortedResiduals(unittest.TestCase):
         self.assertLess(code.find("ls-files --error-unmatch"),
                         code.find("git clone"))
 
+    def test_a_tracked_review_sentinel_is_refused(self):
+        code = self.code("grok-review.sh")
+        self.assertIn('git ls-files --error-unmatch "$sentinel"', code)
+        self.assertLess(code.find('ls-files --error-unmatch "$sentinel"'),
+                        code.find("git clone"))
+
 
 class AFeedHelperReturnsTheWholeAnswer(unittest.TestCase):
     """#22 and #24 — five helpers read a bounded page and reported it as the set.
@@ -8033,6 +8039,19 @@ class TheGitArgvGuard(unittest.TestCase):
         ):
             with self.subTest(command=command):
                 self.assertAdmitted(command)
+
+    def test_a_globbed_redirection_target_is_refused(self):
+        # Bash expands an unquoted target before opening it. A lexical check of
+        # `package.jso?` would otherwise miss the protected `package.json`.
+        for command in (
+            "ls > package.jso?",
+            "ls > package.[j]son",
+        ):
+            with self.subTest(command=command):
+                self.assertRefused(command)
+
+        # Quoting makes the metacharacter literal, so this is not the bypass.
+        self.assertAdmitted('ls > "package.jso?"')
 
     def test_a_protected_path_inside_a_heredoc_or_a_quote_is_data(self):
         # The invariant the rest of this pipeline is built on, applied to the

@@ -161,7 +161,7 @@ PROTECTED_TREES = frozenset({
 PROTECTED_FILES = frozenset({
     ".editorconfig", ".gitattributes", ".gitignore", ".npmrc", ".nvmrc",
     ".prettierrc", ".prettierrc.cjs", ".prettierrc.js", ".prettierrc.json",
-    "CLAUDE.md", "README.md",
+    "AGENTS.md", "CLAUDE.md", "README.md",
     "angular.json", "capacitor.config.ts", "ionic.config.json",
     "eslint.config.cjs", "eslint.config.js", "eslint.config.mjs",
     "jest.config.js", "karma.conf.js",
@@ -1737,6 +1737,30 @@ def writes_to_a_file(span):
     return bool(word) and word != "-" and not word.isdigit()
 
 
+def globbed(word):
+    """Whether `word` carries an unquoted pathname-expansion metacharacter.
+
+    **Bash expands a redirection target, and the expansion is what opens the
+    file.** `ls > package.jso?` is expanded to the existing `package.json`
+    before the redirect is performed, while `shlex` hands back the literal
+    pattern — so `protected_path` compared a string that is not the file, and
+    the write landed on a name it would otherwise have refused. Raised by
+    Copilot against the commit that added the check.
+
+    Quoting is what turns it off, so quoting is what this asks about: `>
+    "package.jso?"` names a file with a question mark in it and expands to
+    nothing. `shell_positions` is the module's one answer to that question, and
+    an escaped metacharacter is counted as unquoted here — over-refusal in a
+    position where nothing legitimate writes.
+    """
+    for index, in_quotes, in_comment in shell_positions(word):
+        if in_quotes or in_comment:
+            continue
+        if word[index] in "*?[":
+            return True
+    return False
+
+
 def target_literal(word):
     """The filename `word` names, or `None` when that cannot be read.
 
@@ -1812,6 +1836,15 @@ def redirection_offence(command):
         # `test_a_substitution_is_part_of_the_target_word` pins.
         if not span.target.strip():
             continue
+        if globbed(span.target):
+            return (
+                "a redirection's target carries an unquoted `*`, `?` or `[`, "
+                "so bash expands it and the file it opens is not the string "
+                "written here — `> package.jso?` writes `package.json`. "
+                "Refusing rather than judging the pattern instead of the file: "
+                "quote the name, or write it out (#20, "
+                "docs/harness-boundaries.md)."
+            )
         literal = target_literal(span.target)
         if literal is None:
             return (

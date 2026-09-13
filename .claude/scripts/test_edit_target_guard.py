@@ -39,6 +39,7 @@ import sys
 import tempfile
 import unicodedata
 import unittest
+from unittest import mock
 from pathlib import Path
 
 SCRIPTS = Path(__file__).resolve().parent
@@ -757,6 +758,18 @@ class WhatThisGuardIsNotTheSubjectOf(GuardCase):
         # other half, without which this one would pass against a guard that
         # still admitted everything.
         self.assertAdmitted(os.path.join(self.outside, "loot.txt"))
+
+    def test_a_stale_temp_environment_variable_does_not_widen_the_scratch_root(
+            self):
+        module = self.guard_module()
+        home = os.path.expanduser("~")
+        with mock.patch.object(tempfile, "gettempdir",
+                               return_value=self.outside):
+            with mock.patch.dict(os.environ, {"TEMP": home}):
+                roots = module.scratch_roots()
+        self.assertIn((os.path.abspath(self.outside),
+                       os.path.realpath(self.outside)), roots)
+        self.assertNotIn((os.path.abspath(home), os.path.realpath(home)), roots)
 
     def test_a_sibling_worktree_of_this_repository_is_judged_not_refused(self):
         """The false positive the allow-list introduced, found by walking into it.

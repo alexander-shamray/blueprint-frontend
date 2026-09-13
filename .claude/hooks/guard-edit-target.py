@@ -286,10 +286,17 @@ def scratch_roots():
     credential, and the fallback returned allow (#21).
 
     Two roots, which are the two the docstring already names. The session
-    scratchpad is created under the platform temp directory, so the temp roots
-    are taken from the environment the harness runs in rather than guessed at;
-    all four spellings are read because a host may set any of them and Python
-    consults them in this order itself.
+    scratchpad is created under the platform temp directory, so that directory
+    is asked for rather than guessed at.
+
+    **`tempfile.gettempdir()` and nothing beside it, which was not the first
+    form.** That form also admitted `TMPDIR`, `TEMP` and `TMP` from the
+    environment, on the reasoning that a host may set any of them — and
+    `gettempdir()` already applies exactly that precedence, so reading them
+    again added nothing except every stale one. A leftover `TEMP=$HOME` beside
+    a live `TMPDIR=/tmp` made the whole home directory a scratch root and
+    `~/.ssh` writable, which is the case this allow-list exists to refuse.
+    Raised by Copilot against the commit that introduced it.
 
     **Each is kept as (spelled, resolved), for the reason `anchors` keeps its
     own pairs and one platform makes unmissable.** macOS reaches the temp
@@ -300,12 +307,10 @@ def scratch_roots():
     this suite on three platforms, which is the only reason that is knowable
     from here.
     """
-    roots = [tempfile.gettempdir()]
-    for name in ("TMPDIR", "TEMP", "TMP"):
-        value = os.environ.get(name)
-        if value:
-            roots.append(value)
-    roots.append(os.path.join(os.path.expanduser("~"), ".claude"))
+    roots = [
+        tempfile.gettempdir(),
+        os.path.join(os.path.expanduser("~"), ".claude"),
+    ]
     return [(os.path.abspath(root), os.path.realpath(root))
             for root in roots if root]
 

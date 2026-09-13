@@ -231,6 +231,17 @@ status=$(git status --porcelain)
 # where a clean tracked file is invisible.
 ! git ls-files --error-unmatch suggestions.md >/dev/null 2>&1 ||
   { echo "suggestions.md is tracked on this branch; the review owns that path and would delete it. Remove it from the branch, or rename the branch's file" >&2; exit 3; }
+# **And the sentinel, for a sharper reason: gitignored is not untrackable.**
+# `git add -f .grok-review-ran` puts it in the branch, `git clone` carries it,
+# and the reviewer's evidence-of-execution check below then finds a regular
+# file that was there before the reviewer started — so an immediate `end_turn`
+# passes and the round is counted clean again, which is the exact fail-open the
+# sentinel exists to close. Raised by Copilot against the commit that added it.
+#
+# Refused rather than deleted from the clone: a branch that commits this file
+# is either confused or hostile, and both are worth stopping on.
+! git ls-files --error-unmatch "$sentinel" >/dev/null 2>&1 ||
+  { echo "$sentinel is tracked on this branch; it is the reviewer's proof that it ran, so a committed copy would make an empty review read as a clean one" >&2; exit 3; }
 # The daemon, not just the CLI. `command -v docker` passes on a machine whose
 # Docker Desktop is installed and stopped — which is the common case, not an
 # exotic one — and the build then fails with Docker's own generic status
