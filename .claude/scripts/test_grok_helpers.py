@@ -8409,7 +8409,15 @@ class TheGitArgvGuard(unittest.TestCase):
                 "ls $(gh pr merge 42 --admin)",
                 "ls $(env GH_HOST=x \"g\"h api -X POST repos/x/y/issues)",
                 "cat <(gh pr merge 42 --admin)",
-                "cat <( command gh pr merge 42)"):
+                "cat <( command gh pr merge 42)",
+                # `gh` after another command in the same substitution, or one
+                # level down in a shell it starts. Raised by Copilot.
+                'ls "$(printf ok; gh pr merge 42 --admin)"',
+                "ls $(true && gh pr merge 42)",
+                "ls $(bash -c 'gh pr merge 42')",
+                "ls <(printf x; gh pr merge 42 --admin)",
+                "ls >(cat; gh issue create -t x)",
+                "ls $(printf ok | xargs gh pr merge)"):
             with self.subTest(command=command):
                 self.assertRefused(command, cwd=root)
         os.makedirs(os.path.join(root, "notes"))

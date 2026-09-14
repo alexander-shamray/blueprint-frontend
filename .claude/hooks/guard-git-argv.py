@@ -2202,35 +2202,43 @@ def substituted_gh_offence(inner):
     here runs `gh` inside a substitution, so every `gh` there is refused rather
     than its subcommand judged. Raised by Copilot.
 
-    Read after quote removal and past assignments and the wrappers that run
-    their argument, for the reason `helper_named` is: the raw text is not what
-    bash runs.
+    **Every word, not the first program.** The first form stopped at the
+    first program it met, so `$(printf ok; gh pr merge 42 --admin)` reached
+    `printf` and was admitted, and `$(bash -c 'gh …')` hid it one level down.
+    Raised by Copilot. So the body is read after quote removal and split on
+    whitespace and shell punctuation, and a `gh` word anywhere in it refuses —
+    over-refusing a substitution that merely mentions `gh`, which nothing here
+    needs to do.
     """
-    try:
-        words = shlex.split(strip_dollar_quotes(inner), posix=True)
-    except ValueError:
-        words = inner.split()
-    for word in words:
-        if ASSIGNMENT.match(word) or word.startswith("-"):
-            continue
-        name = program_name(word)
-        if name in {"command", "env", "exec", "nohup", "time", "builtin"}:
-            continue
-        if name == "gh":
-            return (
-                "a command substitution runs `gh`, and it runs before the "
-                "command that holds it is checked against its grant — so a "
-                "fixed helper's own validation never sees it. Nothing here "
-                "runs `gh` inside a substitution; call the helper directly."
-            )
-        return None
+    if contains_gh_word(inner):
+        return (
+            "a command substitution runs `gh`, and it runs before the "
+            "command that holds it is checked against its grant — so a "
+            "fixed helper's own validation never sees it. Nothing here "
+            "runs `gh` inside a substitution; call the helper directly."
+        )
     return None
 
 
-# A process substitution is executed too, and `substitutions` does not return
-# one: judged by pattern, after quote removal, for the same `gh`.
-PROCESS_SUBSTITUTED_GH = re.compile(
-    r"[<>]\(\s*(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+|(?:command|env|exec|builtin)\s+)*gh(?:\.exe)?(?=\s|\))")
+def contains_gh_word(text):
+    """Whether `text`, with its quoting removed, holds `gh` as a word."""
+    unquoted = re.sub(r"\$?[\"']|\\", "", text)
+    for word in re.split(r"[\s;&|()<>`{}]+", unquoted):
+        if program_name(word) == "gh":
+            return True
+    return False
+
+
+def process_substitution_bodies(command):
+    """The body of every `<(…)` and `>(…)` in `command`, by paren balance."""
+    bodies = []
+    for match in re.finditer(r"[<>]\(", command):
+        depth, index = 1, match.end()
+        while index < len(command) and depth:
+            depth += {"(": 1, ")": -1}.get(command[index], 0)
+            index += 1
+        bodies.append(command[match.end():index - 1 if depth == 0 else index])
+    return bodies
 
 
 def substitutions(command, quotes=True):
@@ -3392,8 +3400,7 @@ def _offence(command, depth, judged):
             if refusal is not None:
                 return f"with {description}: {refusal}"
 
-    if (PROCESS_SUBSTITUTED_GH.search(command)
-            or PROCESS_SUBSTITUTED_GH.search(re.sub(r"\$?[\"']|\\", "", command))):
+    if any(contains_gh_word(body) for body in process_substitution_bodies(command)):
         return (
             "a process substitution runs `gh`, which executes before the "
             "command holding it is checked against its grant. Call the "
