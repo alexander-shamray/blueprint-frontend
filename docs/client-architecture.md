@@ -1231,7 +1231,11 @@ order:
    one and fail exactly as if the fix were not there.
 3. Sign in: the system browser must open (not a web view inside the app), and
    the return must land back in the running app rather than in a new copy of
-   it.
+   it. Then open a sign-in, sign out, and sign in again at once: the second
+   login page must stay up. That is the check #28's fix cannot get from its
+   unit tests — whether `CLOSE_EVENT_BOUND_MS` really outlasts the plugin's
+   `browserFinished` after a close is decided by Android's activity ordering,
+   which the source does not settle.
 4. Browse, quote, order, cancel — the same path `e2e/smoke.spec.ts` drives on
    the web.
 5. Force-stop the app and relaunch: the cart must survive (Capacitor
