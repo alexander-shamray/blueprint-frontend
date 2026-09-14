@@ -120,8 +120,9 @@ FORBIDDEN_FLAGS = ("--output", "--upload-pack", "--receive-pack", "--exec",
 # without using it as a transport.
 FORBIDDEN_SUBSTRINGS = ("ext::",)
 
-# **The trees a redirection may not write into, and the reason this list is
-# here rather than read off the deny rules is that a hook cannot see them.**
+# **The trees a redirection or a writing verb may not write into (#20, #26),
+# and the reason this list is here rather than read off the deny rules is that
+# a hook cannot see them.**
 # `.claude/settings.json` denies `Edit(.claude/scripts/**)` and every editing
 # command denies the same trees in its own frontmatter — and all of that binds
 # the EDITING TOOLS. A `>` on any granted `Bash` command writes what every one
@@ -1540,6 +1541,26 @@ def word_end(command, position, ordinary):
     return position
 
 
+def ordinary_positions(command):
+    """Whether each character of `command` is unquoted, unescaped shell text.
+
+    One mask for the two walks that split a command into words with their
+    quoting intact — `redirection_spans` and `raw_runs` — so that they cannot
+    disagree about which characters are syntax.
+    """
+    ordinary = [False] * len(command)
+    escaped = None
+    for index, in_quotes, in_comment in shell_positions(command):
+        if index == escaped:
+            escaped = None
+            continue
+        if command[index] == "\\" and not in_quotes and not in_comment:
+            escaped = index + 1
+            continue
+        ordinary[index] = not in_quotes and not in_comment
+    return ordinary
+
+
 def redirection_spans(command):
     """Every redirection in `command`, as `Redirection` records.
 
@@ -1569,16 +1590,7 @@ def redirection_spans(command):
     docstring that still argued for the old behaviour is how the next edit
     restores it.
     """
-    ordinary = [False] * len(command)
-    escaped = None
-    for index, in_quotes, in_comment in shell_positions(command):
-        if index == escaped:
-            escaped = None
-            continue
-        if command[index] == "\\" and not in_quotes and not in_comment:
-            escaped = index + 1
-            continue
-        ordinary[index] = not in_quotes and not in_comment
+    ordinary = ordinary_positions(command)
 
     def plain(position):
         return position < len(command) and ordinary[position]
@@ -2032,12 +2044,15 @@ def redirection_offence(command):
     `Bash(wc:*)` are auto-approved for every session, and a `>` on either one
     wrote what all of them refuse.
 
-    **The residual, because it is narrower than the fix reads.** A redirection
-    is not the only way a command writes: `tee`, `cp`, `sed -i` and an
-    interpreter all do, and none of them is judged here. What makes the
-    redirection the case worth closing is that it rides on a command that is
-    ALREADY approved, so it needs no grant of its own — everything else in that
-    list has to be granted first, and none of it is.
+    **The residual this docstring used to state was false, and it is kept here
+    in the past tense for that reason.** It said a redirection is not the only
+    way a command writes — `tee`, `cp`, `sed -i` and an interpreter all do —
+    and that those did not need judging because each "has to be granted
+    first". Under `"defaultMode": "auto"`, set in a user-level settings file
+    this repository never reads, nothing has to be granted: a `cp` onto the
+    `src` a redirection here had just refused was admitted and landed (#26).
+    `writing_verb_offence` judges the verbs now; what stays open is named
+    there.
     """
     for span in redirection_spans(command):
         # **A review helper read INTO a command is a script being handed to
@@ -2077,114 +2092,445 @@ def redirection_offence(command):
         # `test_a_substitution_is_part_of_the_target_word` pins.
         if not span.target.strip():
             continue
-        if globbed(span.target):
+        refusal = destination_offence(
+            span.target, command, f"`{span.operator}`", "a redirection")
+        if refusal is not None:
+            return refusal
+    return None
+
+
+def destination_offence(word, command, writer, kind):
+    """The reason to refuse writing the file shell `word` names, or `None`.
+
+    `word` is raw shell text, quoting intact, because the quoting is what
+    decides whether a `~`, a `*` or a `$"…"` means anything. `writer` names the
+    operator or the program in a refusal, and `kind` names the way it writes.
+
+    **One judgement, two callers, and the second is why it was lifted out.**
+    It was `redirection_offence`'s loop body while a redirection was the only
+    write this file judged. A `cp` writes the same file by another spelling
+    (#26), and a second copy of these rules for it is the sibling-drift
+    `quote_states` records this file repeating five times.
+    """
+    if globbed(word):
+        return (
+            f"{kind}'s target carries an unquoted `*`, `?`, `[` or `{{`, so "
+            "bash expands it and the file written is not the string written "
+            "here — `> package.jso?` writes `package.json`. Refusing rather "
+            "than judging the pattern instead of the file: quote the name, or "
+            "write it out (#20, #26, docs/harness-boundaries.md)."
+        )
+    # **A dollar quote this guard cannot read is refused on the target
+    # itself**, because the command-wide check runs after the redirection
+    # strip has already removed it. `target_literal` read `$"HOME"/../src/…`
+    # as a `$HOME` expansion and judged `~/../src/…`, while bash opens the
+    # relative `HOME/../src/…` — the checkout's denied `src`. Raised by
+    # Copilot.
+    unreadable = unreadable_dollar_quote(word)
+    if unreadable is not None:
+        return f"{kind}'s target: {unreadable}"
+    literal = target_literal(word)
+    if literal is None:
+        return (
+            f"{kind}'s target is built by a command substitution, so the file "
+            "it writes cannot be read from this command; refusing rather than "
+            "admitting a write nothing judged. Name the path, or use the "
+            "editing tools, which the permission rules see (#20, #26, "
+            "docs/harness-boundaries.md)."
+        )
+    # **An unquoted leading `~` is expanded before the file opens.**
+    # `ls > ~/checkout/src/app/x.ts` reached the tree checks as a relative
+    # path whose first component is `~`, while bash wrote the checkout's
+    # `src`. Raised by Copilot. `~` and `~+` have values this hook shares
+    # with the session — the home directory, and the working directory the
+    # event names — so they are expanded and judged; `~-` and `~user`
+    # have none it can read, and are refused. A quoted `'~'` is a literal
+    # name, which is why the raw word is asked rather than the literal.
+    raw = word.strip()
+    if raw.startswith("~"):
+        prefix = re.match(r"~[^/\\]*", raw).group(0)
+        remainder = literal[len(prefix):]
+        if prefix == "~":
+            literal = os.environ.get("HOME") or os.path.expanduser("~")
+            literal += remainder
+        elif prefix == "~+":
+            literal = (EVENT_CWD or os.getcwd()) + remainder
+        else:
             return (
-                "a redirection's target carries an unquoted `*`, `?` or `[`, "
-                "so bash expands it and the file it opens is not the string "
-                "written here — `> package.jso?` writes `package.json`. "
-                "Refusing rather than judging the pattern instead of the file: "
-                "quote the name, or write it out (#20, "
+                f"{kind}'s target begins `{prefix}`, which bash expands to a "
+                "directory this guard cannot read — the previous working "
+                "directory, or another user's home. Refusing rather than "
+                "judging the tilde instead of the path (#20, #26, "
                 "docs/harness-boundaries.md)."
             )
-        # **A dollar quote this guard cannot read is refused on the target
-        # itself**, because the command-wide check runs after the redirection
-        # strip has already removed it. `target_literal` read `$"HOME"/../src/…`
-        # as a `$HOME` expansion and judged `~/../src/…`, while bash opens the
-        # relative `HOME/../src/…` — the checkout's denied `src`. Raised by
-        # Copilot.
-        unreadable = unreadable_dollar_quote(span.target)
-        if unreadable is not None:
-            return f"a redirection's target: {unreadable}"
-        literal = target_literal(span.target)
-        if literal is None:
+    if "$" in literal:
+        expanded = expanded_target(literal, command)
+        if expanded is None:
             return (
-                "a redirection's target is built by a command substitution, "
-                "so the file it writes cannot be read from this command; "
-                "refusing rather than admitting a write nothing judged. Name "
-                "the path, or use the editing tools, which the permission "
-                "rules see (#20, docs/harness-boundaries.md)."
+                f"{writer} writes `{literal}`, whose path is built by a "
+                "parameter expansion this guard cannot read — a variable set "
+                "earlier in the same command, or one outside "
+                f"{', '.join(sorted(EXPANDABLE_VARIABLES))}. Refusing rather "
+                "than judging the name instead of the file it opens (#20, "
+                "#26, docs/harness-boundaries.md)."
             )
-        # **An unquoted leading `~` is expanded before the file opens.**
-        # `ls > ~/checkout/src/app/x.ts` reached the tree checks as a relative
-        # path whose first component is `~`, while bash wrote the checkout's
-        # `src`. Raised by Copilot. `~` and `~+` have values this hook shares
-        # with the session — the home directory, and the working directory the
-        # event names — so they are expanded and judged; `~-` and `~user`
-        # have none it can read, and are refused. A quoted `'~'` is a literal
-        # name, which is why the raw word is asked rather than the literal.
-        raw = span.target.strip()
-        if raw.startswith("~"):
-            prefix = re.match(r"~[^/\\]*", raw).group(0)
-            remainder = literal[len(prefix):]
-            if prefix == "~":
-                literal = os.environ.get("HOME") or os.path.expanduser("~")
-                literal += remainder
-            elif prefix == "~+":
-                literal = (EVENT_CWD or os.getcwd()) + remainder
-            else:
+        # **An expanded value can be a pattern too**, and `globbed` ran on
+        # the word before it was expanded. With `TMPDIR=package.jso?`,
+        # `ls > $TMPDIR` opens `package.json` while the tree checks see
+        # the pattern. Refused whether or not the expansion was quoted: a
+        # temp root carrying `*`, `?`, `[` or `{` is not one to write
+        # scratch into. Raised by Copilot.
+        if any(char in expanded for char in "*?[{"):
+            return (
+                f"{kind}'s target `{literal}` expands to `{expanded}`, which "
+                "carries a pattern character, so the file bash opens is not "
+                "the string judged here (#20, #26, docs/harness-boundaries.md)."
+            )
+        literal = expanded
+    # **A relative target is placed against the event's `cwd`, and a
+    # directory change earlier in the command moves where it lands.**
+    # `ls >/dev/null; cd .claude; ls > settings.json` was judged as
+    # `<checkout>/settings.json` and bash wrote `.claude/settings.json`.
+    # Modelling `cd`, `pushd` and `popd` through subshells and compound
+    # commands is the kind of shell emulation this file refuses to guess
+    # at, so a relative write target is refused whenever the command can
+    # change directory. Name the path absolutely, or split the command.
+    # Raised by Copilot.
+    # A leading slash is absolute to bash on every host, and to
+    # `os.path.isabs` only where there is no drive letter to ask for.
+    absolute = os.path.isabs(literal) or literal.startswith(("/", "\\"))
+    if not absolute and changes_directory(command):
+        return (
+            f"{writer} writes the relative path `{literal}` in a command that "
+            "also changes directory, so where it lands is not the event's "
+            "working directory and this guard cannot place it. Name the path "
+            "absolutely, or run the `cd` as its own command (#20, #26, "
+            "docs/harness-boundaries.md)."
+        )
+    named = (protected_path(literal) or linked_protected_path(literal)
+             or application_tree(literal))
+    if named is not None:
+        return (
+            f"{writer} would write `{literal}`, and `{named}` is the agent's "
+            "own machinery or the toolchain that runs on it. Every `Edit(...)` "
+            f"deny that names it binds the editing tools, so {kind} wrote "
+            "straight past them (#20, #26, docs/harness-boundaries.md). Write "
+            "it with an editing tool, where a permission rule judges the path."
+        )
+    return None
+
+
+# **The programs whose file operands are written, and which of them are.**
+# #26 measured the gap: a redirection onto `src/…` was refused, and the same
+# bytes written to scratch and then `cp`'d onto the same path were admitted and
+# landed. The residual this file stated for it — that `cp`, `tee` and the rest
+# "have to be granted first" — assumed a permission mode no file here sets; a
+# user-level `"defaultMode": "auto"` approves an un-granted `cp` outright.
+#
+# The value is the operand model, and every model is one `verb_offence` reads:
+#
+#   destination  the last operand, or a `-t`/`--target-directory` value; the
+#                other operands are sources and are only read
+#   every        every operand, because the verb writes, replaces or removes
+#                each one — `mv` removes its sources, which is a write to them
+#   in-place     the file operands, but only under `-i` / `--in-place`
+#   of           the `of=` operand
+#
+# **The list trails the programs that write, and says so.** `curl -o`,
+# `rsync`, `tar -x`, `unzip`, `patch`, `find -delete` and an interpreter
+# (`python -c`, `node -e`, an `awk` or `sed` script using its own `w`) all write
+# and none is here. The suite asserts every name below reaches the check
+# through its model, and that the verbs #26 named are all on it — it cannot
+# assert that nothing is missing, and `docs/harness-boundaries.md` carries that
+# residual.
+WRITING_VERBS = {
+    "cp": "destination", "install": "destination", "ln": "destination",
+    "mv": "every", "rm": "every", "rmdir": "every", "shred": "every",
+    "tee": "every", "touch": "every", "truncate": "every", "unlink": "every",
+    "perl": "in-place", "sed": "in-place",
+    "dd": "of",
+}
+
+# The verbs a `-t DIR` or `--target-directory=DIR` sends every operand into.
+TARGET_OPTION_VERBS = frozenset({"cp", "install", "ln", "mv"})
+
+# Short options that take a value, per verb — the value is the rest of the
+# word, or the next word when nothing is glued. **Absent a letter, nothing is
+# skipped**, which is the direction `VALUE_FLAGS_BY_SUBCOMMAND` argues: a value
+# judged as a path costs an over-refusal on a name that is never protected,
+# and a path skipped as a value costs the write.
+SHORT_VALUE_OPTIONS = {
+    "cp": "S", "install": "gmoS", "ln": "S", "mv": "S", "sed": "l",
+    "shred": "ns", "touch": "dr", "truncate": "rs",
+}
+
+# The long forms, matched as GNU matches them: any unambiguous prefix.
+LONG_VALUE_OPTIONS = {
+    "cp": ("--suffix",), "install": ("--group", "--mode", "--owner",
+                                     "--strip-program", "--suffix"),
+    "ln": ("--suffix",), "mv": ("--suffix",),
+    "sed": ("--expression", "--file", "--line-length"),
+    "shred": ("--iterations", "--random-source", "--size"),
+    "touch": ("--date", "--reference", "--time"),
+    "truncate": ("--reference", "--size"),
+}
+
+# `find -exec cp {} dest \;` hands `cp` its words up to the terminator, and
+# `{}` is a name `find` supplies — so the terminator ends the verb's operands.
+FIND_EXECUTORS = frozenset({"-exec", "-execdir", "-ok", "-okdir"})
+
+# Reserved words that can stand before a command in the same run.
+SHELL_KEYWORDS = frozenset({
+    "!", "{", "}", "do", "done", "elif", "else", "fi", "if", "then", "time",
+    "until", "while",
+})
+
+
+def raw_runs(command):
+    """`command` split into command runs of raw words, quoting intact.
+
+    The token path cannot be asked this: `shlex` has already removed the quotes
+    that decide whether a `~`, a `*` or a `$` in a destination expands, which is
+    exactly what `destination_offence` has to read. `word_end` is the one parse
+    of a word, and a process substitution is kept whole as one — splitting at
+    its parenthesis would put `cp <(…) .claude/x`'s destination in a run of its
+    own, led by the path.
+    """
+    ordinary = ordinary_positions(command)
+    runs, current, index = [], [], 0
+    while index < len(command):
+        if ordinary[index] and command[index] in " \t":
+            index += 1
+            continue
+        # **The redirection strip has already taken the `<` of a `<(…)`**,
+        # reading it as an operator with an empty target, so what reaches here
+        # from `cp <(echo x) .claude/settings.json` is `cp (echo x) …`. A group
+        # standing where an argument stands is therefore one word, and its body
+        # is split as runs of its own as well, so `if (cp a b)` loses nothing.
+        opener = (2 if command[index:index + 2] in ("<(", ">(")
+                  else 1 if command[index] == "(" and current else 0)
+        if ordinary[index] and opener:
+            close = _closing_paren(command, index + opener)
+            if close is not None:
+                current.append(command[index:close + 1])
+                runs.extend(raw_runs(command[index + opener:close]))
+                index = close + 1
+                continue
+        end = word_end(command, index, ordinary)
+        if end == index:
+            if current:
+                runs.append(current)
+            current = []
+            index += 1
+            continue
+        current.append(command[index:end])
+        index = end
+    if current:
+        runs.append(current)
+    return runs
+
+
+def _glued_raw(raw, literal, cut):
+    """The raw text of `literal[cut:]`, quoted when `raw` spells it otherwise.
+
+    A value glued to an option — `-t.claude`, `--target-directory=src` — is a
+    word of its own to the verb, and its quoting still decides what expands. It
+    is taken from the raw word when the option in front is spelled plainly, and
+    single-quoted otherwise, since then the whole word was quoted and nothing
+    in the value expands either.
+    """
+    if raw.startswith(literal[:cut]):
+        return raw[cut:]
+    return shlex.quote(literal[cut:])
+
+
+def _unreadable_word(literal, command):
+    """Whether a word's value is not in the source: a substitution, or an
+    expansion `expanded_target` cannot read."""
+    return literal is None or (
+        "$" in literal and expanded_target(literal, command) is None)
+
+
+def verb_offence(verb, words, command):
+    """The reason to refuse `verb` run on the raw `words` after it, or `None`.
+
+    **Options are parsed, not skipped by a leading dash**, because an option
+    can carry the destination: `cp -t.claude/hooks x` writes into the hooks
+    while no operand names them, and `cp x y -S .bak` puts a value where a
+    last-operand rule would read the destination.
+    """
+    literals = [target_literal(word) for word in words]
+    writer = kind = f"`{verb}`"
+    model = WRITING_VERBS[verb]
+
+    if model == "of":
+        for raw, literal in zip(words, literals):
+            if literal is None:
                 return (
-                    f"a redirection's target begins `{prefix}`, which bash "
-                    "expands to a directory this guard cannot read — the "
-                    "previous working directory, or another user's home. "
-                    "Refusing rather than judging the tilde instead of the "
-                    "path (#20, docs/harness-boundaries.md)."
+                    "`dd` is handed an operand built by a command substitution, "
+                    "which can be its `of=`; refusing rather than admitting a "
+                    "write nothing judged (#26, docs/harness-boundaries.md)."
                 )
-        if "$" in literal:
-            expanded = expanded_target(literal, command)
-            if expanded is None:
+            if literal.startswith("of="):
+                refusal = destination_offence(
+                    _glued_raw(raw, literal, 3), command, writer, kind)
+                if refusal is not None:
+                    return refusal
+        return None
+
+    operands, targets = [], []
+    in_place = script_given = directory_mode = options_done = False
+    short_values = SHORT_VALUE_OPTIONS.get(verb, "")
+    long_values = LONG_VALUE_OPTIONS.get(verb, ())
+    position = 0
+    while position < len(words):
+        raw, literal = words[position], literals[position]
+        position += 1
+        if literal is None or options_done or literal in ("-", "") or (
+                not literal.startswith("-")):
+            operands.append(raw)
+            continue
+        if literal == "--":
+            options_done = True
+            continue
+        if literal.startswith("--"):
+            name, equals, _ = literal.partition("=")
+
+            def abbreviates(option):
+                return len(name) > 2 and option.startswith(name)
+
+            if verb in TARGET_OPTION_VERBS and abbreviates("--target-directory"):
+                if equals:
+                    targets.append(_glued_raw(raw, literal, len(name) + 1))
+                elif position < len(words):
+                    targets.append(words[position])
+                    position += 1
+                continue
+            if verb == "sed" and abbreviates("--in-place"):
+                in_place = True
+                continue
+            if verb == "install" and abbreviates("--directory"):
+                directory_mode = True
+                continue
+            if verb == "sed" and (abbreviates("--expression")
+                                  or abbreviates("--file")):
+                script_given = True
+            if not equals and any(abbreviates(option) for option in long_values):
+                position += 1
+            continue
+        letters = literal[1:]
+        for offset, letter in enumerate(letters):
+            cut = offset + 2
+            rest = letters[offset + 1:]
+            if verb in ("sed", "perl") and letter == "i":
+                in_place = True
+                break
+            if verb in TARGET_OPTION_VERBS and letter == "t":
+                if rest:
+                    targets.append(_glued_raw(raw, literal, cut))
+                elif position < len(words):
+                    targets.append(words[position])
+                    position += 1
+                break
+            if verb == "install" and letter == "d":
+                directory_mode = True
+                continue
+            script_letter = (verb == "sed" and letter in "ef") or (
+                verb == "perl" and letter in "eE")
+            if script_letter:
+                script_given = True
+            if script_letter or letter in short_values:
+                if not rest:
+                    position += 1
+                break
+            if verb == "perl" and letter in "CDFIMdmx":
+                break
+
+    unreadable = [raw for raw, literal in zip(words, literals)
+                  if _unreadable_word(literal, command)]
+    if model == "every" or directory_mode:
+        judged = operands + targets
+    elif model == "destination":
+        # **A word whose value is not in the source can be an option**, and
+        # an option can be the destination: `cp "$X" y` is `cp -t .claude y`
+        # when `X` says so. The operands this model does not judge are read
+        # for that reason alone.
+        if unreadable:
+            return (
+                f"`{verb}` is handed `{unreadable[0]}`, whose value is built "
+                "by an expansion or a substitution this guard cannot read, and "
+                "it can be an option that moves the destination; refusing "
+                "rather than judging the words instead of the argv (#26, "
+                "docs/harness-boundaries.md)."
+            )
+        if targets:
+            judged = targets
+        elif len(operands) > 1:
+            judged = operands[-1:]
+        elif operands and verb == "ln":
+            # One operand links it into the working directory by its basename.
+            name = os.path.basename(target_literal(operands[0]).rstrip("/\\"))
+            judged = [shlex.quote(name)]
+        else:
+            judged = []
+    elif in_place:
+        judged = operands if script_given else operands[1:]
+    else:
+        judged = []
+
+    for word in judged:
+        refusal = destination_offence(word, command, writer, kind)
+        if refusal is not None:
+            return refusal
+    return None
+
+
+def writing_verb_offence(command):
+    """The reason to refuse a writing verb's destination in `command`, or `None`.
+
+    **The verb is looked for anywhere in the run, not only in the lead**,
+    because a wrapper puts it in the middle — `sudo tee`, `env cp`,
+    `find -exec cp`, `busybox mv` — and the wrapper list is the one this file
+    has refused to keep every time, since it fails open on the first name
+    nobody listed. What that costs is judged away by the lead instead: a run
+    led by a reader or a printer — `grep -n tee .claude/…`, `git log -- cp`,
+    `echo rm …` — is inspecting or printing those words and cannot run them.
+
+    **`xargs` in front of a verb is refused outright.** Its operands arrive on
+    stdin — `git ls-files .claude | xargs rm` names no path at all — so there
+    is nothing in the source to judge.
+    """
+    for run in raw_runs(command):
+        literals = [target_literal(word) for word in run]
+        lead = next((literal for raw, literal in zip(run, literals)
+                     if not ASSIGNMENT.match(raw)
+                     and literal not in SHELL_KEYWORDS), None)
+        if lead is not None and program_name(lead) in (
+                READING_COMMANDS | DATA_ONLY_COMMANDS):
+            continue
+        for index, literal in enumerate(literals):
+            if literal is None or ASSIGNMENT.match(run[index]):
+                continue
+            verb = program_name(literal)
+            if verb not in WRITING_VERBS:
+                continue
+            before = [program_name(word) for word in literals[:index] if word]
+            if "xargs" in before:
                 return (
-                    f"a redirection writes `{literal}`, whose path is built by "
-                    "a parameter expansion this guard cannot read — a "
-                    "variable set earlier in the same command, or one outside "
-                    f"{', '.join(sorted(EXPANDABLE_VARIABLES))}. Refusing "
-                    "rather than judging the name instead of the file it opens "
-                    "(#20, docs/harness-boundaries.md)."
-                )
-            # **An expanded value can be a pattern too**, and `globbed` ran on
-            # the word before it was expanded. With `TMPDIR=package.jso?`,
-            # `ls > $TMPDIR` opens `package.json` while the tree checks see
-            # the pattern. Refused whether or not the expansion was quoted: a
-            # temp root carrying `*`, `?`, `[` or `{` is not one to write
-            # scratch into. Raised by Copilot.
-            if any(char in expanded for char in "*?[{"):
-                return (
-                    f"a redirection's target `{literal}` expands to "
-                    f"`{expanded}`, which carries a pattern character, so the "
-                    "file bash opens is not the string judged here (#20, "
+                    f"`xargs` runs `{verb}` on names it reads from stdin, so "
+                    "the files it writes are not in this command; refusing "
+                    "rather than admitting a write nothing judged (#26, "
                     "docs/harness-boundaries.md)."
                 )
-            literal = expanded
-        # **A relative target is placed against the event's `cwd`, and a
-        # directory change earlier in the command moves where it lands.**
-        # `ls >/dev/null; cd .claude; ls > settings.json` was judged as
-        # `<checkout>/settings.json` and bash wrote `.claude/settings.json`.
-        # Modelling `cd`, `pushd` and `popd` through subshells and compound
-        # commands is the kind of shell emulation this file refuses to guess
-        # at, so a relative write target is refused whenever the command can
-        # change directory. Name the path absolutely, or split the command.
-        # Raised by Copilot.
-        # A leading slash is absolute to bash on every host, and to
-        # `os.path.isabs` only where there is no drive letter to ask for.
-        absolute = os.path.isabs(literal) or literal.startswith(("/", "\\"))
-        if not absolute and changes_directory(command):
-            return (
-                f"`{span.operator}` writes the relative path `{literal}` in a "
-                "command that also changes directory, so where it lands is "
-                "not the event's working directory and this guard cannot "
-                "place it. Name the path absolutely, or run the `cd` as its "
-                "own command (#20, docs/harness-boundaries.md)."
-            )
-        named = (protected_path(literal) or linked_protected_path(literal)
-                 or application_tree(literal))
-        if named is not None:
-            return (
-                f"`{span.operator}` would write `{literal}`, and `{named}` is "
-                "the agent's own machinery or the toolchain that runs on it. "
-                "Every `Edit(...)` deny that names it binds the editing tools, "
-                "so a redirection on an approved command wrote straight past "
-                "them (#20, docs/harness-boundaries.md). Write it with an "
-                "editing tool, where a permission rule judges the path."
-            )
+            words = run[index + 1:]
+            if any(word in FIND_EXECUTORS for word in literals[:index]):
+                for cut, word in enumerate(literals[index + 1:]):
+                    if word in (";", "+"):
+                        words = words[:cut]
+                        break
+            refusal = verb_offence(verb, words, command)
+            if refusal is not None:
+                return refusal
     return None
 
 
@@ -3623,6 +3969,15 @@ def _offence(command, depth, judged):
     unreadable = unreadable_dollar_quote(resolved)
     if unreadable is not None:
         return unreadable
+
+    # **On the string with the redirections gone**, because a redirection's
+    # target is not an operand of the verb in front of it — `cp a b 2>
+    # .claude/x` has already been judged above as the redirection it is — and
+    # before the tokeniser, because the quoting a destination is judged by is
+    # what `shlex` is about to remove (#26).
+    refusal = writing_verb_offence(resolved)
+    if refusal is not None:
+        return refusal
 
     # `strip_dollar_quotes` turns `$'…'` and `$"…"` into the ordinary quoting
     # `shlex` resolves, on the string just checked.
