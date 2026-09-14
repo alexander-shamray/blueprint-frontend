@@ -8492,7 +8492,15 @@ class TheGitArgvGuard(unittest.TestCase):
                 "ls $(sed -n 1p x)",
                 "ls $(python3 -c 'print(1)')",
                 "ls $(env perl -e 'system q(gh pr merge 42)')",
-                "cat <(node -e 'require(\"child_process\")')"):
+                "cat <(node -e 'require(\"child_process\")')",
+                # **A branch-controlled executable is on no list**, which is
+                # why the rule is an allow-list. Raised by Copilot.
+                'ls "$(./tools/run)"',
+                "ls $(tools/run --json)",
+                "ls $(env FOO=1 ./tools/cat)",
+                "cat <(./tools/run)",
+                "ls $(make ledger)",
+                "ls $(bash -c 'git status')"):
             with self.subTest(command=command):
                 self.assertRefused(command, cwd=root)
         os.makedirs(os.path.join(root, "notes"))
@@ -8667,6 +8675,11 @@ class TheGitArgvGuard(unittest.TestCase):
             # helper being run; nor is a `-c` script, which is judged as one.
             "bash .claude/scripts/npm-checks.sh $MODE",
             "ls $TMP",
+            # The allow-listed programs a substitution may still run.
+            'ls "$(git rev-parse --show-toplevel)"',
+            "echo $(date +%s)",
+            "ls $(printf x | tr x y)",
+            'git commit -m "see <(foo) in the notes"',
             "bash -c 'echo $HOME'",
             # A reading redirection that names no helper, with or without a
             # shell nearby.

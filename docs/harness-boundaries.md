@@ -251,11 +251,13 @@ wherever it stands.** A substitution runs while bash is still building the
 argv of the command that holds it, so `bash gh-pr-merge.sh 1 $(gh pr merge
 42 --admin)` merges under the helper's prefix grant before the helper checks
 a single argument — and the same holds on a globally approved `ls`. No
-command here runs `gh` inside one. **So is a substitution led by a program
-whose argument is code** — `awk`, `sed`, `perl`, `python`, `node` and the rest
-of `CODE_EVALUATORS` — since it can build `gh` or a ledger write from string
-fragments no word check sees; `awk` and `sed` no longer count as reading
-commands for the same reason. A relative write after `source`, `.` or `eval`
+command here runs `gh` inside one. **And a substitution may run only an
+allow-list** — `SUBSTITUTION_PROGRAMS`: `git`, `echo`, `printf`, `cat`, `jq`,
+`date` and a few more, each by bare name — because a deny-list of interpreters
+was walked around by a branch-controlled `ls "$(./tools/run)"`, which names
+nothing on any list. A word with a `/` is refused whatever its basename. `awk`
+and `sed` no longer count as reading commands either, since `system()` and
+`e` run a shell. A relative write after `source`, `.` or `eval`
 is refused like one after `cd`. The one helper that takes no argument,
 `gh-pr-create.sh`, is also granted exactly rather than by prefix. A run led by a reader — `grep`, `git`, `cat` and the rest of
 `READING_COMMANDS` — is inspecting those files rather than running them, and is

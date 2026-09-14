@@ -2222,29 +2222,40 @@ def substituted_gh_offence(inner):
             "fixed helper's own validation never sees it. Nothing here "
             "runs `gh` inside a substitution; call the helper directly."
         )
-    if runs_evaluator(inner):
+    if runs_unmodelled_program(inner):
         return (
-            "a command substitution runs a program whose argument is code — "
-            "`awk`, `sed`, an interpreter — before the command that holds it "
-            "is checked against its grant, and that code can build any "
-            "command from fragments. Run it as its own command, where the "
+            "a command substitution runs a program outside the short list "
+            "whose effects this guard models — a script path, an interpreter, "
+            "`awk` or `sed` — and it runs before the command that holds it is "
+            "checked against its grant. Run it as its own command, where the "
             "permission rules see it."
         )
     return None
 
 
-def runs_evaluator(text):
-    """Whether any command run in `text` is led by a program in `CODE_EVALUATORS`."""
+def runs_unmodelled_program(text):
+    """Whether any command run in `text` is led by a program outside the list.
+
+    Led means the first word past assignments and the wrappers that run their
+    argument — `env`, `command`, `exec`, `nohup`, `time`, `xargs` — so wrapping
+    a program does not hide it. A word carrying a `/` is refused whatever its
+    basename, since `./tools/cat` is the branch's file and not `cat`.
+    """
     unquoted = re.sub(r"\$?[\"']|\\", "", text)
     for run in re.split(r"[;&|()\n`]+", unquoted):
         for word in run.split():
             if ASSIGNMENT.match(word) or word.startswith("-"):
                 continue
+            # Splitting at every parenthesis leaves the tail of a nested
+            # `${…}` or `$(…)` as its own "run": a bare `}` or `$` is that
+            # tail, not a program.
+            if re.fullmatch(r"[{}$]+", word):
+                continue
             name = program_name(word)
             if name in {"builtin", "command", "env", "exec", "nohup", "time",
                         "xargs"}:
                 continue
-            if re.fullmatch(r"python\d+(\.\d+)?", name) or name in CODE_EVALUATORS:
+            if "/" in word or "\\" in word or name not in SUBSTITUTION_PROGRAMS:
                 return True
             break
     return False
@@ -2290,7 +2301,13 @@ def contains_gh_word(text):
 def process_substitution_bodies(command):
     """The body of every `<(…)` and `>(…)` in `command`, by paren balance."""
     bodies = []
+    # Only where bash would perform one: `"see <(foo)"` inside quotes is text,
+    # and so is a heredoc body, which the caller strips before asking.
+    quoted = {index for index, in_quotes, in_comment in shell_positions(command)
+              if in_quotes or in_comment}
     for match in re.finditer(r"[<>]\(", command):
+        if match.start() in quoted:
+            continue
         depth, index = 1, match.end()
         while index < len(command) and depth:
             depth += {"(": 1, ")": -1}.get(command[index], 0)
@@ -3090,14 +3107,22 @@ READING_COMMANDS = frozenset({
     "wc",
 })
 
-# **Programs whose argument is code**, refused as the program of a
-# substitution: a substitution runs before the approved command holding it is
-# judged, and an evaluator can assemble `grok-ledger.sh … converge` or a `gh`
-# call from string fragments no word check can see. Raised by Copilot.
-CODE_EVALUATORS = frozenset({
-    "awk", "gawk", "mawk", "nawk", "sed", "gsed", "perl", "python", "python3",
-    "py", "node", "deno", "bun", "ruby", "php", "lua", "tclsh", "pwsh",
-    "powershell", "osascript", "jshell",
+# **The only programs a substitution may run, and it is an allow-list.** A
+# substitution runs before the approved command holding it is judged, so what
+# runs inside one decides before any grant does. The first form listed the
+# programs whose argument is code — `awk`, `sed`, the interpreters — and a
+# branch-controlled executable walked around it: `ls "$(./tools/run)"` names
+# nothing on a list and runs whatever the branch put there, `gh` and the
+# ledger included. Raised by Copilot, twice. So only programs whose effects
+# are modelled or harmless run here, each by bare name — a word with a `/` is
+# a file somebody chose, whatever it is called — and everything else,
+# `awk` and `sed` among it, is refused. `git` is on the list because every
+# `git` word is judged by the rest of this file.
+SUBSTITUTION_PROGRAMS = frozenset({
+    "[", "basename", "cat", "cut", "date", "dirname", "echo", "expr", "false",
+    "git", "grep", "head", "hostname", "id", "jq", "ls", "printf", "pwd",
+    "readlink", "realpath", "rg", "seq", "sort", "stat", "tail", "test", "tr",
+    "true", "uname", "uniq", "wc", "whoami",
 })
 
 
@@ -3473,12 +3498,13 @@ def _offence(command, depth, judged):
             if refusal is not None:
                 return f"with {description}: {refusal}"
 
-    if any(contains_gh_word(body) or runs_evaluator(body)
-           for body in process_substitution_bodies(command)):
+    if any(contains_gh_word(body) or runs_unmodelled_program(body)
+           for body in process_substitution_bodies(strip_heredocs(command))):
         return (
-            "a process substitution runs `gh` or a program whose argument is "
-            "code, which executes before the command holding it is checked "
-            "against its grant. Run it as its own command."
+            "a process substitution runs `gh` or a program outside the short "
+            "list whose effects this guard models, and it executes before "
+            "the command holding it is checked against its grant. Run it as "
+            "its own command."
         )
 
     if substitution_fed_shells(command):
@@ -3519,12 +3545,15 @@ def _offence(command, depth, judged):
         # body arrives with `quotes` false and is not a command line.
         text = join_continuations(text, quotes=quotes)
         for inner in substitutions(text, quotes=quotes):
-            refusal = substituted_gh_offence(inner)
-            if refusal is not None:
-                return refusal
+            # The body is judged in its own right first, so a refusal that
+            # names what it found — a shell evaluator, a push — is the one
+            # reported; the allow-list below then refuses what that admits.
             refusal = offence(inner, depth + 1, judged)
             if refusal is not None:
                 return f"inside a command substitution: {refusal}"
+            refusal = substituted_gh_offence(inner)
+            if refusal is not None:
+                return refusal
 
     # Stripped once, and used by BOTH paths below. The fallback used to scan the
     # raw `command`, which put the heredoc false positive straight back: a body
