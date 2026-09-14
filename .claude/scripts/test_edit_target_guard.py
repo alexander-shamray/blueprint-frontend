@@ -820,6 +820,18 @@ class WhatThisGuardIsNotTheSubjectOf(GuardCase):
             with self.subTest(parts=parts):
                 self.assertRefused(os.path.join(worktree, *parts))
 
+        # **And the over-refusal that preceded it.** The first sibling check
+        # read `commands`, `scripts` and `plugins` as control surfaces at any
+        # depth, which refused real application directories. Raised by
+        # Copilot.
+        for parts in (
+            ("src", "app", "core", "commands", "command-id.ts"),
+            ("src", "scripts", "note.ts"),
+            ("docs", "plugins.md"),
+        ):
+            with self.subTest(parts=parts):
+                self.assertAdmitted(os.path.join(worktree, *parts))
+
         # **And the narrowness, which is the half that matters.** A checkout
         # whose gitdir belongs to some other repository is still refused — a
         # permission rule's paths are relative to THIS project, so nothing

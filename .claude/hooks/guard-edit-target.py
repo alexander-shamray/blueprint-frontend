@@ -613,12 +613,24 @@ def offence(event):
     # outside. It narrows nothing: the loop below still requires every anchor
     # containing the target to agree, which is the property `anchors` rests its
     # trust in `CLAUDE_PROJECT_DIR` on.
+    #
+    # **The sibling's `.claude` is refused whether or not the session stands in
+    # it, and only its `.claude`.** This check used to be `control_surface`
+    # rooted at the whole worktree, which treats `commands`, `scripts` and
+    # `plugins` as protected at ANY depth — the reading that function exists
+    # for under `~/.claude` — and so refused `src/app/core/commands/`, a real
+    # application directory. The rest of the inventory, for a sibling the
+    # session is not in, is `protected_in_worktree` below. Raised by Copilot.
     sibling = linked_worktree(lexical, checkouts)
     if sibling is not None:
-        surface = control_surface(lexical, sibling, traits_of(sibling))
-        if surface is not None:
+        try:
+            relative = os.path.relpath(lexical, sibling)
+        except ValueError:
+            relative = ""
+        first = relative.replace("\\", "/").split("/")[0]
+        if first.rstrip(". ").lower() == ".claude":
             return (
-                f"guard-edit-target: {spelled} targets {surface} in a linked "
+                f"guard-edit-target: {spelled} targets .claude in a linked "
                 "worktree, where this session's permission rules do not apply."
             )
     if sibling is not None and not any(
