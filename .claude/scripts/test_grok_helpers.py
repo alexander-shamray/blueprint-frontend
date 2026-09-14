@@ -4165,7 +4165,7 @@ class HarnessControlSurfaceIsDenied(unittest.TestCase):
         # what retired it.
         for path in (".claude/scripts/**", ".claude/sandbox/**",
                      ".claude/commands/**", ".claude/agents/**",
-                     ".claude/hooks/**",
+                     ".claude/hooks/**", "AGENTS.md",
                      ".claude/settings.json", ".claude/settings.local.json"):
             for prefix in ("", "./"):
                 with self.subTest(path=path, prefix=prefix):

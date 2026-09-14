@@ -38,6 +38,8 @@
       "Edit(./.claude/settings.json)",
       "Edit(.claude/settings.local.json)",
       "Edit(./.claude/settings.local.json)",
+      "Edit(AGENTS.md)",
+      "Edit(./AGENTS.md)",
       "Bash(*grok-ledger.sh * reserve*)",
       "Bash(*grok-ledger.sh * release*)",
       "Bash(*grok-ledger.sh * complete*)",
