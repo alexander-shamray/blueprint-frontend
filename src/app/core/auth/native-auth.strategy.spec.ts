@@ -937,6 +937,28 @@ describe('NativeAuthStrategy', () => {
       expect(store.has(REFRESH_TOKEN_KEY)).toBe(false);
     });
 
+    it('bounds a response whose headers arrive and whose body never does', async () => {
+      store.set(REFRESH_TOKEN_KEY, 'refresh-1');
+      // `fetch` resolves on the headers; the body is read afterwards, and a
+      // timer cleared at the headers left that read unbounded.
+      fetchMock.mockImplementation(async (_url: string, init: RequestInit) => ({
+        ok: true,
+        status: 200,
+        json: () =>
+          new Promise((_resolve, reject) =>
+            init.signal?.addEventListener('abort', () => reject(new Error('aborted'))),
+          ),
+      }));
+      const renewal = strategy.renewNow();
+      const signOut = strategy.signOut();
+
+      await vi.advanceTimersByTimeAsync(60_000);
+
+      await expect(renewal).resolves.toBeUndefined();
+      await expect(signOut).resolves.toBeUndefined();
+      expect(store.has(REFRESH_TOKEN_KEY)).toBe(false);
+    });
+
     it('does not read its own close of the browser as the user dismissing it', async () => {
       // The real plugin fires `browserFinished` for ANY close, including the
       // one the callback makes. The flow is still pending at that point now —

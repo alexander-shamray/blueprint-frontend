@@ -625,20 +625,29 @@ export class NativeAuthStrategy extends AuthService {
   }
 
   private async post(url: string, body: URLSearchParams): Promise<PostResult> {
+    // The bound covers the body as well as the headers: `fetch` resolves once
+    // the headers arrive, and a server that then stalls the body would hold
+    // the queue from inside `response.json()` instead.
     const abort = new AbortController();
     const timeout = setTimeout(() => abort.abort(), NativeAuthStrategy.REQUEST_TIMEOUT_MS);
+    try {
+      return await this.send(url, body, abort.signal);
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  private async send(url: string, body: URLSearchParams, signal: AbortSignal): Promise<PostResult> {
     let response: Response;
     try {
       response = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body,
-        signal: abort.signal,
+        signal,
       });
     } catch {
       return { outcome: 'unreachable' };
-    } finally {
-      clearTimeout(timeout);
     }
 
     if (!response.ok) {
@@ -655,6 +664,9 @@ export class NativeAuthStrategy extends AuthService {
     try {
       return { outcome: 'ok', body: (await response.json()) as TokenResponse };
     } catch {
+      // A body abandoned at the bound was never an answer, so it is not read as
+      // the empty one below.
+      if (signal.aborted) return { outcome: 'unreachable' };
       // A 200 whose body is not JSON is the revocation endpoint's normal
       // answer, and it is not a failure: it carries no tokens and none are
       // wanted. Callers check `body.access_token` before adopting anything.
