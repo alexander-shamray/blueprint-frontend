@@ -5973,9 +5973,12 @@ class TheGitArgvGuard(unittest.TestCase):
         # recursion is capped and the cap refuses rather than returning None.
         # `judge` asserts the hook exited 0, which is the half that matters:
         # this must come back as a decision, not as a traceback.
+        # Nested as ARGUMENTS to `echo`: a bare `$($(…))` puts a computed word
+        # where a program stands, which is refused earlier for its own reason
+        # and would never reach the cap this case exists to exercise.
         command = "git status"
         for _ in range(40):
-            command = "$(" + command + ")"
+            command = "$(echo " + command + ")"
         reason = self.assertRefused("echo " + command)
         self.assertIn("nests", reason)
 
@@ -8417,7 +8420,13 @@ class TheGitArgvGuard(unittest.TestCase):
                 "ls $(bash -c 'gh pr merge 42')",
                 "ls <(printf x; gh pr merge 42 --admin)",
                 "ls >(cat; gh issue create -t x)",
-                "ls $(printf ok | xargs gh pr merge)"):
+                "ls $(printf ok | xargs gh pr merge)",
+                # A program word bash expands to `gh`. Raised by Copilot.
+                'ls "$(/usr/bin/[g]h pr merge 42 --admin)"',
+                "ls $(g? pr merge 42)",
+                "ls $(g{h,x} pr merge 42)",
+                "ls $($G pr merge 42)",
+                "ls <(/usr/bin/g* pr merge 42)"):
             with self.subTest(command=command):
                 self.assertRefused(command, cwd=root)
         os.makedirs(os.path.join(root, "notes"))

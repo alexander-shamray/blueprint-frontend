@@ -2220,12 +2220,40 @@ def substituted_gh_offence(inner):
     return None
 
 
-def contains_gh_word(text):
-    """Whether `text`, with its quoting removed, holds `gh` as a word."""
-    unquoted = re.sub(r"\$?[\"']|\\", "", text)
-    for word in re.split(r"[\s;&|()<>`{}]+", unquoted):
-        if program_name(word) == "gh":
+def names_gh(word):
+    """Whether `word` is `gh`, or a pattern or brace expansion bash makes `gh`."""
+    name = program_name(word)
+    for candidate in brace_alternatives(name):
+        if candidate == "gh" or (any(char in candidate for char in "*?[")
+                                 and fnmatch.fnmatchcase("gh", candidate)):
             return True
+    return False
+
+
+def contains_gh_word(text):
+    """Whether `text`, with its quoting removed, may run `gh`.
+
+    **A literal word misses what bash expands first.** `/usr/bin/[g]h` holds no
+    `gh` and bash runs `gh`. Raised by Copilot. So a word is compared as a
+    pattern and a brace expansion would produce, anywhere in the body; and a
+    program word whose value is not in the source at all — a variable, a
+    backtick, a range or an extglob — is refused where a command stands,
+    since it may be `gh` too.
+    """
+    unquoted = re.sub(r"\$?[\"']|\\", "", text)
+    if any(names_gh(word) for word in re.split(r"[\s;&|()<>`]+", unquoted)):
+        return True
+    for run in re.split(r"[;&|()\n`]+", unquoted):
+        for word in run.split():
+            if ASSIGNMENT.match(word) or word.startswith("-"):
+                continue
+            if program_name(word) in {"builtin", "command", "env", "exec",
+                                      "nohup", "time", "xargs"}:
+                continue
+            if "$" in word or "{" in word or re.search(r"[@+!?*]\(", word) or (
+                    any(char in word for char in "*?[")):
+                return True
+            break
     return False
 
 
