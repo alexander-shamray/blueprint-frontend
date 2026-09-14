@@ -225,10 +225,13 @@ are compared case-folded, and a target inside a checkout is judged again where
 it resolves, from the hook event's `cwd`, so a branch's `docs/out ->
 ../.claude/settings.json` link does not make the write an unprotected one.
 
-**The Grok ledger's write verbs and `grok-review.sh` are refused in the same
-hook**, on the argv after quote removal: the `settings.json` denies are
-substrings of the typed command, and `grok-ledger.sh 42 com''plete` spells no
-`complete`. A run led by a reader — `grep`, `git`, `cat` and the rest of
+**`grok-review.sh` is refused in the same hook, and `grok-ledger.sh` is
+admitted only as `<pr> count` or `<pr> status`, spelled literally.** The
+`settings.json` denies are substrings of the typed command, so a verb split by
+empty quotes spells nothing they match; and a list of write verbs judged after
+quote removal still missed one built by a substitution, which bash hands the
+helper while the token holds no verb at all. An allow-list of the two reads is
+what that leaves. A run led by a reader — `grep`, `git`, `cat` and the rest of
 `READING_COMMANDS` — is inspecting those files rather than running them, and is
 admitted.
 

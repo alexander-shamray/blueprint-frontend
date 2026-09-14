@@ -2762,13 +2762,14 @@ def command_runs(tokens):
         yield current
 
 
-# The Grok ledger's verbs that write an outcome, and the reviewer runner.
-# `.claude/settings.json` denies both as substrings of the typed command, and
-# a substring deny is a speed bump: `grok-ledger.sh 42 com''plete 2 clean`
-# spells no `complete` and bash runs it, so `/ship`'s `grok-ledger.sh:*` grant
-# could manufacture a clean outcome and a convergence. Judged here on the argv
-# `shlex` resolves, which is the quoting bash removes. Raised by Copilot.
-LEDGER_WRITE_VERBS = frozenset({"reserve", "release", "complete", "converge"})
+# The Grok ledger's two READ verbs, and the reviewer runner beside it.
+# `.claude/settings.json` denies the write verbs and the runner as substrings
+# of the typed command, and a substring deny is a speed bump: a verb split by
+# empty quotes, or built by a substitution, spells nothing it matches while
+# bash runs it — so `/ship`'s `grok-ledger.sh:*` grant could manufacture a
+# clean outcome and a convergence. Judged here as an allow-list over the argv
+# `shlex` resolves. Raised by Copilot, twice.
+LEDGER_READ_VERBS = frozenset({"count", "status"})
 REVIEW_HELPERS = frozenset({"grok-ledger.sh", "grok-review.sh"})
 
 # Commands that only READ a file named in their arguments, so a helper's path
@@ -2797,15 +2798,25 @@ def review_helper_offence(tokens):
                     "`.claude/settings.json` denies it. This hook refuses it "
                     "after quote removal, which the substring deny cannot."
                 )
-            verbs = LEDGER_WRITE_VERBS.intersection(run[index + 1:])
-            if verbs:
-                return (
-                    f"`grok-ledger.sh … {sorted(verbs)[0]}` writes a review "
-                    "outcome, which only `grok-review.sh` may record and "
-                    "`.claude/settings.json` denies to every session. Refused "
-                    "on the resolved argv, so quoting inside the verb does not "
-                    "reach past it."
-                )
+            # **An allow-list of the two reads, because the tokens are not the
+            # argv bash executes.** A verb list compared after quote removal
+            # still missed `"$(printf '\143omplete')"`: the token holds no
+            # write verb, the empty-substitution reading holds none either,
+            # and bash hands the helper `complete`. So a session may run the
+            # ledger only as `<pr> count` or `<pr> status`, spelled literally;
+            # anything computed, and every write verb, is refused. Raised by
+            # Copilot.
+            arguments = run[index + 1:]
+            if (len(arguments) == 2 and re.fullmatch(r"[0-9]+", arguments[0])
+                    and arguments[1] in LEDGER_READ_VERBS):
+                continue
+            return (
+                "`grok-ledger.sh` runs here only as `<pr> count` or `<pr> "
+                "status`, spelled literally. Every other verb writes a review "
+                "outcome, which only `grok-review.sh` may record and "
+                "`.claude/settings.json` denies, and an argument built by an "
+                "expansion is a verb this guard cannot read."
+            )
     return None
 
 

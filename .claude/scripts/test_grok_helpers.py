@@ -8282,6 +8282,14 @@ class TheGitArgvGuard(unittest.TestCase):
             "bash .claude/scripts/grok-ledger.sh 42 con''verge",
             'bash .claude/scripts/grok-ledger.sh 42 "reserve"',
             "env bash .claude/scripts/grok-ledger.sh 42 release 3",
+            # Computed verbs: the token holds no write verb and bash hands
+            # the helper one anyway. Raised by Copilot.
+            "bash .claude/scripts/grok-ledger.sh 42 \"$(printf '\\143omplete')\" 2 clean",
+            'bash .claude/scripts/grok-ledger.sh 42 "$V" 2 clean',
+            "bash .claude/scripts/grok-ledger.sh 42 `printf converge`",
+            "bash .claude/scripts/grok-ledger.sh 42 {count,converge}",
+            "bash .claude/scripts/grok-ledger.sh 42 status extra",
+            "bash .claude/scripts/grok-ledger.sh $N count",
             "bash .claude/scripts/grok-rev''iew.sh 42 full",
             "git log -1 && bash .claude/scripts/grok-review.sh 42 recheck",
         ):
