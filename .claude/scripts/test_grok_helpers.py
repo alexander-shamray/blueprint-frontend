@@ -3746,11 +3746,20 @@ class NoCommandHoldsAPrefixGrantThatAdmitsAForbiddenFlag(unittest.TestCase):
                 self.assertTrue((base / "repo-mine").is_dir())
                 self.assertTrue((base / "repo-theirs").is_dir())
 
-        # The slug matches but the branch is not the one checked out there.
+        # The name looks right but the branch is not the one checked out there.
         git("worktree", "add", "-q", "-b", "feat/mine", "../repo-other-mine")
         out = remove("../repo-other-mine", "fix/mine")
         self.assertEqual(3, out.returncode, out.stderr)
         self.assertTrue((base / "repo-other-mine").is_dir())
+
+        # **An abbreviated directory name is still this run's worktree.**
+        # `/branch` cuts the slug to a word or two, and requiring the full
+        # branch basename refused the teardown. Raised by Copilot.
+        git("worktree", "add", "-q", "-b",
+            "feat(template)/masstransit-registration", "../repo-masstransit")
+        out = remove("../repo-masstransit", "feat(template)/masstransit-registration")
+        self.assertEqual(0, out.returncode, out.stderr)
+        self.assertFalse((base / "repo-masstransit").exists())
 
         out = remove("../repo-mine", "fix/mine")
         self.assertEqual(0, out.returncode, out.stderr)

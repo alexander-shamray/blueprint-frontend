@@ -19,9 +19,9 @@
 # that the path was a registered sibling, so a prefix grant with a
 # caller-chosen path could remove ANY clean sibling worktree — someone else's
 # PR checkout included. So the caller names the branch the run forked too, and
-# the worktree must have that branch checked out and carry its slug in its
-# name, which is the pair `git-worktree-fork.sh ../<checkout>-<slug>
-# <type>/<slug>` wrote. Raised by Copilot.
+# the worktree registered at that path must have that branch checked out,
+# which is the pair `git-worktree-fork.sh <path> <branch>` wrote. Raised by
+# Copilot.
 #
 # **What that does not reach**: a caller naming another run's path AND its
 # branch together passes. `/ship` passes the branch it created, recorded at
@@ -42,10 +42,12 @@ branch="$2"
   { echo "not a branch name this helper will take: $branch" >&2; exit 2; }
 [ "$branch" != main ] ||
   { echo "main is never a forked branch" >&2; exit 2; }
-slug="${branch##*/}"
-[[ "${path##*/}" == *-"$slug" ]] ||
-  { echo "path ${path} is not the worktree forked for ${branch}: ../<checkout>-${slug}" >&2
-    exit 2; }
+# **No slug is derived from the branch here, and the first form derived one.**
+# `/branch` cuts the directory name to the first word or two of the change —
+# `feat(template)/masstransit-registration` forks `../ashamray-masstransit` —
+# so requiring the full branch basename refused every such worktree and
+# `/ship`'s teardown with it. The registered worktree holding the named branch,
+# checked below, is the binding. Raised by Copilot.
 [ -d "$path" ] || { echo "no such directory: $path" >&2; exit 3; }
 
 # It must be a worktree of THIS repository, not merely a sibling directory
