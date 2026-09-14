@@ -4074,6 +4074,12 @@ class AFeedHelperReturnsTheWholeAnswer(unittest.TestCase):
         self.assertEqual(0, result.returncode, result.stderr)
         self.assertEqual([], json.loads(result.stdout))
 
+        # A PR closed unmerged is a decision `/ship` stops on, and one more
+        # local commit does not make it stale. Raised by Copilot.
+        closed_row = {**self._row(5, "CLOSED"), "headRefOid": old_head}
+        result = self._pr_list_stub([closed_row], cwd=str(repo))
+        self.assertEqual([5], [r["number"] for r in json.loads(result.stdout)])
+
         # An open row is the branch's current PR whatever its head.
         open_row = {**self._row(4, "OPEN"), "headRefOid": old_head}
         result = self._pr_list_stub([open_row], cwd=str(repo))

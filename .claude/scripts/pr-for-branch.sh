@@ -92,7 +92,7 @@ newest=$(jq --arg repo "$repo" \
 # row is the only row, and `/ship` step 0 read new work on the reused branch as
 # already delivered. Raised by Copilot.
 #
-# The local branch says which incarnation this is. A finished PR whose head is
+# The local branch says which incarnation this is. A merged PR whose head is
 # a strict ancestor of the local branch tip describes commits this branch has
 # since moved past — a branch recreated from a `main` that contains the merge
 # is exactly that — so it is not this branch's PR and nothing is returned. A
@@ -100,8 +100,13 @@ newest=$(jq --arg repo "$repo" \
 # does not contain (or no local branch at all) is left as reported, because
 # nothing here shows it to be stale. An open row is never dropped: an open PR
 # is the branch's current one by definition.
+#
+# **Merged only, never closed.** A PR closed unmerged is somebody's decision
+# that this branch does not land, and `/ship` stops on it; dropping the row
+# after one more local commit sent the run to `/pr` to open a replacement over
+# that decision. Raised by Copilot.
 state=$(jq -r '.[0].state // ""' <<<"$newest")
-if [ "$state" = MERGED ] || [ "$state" = CLOSED ]; then
+if [ "$state" = MERGED ]; then
   head_oid=$(jq -r '.[0].headRefOid // ""' <<<"$newest")
   tip=$(git rev-parse --verify --quiet "refs/heads/$branch" || true)
   if [ -n "$head_oid" ] && [ -n "$tip" ] && [ "$tip" != "$head_oid" ] &&
