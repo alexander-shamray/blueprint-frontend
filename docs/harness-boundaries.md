@@ -460,7 +460,7 @@ is consulted at all. Measured, not read — the docs do not say so, and a
 provides `python3` and no `py` at all, so on those hosts **every**
 `PreToolUse` call failed before the guard ran — `Bash`, `Edit` and `Write`
 alike. **Both now go through `.claude/hooks/run-guard.sh`**, which probes
-`py` (and runs `py -3.12`), then `python3`, then `python`, and `exec`s the
+`py -3.12`, then `py -3`, then `python3`, then `python`, and `exec`s the
 first that actually runs 3.12 or newer, exactly once — each candidate is tried
 with a `-c` version check first, because a name on `PATH` can be a `py` with no
 3.12 registered or the Store alias. `py` goes first because on Windows `python3` is

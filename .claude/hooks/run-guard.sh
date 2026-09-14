@@ -54,6 +54,13 @@ probe='import sys; sys.exit(sys.version_info < (3, 12))'
 if command -v py >/dev/null 2>&1 && py -3.12 -c "$probe" >/dev/null 2>&1; then
   exec py -3.12 "$dir/$1"
 fi
+# `py -3` after the exact selector: a Windows host with only 3.13 registered has
+# no `-3.12` and satisfies the floor all the same, so the generic selector is
+# probed with the same version check rather than the host being refused.
+# Raised by Copilot.
+if command -v py >/dev/null 2>&1 && py -3 -c "$probe" >/dev/null 2>&1; then
+  exec py -3 "$dir/$1"
+fi
 # `python` after `python3`, because `docs/testing.md` lets a host expose 3.12 as
 # either, and a POSIX host with only `python` otherwise failed every guarded
 # call before the guard ran. Raised by Copilot.
@@ -68,5 +75,5 @@ fi
 # it and runs the tool unguarded. The unprobed last `exec` this replaces would
 # have run a 3.11 `python`, or failed with 127 and let the call through —
 # neither the loud refusal the header promises. Raised by Copilot.
-echo "run-guard.sh: no Python 3.12 or newer found as py -3.12, python3 or python; refusing the call rather than running it unguarded" >&2
+echo "run-guard.sh: no Python 3.12 or newer found as py -3.12, py -3, python3 or python; refusing the call rather than running it unguarded" >&2
 exit 2

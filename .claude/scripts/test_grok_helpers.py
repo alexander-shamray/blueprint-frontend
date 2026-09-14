@@ -8896,7 +8896,7 @@ class TheHookWiringRunsOnMoreThanOneOperatingSystem(unittest.TestCase):
             script = bin_dir / name
             script.write_text(
                 "#!/bin/sh\n"
-                'if [ "$1" = -3.12 ]; then shift; fi\n'
+                'if [ "$1" = -3.12 ] || [ "$1" = -3 ]; then shift; fi\n'
                 f'if [ "$1" = -c ]; then exit {0 if probe_ok else 1}; fi\n'
                 f'echo "ran {name} $(basename "$1")"\n',
                 encoding="utf-8", newline="\n")
@@ -8937,6 +8937,24 @@ class TheHookWiringRunsOnMoreThanOneOperatingSystem(unittest.TestCase):
             self.assertEqual("", out.stdout.strip())
             self.assertIn("no Python 3.12", out.stderr)
 
+        # **A `py` with 3.13 and no 3.12 satisfies the floor.** The exact
+        # selector fails, the generic one runs, and nothing else is on PATH.
+        # Raised by Copilot.
+        for name in ("py", "python3", "python"):
+            (bin_dir / name).unlink(missing_ok=True)
+        (bin_dir / "py").write_text(
+            "#!/bin/sh\n"
+            'if [ "$1" = -3.12 ]; then exit 1; fi\n'
+            'if [ "$1" = -3 ]; then shift; fi\n'
+            'if [ "$1" = -c ]; then exit 0; fi\n'
+            'echo "ran py -3 $(basename "$1")"\n',
+            encoding="utf-8", newline="\n")
+        (bin_dir / "py").chmod(0o755)
+        with self.subTest(broken="py -3.12 only"):
+            out = launch()
+            self.assertEqual("ran py -3 guard-git-argv.py", out.stdout.strip(),
+                             out.stderr)
+
     def test_the_launcher_execs_once_rather_than_falling_back(self):
         # `py -3.12 … || python3 …` re-runs the hook whenever the first
         # invocation exits non-zero for a real reason — and for a `PreToolUse`
@@ -8956,7 +8974,7 @@ class TheHookWiringRunsOnMoreThanOneOperatingSystem(unittest.TestCase):
                     self.assertNotIn("||", line)
                     self.assertNotIn("&&", line)
         execs = [line for line in code if "exec " in line]
-        self.assertEqual(3, len(execs), execs)
+        self.assertEqual(4, len(execs), execs)
 
     def test_the_launcher_takes_a_closed_set_of_hook_names(self):
         # `settings.json` is the only caller and it names one of two files; a
