@@ -3,6 +3,8 @@ import { TestBed } from '@angular/core/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { environment } from '@core/config/environment';
 import {
+  adaptBrowser,
+  CLOSE_EVENT_BOUND_MS,
   NativeAuthStrategy,
   REFRESH_TOKEN_KEY,
   SECURE_STORAGE,
@@ -1126,5 +1128,170 @@ describe('NativeAuthStrategy', () => {
       expect(browser.open).toHaveBeenCalledOnce();
       expect(strategy.accessToken()).not.toBeNull();
     });
+  });
+});
+
+/** Stands in for `@capacitor/browser`; a test fires `browserFinished` with `emit`. */
+function fakeBrowserPlugin() {
+  const plugin = {
+    emit: null as (() => void) | null,
+    open: vi.fn<(options: { url: string }) => Promise<void>>(async () => undefined),
+    close: vi.fn<() => Promise<void>>(async () => undefined),
+    addListener: vi.fn(async (_event: 'browserFinished', handler: () => void) => {
+      plugin.emit = handler;
+    }),
+  };
+  return plugin;
+}
+
+/** Android's order (#28): `close()` resolves first, and the event follows it. */
+function finishLaterOnClose(plugin: ReturnType<typeof fakeBrowserPlugin>, delayMs = 500): void {
+  plugin.close.mockImplementation(async () => {
+    setTimeout(() => plugin.emit?.(), delayMs);
+  });
+}
+
+describe('adaptBrowser', () => {
+  let plugin: ReturnType<typeof fakeBrowserPlugin>;
+  let dismissed: ReturnType<typeof vi.fn<() => void>>;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    plugin = fakeBrowserPlugin();
+    dismissed = vi.fn<() => void>();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  async function openOn(platform: string) {
+    const adapter = adaptBrowser(plugin, platform);
+    await adapter.onFinished(dismissed);
+    await adapter.open({ url: 'https://idp/auth' });
+    return adapter;
+  }
+
+  it('forwards the user dismissing an open browser', async () => {
+    await openOn('android');
+
+    plugin.emit?.();
+
+    expect(dismissed).toHaveBeenCalledOnce();
+  });
+
+  it('on Android, holds a close until its own late event arrives and consumes it', async () => {
+    const adapter = await openOn('android');
+    finishLaterOnClose(plugin);
+    let closed = false;
+
+    const closing = adapter.close().then(() => (closed = true));
+    await vi.advanceTimersByTimeAsync(499);
+    expect(closed).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(1);
+    await closing;
+    expect(dismissed).not.toHaveBeenCalled();
+  });
+
+  it('on Android, gives up at the bound, and an event later than that is a dismissal again', async () => {
+    const adapter = await openOn('android');
+    let closed = false;
+
+    const closing = adapter.close().then(() => (closed = true));
+    await vi.advanceTimersByTimeAsync(CLOSE_EVENT_BOUND_MS - 1);
+    expect(closed).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    await closing;
+
+    // The stated residual: nothing is waiting any more, so nothing absorbs it.
+    plugin.emit?.();
+    expect(dismissed).toHaveBeenCalledOnce();
+  });
+
+  it('on Android, does not wait when the browser already finished', async () => {
+    const adapter = await openOn('android');
+    plugin.emit?.();
+
+    await adapter.close();
+
+    expect(plugin.close).toHaveBeenCalledOnce();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('on iOS, never waits: a programmatic close sends no event there', async () => {
+    const adapter = await openOn('ios');
+
+    await adapter.close();
+    expect(vi.getTimerCount()).toBe(0);
+
+    // `browserFinished` on iOS is only ever the Done button.
+    plugin.emit?.();
+    expect(dismissed).toHaveBeenCalledOnce();
+  });
+});
+
+describe('NativeAuthStrategy over the Android browser adapter', () => {
+  let plugin: ReturnType<typeof fakeBrowserPlugin>;
+  let strategy: NativeAuthStrategy;
+  let fetchMock: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    vi.stubGlobal('crypto', webcrypto);
+    fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-12T00:00:00Z'));
+    plugin = fakeBrowserPlugin();
+    const store = new Map<string, string>();
+
+    TestBed.configureTestingModule({
+      providers: [
+        NativeAuthStrategy,
+        {
+          provide: SECURE_STORAGE,
+          useValue: {
+            get: async (k: string) => store.get(k) ?? null,
+            set: async (k: string, v: string) => void store.set(k, v),
+            remove: async (k: string) => void store.delete(k),
+          },
+        },
+        { provide: SYSTEM_BROWSER, useValue: adaptBrowser(plugin, 'android') },
+        { provide: URL_OPEN_EVENTS, useValue: { onUrlOpen: async () => undefined } },
+      ],
+    });
+    strategy = TestBed.inject(NativeAuthStrategy);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  it('the late event from a sign-out’s close does not dismiss the sign-in opened after it (#28)', async () => {
+    await strategy.initialize();
+    const first = strategy.signIn();
+    await vi.waitFor(() => expect(plugin.open).toHaveBeenCalledOnce());
+    finishLaterOnClose(plugin);
+
+    const signOut = strategy.signOut();
+    const second = strategy.signIn();
+    await expect(first).rejects.toThrow(/sign-out/i);
+    // Waited for before the clock is moved on purpose: without the adapter's
+    // wait, the second tab opens while the old tab's event is still to come,
+    // which is the order #28 describes. (`waitFor` advances the fake clock as
+    // it polls, which is what lets the waiting close see its event.)
+    await vi.waitFor(() => expect(plugin.open).toHaveBeenCalledTimes(2));
+    await vi.advanceTimersByTimeAsync(CLOSE_EVENT_BOUND_MS * 2);
+    await signOut;
+
+    // The redeem's own close, finishing at once so its wait costs no clock.
+    plugin.close.mockImplementation(async () => plugin.emit?.());
+    fetchMock.mockResolvedValue(tokenResponse('refresh-1'));
+    await strategy.handleCallback(
+      `blueprint://auth/callback?code=abc&state=${strategy.pendingState()}`,
+    );
+    await expect(second).resolves.toBeUndefined();
+    expect(strategy.accessToken()).not.toBeNull();
   });
 });

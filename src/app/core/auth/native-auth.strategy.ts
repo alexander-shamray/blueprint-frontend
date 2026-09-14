@@ -2,6 +2,7 @@ import { Injectable, InjectionToken, Signal, computed, inject, signal } from '@a
 import { SecureStorage } from '@aparajita/capacitor-secure-storage';
 import { App } from '@capacitor/app';
 import { Browser } from '@capacitor/browser';
+import { Capacitor } from '@capacitor/core';
 import { environment } from '@core/config/environment';
 import { AuthService, CurrentUser } from './auth.service';
 import { decodeUser } from './current-user';
@@ -60,14 +61,86 @@ export const SECURE_STORAGE = new InjectionToken<SecureStore>('SECURE_STORAGE', 
 });
 
 export const SYSTEM_BROWSER = new InjectionToken<SystemBrowser>('SYSTEM_BROWSER', {
-  factory: (): SystemBrowser => ({
-    open: (options) => Browser.open(options),
-    close: () => Browser.close(),
-    onFinished: async (handler) => {
-      await Browser.addListener('browserFinished', handler);
-    },
-  }),
+  factory: (): SystemBrowser => adaptBrowser(Browser, Capacitor.getPlatform()),
 });
+
+/** The three members of `@capacitor/browser` the adapter drives. */
+export interface BrowserPlugin {
+  open(options: { url: string }): Promise<void>;
+  close(): Promise<void>;
+  addListener(eventName: 'browserFinished', handler: () => void): Promise<unknown>;
+}
+
+/**
+ * How long an Android `close()` waits for the `browserFinished` its own close
+ * produces (#28). Past it the event is no longer absorbed, and a later one is
+ * forwarded as a dismissal like any other.
+ */
+export const CLOSE_EVENT_BOUND_MS = 3_000;
+
+/**
+ * Wraps the plugin so that a close this app makes never reaches the strategy
+ * as the user dismissing a browser (#28).
+ *
+ * `browserFinished` carries no payload, so it cannot say which tab it is
+ * about. On Android `Browser.close()` resolves at once and the event follows
+ * later, once the plugin's `EventGroup` of `TAB_HIDDEN` and `onPause`/
+ * `onResume` drains — so a sign-out's close, followed at once by a new
+ * sign-in, can deliver the old tab's event after the new tab has opened, and
+ * the strategy would reject a flow the user never touched. Here, a close of a
+ * tab this adapter saw open and not yet finish waits for that event, bounded,
+ * and consumes it. The close runs inside the strategy's lifecycle queue, so
+ * the next flow cannot open until the old tab's event has been spent.
+ *
+ * iOS resolves `close` in the dismissal's completion and sends no event for
+ * it — `browserFinished` there is only the Done button — so waiting on iOS
+ * would spend the whole bound on every close for nothing. Only Android waits.
+ */
+export function adaptBrowser(
+  plugin: BrowserPlugin,
+  platform: string,
+  boundMs = CLOSE_EVENT_BOUND_MS,
+): SystemBrowser {
+  let forward: (() => void) | null = null;
+  // A tab opened through this adapter whose `browserFinished` has not arrived.
+  let showing = false;
+  // Set while a close waits for its own event; the event resolves it instead
+  // of being forwarded.
+  let absorb: (() => void) | null = null;
+
+  return {
+    open: async (options) => {
+      await plugin.open(options);
+      showing = true;
+    },
+    close: async () => {
+      if (platform !== 'android' || !forward || !showing) return plugin.close();
+
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const consumed = new Promise<void>((resolve) => (absorb = resolve));
+      const bound = new Promise<void>((resolve) => (timer = setTimeout(resolve, boundMs)));
+      try {
+        await plugin.close();
+        await Promise.race([consumed, bound]);
+      } finally {
+        clearTimeout(timer);
+        absorb = null;
+      }
+    },
+    onFinished: async (handler) => {
+      forward = handler;
+      await plugin.addListener('browserFinished', () => {
+        showing = false;
+        if (absorb) {
+          absorb();
+          absorb = null;
+          return;
+        }
+        forward?.();
+      });
+    },
+  };
+}
 
 export const URL_OPEN_EVENTS = new InjectionToken<UrlOpenEvents>('URL_OPEN_EVENTS', {
   factory: (): UrlOpenEvents => ({
@@ -181,6 +254,9 @@ export class NativeAuthStrategy extends AuthService {
       // once the code has come back is this strategy's own act, and fires
       // this event too; and a flow still queued to open has no browser, so an
       // event then is the close of the flow before it, queued by a sign-out.
+      // Once the next flow HAS opened, the stage cannot tell its dismissal from
+      // the old tab's late event; on Android the adapter absorbs that event
+      // inside the close that caused it, before the next flow can open (#28).
       await this.browser.onFinished(() => {
         if (this.pending?.stage === 'open') this.abandonPendingSignIn();
       });
