@@ -4454,6 +4454,18 @@ class AnAuthorsFilenameDoesNotSteerTheTriage(unittest.TestCase):
         self.assertEqual(3, result.returncode)
         self.assertIn("thread id", result.stderr)
 
+        # **And in the shape the consumer accepts.** `abc` and `PRRT_x=` passed
+        # the listing's looser pattern and could never be resolved, because
+        # `pr-thread-resolve.sh` requires `PRRT_` and no `=`. Raised by Copilot.
+        for bad in ("abc", "PRRT_x=", "RT_abc"):
+            with self.subTest(thread_id=bad):
+                page = thread_page(["docs/a.md"])
+                page["data"]["repository"]["pullRequest"]["reviewThreads"][
+                    "nodes"][0]["id"] = bad
+                result = self.drive([page])
+                self.assertEqual(3, result.returncode)
+                self.assertEqual("", result.stdout.strip())
+
     def test_a_thread_with_no_comment_refuses_rather_than_printing_null(self):
         # `jq -r` rendered a missing comment as the four characters `null`,
         # which is a database id no mutation can use and a path no file has.
@@ -8440,7 +8452,12 @@ class TheGitArgvGuard(unittest.TestCase):
                         "$'cd' .claude; ls > settings.json",
                         "c\\d .claude; ls > settings.json",
                         "pu''shd .claude; ls > settings.json",
-                        "${X}cd .claude; ls > settings.json"):
+                        "${X}cd .claude; ls > settings.json",
+                        # A sourced script or `eval` can `cd` in text this
+                        # hook never reads. Raised by Copilot.
+                        "ls >/dev/null; source move.sh; ls > app/x.ts",
+                        ". ./move.sh && ls > app/x.ts",
+                        "eval \"$STEP\"; ls > app/x.ts"):
             with self.subTest(command=command):
                 self.assertRefused(command, cwd=root)
 
@@ -8468,7 +8485,14 @@ class TheGitArgvGuard(unittest.TestCase):
                 "ls $(g? pr merge 42)",
                 "ls $(g{h,x} pr merge 42)",
                 "ls $($G pr merge 42)",
-                "ls <(/usr/bin/g* pr merge 42)"):
+                "ls <(/usr/bin/g* pr merge 42)",
+                # An evaluator builds the command from fragments no word check
+                # sees. Raised by Copilot.
+                "ls \"$(awk 'BEGIN { system(\"bash .claude/scripts/grok-le\" \"dger.sh 42 con\" \"verge\") }')\"",
+                "ls $(sed -n 1p x)",
+                "ls $(python3 -c 'print(1)')",
+                "ls $(env perl -e 'system q(gh pr merge 42)')",
+                "cat <(node -e 'require(\"child_process\")')"):
             with self.subTest(command=command):
                 self.assertRefused(command, cwd=root)
         os.makedirs(os.path.join(root, "notes"))

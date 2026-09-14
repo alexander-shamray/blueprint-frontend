@@ -69,9 +69,12 @@ while :; do
     # pull request, on the platform this harness is developed on. Measured
     # against PR #13 before this line existed.
     encoded="${encoded%$'\r'}"
-    # A GraphQL node id is opaque and base64-shaped; the database id is
-    # digits; `isResolved` is a boolean rendered by `tostring`.
-    grep -Eq '^[A-Za-z0-9_=-]+$' <<<"$tid" ||
+    # A review-thread node id, in exactly the shape `pr-thread-resolve.sh`
+    # accepts: a looser `[A-Za-z0-9_=-]+` printed rows such as `abc` as valid
+    # that the only consumer then refused, so a thread could be listed and
+    # never resolved. Raised by Copilot. The database id is digits;
+    # `isResolved` is a boolean rendered by `tostring`.
+    grep -Eq '^PRRT_[A-Za-z0-9_-]+$' <<<"$tid" ||
       refuse "a thread id is not the shape GraphQL returns"
     case "$resolved" in true|false) ;;
       *) refuse "a thread's resolved state is neither true nor false" ;; esac

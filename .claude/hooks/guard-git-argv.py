@@ -1953,7 +1953,12 @@ def application_tree(literal):
 # A command word that moves the shell's working directory, wherever it stands
 # in the command: after a separator, inside a group or a subshell, or behind
 # a `builtin`/`command` wrapper, which the leading boundary also admits.
-CHANGES_DIRECTORY = re.compile(r"(?:^|[\s;&|(){}`])(?:cd|pushd|popd)(?=$|[\s;&|()])")
+#
+# `source`, `.` and `eval` are here too: a sourced script runs in the current
+# shell and can `cd` in a file this hook never reads, and `eval` runs text it
+# may build. Raised by Copilot.
+CHANGES_DIRECTORY = re.compile(
+    r"(?:^|[\s;&|(){}`])(?:cd|pushd|popd|source|eval|\.)(?=$|[\s;&|()])")
 
 
 def changes_directory(command):
@@ -2217,7 +2222,32 @@ def substituted_gh_offence(inner):
             "fixed helper's own validation never sees it. Nothing here "
             "runs `gh` inside a substitution; call the helper directly."
         )
+    if runs_evaluator(inner):
+        return (
+            "a command substitution runs a program whose argument is code — "
+            "`awk`, `sed`, an interpreter — before the command that holds it "
+            "is checked against its grant, and that code can build any "
+            "command from fragments. Run it as its own command, where the "
+            "permission rules see it."
+        )
     return None
+
+
+def runs_evaluator(text):
+    """Whether any command run in `text` is led by a program in `CODE_EVALUATORS`."""
+    unquoted = re.sub(r"\$?[\"']|\\", "", text)
+    for run in re.split(r"[;&|()\n`]+", unquoted):
+        for word in run.split():
+            if ASSIGNMENT.match(word) or word.startswith("-"):
+                continue
+            name = program_name(word)
+            if name in {"builtin", "command", "env", "exec", "nohup", "time",
+                        "xargs"}:
+                continue
+            if re.fullmatch(r"python\d+(\.\d+)?", name) or name in CODE_EVALUATORS:
+                return True
+            break
+    return False
 
 
 def names_gh(word):
@@ -3050,9 +3080,24 @@ REVIEW_HELPERS = frozenset({"grok-ledger.sh", "grok-review.sh"})
 # there is a file being inspected and not a helper being run. Anything else in
 # the leading position — `bash`, `sh`, `env`, `command`, `xargs`, `source` —
 # is judged, because the wrapper list is the one that fails open.
+#
+# **Only programs that cannot run a command.** `awk` was here and its
+# `system()` and `cmd | getline` run a shell; GNU `sed` runs one with `e`; and
+# `less` runs one with `!`. Each is removed, so a run they lead is judged like
+# any other. Raised by Copilot.
 READING_COMMANDS = frozenset({
-    "awk", "cat", "diff", "file", "git", "grep", "head", "less", "ls", "rg",
-    "sed", "stat", "tail", "wc",
+    "cat", "diff", "file", "git", "grep", "head", "ls", "rg", "stat", "tail",
+    "wc",
+})
+
+# **Programs whose argument is code**, refused as the program of a
+# substitution: a substitution runs before the approved command holding it is
+# judged, and an evaluator can assemble `grok-ledger.sh … converge` or a `gh`
+# call from string fragments no word check can see. Raised by Copilot.
+CODE_EVALUATORS = frozenset({
+    "awk", "gawk", "mawk", "nawk", "sed", "gsed", "perl", "python", "python3",
+    "py", "node", "deno", "bun", "ruby", "php", "lua", "tclsh", "pwsh",
+    "powershell", "osascript", "jshell",
 })
 
 
@@ -3428,11 +3473,12 @@ def _offence(command, depth, judged):
             if refusal is not None:
                 return f"with {description}: {refusal}"
 
-    if any(contains_gh_word(body) for body in process_substitution_bodies(command)):
+    if any(contains_gh_word(body) or runs_evaluator(body)
+           for body in process_substitution_bodies(command)):
         return (
-            "a process substitution runs `gh`, which executes before the "
-            "command holding it is checked against its grant. Call the "
-            "helper directly."
+            "a process substitution runs `gh` or a program whose argument is "
+            "code, which executes before the command holding it is checked "
+            "against its grant. Run it as its own command."
         )
 
     if substitution_fed_shells(command):
