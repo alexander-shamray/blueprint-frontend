@@ -409,22 +409,23 @@ the harness waves through as promptless built-ins, where no allow or deny rule
 is consulted at all. Measured, not read — the docs do not say so, and a
 `git log --out''put=` probe was refused by the hook with no file written.
 
-**Both hooks are invoked as `py -3.12`, and that wiring is Windows-only.**
+**Both hooks were invoked as `py -3.12`, and that wiring was Windows-only.**
 `py` is the Windows Python launcher. A standard 3.12 on macOS or Linux
 provides `python3` and no `py` at all, so on those hosts **every**
-`PreToolUse` call fails before the guard runs — `Bash`, `Edit` and `Write`
-alike. The version is pinned rather than left to a bare `python` for the
-reason every pin here exists: the default interpreter on this host is
-newer, a hook is judged by whether it refuses the right argv, and "it
-worked on the version I had" is not a property anyone can check.
+`PreToolUse` call failed before the guard ran — `Bash`, `Edit` and `Write`
+alike. **Both now go through `.claude/hooks/run-guard.sh`**, which probes
+`py` (and runs `py -3.12`), then `python3`, then `python`, and `exec`s the
+first it finds exactly once. `py` goes first because on Windows `python3` is
+the Store alias, present on `PATH` and not Python; `python` goes last because
+`docs/testing.md` lets a host expose 3.12 under either name. The floor is
+pinned only where the launcher can pin it: `python3` and `python` are whatever
+the host provides.
 
-**The failure mode is loud and total, which is the good kind** — the
-command cannot start, so a call reports a hook error rather than quietly
-proceeding unguarded. A checkout on a machine without the launcher does
-not discover the guards were off. But loud is not the same as portable,
-and this file said "installs 3.12 or changes this line deliberately" as
-though installing were enough. On macOS and Linux it is not: the line has
-to change. #23 carries that.
+**The failure mode is loud and total, which is the good kind** — a host with
+none of the three cannot start the command, so a call reports a hook error
+rather than quietly proceeding unguarded. #23 stays open for the part no
+suite here can show: the launcher running as the harness's hook on a
+non-Windows host.
 
 **CI does not cover it, and the shape of the gap is worth naming.**
 `ci.yml`'s `harness` job runs the suite across Ubuntu, Windows and macOS

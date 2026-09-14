@@ -45,4 +45,11 @@ dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 if command -v py >/dev/null 2>&1; then
   exec py -3.12 "$dir/$1"
 fi
-exec python3 "$dir/$1"
+# `python` after `python3`, because `docs/testing.md` lets a host expose 3.12 as
+# either, and a POSIX host with only `python` otherwise failed every guarded
+# call before the guard ran. Probed with `command -v` like the others, so this
+# is still one choice and one `exec`. Raised by Copilot.
+if command -v python3 >/dev/null 2>&1; then
+  exec python3 "$dir/$1"
+fi
+exec python "$dir/$1"

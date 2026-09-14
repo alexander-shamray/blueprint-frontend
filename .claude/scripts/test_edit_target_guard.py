@@ -1028,7 +1028,7 @@ class TheWiringWithoutWhichNoneOfTheAboveRuns(unittest.TestCase):
         platform where it worked.
 
         `run-guard.sh` chooses the interpreter and keeps the floor: `py -3.12`
-        where `py` exists, `python3` where it does not. Asserted here as "goes
+        where `py` exists, `python3`, then `python`, where it does not. Asserted here as "goes
         through the launcher" rather than as an interpreter name, because naming
         one is the mistake this replaces.
         """

@@ -8236,6 +8236,19 @@ class TheHookWiringRunsOnMoreThanOneOperatingSystem(unittest.TestCase):
         self.assertIn("exec py -3.12", code)
         self.assertIn("exec python3", code)
 
+    def test_the_launcher_reaches_a_host_that_only_has_python(self):
+        # `docs/testing.md` lets a host expose 3.12 as `python` or `python3`,
+        # and the launcher knew only the second: a POSIX host with `python`
+        # alone failed every guarded call before the guard ran. `python3` is
+        # probed before it, so a host with both keeps today's choice. Raised by
+        # Copilot.
+        code = "\n".join(
+            line for line in self.LAUNCHER.read_text(encoding="utf-8").splitlines()
+            if not line.lstrip().startswith("#"))
+        self.assertIn("command -v python3", code)
+        self.assertIn("exec python ", code)
+        self.assertLess(code.find("command -v python3"), code.find("exec python "))
+
     def test_the_launcher_execs_once_rather_than_falling_back(self):
         # `py -3.12 … || python3 …` re-runs the hook whenever the first
         # invocation exits non-zero for a real reason — and for a `PreToolUse`
@@ -8255,7 +8268,7 @@ class TheHookWiringRunsOnMoreThanOneOperatingSystem(unittest.TestCase):
                     self.assertNotIn("||", line)
                     self.assertNotIn("&&", line)
         execs = [line for line in code if "exec " in line]
-        self.assertEqual(2, len(execs), execs)
+        self.assertEqual(3, len(execs), execs)
 
     def test_the_launcher_takes_a_closed_set_of_hook_names(self):
         # `settings.json` is the only caller and it names one of two files; a
