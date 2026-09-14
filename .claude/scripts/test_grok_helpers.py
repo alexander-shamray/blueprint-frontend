@@ -4205,11 +4205,25 @@ class AnAuthorsFilenameDoesNotSteerTheTriage(unittest.TestCase):
             "/etc/passwd",
             "docs//a.md",
             "./docs/a.md",
+            ".",
+            "..",
+            "-rf",
         ):
             with self.subTest(path=path):
                 result = self.drive([thread_page([path])])
                 self.assertEqual(3, result.returncode)
                 self.assertEqual("", result.stdout.strip())
+
+    def test_an_extensionless_root_file_is_a_plain_path(self):
+        # `LICENSE` and `Makefile` hold neither `/` nor `.`, and a requirement
+        # for one refused the whole listing over a real review thread. Raised
+        # by Copilot.
+        for path in ("LICENSE", "Makefile"):
+            with self.subTest(path=path):
+                result = self.drive([thread_page([path])])
+                self.assertEqual(0, result.returncode, result.stderr)
+                self.assertEqual(f"PRRT_stub0 true 101 {path}",
+                                 result.stdout.strip())
 
     def test_one_bad_name_withholds_the_rows_beside_it(self):
         # **Refusing the run rather than the row is the whole decision.** A

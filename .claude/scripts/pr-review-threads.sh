@@ -86,8 +86,13 @@ while :; do
     path="${encoded:1:${#encoded}-2}"
     grep -Eq '^[A-Za-z0-9_./@+()-]+$' <<<"$path" ||
       refuse "a thread's path is not a plain path"
-    case "$path" in *[/.]*) ;;
-      *) refuse "a thread's path is not a plain path" ;; esac
+    # A root file with no extension — `LICENSE`, `Makefile` — is a plain path,
+    # and requiring a `/` or a `.` refused the whole listing over one. What
+    # that requirement may have been standing in for is a leading `-`, which
+    # a consumer could take as a flag, so that is refused by name. Raised by
+    # Copilot.
+    case "$path" in -*)
+      refuse "a thread's path is not a plain path" ;; esac
     case "/$path/" in *//*|*/./*|*/../*)
       refuse "a thread's path is not a plain path" ;; esac
     page_rows="${page_rows}${page_rows:+$'\n'}${tid} ${resolved} ${cid} ${path}"
