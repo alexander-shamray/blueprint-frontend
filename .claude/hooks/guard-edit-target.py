@@ -383,18 +383,40 @@ def outside_offence(spelled, lexical, resolved):
         # worktrees live exactly there. So a target inside a checkout under
         # this root is judged against the protected inventory, relative to
         # that checkout, and a plain scratch file is admitted.
+        #
+        # **Both the spelling and the resolution are judged, each where it
+        # lands.** A link under the temp root whose target is
+        # `~/.claude/settings.json` — reachable when HOME itself is under the
+        # temp root — was never judged by the harness-state root, because the
+        # spelling is not under it, and then this branch admitted it as
+        # scratch. The same link could land in another temp checkout's
+        # machinery. Raised by Copilot.
         if not same(spelled_root, harness_state_root(), traits):
-            checkout = checkout_root(lexical)
-            if checkout is None or not within(checkout):
-                return None
-            machinery = protected_in_worktree(lexical, checkout)
-            if machinery is None:
-                return None
-            return (
-                f"guard-edit-target: {spelled} targets {machinery} in a "
-                "checkout under the temp root, where none of this session's "
-                "permission rules apply (docs/harness-boundaries.md)."
-            )
+            state = harness_state_root()
+            state_traits = traits_of(state)
+            for state_root in (state, os.path.realpath(state)):
+                if under(resolved, state_root, state_traits):
+                    named = control_surface(resolved, state_root, state_traits)
+                    if named is not None:
+                        return (
+                            f"guard-edit-target: {spelled} resolves to "
+                            f"{resolved}, inside the harness's own control "
+                            f"surface — `{named}` — through the temp root "
+                            "(docs/harness-boundaries.md)."
+                        )
+            for path in (lexical, resolved):
+                checkout = checkout_root(path)
+                if checkout is None or not within(checkout):
+                    continue
+                machinery = protected_in_worktree(path, checkout)
+                if machinery is not None:
+                    return (
+                        f"guard-edit-target: {spelled} targets {machinery} in "
+                        "a checkout under the temp root, where none of this "
+                        "session's permission rules apply "
+                        "(docs/harness-boundaries.md)."
+                    )
+            return None
         base = real_root if under(resolved, real_root, traits) else spelled_root
         named = control_surface(resolved, base, traits)
         if named is None:

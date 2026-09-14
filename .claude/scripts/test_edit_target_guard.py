@@ -786,6 +786,26 @@ class WhatThisGuardIsNotTheSubjectOf(GuardCase):
         self.assertIsNotNone(reason)
         self.assertIn("control surface", reason)
 
+        # **And through a link under the temp root.** The spelling is not
+        # under HOME, so the state root never judged it and the temp root
+        # admitted it as scratch. Raised by Copilot. Judged on the pair the
+        # hook computes, which is what a link produces.
+        link = os.path.join(self.outside, "link-to-settings")
+        machinery = os.path.join(self.outside, "sweep", ".claude", "x.sh")
+        os.makedirs(os.path.join(self.outside, "sweep", ".git"))
+        with mock.patch.object(tempfile, "gettempdir",
+                               return_value=self.outside):
+            with mock.patch.dict(os.environ,
+                                 {"HOME": home, "USERPROFILE": home}):
+                via_link = module.outside_offence(link, link, target)
+                into_checkout = module.outside_offence(link, link, machinery)
+                scratch = module.outside_offence(
+                    link, link, os.path.join(self.outside, "notes.md"))
+        self.assertIsNotNone(via_link)
+        self.assertIn("control surface", via_link)
+        self.assertIsNotNone(into_checkout)
+        self.assertIsNone(scratch)
+
     def test_a_sibling_worktree_of_this_repository_is_judged_not_refused(self):
         """The false positive the allow-list introduced, found by walking into it.
 
