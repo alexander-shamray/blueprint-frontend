@@ -1833,18 +1833,28 @@ def protected_path(literal):
     stem could abbreviate a protected name. Not every such component: Windows
     spells the temp root itself that way (`C:/Users/RUNNER~1/…`), and refusing
     those would take the session's scratch writes with it.
+
+    **An NTFS stream suffix names the same file too.** `package.json::$DATA`
+    opens the default data stream — the file's contents — while the component
+    as written is not `package.json`. So a component is compared up to its
+    first `:`. A drive letter is a component of its own (`C:`), which folds to
+    `c` and names nothing here. Raised by Copilot.
     """
     parts = [part for part in re.split(r"[\\/]+", literal)
              if part not in ("", ".")]
+
+    def comparable(part):
+        return part.split(":", 1)[0].rstrip(". ").lower()
+
     for part in parts:
         short = re.match(r"([^~]+)~\d", part)
         if short and any(
                 name.replace(".", "").startswith(short.group(1).lower())
                 for name in PROTECTED_TREES_FOLDED | PROTECTED_FILES_FOLDED):
             return part
-        if part.rstrip(". ").lower() in PROTECTED_TREES_FOLDED:
+        if comparable(part) in PROTECTED_TREES_FOLDED:
             return part
-    if parts and parts[-1].rstrip(". ").lower() in PROTECTED_FILES_FOLDED:
+    if parts and comparable(parts[-1]) in PROTECTED_FILES_FOLDED:
         return parts[-1]
     return None
 

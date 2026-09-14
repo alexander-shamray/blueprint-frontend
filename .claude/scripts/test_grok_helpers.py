@@ -8157,6 +8157,11 @@ class TheGitArgvGuard(unittest.TestCase):
             'ls > "package.json "',
             "ls > PACKAG~1.JSO",
             "ls > CLAUDE~1/settings.json",
+            # NTFS streams: `::$DATA` is the file's own contents. Raised by
+            # Copilot.
+            "ls > 'package.json::$DATA'",
+            "ls > package.json:stream",
+            "ls > '.claude::$INDEX_ALLOCATION/settings.json'",
             # Globally edit-denied session state, and not in the inventory
             # until Copilot's fourth round.
             "ls > .remember/now.md",
