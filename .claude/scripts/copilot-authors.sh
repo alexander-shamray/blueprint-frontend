@@ -11,10 +11,11 @@
 # the reviewer:
 #
 #   Copilot                             REST — /pulls/{n}/comments. Measured.
-#   copilot-pull-request-reviewer       GraphQL — `gh pr view --json reviews`
-#                                       and `--json comments`. Measured for
+#   copilot-pull-request-reviewer       GraphQL — `pullRequest.reviews` and
+#                                       `pullRequest.comments`, paginated
+#                                       with `gh api graphql`. Measured for
 #                                       reviews; inferred for comments, which
-#                                       share one exporter. See
+#                                       read the same `author { login }`. See
 #                                       review-copilot.md's feed table.
 #   copilot-pull-request-reviewer[bot]  REST — /pulls/{n}/reviews, which no
 #                                       helper here calls. Admitted anyway.

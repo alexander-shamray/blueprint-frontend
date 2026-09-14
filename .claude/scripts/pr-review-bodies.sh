@@ -35,6 +35,12 @@ admitted=$(copilot_admitted_json)
 # finding missed with nothing indicating it.
 #
 # Cursor-paginated for the reason and in the shape the sibling helper argues.
+#
+# **`id` and `commit.oid` are part of the contract, not decoration.** `/ship`'s
+# resume proves a clean review belongs to the pushed head through the review's
+# commit oid, and the paginated query first shipped without it — so a resume
+# could neither establish all-resolved nor tell a stale verdict from a current
+# one. Raised by Copilot.
 owner=$(gh repo view --json owner --jq .owner.login)
 repo=$(gh repo view --json name --jq .name)
 gh api graphql --paginate --slurp -f query='
@@ -43,7 +49,7 @@ gh api graphql --paginate --slurp -f query='
       pullRequest(number:$pr){
         reviews(first:100, after:$endCursor){
           pageInfo{ hasNextPage endCursor }
-          nodes{ author{ login } body state url submittedAt }
+          nodes{ id author{ login } body state url submittedAt commit{ oid } }
         }
       }
     }

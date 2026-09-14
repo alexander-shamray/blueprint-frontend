@@ -63,15 +63,15 @@ from the CLI's shape:
 
 | Feed | Call | API | Author it reports | Evidence |
 |---|---|---|---|---|
-| Review bodies | `pr-review-bodies.sh <n>` → `gh pr view --json reviews` | GraphQL | `copilot-pull-request-reviewer` | **Measured** — PRs #112, #101, #100, #147 |
+| Review bodies | `pr-review-bodies.sh <n>` → `gh api graphql`, `pullRequest.reviews`, cursor-paginated | GraphQL | `copilot-pull-request-reviewer` | **Measured** — PRs #112, #101, #100, #147 through `gh pr view`; PR #25 through the paginated query |
 | Inline comments | `pr-review-comments.sh <n>` → `/pulls/{n}/comments` | REST | `Copilot` | **Measured** — PRs #112, #101, #147 |
-| Issue comments | `pr-issue-comments.sh <n>` → `gh pr view --json comments` | GraphQL | `copilot-pull-request-reviewer` **expected** | **Never observed** — see below |
+| Issue comments | `pr-issue-comments.sh <n>` → `gh api graphql`, `pullRequest.comments`, cursor-paginated | GraphQL | `copilot-pull-request-reviewer` **expected** | **Never observed** — see below |
 
 **The third row is an inference and is labelled as one**, because an earlier
 revision of this table presented it under a heading that said "measured" when
 it was not. Seven PRs have been checked — #112, #101, #100, #99, #98, #94 and
 #147 — and **not one carries a Copilot-authored issue comment**. So the login
-is what `gh pr view`'s shared GraphQL exporter must report if Copilot ever
+is what GraphQL's `author { login }` must report if Copilot ever
 posts to that feed, and nothing here has seen it do so. #147 was checked
 through `pr-issue-comments.sh` itself: six items, all the owner's, none
 Copilot's.
@@ -82,8 +82,10 @@ reads. But **do not cite it as evidence** — an asserted measurement that never
 happened is worse than an open question, because the next reader stops
 checking.
 
-**`gh pr view` loads `reviews` and `comments` through one GraphQL exporter**, so
-those two rows must agree — an earlier revision of this table gave the third row
+**Both GraphQL rows read `author { login }` from one API**, so they must
+agree. Both helpers used `gh pr view` until #22 replaced it with explicit
+paginated queries, and the login measured through the old call is the one the
+new query returned on PR #25 — an earlier revision of this table gave the third row
 a REST spelling, which was wrong on its face and is the reason the measurement
 is quoted here rather than the reasoning.
 

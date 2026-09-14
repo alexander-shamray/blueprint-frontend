@@ -3991,6 +3991,14 @@ class AFeedHelperReturnsTheWholeAnswer(unittest.TestCase):
                 self.assertIn("$endCursor", code)
                 self.assertIn("pageInfo{ hasNextPage endCursor }", code)
 
+    def test_the_review_feed_keeps_its_commit_pin(self):
+        # `/ship`'s resume proves a clean review belongs to the pushed head by
+        # the review's commit oid, and the paginated query first shipped
+        # without it. Raised by Copilot.
+        code = self.code("pr-review-bodies.sh")
+        self.assertIn("commit{ oid }", code)
+        self.assertRegex(code, r"nodes\{ id ")
+
     def test_the_capped_listings_detect_their_cap(self):
         # `gh pr list`, `gh issue list` and `gh label list` have no
         # `--paginate`, so the bound is detected rather than removed: a
