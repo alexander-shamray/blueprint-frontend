@@ -455,6 +455,29 @@ def linked_worktree(path, checkouts):
     return None
 
 
+def protected_in_worktree(path, root):
+    """Which protected tree or root file `path` names beneath `root`, or `None`.
+
+    Asked of `guard-git-argv.py`'s `protected_path`, loaded from beside this
+    file: that module owns the inventory, and the harness suite asserts it
+    covers every tracked root file and machinery tree, so a second list here
+    would be the copy that stops covering the newest surface.
+    """
+    import importlib.util
+
+    try:
+        relative = os.path.relpath(path, root)
+    except ValueError:
+        return None
+    spec = importlib.util.spec_from_file_location(
+        "guard_git_argv",
+        os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                     "guard-git-argv.py"))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.protected_path(relative)
+
+
 def anchors(event):
     """The checkouts this guard is standing in, as (spelled, resolved) pairs.
 
@@ -600,6 +623,24 @@ def offence(event):
             )
     if sibling is not None and not any(
             same(sibling, root, traits) for root, _, traits in checkouts):
+        # **The control surface was not the whole inventory.** A sibling the
+        # session is not standing in is reached by no permission rule at all,
+        # so `../sibling/package.json`, `../sibling/.github/workflows/ci.yml`
+        # and `../sibling/.git/config` — each denied to the editing commands
+        # in this checkout — agreed with themselves under the new anchor and
+        # were admitted. The inventory is the redirection guard's, borrowed
+        # rather than copied, because that list is the one the suite holds to
+        # `git ls-files`. A sibling that IS an anchor — `/branch` moved the
+        # session into it — is judged as the project, where the rules apply.
+        # Raised by Copilot.
+        machinery = protected_in_worktree(lexical, sibling)
+        if machinery is not None:
+            return (
+                f"guard-edit-target: {spelled} targets {machinery} in a "
+                "linked worktree this session is not standing in, where none "
+                "of its permission rules apply. Move into the worktree to "
+                "edit its machinery or toolchain (docs/harness-boundaries.md)."
+            )
         checkouts = checkouts + [
             (sibling, os.path.realpath(sibling), traits_of(sibling))]
 

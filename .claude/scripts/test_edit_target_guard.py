@@ -800,6 +800,26 @@ class WhatThisGuardIsNotTheSubjectOf(GuardCase):
             + os.path.join(self.root, ".git", "worktrees", "linked") + "\n")
         self.assertAdmitted(os.path.join(worktree, "docs", "note.md"))
 
+        # **The same sibling's machinery and toolchain are refused**, because
+        # a session standing in the parent is reached by none of its rules
+        # there: under the new anchor these paths agree with themselves, so
+        # before this check each was admitted. Raised by Copilot, twice — once
+        # for `.claude/`, then for everything else the deny lists name.
+        for parts in (
+            (".claude", "scripts", "helper.sh"),
+            (".claude", "settings.json"),
+            (".git", "config"),
+            (".github", "workflows", "ci.yml"),
+            ("android", "app", "build.gradle"),
+            ("node_modules", ".bin", "ng"),
+            ("package.json",),
+            ("PACKAGE.JSON",),
+            ("AGENTS.md",),
+            ("eslint.config.js",),
+        ):
+            with self.subTest(parts=parts):
+                self.assertRefused(os.path.join(worktree, *parts))
+
         # **And the narrowness, which is the half that matters.** A checkout
         # whose gitdir belongs to some other repository is still refused — a
         # permission rule's paths are relative to THIS project, so nothing
