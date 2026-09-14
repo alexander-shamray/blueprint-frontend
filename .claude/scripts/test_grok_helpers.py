@@ -4010,7 +4010,7 @@ class AFeedHelperReturnsTheWholeAnswer(unittest.TestCase):
                 self.assertIn("--limit", code)
                 self.assertRegex(code, r"-lt \"\$(LIMIT|LABEL_LIMIT|limit)\"")
 
-    def _pr_list_stub(self, rows, repo="acme/widgets"):
+    def _pr_list_stub(self, rows, repo="acme/widgets", cwd=None):
         d = tempfile.mkdtemp(prefix="prlist-stub-")
         self.addCleanup(shutil.rmtree, d, ignore_errors=True)
         payload = Path(d) / "rows.json"
@@ -4030,7 +4030,7 @@ class AFeedHelperReturnsTheWholeAnswer(unittest.TestCase):
         env["PATH"] = d + os.pathsep + env["PATH"]
         return subprocess.run(
             [BASH, str(SCRIPTS / "pr-for-branch.sh"), "feat/reused"],
-            capture_output=True, text=True, env=env,
+            capture_output=True, text=True, env=env, cwd=cwd,
         )
 
     @staticmethod
@@ -4040,6 +4040,41 @@ class AFeedHelperReturnsTheWholeAnswer(unittest.TestCase):
             "url": f"https://example.invalid/{number}",
             "headRepository": {"nameWithOwner": repo},
         }
+
+    def test_a_merged_pr_behind_the_reused_branch_is_not_its_pr(self):
+        # Sorting settles reuse only once the new PR exists. Before it, the old
+        # `MERGED` row is the only row, and `/ship` step 0 read new work on the
+        # reused branch as delivered. Raised by Copilot. Driven in a real
+        # repository: the merged PR's head is an ancestor of the local tip.
+        repo = Path(tempfile.mkdtemp(prefix="prlist-repo-"))
+        self.addCleanup(shutil.rmtree, str(repo), ignore_errors=True)
+
+        def git(*args):
+            return subprocess.run(
+                ["git", "-C", str(repo), "-c", "user.email=t@example.com",
+                 "-c", "user.name=t", *args],
+                check=True, capture_output=True, text=True).stdout.strip()
+
+        git("init", "-q", "-b", "feat/reused")
+        git("commit", "-q", "--allow-empty", "-m", "the merged work")
+        old_head = git("rev-parse", "HEAD")
+        row = {**self._row(3, "MERGED"), "headRefOid": old_head}
+
+        # The tip IS the merged head: this is the PR that landed.
+        result = self._pr_list_stub([row], cwd=str(repo))
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual([3], [r["number"] for r in json.loads(result.stdout)])
+
+        # New work on the reused name: the merged head is behind the tip.
+        git("commit", "-q", "--allow-empty", "-m", "new work, same name")
+        result = self._pr_list_stub([row], cwd=str(repo))
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual([], json.loads(result.stdout))
+
+        # An open row is the branch's current PR whatever its head.
+        open_row = {**self._row(4, "OPEN"), "headRefOid": old_head}
+        result = self._pr_list_stub([open_row], cwd=str(repo))
+        self.assertEqual([4], [r["number"] for r in json.loads(result.stdout)])
 
     def test_the_newest_row_wins_over_an_older_merged_one(self):
         # **#24, and it is the worst answer this chain can produce.** `--head`

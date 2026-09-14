@@ -80,9 +80,33 @@ repo=$(gh repo view --json nameWithOwner --jq .nameWithOwner) ||
 # smaller one.
 limit=1000
 rows=$(gh pr list --state all --head "$branch" --limit "$limit" \
-         --json number,state,url,headRepository)
+         --json number,state,url,headRepository,headRefOid)
 [ "$(jq 'length' <<<"$rows")" -lt "$limit" ] ||
   { echo "gh pr list returned exactly $limit rows for $branch, so the listing may be truncated and the newest row cannot be established" >&2; exit 4; }
-jq --arg repo "$repo" \
-  '[ .[] | select((.headRepository.nameWithOwner // "") == $repo)
-     | {number, state, url} ] | sort_by(.number) | reverse | .[0:1]' <<<"$rows"
+newest=$(jq --arg repo "$repo" \
+  '[ .[] | select((.headRepository.nameWithOwner // "") == $repo) ]
+   | sort_by(.number) | reverse | .[0:1]' <<<"$rows")
+
+# **The newest row can still be a previous incarnation of the branch.** Sorting
+# settles a reused name once the new PR exists; before that, the old `MERGED`
+# row is the only row, and `/ship` step 0 read new work on the reused branch as
+# already delivered. Raised by Copilot.
+#
+# The local branch says which incarnation this is. A finished PR whose head is
+# a strict ancestor of the local branch tip describes commits this branch has
+# since moved past — a branch recreated from a `main` that contains the merge
+# is exactly that — so it is not this branch's PR and nothing is returned. A
+# tip EQUAL to the head is the PR that landed, and a head the local branch
+# does not contain (or no local branch at all) is left as reported, because
+# nothing here shows it to be stale. An open row is never dropped: an open PR
+# is the branch's current one by definition.
+state=$(jq -r '.[0].state // ""' <<<"$newest")
+if [ "$state" = MERGED ] || [ "$state" = CLOSED ]; then
+  head_oid=$(jq -r '.[0].headRefOid // ""' <<<"$newest")
+  tip=$(git rev-parse --verify --quiet "refs/heads/$branch" || true)
+  if [ -n "$head_oid" ] && [ -n "$tip" ] && [ "$tip" != "$head_oid" ] &&
+     git merge-base --is-ancestor "$head_oid" "$tip" 2>/dev/null; then
+    newest='[]'
+  fi
+fi
+jq '[ .[] | {number, state, url} ]' <<<"$newest"
