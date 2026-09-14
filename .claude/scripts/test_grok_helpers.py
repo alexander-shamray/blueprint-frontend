@@ -3750,6 +3750,21 @@ class NoCommandHoldsAPrefixGrantThatAdmitsAForbiddenFlag(unittest.TestCase):
         self.assertEqual(2, out.returncode, out.stderr)
         self.assertIn("more than one line", out.stderr)
 
+    def test_the_create_helper_leaves_no_body_behind_and_takes_none_tracked(self):
+        # Copilot, suppressed in round four: every successful `/pr` left an
+        # untracked `pr-body.md` for `/ship`'s clean-tree gate to find. Read
+        # rather than driven, because the removal sits after a real
+        # `gh pr create`, which this suite cannot run.
+        create = self._code("gh-pr-create.sh")
+        self.assertIn("ls-files --error-unmatch pr-body.md", create)
+        self.assertLess(create.find("ls-files --error-unmatch pr-body.md"),
+                        create.find("gh pr create"))
+        self.assertGreater(create.find('rm -f -- "$body"'),
+                           create.find("gh pr create"))
+        ignored = (SCRIPTS.parent.parent / ".gitignore").read_text(
+            encoding="utf-8").splitlines()
+        self.assertIn("/pr-body.md", ignored)
+
 
 class TheFourPortedResiduals(unittest.TestCase):
     """#18 — four residuals in machinery ported verbatim from the backend.

@@ -170,8 +170,9 @@ owns the trigger contract.
 
 ## Steps
 
-Write the body to a scratchpad file and pass its path to the helper; heredocs
-through `gh` mangle the wrapping. Then:
+Write the body with `Write` to `pr-body.md` at the checkout root — the one
+path the helper publishes — rather than through a heredoc, which mangles the
+wrapping. Then:
 
 ```bash
 bash .claude/scripts/gh-pr-create.sh "<title>" pr-body.md
@@ -184,7 +185,9 @@ command derived. All four are fixed in the helper now: the repository and the
 branch come from the checkout, the base is the literal `main`, and the body
 file is the caller-created `pr-body.md` at the checkout root — `--body-file`
 publishes whatever it reads, including a file the session's own `Read` is
-bounded away from.
+bounded away from. The file is gitignored, a tracked one is refused as the
+branch's text rather than this run's, and the helper removes it once the PR is
+open, so a successful run leaves nothing for `/ship`'s clean-tree gate.
 
 ## Report
 

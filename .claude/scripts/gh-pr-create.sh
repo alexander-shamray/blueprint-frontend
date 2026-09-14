@@ -45,6 +45,13 @@ checkout=$(cd "$checkout" && pwd -P)
 resolved=$(cd "$(dirname "$body")" && pwd -P)/$(basename "$body")
 [ "$resolved" = "$checkout/pr-body.md" ] ||
   { echo "the PR body must be the caller-created $checkout/pr-body.md" >&2; exit 2; }
+# **Caller-created means not the branch's.** A tracked `pr-body.md` is text the
+# branch under review chose, and publishing it as the description would let
+# the branch write its own PR body. `.gitignore` names the file, so only a
+# force-add reaches here. Raised by Copilot.
+! git -C "$checkout" ls-files --error-unmatch pr-body.md >/dev/null 2>&1 ||
+  { echo "pr-body.md is tracked by this branch; the body must be written for this run" >&2
+    exit 2; }
 
 branch=$(git branch --show-current)
 [ -n "$branch" ] || { echo "detached HEAD: there is no branch to open a PR for" >&2; exit 3; }
@@ -58,3 +65,9 @@ repo=$(gh repo view --json nameWithOwner --jq .nameWithOwner) ||
 
 gh pr create --repo "$repo" --base main --head "$branch" \
   --title "$title" --body-file "$body"
+
+# Removed once published, and only then: a failed create keeps the body for
+# the retry. Left behind, it was an untracked file every `/pr` produced, which
+# `/ship`'s later clean-tree gate reads as work to commit. `.gitignore` covers
+# the window between writing it and this line. Raised by Copilot.
+rm -f -- "$body"
