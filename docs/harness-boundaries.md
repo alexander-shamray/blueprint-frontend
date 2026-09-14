@@ -511,11 +511,15 @@ already refuses twice over.
 
 **So state the bound as what has been looked for, not as what is left.** The
 residual named today is what the shell **computes** rather than what a caller
-writes, and it has two measured shapes: a flag or command assembled from a
-variable (`F=--output=x; git log $F`), and a substitution whose OUTPUT becomes
-the command line (`sh -c "$(echo 'git push origin +HEAD:main')"`). Closing
-either needs the argv after expansion, which no hook is given. Both are pinned
-as **admitted** in the suite, on the same argument as the degraded-check case:
+writes, and it has one measured shape left: an ARGUMENT or flag assembled
+from a variable (`F=--output=x; git log $F`). Two more shapes were named here
+and are refused now — a command WORD taken from a variable
+(`F='git push origin +HEAD:main'; $F`), and a substitution whose output
+becomes the command line (`sh -c "$(echo 'git push origin +HEAD:main')"`) —
+because a computed word in program position, or right after a launcher such
+as `bash`, could name the review helpers, and is refused wherever it stands.
+Closing the remaining shape needs the argv after expansion, which no hook is
+given. It is pinned as **admitted** in the suite, on the same argument as the degraded-check case:
 a residual nobody can run is one the next reader assumes was closed.
 
 Three earlier versions of that sentence were each falsified by a spelling

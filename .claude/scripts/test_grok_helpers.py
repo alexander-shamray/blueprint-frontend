@@ -6583,19 +6583,23 @@ class TheGitArgvGuard(unittest.TestCase):
 
     def test_what_the_shell_computes_is_the_residual(self):
         # **The bound, asserted rather than described.** This hook resolves
-        # quoting; it does not evaluate. A command the shell COMPUTES is
-        # therefore out of reach, in both of its shapes — a flag assembled from
-        # a variable, and a substitution whose OUTPUT becomes the command line.
-        # Both run under bash and both are admitted here.
+        # quoting; it does not evaluate. An argument the shell COMPUTES is
+        # therefore out of reach — a flag assembled from a variable runs under
+        # bash and is admitted here.
         #
         # Written as a passing test on purpose, the way the degraded-check case
         # below is: a residual nobody can run is one the next reader assumes
         # was closed. If either of these starts being refused, this test fails
         # and the paragraph in `docs/harness-boundaries.md` that names the
         # bound is what needs rewriting.
-        self.assertAdmitted("F='git push origin +HEAD:main'; $F")
         self.assertAdmitted("F=--output=/tmp/x; git log $F")
-        self.assertAdmitted(
+        # The other two shapes narrowed when a computed word in program
+        # position — one that could name the review helpers — started being
+        # refused: a command WORD taken from a variable, and a substitution
+        # whose output is the command line. Raised by Copilot; the paragraph
+        # moved with them.
+        self.assertRefused("F='git push origin +HEAD:main'; $F")
+        self.assertRefused(
             'sh -c "$(echo \'git push origin +HEAD:main\')"')
 
         # **Both of these refuse now, and the second one used to be the
@@ -8359,6 +8363,14 @@ class TheGitArgvGuard(unittest.TestCase):
             "bash .claude/scripts/grok-ledger.sh 42 {count,converge}",
             "bash .claude/scripts/grok-ledger.sh 42 status extra",
             "bash .claude/scripts/grok-ledger.sh $N count",
+            # A computed helper NAME: bash expands the word to the helper
+            # before running it. Raised by Copilot.
+            "bash .claude/scripts/grok-ledger.s? 42 reserve 1 full",
+            "bash .claude/scripts/grok-*.sh 42 recheck",
+            "bash .claude/scripts/grok-{ledger,x}.sh 42 converge",
+            "bash .claude/scripts/$HELPER 42 complete 2 clean",
+            "bash -e \"$(printf .claude/scripts/grok-ledger.sh)\" 42 release 1",
+            "$LEDGER 42 reserve 1 full",
             "bash .claude/scripts/grok-rev''iew.sh 42 full",
             "git log -1 && bash .claude/scripts/grok-review.sh 42 recheck",
         ):
@@ -8371,6 +8383,11 @@ class TheGitArgvGuard(unittest.TestCase):
             "bash .claude/scripts/grok-ledger.sh 42 status",
             "grep -n converge .claude/scripts/grok-ledger.sh",
             "git log --oneline -- .claude/scripts/grok-review.sh",
+            # A computed word that is an ARGUMENT, not the program, is not a
+            # helper being run; nor is a `-c` script, which is judged as one.
+            "bash .claude/scripts/npm-checks.sh $MODE",
+            "ls $TMP",
+            "bash -c 'echo $HOME'",
         ):
             with self.subTest(command=command):
                 self.assertAdmitted(command)

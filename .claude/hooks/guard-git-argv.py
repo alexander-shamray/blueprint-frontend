@@ -75,6 +75,7 @@ that gets worked around rather than fixed.
 """
 
 import collections
+import fnmatch
 import json
 import os
 import re
@@ -2839,15 +2840,87 @@ READING_COMMANDS = frozenset({
 })
 
 
+# What runs the word after it as a script or a program, so a computed word in
+# that position is a program nobody can name from the source.
+LAUNCHERS = frozenset({
+    ".", "bash", "command", "dash", "env", "exec", "ksh", "nohup", "sh",
+    "source", "time", "xargs", "zsh",
+})
+
+
+def brace_alternatives(word):
+    """Every word a comma brace expansion in `word` produces, `word` if none."""
+    match = re.search(r"\{([^{}]*,[^{}]*)\}", word)
+    if match is None:
+        return [word]
+    return [
+        expanded
+        for choice in match.group(1).split(",")
+        for expanded in brace_alternatives(
+            word[:match.start()] + choice + word[match.end():])
+    ]
+
+
+def helper_named(token):
+    """Which review helper `token` runs: a name, `"computed"`, or `None`.
+
+    **A literal comparison misses what bash expands before it runs.**
+    `bash .claude/scripts/grok-ledger.s? 42 reserve 1 full` holds no helper
+    token and no substring the deny list matches, and the glob expands to the
+    ledger. So a word whose basename is a pattern, or a brace expansion, is
+    compared as bash would expand it, and a word carrying `$` or a backtick —
+    whose value is not in the source at all — is reported as computed. Raised
+    by Copilot.
+    """
+    name = program_name(token)
+    for candidate in brace_alternatives(name):
+        for helper in REVIEW_HELPERS:
+            if candidate == helper or (
+                    any(char in candidate for char in "*?[")
+                    and fnmatch.fnmatchcase(helper, candidate)):
+                return helper
+    if "$" in token or "`" in token:
+        return "computed"
+    return None
+
+
+def launched(run, index):
+    """Whether `run[index]` is in a position where it is RUN as a program."""
+    if ASSIGNMENT.match(run[index]):
+        return False
+    if run[index] == leading_command(run):
+        return True
+    # A `-c` script is a script, not a program name, and `evaluated_scripts`
+    # has already judged what it runs.
+    if index > 0 and SCRIPT_FLAG.match(run[index - 1]):
+        return False
+    previous = index - 1
+    while previous >= 0 and (run[previous].startswith("-")
+                             or ASSIGNMENT.match(run[previous])):
+        previous -= 1
+    return previous >= 0 and program_name(run[previous]) in LAUNCHERS
+
+
 def review_helper_offence(tokens):
     """The reason to refuse a Grok review or a ledger write, or `None`."""
     for run in command_runs(tokens):
         if program_name(leading_command(run)) in READING_COMMANDS:
             continue
         for index, token in enumerate(run):
-            name = program_name(token)
-            if name not in REVIEW_HELPERS:
+            name = helper_named(token)
+            if name is None:
                 continue
+            if name == "computed" or token != token.strip() or (
+                    program_name(token) not in REVIEW_HELPERS):
+                if name == "computed" and not launched(run, index):
+                    continue
+                return (
+                    f"`{token}` is run as a program whose name bash computes "
+                    "— a pattern, a brace expansion or a variable — and it "
+                    "can be `grok-ledger.sh` or `grok-review.sh`, which run "
+                    "here only when spelled literally. Refusing rather than "
+                    "judging the word instead of the script it opens."
+                )
             if name == "grok-review.sh":
                 return (
                     "`grok-review.sh` is disabled: it runs the branch's own "
