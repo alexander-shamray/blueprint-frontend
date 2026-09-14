@@ -1,8 +1,8 @@
 ---
 description: Loop a defensive security audit up to seven rounds, filing a GitHub issue per confirmed medium-or-above finding, until a round surfaces nothing new
 argument-hint: "[scope hint, e.g. 'the compose stack' or a path] — omit to sweep the whole repo"
-allowed-tools: Read, Grep, Glob, Agent(security-auditor), Bash(bash .claude/scripts/gh-issue-list.sh), Bash(bash .claude/scripts/gh-issue-text.sh:*), Bash(bash .claude/scripts/gh-issue-create.sh:*), Bash(bash .claude/scripts/gh-label-ensure.sh:*), Bash(bash .claude/scripts/gh-issue-suppresses.sh:*), Bash(git rev-parse:*), Bash(bash .claude/scripts/git-worktree-detach.sh:*), Bash(git worktree list:*), Bash(bash .claude/scripts/git-worktree-drop.sh:*)
-disallowed-tools: Edit, Write, NotebookEdit, Agent(general-purpose), Agent(claude), Agent(Explore), Agent(Plan), Agent(claude-code-guide), Agent(statusline-setup), Agent(bug-auditor), Agent(review-adjudicator), Bash(gh issue create:*), Bash(git push origin:*), Bash(git push -u origin:*)
+allowed-tools: Read, Grep, Glob, Agent(security-auditor), Bash(bash .claude/scripts/gh-issue-list.sh), Bash(bash .claude/scripts/gh-issue-text.sh:*), Bash(bash .claude/scripts/gh-sweep-issue-create.sh:*), Bash(bash .claude/scripts/gh-label-ensure.sh:*), Bash(bash .claude/scripts/gh-issue-suppresses.sh:*), Bash(git rev-parse:*), Bash(bash .claude/scripts/git-worktree-detach.sh:*), Bash(git worktree list:*), Bash(bash .claude/scripts/git-worktree-drop.sh:*)
+disallowed-tools: Bash(bash .claude/scripts/gh-issue-create.sh:*), Edit, Write, NotebookEdit, Agent(general-purpose), Agent(claude), Agent(Explore), Agent(Plan), Agent(claude-code-guide), Agent(statusline-setup), Agent(bug-auditor), Agent(review-adjudicator), Bash(gh issue create:*), Bash(git push origin:*), Bash(git push -u origin:*)
 ---
 
 Sweep the repository for security findings, file the real ones as GitHub
@@ -180,7 +180,7 @@ so the summary names the commit the sweep actually read.
 caller's tree, which would silently forfeit the stable-snapshot property this
 section buys. A failed `git worktree add` is a round that could not run,
 reported like any other tool error under *Never fail open* below. **The round
-writes nothing to disk** — issue bodies are piped to `gh-issue-create.sh` on stdin
+writes nothing to disk** — issue bodies are piped to `gh-sweep-issue-create.sh` on stdin
 (the File step), not written to files — so `$work` stays clean on its own and
 the teardown below removes it without `--force`.
 
@@ -277,7 +277,7 @@ or above.** Three gates, and each drops candidates the round must not file:
   re-file **only while its fix is still present** — if the finding **currently
   reproduces** because the fix was reverted, the vulnerability is back, and it
   re-files rather than being silenced by a closure that no longer holds —
-  **re-files**, because the grant carries `gh-issue-create.sh` and no `reopen`,
+  **re-files**, because the grant carries `gh-sweep-issue-create.sh` and no `reopen`,
   and a duplicate that says why beats a capability this command does not have.
   Re-filing a genuinely-tracked finding is the drift this repo
   exists to close; suppressing a reintroduced one is worse. (The prior-round
@@ -463,7 +463,7 @@ Each round is the review done once, end to end:
    agent claim never became an issue; the property that bought is kept — two
    independent read-only readings, neither able to mutate, must agree — and
    what it cost is given up: the audited tree no longer enters the one
-   invocation that holds `gh-issue-create.sh`. A verdict of `refuted` or
+   invocation that holds `gh-sweep-issue-create.sh`. A verdict of `refuted` or
    `outside-root` drops the candidate; a record that is not in the declared
    shape is dropped as malformed and counted; and **a record whose `file` and
    `line` are not the candidate's as dispatched is dropped the same way**,
@@ -477,7 +477,7 @@ Each round is the review done once, end to end:
    severity — **every one of those composed from the verdict record's fields
    in that order, and from nothing the parent read in `$work`**, because it
    read nothing there. **Pipe the title and the body together to
-   `bash .claude/scripts/gh-issue-create.sh security <severity> sweep` on
+   `bash .claude/scripts/gh-sweep-issue-create.sh security <severity>` on
    stdin** in a quoted heredoc — the title as its first line, then a blank
    line, then the body — so nothing is written to disk and the command needs
    no `Write` grant, and so **nothing composed from the record crosses this
@@ -486,9 +486,19 @@ Each round is the review done once, end to end:
    have run here. Inside the quoted heredoc nothing expands. An inline
    `--body` mangles the wrapping, and a temp file would need the very write
    capability this command withholds. The helper resolves the repository from
-   the checkout, refuses a kind, a severity or a route outside its three
-   closed sets, refuses a stdin whose second line is not blank, and ensures
-   both labels through `gh-label-ensure.sh` itself. End the body with this
+   the checkout, refuses a kind or a severity outside its two closed sets,
+   refuses a stdin whose second line is not blank, and ensures both labels
+   through `gh-label-ensure.sh` itself.
+
+   **The route is not an argument, and #19 is why.** It used to be the third
+   one, and this command held a prefix grant — so the model chose it, including
+   the sentence asserting that a second read-only auditor verified the finding
+   at filing. That is the claim a triager reads to decide whether anybody
+   checked, and it was the one argument the closed-set reasoning behind `kind`
+   and `severity` never reached. There are two entry points now: this one files
+   `sweep`, `gh-issue-create.sh` files `hand`, neither has an argument for the
+   other's trailer, and this command **denies the hand route by name** — a
+   grant is auto-approval, so only the deny makes the split enforcement. End the body with this
    line, exactly, as its
    last non-blank line — the helper refuses a body without it:
 
@@ -530,7 +540,7 @@ Each round is the review done once, end to end:
    both suppress the conversion and a bare `/` does not.
 
    **The helper closes it, and it is the one thing a helper can do that the
-   grant could not.** `gh-issue-create.sh` sets `MSYS2_ARG_CONV_EXCL` for its
+   grant could not.** `gh-sweep-issue-create.sh` sets `MSYS2_ARG_CONV_EXCL` for its
    own `gh` child, so the conversion never sees the title; the command's grant
    is on the script and is unchanged. Writing the subject in backticks —
    ``/security-sweep`` — is still the house form for a title that names a
@@ -544,7 +554,7 @@ Each round is the review done once, end to end:
 text.** Step 2 no longer opens `$work` in the invocation that files (#75 item
 5): the fan-out contains the auditor, the verify dispatch contains the
 verifier, and the parent composes from a record with declared fields. What it
-still holds is `gh-issue-create.sh`, whose repository is resolved from the
+still holds is `gh-sweep-issue-create.sh`, whose repository is resolved from the
 checkout and whose labels are a closed set, so nothing a finding says can
 choose *where* an issue lands; what an issue *says* is the record's fields,
 and a crafted tree that steers both read-only invocations into the same
@@ -568,6 +578,23 @@ it here the same way — running the fan-out in a container that mounts only
 `.claude/sandbox/` and `.claude/scripts/` infrastructure a command session is
 edit-denied from. Until that decision is taken, the path check above is the
 mitigation and this is the residual, named rather than hidden.
+
+**One half of it is closed, and it was the half a path rule could never have
+reached (#18).** "Root every path under `$work`" is a rule about the SPELLING
+of a path, and a git worktree preserves tracked symbolic links — so
+`$work/leak -> ~/.ssh/id_rsa` is an absolute path under `$work` whose target is
+not, and `Read`, `Grep` and `Glob` all follow it. No discipline about spellings
+catches that, and the auditor profile cannot either: those three tools are
+exactly what an auditor is left with. `git-worktree-detach.sh` now refuses a
+pinned commit carrying any tracked link, before the worktree exists — asked of
+the pinned COMMIT rather than of `main`, because the commit is what the
+worktree materialises and the branch is where a link would arrive.
+`/review-grok` has carried that argument for its own clone all along; this is
+the sweeps inheriting it.
+
+What stays open is the rest of the paragraph above: a crafted file can still
+name a host path in prose, and only the path rule and the verify step stand
+against an agent that follows it.
 
 ## Where it stops
 
@@ -653,6 +680,13 @@ allowed command, or an interpreter reached through one, alters source that
 is silently available too, which is the premise stated at the top of this
 section. So the denies raise the cost and do not close the class.
 
+**The redirection half of that is closed since #20**, and the rest of the
+sentence stands: `guard-git-argv.py` now judges a redirection's target and
+refuses one naming the machinery or the toolchain, while an interpreter reached
+through a granted command is still unjudged.
+`docs/harness-boundaries.md` owns the boundary and the residual that replaces
+this one.
+
 **The honest boundary is the worktree, not the tool list.** What actually
 bounds this command is that it audits a detached copy under a temp root and
 files issues; the tool denies stop the obvious path and the shape checks stop
@@ -685,7 +719,7 @@ nowhere**; the deny is what wins, because precedence is deny first. A
 `Write` grant for issue bodies was tried and removed precisely because it would
 have re-opened source editing — a read-only claim resting on prose while the
 grant permits writing every undenied path is unenforced, which for a security
-command is the worse failure. Bodies go through `gh-issue-create.sh` on stdin for
+command is the worse failure. Bodies go through `gh-sweep-issue-create.sh` on stdin for
 exactly this reason.
 
 **No mutation is scoped by discipline any more, and the last one went the way
@@ -697,7 +731,7 @@ their own status.
 
 - **`Bash(gh issue create:*)` pinned no repository, and is gone.** It was a
   prefix grant, so "always `--repo` for this repository" was prose.
-  `gh-issue-create.sh` resolves the repository from the checkout, closes the
+  `gh-sweep-issue-create.sh` resolves the repository from the checkout, closes the
   label vocabulary, takes the title and the body on stdin so neither crosses
   this shell's command line, and sets `MSYS2_ARG_CONV_EXCL` for its own child
   — the title defect the commands could not close under a prefix match.

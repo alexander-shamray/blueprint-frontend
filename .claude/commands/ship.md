@@ -1,7 +1,7 @@
 ---
-description: Start from a clean main, fork a worktree where one can be forked, branch, commit, push and open a PR, loop the external reviews — Grok until two consecutive clean passes, Copilot until one — then merge the PR and tear the workspace down. Decides for itself rather than stopping to ask
+description: Start from a clean main, fork a worktree where one can be forked, branch, commit, push and open a PR, loop the Copilot review until one clean pass (Grok is disabled pending a trusted launcher) — then merge the PR and tear the workspace down. Decides for itself rather than stopping to ask
 argument-hint: "[what the change does] — omit and each step derives its own"
-allowed-tools: Read, Grep, Glob, Write, Skill, EnterWorktree, ExitWorktree, Bash(git status:*), Bash(git diff:*), Bash(git branch --list:*), Bash(git branch --show-current), Bash(git branch -a), Bash(git log:*), Bash(git fetch origin:*), Bash(bash .claude/scripts/git-branch-create.sh:*), Bash(bash .claude/scripts/git-worktree-fork.sh:*), Bash(bash .claude/scripts/git-switch-existing.sh:*), Bash(git rev-parse:*), Bash(git worktree list:*), Bash(ls:*), Bash(git add:*), Bash(git commit:*), Bash(bash .claude/scripts/git-unstage.sh:*), Bash(git push -u origin:*), Bash(git push origin:*), Bash(wc:*), Bash(gh pr create:*), Bash(bash .claude/scripts/pr-state.sh:*), Bash(bash .claude/scripts/pr-for-branch.sh:*), Bash(gh pr checks:*), Bash(gh pr merge --merge:*), Bash(git pull --ff-only), Bash(git merge-base --is-ancestor:*), Bash(git worktree remove:*), Bash(git worktree prune:*), Bash(rm -f suggestions.md), Bash(bash .claude/scripts/grok-ledger.sh:*), Bash(bash .claude/scripts/copilot-request.sh:*), Bash(bash .claude/scripts/copilot-request-count.sh:*), Bash(bash .claude/scripts/pr-review-comments.sh:*), Bash(bash .claude/scripts/pr-review-bodies.sh:*), Bash(bash .claude/scripts/pr-issue-comments.sh:*), Bash(bash .claude/scripts/pr-review-threads.sh:*), Bash(bash .claude/scripts/grok-review.sh:*), Bash(sleep:*), Bash(bash .claude/scripts/pr-locality.sh:*), Bash(bash .claude/scripts/npm-checks.sh:*)
+allowed-tools: Read, Grep, Glob, Write, Skill, EnterWorktree, ExitWorktree, Bash(git status:*), Bash(git diff:*), Bash(git branch --list:*), Bash(git branch --show-current), Bash(git branch -a), Bash(git log:*), Bash(git fetch origin:*), Bash(bash .claude/scripts/git-branch-create.sh:*), Bash(bash .claude/scripts/git-worktree-fork.sh:*), Bash(bash .claude/scripts/git-switch-existing.sh:*), Bash(git rev-parse:*), Bash(git worktree list:*), Bash(ls:*), Bash(git add:*), Bash(git commit:*), Bash(bash .claude/scripts/git-unstage.sh:*), Bash(git push -u origin:*), Bash(git push origin:*), Bash(wc:*), Bash(bash .claude/scripts/gh-pr-create.sh), Bash(bash .claude/scripts/pr-state.sh:*), Bash(bash .claude/scripts/pr-for-branch.sh:*), Bash(gh pr checks:*), Bash(bash .claude/scripts/gh-pr-merge.sh:*), Bash(git pull --ff-only), Bash(git merge-base --is-ancestor:*), Bash(bash .claude/scripts/git-worktree-remove.sh:*), Bash(git worktree prune:*), Bash(rm -f suggestions.md), Bash(bash .claude/scripts/grok-ledger.sh:*), Bash(bash .claude/scripts/copilot-request.sh:*), Bash(bash .claude/scripts/copilot-request-count.sh:*), Bash(bash .claude/scripts/pr-review-comments.sh:*), Bash(bash .claude/scripts/pr-review-bodies.sh:*), Bash(bash .claude/scripts/pr-issue-comments.sh:*), Bash(bash .claude/scripts/pr-review-threads.sh:*), Bash(bash .claude/scripts/grok-review.sh:*), Bash(sleep:*), Bash(bash .claude/scripts/pr-locality.sh:*), Bash(bash .claude/scripts/npm-checks.sh:*)
 disallowed-tools: Edit(.claude/**), Edit(./.claude/**), Edit(.github/**), Edit(./.github/**), Edit(.remember/**), Edit(./.remember/**), Edit(android/**), Edit(./android/**), Edit(ios/**), Edit(./ios/**), Edit(.git/**), Edit(./.git/**), Edit(package.json), Edit(./package.json), Edit(package-lock.json), Edit(./package-lock.json), Edit(npm-shrinkwrap.json), Edit(./npm-shrinkwrap.json), Edit(.npmrc), Edit(./.npmrc), Edit(angular.json), Edit(./angular.json), Edit(tsconfig.json), Edit(./tsconfig.json), Edit(tsconfig.app.json), Edit(./tsconfig.app.json), Edit(tsconfig.spec.json), Edit(./tsconfig.spec.json), Edit(eslint.config.js), Edit(./eslint.config.js), Edit(.prettierrc), Edit(./.prettierrc), Edit(capacitor.config.ts), Edit(./capacitor.config.ts), Edit(playwright.config.ts), Edit(./playwright.config.ts), Edit(ionic.config.json), Edit(./ionic.config.json), Edit(.nvmrc), Edit(./.nvmrc), Edit(.editorconfig), Edit(./.editorconfig), Edit(.gitattributes), Edit(./.gitattributes), Edit(.gitignore), Edit(./.gitignore), Edit(CLAUDE.md), Edit(./CLAUDE.md), Edit(README.md), Edit(./README.md), Edit(**/*.config.js), Edit(**/*.config.cjs), Edit(**/*.config.mjs), Edit(**/*.config.ts), Edit(**/*.config.mts), Edit(**/package.json), Edit(**/.npmrc), Edit(**/tsconfig*.json), Edit(**/.prettierrc*), Edit(node_modules/**), Edit(./node_modules/**)
 ---
 
@@ -32,10 +32,11 @@ branch keeps catching a round late.
 ## It runs to the end, and the end is a merged PR
 
 `/pr` pushes the branch itself, so the chain reaches an open PR without waiting
-for anyone, and step 7 merges it. Steps 5 and 6 sit between: Grok reads the
-branch and `/review-grok` triages what it found, then Copilot reads the PR and
-`/review-copilot` triages that. When both loops have finished — however they
-finished — the PR is merged, the session returns to the main checkout and the
+for anyone, and step 7 merges it. Steps 5 and 6 sit between. **Step 5, the
+Grok half, is disabled** until its launcher lives outside the branch it
+reviews, so a run reports it skipped; Copilot reads the PR and
+`/review-copilot` triages that. When the Copilot loop has finished — however
+it finished — the PR is merged, the session returns to the main checkout and the
 worktree is removed.
 
 **Nothing in this chain stops to ask.** Where an earlier version handed a
@@ -113,7 +114,7 @@ that reaches a merge — so the rows below say what is owed *between* them:
 | On a branch, tree dirty | Checks, `/commit`, push, `/pr` |
 | On a branch, tree clean, unpushed or ahead | Push, `/pr` |
 | On a branch, tree clean and pushed | `/pr`, then the review loops |
-| On a branch with an open PR | The review loops (steps 5–6), Grok before Copilot — and, if the tree is dirty, checks, `/commit` **scoped to the implementation paths** and a push first, so the reviewers read what the PR will actually carry. Never unscoped while `suggestions.md` is on disk: that file is Grok's working state, and the unscoped form sweeps untracked files into the commit |
+| On a branch with an open PR | The review loops (steps 5–6) — step 5 reported skipped while Grok is disabled, then Copilot — and, if the tree is dirty, checks, `/commit` **scoped to the implementation paths** and a push first, so the reviewers read what the PR will actually carry. Never unscoped while `suggestions.md` is on disk: that file is Grok's working state, and the unscoped form sweeps untracked files into the commit |
 | On a branch whose PR was **closed unmerged** | **Stop.** Somebody decided this branch does not land, and the open-PR read cannot see that: with no open PR the *clean and pushed* row would send the run to `/pr`, which refuses only an **open** one — so the chain would open a replacement and merge it, overriding a deliberate closure with no human in the loop. Report the closed PR and its number |
    | On a branch whose PR is **already merged** | **Step 0 alone, and then the run is over.** `pr-state.sh` reporting `MERGED` is the check, and it comes before the review loops rather than after them — re-requesting a review on a merged PR spends a round of somebody's budget on a branch nobody can change. With nothing left in the workspace, step 0's teardown is a complete one (switch, pull, remove, prune); with a dirty tree or commits made after the merge the branch is **not** finished, step 0 stays put and tears nothing down, and the run still ends here. Either way step 7 has nothing left to do: there is no PR to merge |
 
@@ -196,6 +197,17 @@ no PR has ever existed for this branch; otherwise the newest row reads `OPEN`,
 `CLOSED` or `MERGED`, and those are precisely the four cases the table above
 distinguishes — including the two that used to need a second call and the one
 that used to need a failed one.
+
+**"The newest row" was this paragraph's claim before it was the helper's
+behaviour, and the gap was #24.** `--head` matches a branch NAME, so the
+listing held every pull request that had ever used it, in whatever order the
+API gave — and a branch name reused after a merge leaves an older `MERGED` row
+beside a newer `OPEN` one. This step reads `MERGED` as finished and tears the
+workspace down, so the wrong row here is a confident teardown of live work
+justified by a true statement about a different pull request. The helper now
+returns **at most one row**, the newest in this repository, so the sentence
+above and the code agree. A truncated listing exits non-zero rather than
+answering.
 
 **`pr-state.sh` cannot be that read, and the reason is an exit
 code rather than a preference.** With no PR for the current branch it exits
@@ -354,8 +366,9 @@ same argument as never calling a branch clean because asking failed.
    git fetch origin main                      # or the next read is stale
    git status --short                         # empty: nothing uncommitted
    git log origin/main..HEAD                  # empty: nothing main lacks
-   bash .claude/scripts/pr-for-branch.sh <branch>   # a row with state MERGED:
-                                                   # it landed. Any other row
+   bash .claude/scripts/pr-for-branch.sh <branch>   # the one row it returns,
+                                                   # with state MERGED: it
+                                                   # landed. Any other state
                                                    # is a PR, not a merge.
    ```
 
@@ -365,7 +378,9 @@ same argument as never calling a branch clean because asking failed.
    run. Classifying the ordinary case through a failed command, in a chain
    whose first stop rule is that a non-zero exit means the step did not run,
    is a contradiction rather than a nicety. `pr-for-branch.sh` answers with a
-   row or with `[]`, measured both ways on this repository.
+   row or with `[]`, measured both ways on this repository — **one row at
+   most, the newest in this repository**, which is what makes reading "a row
+   with state MERGED" safe on a branch name that has been used twice (#24).
 
    **It is not filtered to merged, and the read above must do that itself.**
    The call it replaced was `gh pr list --state merged --head <branch>`, where
@@ -580,7 +595,7 @@ same argument as never calling a branch clean because asking failed.
    second time:
 
    ```bash
-   git worktree remove ../<checkout-name>-<slug>
+   bash .claude/scripts/git-worktree-remove.sh ../<checkout-name>-<slug> <branch>
    ```
 
    **One definition, read at both sites, and it is the predicate above rather
@@ -608,37 +623,40 @@ same argument as never calling a branch clean because asking failed.
    > An **allow** rule cannot exclude
    > a *trailing* flag — the argument the push rules already make, and true of
    > the allow side only: a deny takes `*` at any position, which is how
-   > `--output` was closed. Both grants below are allows, so —
-   > `Bash(git worktree remove:*)` admits the `-f` this file forbids, and
-   > `Bash(gh pr merge --merge:*)` admits a trailing `--admin`, which merges
-   > past the failing checks step 7 treats as a hard stop. Pinning `--merge` at
-   > the front does close the *method* — `gh` refuses two of `--merge`,
-   > `--squash` and `--rebase` together — so that half is real; the bypass half
-   > is not.
+   > `--output` was closed. Three grants here were allows, so —
+   > `Bash(git worktree remove:*)` admitted the `-f` this file forbids,
+   > `Bash(gh pr merge --merge:*)` admitted a trailing `--admin`, which merges
+   > past the failing checks step 7 treats as a hard stop, and
+   > `Bash(gh pr create:*)` admitted a `--repo`, `--head`, `--base` and
+   > `--body-file` that are not the ones this command derived. Pinning
+   > `--merge` at the front did close the *method* — `gh` refuses two of
+   > `--merge`, `--squash` and `--rebase` together — so that half was real; the
+   > bypass half was not.
    >
    > Every comparable case in this repository is fixed by a helper that spells
-   > its own flags, and the two that exist (`git-worktree-detach.sh`,
+   > its own flags, and the two that existed (`git-worktree-detach.sh`,
    > `git-worktree-drop.sh`) bind the path to `secsweep-` plus six characters
    > directly under the temp root, and therefore refuse a PR worktree by
    > design — the detach helper by *creating* the only path it hands to git,
-   > which is stronger than checking one a caller supplied. Two more
-   > are owed here; until someone with the `Edit(.claude/scripts/**)` deny
-   > lifted writes them, both rules are carried by this file, like the `[`
-   > placement rule in `docs/style-guide.md`.
+   > which is stronger than checking one a caller supplied.
    >
-   > **The deny is why they cannot simply be written now, and it is the same
-   > control that makes a helper worth having.** A session that could add
+   > **The three that were owed exist now, and the raw grants are withdrawn
+   > (#16).** `gh-pr-merge.sh`, `gh-pr-create.sh` and `git-worktree-remove.sh`
+   > each fix their repository and their method, and the merge helper takes
+   > `--match-head-commit` as a required ARGUMENT rather than trusting the
+   > paragraph below to supply it — this file calls that flag the only guard in
+   > step 7 that fails closed, and then relied on prose to make it present.
+   >
+   > **Why they could not simply be written by a session, which is also why
+   > they mean something now.** A session that could add
    > `.claude/scripts/gh-pr-merge.sh` could also edit the one it is about to
    > invoke, which would make every fixed endpoint in this chain a fiction. So
-   > the debt is real and it is the repo owner's to pay, deliberately.
-   >
-   > **What stands in the meantime is visibility, not prevention, and calling
-   > it anything else would be the overclaim.** Step 7 reports the **literal**
-   > `gh pr merge` and `git worktree remove` invocations it ran, flags
-   > included. That is the same substitute this chain already accepts for the
-   > human gate it removed — a decision taken here is written where the person
-   > who would have been asked can find it — applied to the two commands that
-   > can bypass a gate rather than merely take a judgement.
+   > they arrived as a human's change to a reviewed file, with the deny lifted
+   > for the purpose and the raw grants withdrawn in the same change. What used
+   > to stand here — visibility rather than prevention, step 7 reporting the
+   > literal invocation it ran — is still done, and is now a report about a
+   > command that could not have carried the flag rather than a substitute for
+   > refusing it.
 
    Deleting the merged **branch** is not part of this. `git branch -d` is
    denied in `.claude/settings.json`, deliberately, and a merged branch costs
@@ -737,7 +755,13 @@ same argument as never calling a branch clean because asking failed.
    is that decision already made: pushes that close review findings update
    the PR without asking again.
 
-5. **The review loop.** Once the PR is open, alternate the two halves of the
+5. **The review loop.** Grok is disabled: report that half as skipped and move
+   directly to step 6. `grok-review.sh` exits before any credential or network
+   operation, and `.claude/settings.json` denies invoking it. Re-enable it only
+   after its launcher is installed outside the branch it reviews.
+
+   The retained design below documents the loop to restore once a trusted
+   launcher exists. Once the PR is open, alternate the two halves of the
    external review until it has nothing left to say.
 
    **First, once, synchronise the branch with its remote**, because both
@@ -962,9 +986,11 @@ same argument as never calling a branch clean because asking failed.
      failed round as a skip could hand spent budget back. **A stated bound that
      any ordering mistake lifts is not a bound.** Invocation and accounting are
      one operation now: the helper posts the reservation itself, and
-     `.claude/settings.json` denies the `reserve` and `release` spellings to
-     this session, leaving `count`, `status` and `converge` as the only ledger
-     verbs you invoke.
+     `.claude/settings.json` denies the `reserve`, `complete`, `converge` and
+     `release` spellings to this session, leaving only `count` and `status` as
+     ledger reads you invoke. After it has proved the reviewer ran and imported
+     its findings, `grok-review.sh` records `clean` or `findings` and evaluates
+     convergence itself; a caller cannot write either a result or a marker.
 
      A reservation is an election, not just a write: two resumed runs can read
      the same count and claim the same slot, so the ledger settles it after
@@ -1022,11 +1048,10 @@ same argument as never calling a branch clean because asking failed.
      edit-denied to the session that invokes it. Keep the running count in
      the report as well — the report line is for the reader, the ledger is
      for the machine — and when the last slot is spent, stop and say the PR
-     reached its Grok ceiling. When the loop ends clean instead, say so on
-     the ledger — `grok-ledger.sh <n> converge <N>` — because a resumed run
-     reading bare spend at the ceiling cannot tell convergence from
-     exhaustion, and the difference is whether it reports the Grok half
-     finished or blocked.
+     reached its Grok ceiling. When the second clean review ends, the review
+     helper records the converged marker itself, because a resumed run reading
+     bare spend at the ceiling cannot tell convergence from exhaustion, and the
+     difference is whether it reports the Grok half finished or blocked.
 
      The ceiling — then one number shared by both loops, where the two now
      differ — was three, and three was wrong. By its seventh Copilot round
@@ -1153,9 +1178,11 @@ same argument as never calling a branch clean because asking failed.
       `.claude/settings.json` denies `Edit(.claude/scripts/**)`, so a
       granted name means the helper as reviewed, and widening one is a
       human's edit to a reviewed file, made with the deny lifted. (The deny
-      is defence in depth, like the push rules: `Bash` redirection can still
-      write a file, and no prefix list enumerates every spelling of write.
-      What it removes is the quiet path — the session's own editing tools.)
+      is defence in depth, like the push rules: no prefix list enumerates
+      every spelling of write, and an interpreter reached through a granted
+      command is still unjudged. What it removes is the quiet path — the
+      session's own editing tools. The redirection spelling it used to name
+      here is refused by `guard-git-argv.py` since #20.)
 
       (For the curious: the request target accepts both `Copilot` and
       `copilot-pull-request-reviewer[bot]`; the finished review's *author*
@@ -1408,10 +1435,11 @@ same argument as never calling a branch clean because asking failed.
    only thing that would resolve it.
 
    **Non-empty is not a stop, because there is an obvious right answer.** The
-   run goes back: commit — **scoped**, always — push, and re-enter both review
-   loops for whatever each has left of its own ceiling — `CEILING` for Grok,
-   step 6's own for Copilot — then return to the **top of
-   this step**, not to this gate. The top is where `suggestions.md` is
+   run goes back: commit — **scoped**, always — push, and re-enter the review
+   loops for whatever each has left of its own ceiling — step 6's own for
+   Copilot; step 5 is reported skipped again while Grok is disabled, and
+   `CEILING` applies to it only once it is restored — then return to the
+   **top of this step**, not to this gate. The top is where `suggestions.md` is
    removed, and re-entering the Grok loop is exactly what puts it back. That
    is what a resumed `/ship` would do from the *on a branch with an open PR*
    row, so doing it here costs nothing new and terminates for the same
@@ -1478,14 +1506,16 @@ same argument as never calling a branch clean because asking failed.
    entry in `git log --merges` reads `Merge pull request #n from …`:
 
    ```bash
-   gh pr merge --merge <n> --match-head-commit <oid>
+   bash .claude/scripts/gh-pr-merge.sh <n> <oid>
    ```
 
-   **Never `--admin`.** The grant admits it, for the reason step 0's callout
-   argues at length, and it is the one flag that turns the check gate above
-   into a formality — a PR merged past failing checks by a chain whose report
-   says the checks gated it. The invocation goes into the report verbatim so
-   that claim is checkable rather than trusted.
+   **Never `--admin`, and the helper is why that is now a fact rather than an
+   instruction (#16).** The old grant admitted it — for the reason step 0's
+   callout argues at length — and it is the one flag that turns the check gate
+   above into a formality: a PR merged past failing checks by a chain whose
+   report says the checks gated it. `gh-pr-merge.sh` spells its own flags and
+   takes two positional arguments, so there is no trailing position to put it
+   in. The invocation still goes into the report verbatim.
 
    **`--match-head-commit` is what binds the merge to the head whose checks
    were read.** Without it the green verdict and the merge are two reads of a
@@ -1510,12 +1540,11 @@ same argument as never calling a branch clean because asking failed.
    *for* — and the two waits differ only in whether they run before or after
    the gate that produced it.
 
-   **The flag comes before the number, and that is about the grant rather than
-   about `gh`.** The frontmatter permits `Bash(gh pr merge --merge:*)`, and a
-   permission rule is a prefix match — `gh pr merge <n> --merge` does not start
-   with it and is simply denied. `gh` itself accepts either order (cobra
-   intersperses flags and positionals, checked rather than assumed), so writing
-   it flag-first costs nothing and keeps the narrow grant usable.
+   **The flag order stopped being a rule for the caller when the helper took
+   it over.** This paragraph used to say the `--merge` had to come before the
+   number, because `Bash(gh pr merge --merge:*)` is a prefix match and
+   `gh pr merge <n> --merge` does not start with it. That grant is gone; the
+   helper spells the flags and the caller passes the number and the oid.
 
    `--squash` and `--rebase` are not alternatives to choose between here. The
    commits are the argument — `/commit` splits them so a reviewer can accept
@@ -1544,7 +1573,7 @@ same argument as never calling a branch clean because asking failed.
    bash .claude/scripts/git-switch-existing.sh main     # 3. in-place runs only
    git pull --ff-only                                   # 4. main, now containing the merge
    git merge-base --is-ancestor <merge-oid> HEAD        # 5. and it really does contain it
-   git worktree remove ../<checkout-name>-<slug>        # 6. forked runs only
+   bash .claude/scripts/git-worktree-remove.sh ../<checkout-name>-<slug> <branch>  # 6. forked only
    git worktree prune                                   # 7.
    ```
 
@@ -1620,9 +1649,10 @@ took decisions and lists none of them has not reported — it has hidden. A run
 that took none says so in one line.
 
 **Then the merge and the workspace.** Whether the PR merged and its merge oid,
-the literal `gh pr merge` and `git worktree remove` lines that ran, flags and
-all, because those two grants admit a flag this file forbids and a report is
-the only place the forbidding is checkable;
+the literal `gh-pr-merge.sh` and `git-worktree-remove.sh` lines that ran,
+arguments and all — those two used to be raw grants admitting a flag this file
+forbids, and the report was the only place the forbidding was checkable; the
+helpers now refuse it, and the report says which arguments they were given;
 or which of the two gates stopped it; that `main` was pulled, the HEAD it is
 now at, and that that HEAD contains the merge oid — containment rather than
 equality, because a PR merging in between leaves `main` at a later descendant

@@ -52,11 +52,11 @@ reach that interpreter is a local choice: `py -3.12` works on Windows and
 exists nowhere else, `python` or `python3` elsewhere. **CI does not make that
 choice** — `actions/setup-python` puts 3.12 on PATH and the `harness` job runs
 `python -m unittest` on all three runners, Windows included, so a developer
-reproducing CI runs `python` whatever their platform. The hooks are a separate
-question with a worse answer: they are wired to `py` in
-`.claude/settings.json` and therefore Windows-only until #23 is done. Its
-`setUpModule` fails rather than skips when one is missing** — a skip on a
-missing tool reports a pass, which is the fail-open it exists to refuse. The
+reproducing CI runs `python` whatever their platform. The hooks use
+`.claude/hooks/run-guard.sh` to select a compatible launcher. **The harness
+suite's `setUpModule` fails rather than skips when a tool is missing** — a
+skip on a missing tool reports a pass, which is the fail-open it exists to
+refuse. The
 shell helpers are written for **bash 3.2**, which is what macOS ships as
 `/bin/bash`; `.claude/scripts/grok-ledger.sh` used an associative array until
 CI's three-OS matrix went red on macOS with `declare: -A: invalid option`.

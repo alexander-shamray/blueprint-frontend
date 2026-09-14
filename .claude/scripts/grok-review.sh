@@ -90,6 +90,13 @@ case "$mode" in
   *) echo "mode must be full or recheck: $mode" >&2; exit 2 ;;
 esac
 
+# Disabled until the launcher lives outside the branch it reviews. A branch
+# controls this repository's scripts, so no code here can establish the trust
+# needed before receiving XAI_API_KEY or the OAuth fallback. Keep this before
+# every credential, Docker, ledger and network operation.
+echo "Grok review is disabled until a trusted out-of-repository launcher is installed" >&2
+exit 19
+
 # Two patterns, declared together and away from the code that applies them, so
 # the suite beside this file has ONE subject to read. That is the SOURCE_INPUTS
 # discipline the deploy/** gates arrived at: a value a test asserts about has to
@@ -159,6 +166,15 @@ limit_re='rate.?limit|quota|usage limit|usage balance|balance exhausted|too many
 # grok 1.0.5's `--output-format json` and its own headless-mode documentation.
 stop_ok=end_turn
 
+# The evidence a review actually happened, written by `/review-branch` as its
+# final act and validated below before a missing suggestions.md is read as a
+# clean pass (#18). Spelled once, here, because the command that writes it and
+# the check that reads it must not drift apart — `review-branch.md` names the
+# same string and `test_grok_helpers.py` asserts the two agree. Gitignored, so
+# a standalone `/review-branch` run does not dirty the tree the dirty-tree
+# check above refuses.
+sentinel=.grok-review-ran
+
 # Docker on Windows wants a Windows path in --volume; elsewhere the path is
 # already right. cygpath exists only under MSYS/Git Bash, which is the tell.
 host_path() {
@@ -213,6 +229,26 @@ pr=$(gh pr list --head "$branch" --state open --json number,headRepository \
 status=$(git status --porcelain)
 [ -z "$(grep -v '^?? suggestions.md$' <<<"$status" || true)" ] ||
   { echo "tree has uncommitted changes; commit before the review, or the reviewer reads a state the PR does not carry" >&2; exit 3; }
+# **The allow-list is right about the untracked file and blind to a tracked one
+# (#18).** `?? suggestions.md` is the untracked scratch file this exception is
+# for. A clean TRACKED `suggestions.md` does not appear in `git status` at all,
+# so a branch that commits one passes here, the clone carries it, and the import
+# path's `rm -f suggestions.md` then deletes a file belonging to the branch.
+# Asked of the index rather than of the status, because the status is exactly
+# where a clean tracked file is invisible.
+! git ls-files --error-unmatch suggestions.md >/dev/null 2>&1 ||
+  { echo "suggestions.md is tracked on this branch; the review owns that path and would delete it. Remove it from the branch, or rename the branch's file" >&2; exit 3; }
+# **And the sentinel, for a sharper reason: gitignored is not untrackable.**
+# `git add -f .grok-review-ran` puts it in the branch, `git clone` carries it,
+# and the reviewer's evidence-of-execution check below then finds a regular
+# file that was there before the reviewer started — so an immediate `end_turn`
+# passes and the round is counted clean again, which is the exact fail-open the
+# sentinel exists to close. Raised by Copilot against the commit that added it.
+#
+# Refused rather than deleted from the clone: a branch that commits this file
+# is either confused or hostile, and both are worth stopping on.
+! git ls-files --error-unmatch "$sentinel" >/dev/null 2>&1 ||
+  { echo "$sentinel is tracked on this branch; it is the reviewer's proof that it ran, so a committed copy would make an empty review read as a clean one" >&2; exit 3; }
 # The daemon, not just the CLI. `command -v docker` passes on a machine whose
 # Docker Desktop is installed and stopped — which is the common case, not an
 # exotic one — and the build then fails with Docker's own generic status
@@ -226,7 +262,44 @@ docker info >/dev/null 2>&1 ||
 command -v jq >/dev/null 2>&1 ||
   { echo "jq is required: the reviewer's verdict is JSON and its root stopReason must be parsed rather than matched" >&2; exit 14; }
 
-sandbox=$(cd "$(dirname "${BASH_SOURCE[0]}")/../sandbox" && pwd)
+# **The reviewer's image was built from the branch it is about to review
+# (#15).** The build context used to be `$(dirname "$BASH_SOURCE")/../sandbox`
+# — this checkout's own `.claude/sandbox` — and during `/ship` this checkout is
+# ON the branch under review. So a branch that edited `Dockerfile` or
+# `egress-proxy.py` decided what the image does, and the image is then handed,
+# at `docker run`, either `XAI_API_KEY` or writable copies of
+# `~/.grok/auth.json`, `agent_id` and `config.toml`, where `auth.json` carries
+# a refresh-token-bearing OAuth session. A `RUN` step executes at build time
+# with the network; `ENTRYPOINT` and `USER` decide what runs with those
+# credentials mounted; and `egress-proxy.py` is the whole of the egress
+# allow-list, so editing it removes the boundary `docs/harness-boundaries.md`
+# advertises.
+#
+# **What already stood was not enough, and the shape of the gap is worth
+# keeping.** The image is bound by digest rather than by tag, so what was built
+# is what runs — but that rules out a concurrent build swapping the tag, not
+# this branch's own content. `.claude/**` is denied to `/review-grok` and to
+# `/review-branch`, so an agent cannot write these files; a branch ARRIVING
+# with them already written is the case, and that is exactly what an external
+# review is for.
+#
+# So the context is materialised from `origin/main` rather than read from the
+# working tree. `git archive` is used rather than a per-file `git show` so that
+# the trusted revision decides which files the context holds — a list spelled
+# here would omit the next file somebody adds to the image.
+trusted=refs/remotes/origin/main
+git rev-parse --verify --quiet "$trusted" >/dev/null ||
+  { echo "no $trusted: the reviewer's image is built from the trusted revision rather than from the branch under review (#15); fetch first" >&2; exit 15; }
+# And a branch that CHANGES the sandbox stops the run rather than being built
+# from a revision that does not carry its change. Silently reviewing under the
+# old image would make this check a thing that quietly does the wrong thing;
+# the answer is a human reading that diff and merging it, which is the half of
+# the fix a script cannot perform.
+if ! git diff --quiet "$trusted" "$branch" -- .claude/sandbox; then
+  echo "$branch changes .claude/sandbox — the reviewer's own image and its egress allow-list (#15)." >&2
+  echo "That is a build input to the security boundary, so it is reviewed and merged by a human before any review runs over this branch." >&2
+  exit 15
+fi
 work=$(mktemp -d "${TMPDIR:-/tmp}/grok-review-XXXXXX")
 result=$(mktemp "${TMPDIR:-/tmp}/grok-review-result-XXXXXX")
 auth=$(mktemp -d "${TMPDIR:-/tmp}/grok-review-auth-XXXXXX")
@@ -244,6 +317,17 @@ cleanup() {
 }
 trap cleanup EXIT
 chmod 700 "$auth"
+
+# The build context, written out of the trusted revision. `--strip-components`
+# lands the sandbox's own files at the context root, which is where the
+# `Dockerfile` expects its siblings — the context was that directory before.
+# Under `$work` so that `cleanup` already removes it.
+sandbox="$work/sandbox"
+mkdir -p "$sandbox"
+git archive --format=tar "$trusted" .claude/sandbox |
+  tar -x -C "$sandbox" --strip-components=2
+[ -f "$sandbox/Dockerfile" ] ||
+  { echo "$trusted carries no .claude/sandbox/Dockerfile to build the reviewer from (#15)" >&2; exit 15; }
 
 # A clone, not a worktree. A worktree's .git is a file pointing back into this
 # checkout, and that path is precisely what the container must not mount — git
@@ -476,13 +560,32 @@ if [ "$probe_rc" -ne 0 ] && [ -n "${XAI_API_KEY:-}" ] &&
   grep -ioE "$limit_re" <<<"$key_probe" | head -1 >&2
   exit 12
 fi
+# **A preflight that failed for any other reason is an authentication failure,
+# and it used to fall through and reserve a slot (#17).** File presence is what
+# selects the OAuth path, and a session that is expired, revoked or corrupt
+# passes that test and fails this probe with an auth-shaped answer. Neither
+# limit branch above matches it, so `probe_rc` stayed non-zero, the script
+# reserved a check and the review then died — spending a slot on a run that
+# could not start, which contradicts the ordering the next comment states as
+# the accounting rule.
+#
+# Distinct from 12 on purpose: a skip does not stop `/ship`'s loop and this
+# must, because every subsequent round would spend a slot the same way. The
+# probe's output is not echoed — it is the reviewer's, and #52 is why the
+# reviewer's text does not cross back to the caller.
+if [ "$probe_rc" -ne 0 ]; then
+  echo "the reviewer's preflight failed for a reason that is not a usage limit — the selected credential is expired, revoked or corrupt; refusing before a check is reserved" >&2
+  exit 16
+fi
 
 # The reservation, and its POSITION is the accounting rule rather than an
 # implementation detail: **every path that can refuse before this line spends
 # nothing** — a dirty tree, no daemon, a missing credential, a bad
-# suggestions.md shape, and all three of the usage-limit skips above. That is
-# why exit 12 has no release to post and why the release verb has no caller left
-# in this repository.
+# suggestions.md shape, a branch that changes the reviewer's own sandbox, all
+# three of the usage-limit skips above, and a preflight that failed for any
+# other reason. That last one is the newest and it was the exception: it fell
+# through to this line and reserved (#17). That is why exit 12 has no release to
+# post and why the release verb has no caller left in this repository.
 #
 # Stated as an ordering rather than as "spent if and only if the model call was
 # launched", which is what this comment used to say and is not true of the
@@ -594,6 +697,34 @@ fi
 # The findings still cross, deliberately and by ONE route: suggestions.md,
 # imported below under the shape guards. One reviewer-controlled artefact, named
 # and checked, beats the same text arriving twice with only one arrival guarded.
+# **A clean `end_turn` is not evidence the reviewer ran (#18).** It proves the
+# model emitted a completed response and nothing more: it does not prove the
+# model invoked `/review-branch`, opened the clone, or read one line of the
+# diff. A model that ends its turn without a tool call leaves no
+# suggestions.md — and every check above passes, so the round was reported as
+# a clean pass. A round that did not happen, counted as one that found
+# nothing, which is the fail-open shape this file refuses everywhere else.
+#
+# So the reviewer is required to leave evidence it produced. `/review-branch`
+# writes the sentinel as its final act, this validates it, and only then is a
+# missing suggestions.md read as "nothing to report".
+#
+# **Judged as a shape, never read.** The file is reviewer-controlled and sits
+# on the container's side of the boundary, so a link planted there would be
+# dereferenced by a host process against host paths — the crossing this file
+# guards on every other artefact. Existence and regular-file-ness are the whole
+# of what is asked; its content decides nothing, so its content cannot steer
+# anything.
+ran="$work/repo/$sentinel"
+if [ -L "$ran" ] || [ ! -f "$ran" ]; then
+  # **Deliberately not the words the success line uses.** That line is "grok
+  # finished its turn", and `test_a_status_line_replaces_it_on_stderr` asserts
+  # exactly one line in this file says it — a helper that goes quiet on success
+  # is one nobody can tell from a helper that did not run, and two lines saying
+  # it would make the case that guards that unable to tell either.
+  echo "grok ended its turn without leaving $sentinel, so nothing shows that /review-branch ran; refusing to read a missing suggestions.md as a clean pass" >&2
+  exit 17
+fi
 echo "grok finished its turn (stopReason \"$stop\") — findings, if any, are in suggestions.md" >&2
 # Import the one artefact the review owns. Its absence is the clean verdict —
 # trustworthy only because the checks above have ruled out a cancelled run.
@@ -619,3 +750,19 @@ rm -f suggestions.md
 if [ -f "$out" ]; then
   cp -P "$out" suggestions.md
 fi
+
+# A resumed /ship reads only ledger state. Record this result after the
+# sentinel and import have made suggestions.md a meaningful verdict, then let
+# the helper that owns those facts decide whether two clean rounds converged.
+outcome=clean
+[ -f suggestions.md ] && outcome=findings
+ledger_rc=0
+bash "$ledger" "$pr" complete "$slot" "$outcome" >&2 || ledger_rc=$?
+[ "$ledger_rc" -eq 0 ] ||
+  { echo "could not record the $outcome result for check $slot/$ceiling on PR $pr (ledger exit $ledger_rc)" >&2; exit 18; }
+ledger_rc=0
+bash "$ledger" "$pr" converge "$slot" >&2 || ledger_rc=$?
+case "$ledger_rc" in
+  0|5) ;;
+  *) echo "could not evaluate convergence after check $slot/$ceiling on PR $pr (ledger exit $ledger_rc)" >&2; exit 18 ;;
+esac

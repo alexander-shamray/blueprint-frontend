@@ -39,6 +39,7 @@ import sys
 import tempfile
 import unicodedata
 import unittest
+from unittest import mock
 from pathlib import Path
 
 SCRIPTS = Path(__file__).resolve().parent
@@ -748,15 +749,271 @@ class TheOrdinaryWriteIsNotDisturbed(GuardCase):
 class WhatThisGuardIsNotTheSubjectOf(GuardCase):
     """The residuals, written as passing cases so nobody assumes they closed."""
 
-    def test_a_path_outside_every_checkout_is_not_judged(self):
-        # **Stated in the hook's docstring and pinned here.** The harness
-        # writes the session's own memory and scratchpad by absolute path
-        # outside the repository, and refusing those would take them with it.
-        # Nothing in the exposure this closes can spell one: a review row is
-        # one plain repository-relative path, and the adjudicator drops a row
-        # that is not. If this starts being refused, the docstring's residual
-        # paragraph is what needs rewriting.
+    def test_a_scratch_path_outside_every_checkout_is_admitted(self):
+        # **The reason the out-of-tree exception exists at all.** The harness
+        # writes the session's own scratchpad by absolute path outside the
+        # repository, and refusing that would take it with it. `self.outside`
+        # is a `mkdtemp`, so this is the scratch root rather than "anywhere",
+        # which is the distinction #21 turned on — and the case below is the
+        # other half, without which this one would pass against a guard that
+        # still admitted everything.
         self.assertAdmitted(os.path.join(self.outside, "loot.txt"))
+
+    def test_a_stale_temp_environment_variable_does_not_widen_the_scratch_root(
+            self):
+        module = self.guard_module()
+        home = os.path.expanduser("~")
+        with mock.patch.object(tempfile, "gettempdir",
+                               return_value=self.outside):
+            with mock.patch.dict(os.environ, {"TEMP": home}):
+                roots = module.scratch_roots()
+        self.assertIn((os.path.abspath(self.outside),
+                       os.path.realpath(self.outside)), roots)
+        self.assertNotIn((os.path.abspath(home), os.path.realpath(home)), roots)
+
+    def test_a_home_under_the_temp_root_keeps_its_control_surface(self):
+        # The first matching root answered, and the temp root came first — so a
+        # host with HOME at `/tmp/home` admitted `~/.claude/settings.json` as
+        # scratch. Raised by Copilot.
+        module = self.guard_module()
+        home = os.path.join(self.outside, "home")
+        target = os.path.join(home, ".claude", "settings.json")
+        with mock.patch.object(tempfile, "gettempdir",
+                               return_value=self.outside):
+            with mock.patch.dict(os.environ,
+                                 {"HOME": home, "USERPROFILE": home}):
+                reason = module.outside_offence(target, target, target)
+        self.assertIsNotNone(reason)
+        self.assertIn("control surface", reason)
+
+        # **And through a link under the temp root.** The spelling is not
+        # under HOME, so the state root never judged it and the temp root
+        # admitted it as scratch. Raised by Copilot. Judged on the pair the
+        # hook computes, which is what a link produces.
+        link = os.path.join(self.outside, "link-to-settings")
+        machinery = os.path.join(self.outside, "sweep", ".claude", "x.sh")
+        os.makedirs(os.path.join(self.outside, "sweep", ".git"))
+        with mock.patch.object(tempfile, "gettempdir",
+                               return_value=self.outside):
+            with mock.patch.dict(os.environ,
+                                 {"HOME": home, "USERPROFILE": home}):
+                via_link = module.outside_offence(link, link, target)
+                into_checkout = module.outside_offence(link, link, machinery)
+                scratch = module.outside_offence(
+                    link, link, os.path.join(self.outside, "notes.md"))
+        self.assertIsNotNone(via_link)
+        self.assertIn("control surface", via_link)
+        self.assertIsNotNone(into_checkout)
+        self.assertIsNone(scratch)
+
+        # **The rest of that home is not scratch either.** Under the temp
+        # root it was admitted whole, `~/.ssh` included. Raised by Copilot.
+        # `~/.claude` state stays admitted through its own root.
+        with mock.patch.object(tempfile, "gettempdir",
+                               return_value=self.outside):
+            with mock.patch.dict(os.environ,
+                                 {"HOME": home, "USERPROFILE": home}):
+                for parts in ((".ssh", "authorized_keys"), (".bashrc",)):
+                    path = os.path.join(home, *parts)
+                    with self.subTest(parts=parts):
+                        self.assertIsNotNone(
+                            module.outside_offence(path, path, path))
+                memory = os.path.join(home, ".claude", "projects", "p", "m.md")
+                self.assertIsNone(module.outside_offence(memory, memory, memory))
+
+    def test_a_sibling_worktree_of_this_repository_is_judged_not_refused(self):
+        """The false positive the allow-list introduced, found by walking into it.
+
+        `/branch` forks a sibling worktree and the session moves into it, so
+        `cwd` is an anchor and the ordinary path works. A session standing in
+        the PARENT and editing that sibling is the case that broke: the
+        worktree is a checkout, but not one of the three `anchors` knows, so
+        the target resolved outside every anchor and was refused — a real edit
+        refused for being in the wrong checkout rather than for landing
+        somewhere its path does not spell, which is not this guard's subject.
+
+        The repair is narrow on purpose. Admitting "any checkout" would hand
+        the session another repository's machinery with no rule able to name
+        it, because a permission rule's paths are relative to THIS project. So
+        the root must be a linked worktree of a repository an anchor stands in,
+        read from the `.git` file rather than by running git.
+        """
+        # Built by hand rather than by `git worktree add`, for the reason the
+        # fixture's own `.git` is a bare directory: this suite's checkout is a
+        # shape, not a repository. The shape is all the guard reads — a `.git`
+        # FILE naming a gitdir under the anchor's own `.git`.
+        worktree = os.path.join(self.outside, "linked-worktree")
+        os.makedirs(os.path.join(worktree, "docs"), exist_ok=True)
+        admin = os.path.join(self.root, ".git", "worktrees", "linked")
+        self.write(os.path.join(worktree, ".git"), "gitdir: " + admin + "\n")
+
+        # **A `.git` file alone is a claim** — without the backlink git keeps
+        # in the admin directory, an unregistered directory naming this
+        # repository's gitdir was taken for its worktree. Raised by Copilot.
+        # Asked of the predicate, because this fixture sits under the temp
+        # root, where the directory would be admitted as scratch regardless.
+        module = self.guard_module()
+        checkouts = [(self.root, os.path.realpath(self.root),
+                      module.traits_of(self.root))]
+        target = os.path.join(worktree, "docs", "note.md")
+        self.assertIsNone(module.linked_worktree(target, checkouts))
+        os.makedirs(admin, exist_ok=True)
+        self.write(os.path.join(admin, "gitdir"),
+                   os.path.join(self.outside, "not-this-worktree", ".git") + "\n")
+        self.assertIsNone(module.linked_worktree(target, checkouts))
+
+        self.write(os.path.join(admin, "gitdir"),
+                   os.path.join(worktree, ".git") + "\n")
+        self.assertIsNotNone(module.linked_worktree(target, checkouts))
+        self.assertAdmitted(target)
+
+        # **The same sibling's machinery and toolchain are refused**, because
+        # a session standing in the parent is reached by none of its rules
+        # there: under the new anchor these paths agree with themselves, so
+        # before this check each was admitted. Raised by Copilot, twice — once
+        # for `.claude/`, then for everything else the deny lists name.
+        for parts in (
+            (".claude", "scripts", "helper.sh"),
+            (".claude", "settings.json"),
+            (".git", "config"),
+            (".github", "workflows", "ci.yml"),
+            ("android", "app", "build.gradle"),
+            ("node_modules", ".bin", "ng"),
+            ("package.json",),
+            ("PACKAGE.JSON",),
+            ("AGENTS.md",),
+            ("eslint.config.js",),
+        ):
+            with self.subTest(parts=parts):
+                self.assertRefused(os.path.join(worktree, *parts))
+
+        # **And the over-refusal that preceded it.** The first sibling check
+        # read `commands`, `scripts` and `plugins` as control surfaces at any
+        # depth, which refused real application directories. Raised by
+        # Copilot.
+        for parts in (
+            ("src", "app", "core", "commands", "command-id.ts"),
+            ("src", "scripts", "note.ts"),
+            ("docs", "plugins.md"),
+        ):
+            with self.subTest(parts=parts):
+                self.assertAdmitted(os.path.join(worktree, *parts))
+
+        # **And the narrowness, which is the half that matters.** A checkout
+        # whose gitdir belongs to some other repository is still refused — a
+        # permission rule's paths are relative to THIS project, so nothing
+        # could name that tree's machinery.
+        stranger = os.path.join(self.outside, "stranger")
+        os.makedirs(os.path.join(stranger, ".claude"), exist_ok=True)
+        self.write(
+            os.path.join(stranger, ".git"),
+            "gitdir: " + os.path.join(self.outside, "elsewhere", ".git",
+                                      "worktrees", "x") + "\n")
+        self.assertRefused(os.path.join(stranger, ".claude", "settings.json"))
+
+        # A main checkout is not a linked worktree either: its `.git` is a
+        # directory, which is the cheap half of the test.
+        other = os.path.join(self.outside, "other-repo")
+        os.makedirs(os.path.join(other, ".git"), exist_ok=True)
+        os.makedirs(os.path.join(other, ".claude"), exist_ok=True)
+        self.assertRefused(os.path.join(other, ".claude", "settings.json"))
+
+    def test_the_harness_state_root_is_admitted(self):
+        # The second of the two roots the docstring names. Judged rather than
+        # written: a `Write` target need not exist, and this suite has no
+        # business creating files in the user's own `~/.claude`.
+        state = os.path.join(os.path.expanduser("~"), ".claude", "projects",
+                             "some-project", "memory", "note.md")
+        self.assertAdmitted(state)
+
+    def test_the_temp_root_is_admitted_whole(self):
+        # The control-surface names are `~/.claude`'s exclusion, and applying
+        # them under the temp root refused ordinary scratch folders named
+        # `scripts` or files named `settings.json`. Raised by Copilot.
+        temp = tempfile.gettempdir()
+        for parts in (("session", "scripts", "note.md"),
+                      ("session", "settings.json"),
+                      ("session", "commands", "x.txt")):
+            with self.subTest(parts=parts):
+                self.assertAdmitted(os.path.join(temp, *parts))
+        # And the exclusion still stands where it belongs.
+        self.assertRefused(
+            os.path.join(os.path.expanduser("~"), ".claude", "settings.json"))
+
+        # **Whole is not whole for a checkout's machinery.** The sweeps'
+        # detached worktrees live under the temp root, and admitting it
+        # outright made their `.claude/` writable; the application tree of
+        # the same checkout stays admitted.
+        checkout = os.path.join(self.outside, "sweep-checkout")
+        os.makedirs(os.path.join(checkout, ".git"))
+        for parts in ((".claude", "scripts", "helper.sh"),
+                      (".github", "workflows", "ci.yml"),
+                      ("package.json",)):
+            with self.subTest(parts=parts):
+                self.assertRefused(os.path.join(checkout, *parts))
+        self.assertAdmitted(os.path.join(checkout, "src", "app", "x.ts"))
+
+    def test_a_path_outside_every_checkout_and_every_scratch_root_is_refused(self):
+        # **The finding.** The fallback was argued as "refusing would break the
+        # harness's own state writes", which reads as though the alternative
+        # were refusing everything — and meanwhile `/review-branch` holds an
+        # unrestricted `Write`, consumes untrusted branch text, and `/ship`
+        # runs it unattended. A prompt-injected diff can name an absolute path.
+        #
+        # Spelled from the real home directory rather than a fixture, because
+        # the point is the paths an injected row would actually choose.
+        home = os.path.expanduser("~")
+        for target in (
+            os.path.join(home, ".ssh", "authorized_keys"),
+            os.path.join(home, ".bashrc"),
+            os.path.join(home, ".gitconfig"),
+            os.path.join(home, ".profile"),
+        ):
+            with self.subTest(target=target):
+                reason = self.assertRefused(target)
+                self.assertIn("outside every checkout", reason)
+
+    def test_the_harness_control_surface_is_refused_inside_its_own_root(self):
+        # `~/.claude` is admitted for STATE, and a credential or a settings
+        # file is not state — the same argument this repository already makes
+        # about its own `.claude/`, applied one level up where the grant is
+        # strictly wider: those settings and hooks apply to every project.
+        base = os.path.join(os.path.expanduser("~"), ".claude")
+        for target in (
+            os.path.join(base, ".credentials.json"),
+            os.path.join(base, "settings.json"),
+            os.path.join(base, "settings.local.json"),
+            os.path.join(base, "CLAUDE.md"),
+            os.path.join(base, "hooks", "anything.py"),
+            os.path.join(base, "commands", "anything.md"),
+            os.path.join(base, "agents", "anything.md"),
+            os.path.join(base, "plugins", "p", "skills", "s", "SKILL.md"),
+        ):
+            with self.subTest(target=target):
+                reason = self.assertRefused(target)
+                self.assertIn("control surface", reason)
+
+    def test_a_scratch_path_that_resolves_out_of_the_scratch_root_is_refused(self):
+        # The link traversal this whole file is about, arriving at the one
+        # place the anchors do not reach: a name under the admitted root whose
+        # target is not. Both the spelling and the resolution have to qualify,
+        # and this is the case that says so.
+        secret = os.path.join(self.outside, "beyond")
+        os.makedirs(secret, exist_ok=True)
+        for linker in linkers():
+            with self.subTest(link=linker):
+                target = os.path.join(os.path.expanduser("~"), ".ssh")
+                link = os.path.join(self.outside, f"escape-{linker}")
+                if os.path.exists(link):
+                    continue
+                try:
+                    if linker == "symlink":
+                        os.symlink(target, link, target_is_directory=True)
+                    else:
+                        JUNCTIONS(target, link)
+                except (OSError, NotImplementedError):
+                    continue
+                self.assertRefused(os.path.join(link, "authorized_keys"))
 
     def test_a_tool_that_does_not_write_is_not_judged(self):
         target = os.path.join(self.root, ".claude", "scripts", "helper.sh")
@@ -866,7 +1123,21 @@ class TheWiringWithoutWhichNoneOfTheAboveRuns(unittest.TestCase):
                 with self.subTest(matcher=matcher, alternative=alternative):
                     self.assertIn(alternative, tools)
 
-    def test_the_hook_runs_on_the_312_floor(self):
+    def test_the_hook_runs_through_the_portable_launcher(self):
+        """The 3.12 floor is still the floor; `py -3.12` is no longer the wiring.
+
+        **This case asserted `py -3.12` and #23 is what that cost.** `py` is the
+        Windows Python launcher and ships nowhere else, so on macOS or Linux the
+        hook command could not start and every `Edit`, `Write` and `Bash` call
+        failed before the guard ran. Two cases pinned the broken spelling — this
+        one and its twin in `test_grok_helpers.py` — and both passed on the only
+        platform where it worked.
+
+        `run-guard.sh` chooses the interpreter and keeps the floor: `py -3.12`
+        where `py` exists, `python3`, then `python`, where it does not. Asserted here as "goes
+        through the launcher" rather than as an interpreter name, because naming
+        one is the mistake this replaces.
+        """
         commands = [
             h.get("command") or ""
             for entry in self.registered() for h in (entry.get("hooks") or [])
@@ -875,8 +1146,13 @@ class TheWiringWithoutWhichNoneOfTheAboveRuns(unittest.TestCase):
         self.assertTrue(commands)
         for command in commands:
             with self.subTest(command=command):
-                self.assertIn("py -3.12", command)
+                self.assertIn("run-guard.sh", command)
                 self.assertIn("CLAUDE_PROJECT_DIR", command)
+                self.assertNotIn("py -3.12", command)
+        # The floor itself, read from the launcher rather than from the wiring.
+        launcher = (SCRIPTS.parent / "hooks" / "run-guard.sh").read_text(
+            encoding="utf-8")
+        self.assertIn("exec py -3.12", launcher)
 
     def test_the_argv_guard_is_still_registered_beside_it(self):
         # A second entry under the same event is the shape most likely to be

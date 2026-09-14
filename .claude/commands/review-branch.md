@@ -2,7 +2,7 @@
 description: Review branch vs main for contradictions; recheck suggestions.md when it already exists
 argument-hint: "[recheck | full | --local]"
 allowed-tools: Read, Grep, Glob, Write, Edit, Bash(git diff:*), Bash(git log:*), Bash(git status:*), Bash(git merge-base:*), Bash(git branch --list:*), Bash(git branch --show-current), Bash(git branch -a), Bash(bash .claude/scripts/npm-checks.sh:*), Bash(bash .claude/scripts/pr-for-branch.sh:*), Bash(bash .claude/scripts/pr-locality.sh:*), Bash(rm suggestions.md)
-disallowed-tools: Edit(.git/**), Edit(./.git/**), Edit(.git), Edit(./.git), Edit(.claude/**), Edit(./.claude/**), Edit(.remember/**), Edit(./.remember/**), Edit(.github/**), Edit(./.github/**), Edit(.vscode/**), Edit(./.vscode/**), Edit(android/**), Edit(./android/**), Edit(docs/**), Edit(./docs/**), Edit(e2e/**), Edit(./e2e/**), Edit(ios/**), Edit(./ios/**), Edit(public/**), Edit(./public/**), Edit(src/**), Edit(./src/**), Edit(.editorconfig), Edit(./.editorconfig), Edit(.gitattributes), Edit(./.gitattributes), Edit(.gitignore), Edit(./.gitignore), Edit(.nvmrc), Edit(./.nvmrc), Edit(.prettierrc), Edit(./.prettierrc), Edit(CLAUDE.md), Edit(./CLAUDE.md), Edit(README.md), Edit(./README.md), Edit(angular.json), Edit(./angular.json), Edit(capacitor.config.ts), Edit(./capacitor.config.ts), Edit(eslint.config.js), Edit(./eslint.config.js), Edit(ionic.config.json), Edit(./ionic.config.json), Edit(package-lock.json), Edit(./package-lock.json), Edit(package.json), Edit(./package.json), Edit(playwright.config.ts), Edit(./playwright.config.ts), Edit(tsconfig.app.json), Edit(./tsconfig.app.json), Edit(tsconfig.json), Edit(./tsconfig.json), Edit(tsconfig.spec.json), Edit(./tsconfig.spec.json), Edit(.npmrc), Edit(./.npmrc), Edit(npm-shrinkwrap.json), Edit(./npm-shrinkwrap.json), Edit(vitest.config.ts), Edit(./vitest.config.ts), Edit(vitest.config.js), Edit(./vitest.config.js), Edit(vitest.config.mts), Edit(./vitest.config.mts), Edit(vite.config.ts), Edit(./vite.config.ts), Edit(vite.config.js), Edit(./vite.config.js), Edit(vite.config.mts), Edit(./vite.config.mts), Edit(eslint.config.mjs), Edit(./eslint.config.mjs), Edit(eslint.config.cjs), Edit(./eslint.config.cjs), Edit(prettier.config.js), Edit(./prettier.config.js), Edit(prettier.config.cjs), Edit(./prettier.config.cjs), Edit(prettier.config.mjs), Edit(./prettier.config.mjs), Edit(.prettierrc.js), Edit(./.prettierrc.js), Edit(.prettierrc.cjs), Edit(./.prettierrc.cjs), Edit(.prettierrc.json), Edit(./.prettierrc.json), Edit(karma.conf.js), Edit(./karma.conf.js), Edit(jest.config.js), Edit(./jest.config.js), Edit(**/*.config.js), Edit(**/*.config.cjs), Edit(**/*.config.mjs), Edit(**/*.config.ts), Edit(**/*.config.mts), Edit(**/package.json), Edit(**/.npmrc), Edit(**/tsconfig*.json), Edit(**/.prettierrc*), Bash(git push:*), Edit(node_modules/**), Edit(./node_modules/**)
+disallowed-tools: Edit(.git/**), Edit(./.git/**), Edit(.git), Edit(./.git), Edit(.claude/**), Edit(./.claude/**), Edit(.remember/**), Edit(./.remember/**), Edit(.github/**), Edit(./.github/**), Edit(.vscode/**), Edit(./.vscode/**), Edit(android/**), Edit(./android/**), Edit(docs/**), Edit(./docs/**), Edit(e2e/**), Edit(./e2e/**), Edit(ios/**), Edit(./ios/**), Edit(public/**), Edit(./public/**), Edit(src/**), Edit(./src/**), Edit(.editorconfig), Edit(./.editorconfig), Edit(.gitattributes), Edit(./.gitattributes), Edit(.gitignore), Edit(./.gitignore), Edit(.nvmrc), Edit(./.nvmrc), Edit(.prettierrc), Edit(./.prettierrc), Edit(AGENTS.md), Edit(./AGENTS.md), Edit(CLAUDE.md), Edit(./CLAUDE.md), Edit(README.md), Edit(./README.md), Edit(angular.json), Edit(./angular.json), Edit(capacitor.config.ts), Edit(./capacitor.config.ts), Edit(eslint.config.js), Edit(./eslint.config.js), Edit(ionic.config.json), Edit(./ionic.config.json), Edit(package-lock.json), Edit(./package-lock.json), Edit(package.json), Edit(./package.json), Edit(playwright.config.ts), Edit(./playwright.config.ts), Edit(tsconfig.app.json), Edit(./tsconfig.app.json), Edit(tsconfig.json), Edit(./tsconfig.json), Edit(tsconfig.spec.json), Edit(./tsconfig.spec.json), Edit(.npmrc), Edit(./.npmrc), Edit(npm-shrinkwrap.json), Edit(./npm-shrinkwrap.json), Edit(vitest.config.ts), Edit(./vitest.config.ts), Edit(vitest.config.js), Edit(./vitest.config.js), Edit(vitest.config.mts), Edit(./vitest.config.mts), Edit(vite.config.ts), Edit(./vite.config.ts), Edit(vite.config.js), Edit(./vite.config.js), Edit(vite.config.mts), Edit(./vite.config.mts), Edit(eslint.config.mjs), Edit(./eslint.config.mjs), Edit(eslint.config.cjs), Edit(./eslint.config.cjs), Edit(prettier.config.js), Edit(./prettier.config.js), Edit(prettier.config.cjs), Edit(./prettier.config.cjs), Edit(prettier.config.mjs), Edit(./prettier.config.mjs), Edit(.prettierrc.js), Edit(./.prettierrc.js), Edit(.prettierrc.cjs), Edit(./.prettierrc.cjs), Edit(.prettierrc.json), Edit(./.prettierrc.json), Edit(karma.conf.js), Edit(./karma.conf.js), Edit(jest.config.js), Edit(./jest.config.js), Edit(**/*.config.js), Edit(**/*.config.cjs), Edit(**/*.config.mjs), Edit(**/*.config.ts), Edit(**/*.config.mts), Edit(**/package.json), Edit(**/.npmrc), Edit(**/tsconfig*.json), Edit(**/.prettierrc*), Bash(git push:*), Edit(node_modules/**), Edit(./node_modules/**)
 ---
 
 Review uncommitted or branch work for **contradictions and self-consistency
@@ -207,6 +207,21 @@ this branch did not touch, where the owner site is already correct.
    pass is clean; **replace** it when the new pass has findings.
 7. **`suggestions.md` is working state.** Never commit it. Do not add it to
    the index. Say so if the user is about to ship.
+8. **Write `.grok-review-ran` at the repo root, as the last thing you do** —
+   one line, any content. It is gitignored, so it dirties nothing.
+
+   **This is the evidence that the review happened, and it exists because a
+   finished turn is not that evidence (#18).** `grok-review.sh` reads an
+   absent `suggestions.md` as "nothing to report", and it could only tell that
+   apart from "the reviewer never looked" by the model's root `stopReason` —
+   which proves a completed response and not a single tool call. A model that
+   ended its turn without opening the clone left no `suggestions.md` and was
+   counted as a clean round. So the file's absence is now a refusal rather
+   than a pass, and writing it is the one step that cannot be skipped by a
+   review that decided there was nothing to say.
+
+   Its **content is never read** — only that it exists and is a regular file —
+   so nothing written here steers anything on the host.
 
 ---
 
@@ -302,14 +317,26 @@ it never sees a `Bash` call at all. Every `Edit(...)` rule in this file is
 therefore defence in depth against a model that reaches for the editing tools,
 not a bound on what this command can write.
 
-`/review-grok` is the one command that closes it, by denying `Bash` whole — its
-body argues exactly this case, from the round that measured it. The commands
-that cannot follow it are the ones whose helpers *are* their API. What stands
-for them is that every granted `Bash` entry names a fixed helper or a read-only
-git verb, so a redirect has to be appended by the model itself rather than
-supplied by anything it read. That is a weaker property and it is the true one.
-Closing it needs the argv guard to refuse a redirect whose target is a denied
-path, which is a change to the hook and is tracked separately.
+`/review-grok` was the one command that closed it, by denying `Bash` whole —
+its body argues exactly this case, from the round that measured it. The
+commands that cannot follow it are the ones whose helpers *are* their API. What
+stood for them was that every granted `Bash` entry names a fixed helper or a
+read-only git verb, so a redirect had to be appended by the model itself rather
+than supplied by anything it read: a weaker property, and the true one.
+
+**Closed now, in the place that sentence named (#20).** `guard-git-argv.py`
+already parsed redirections in order to strip them, so the targets were in hand
+and what was missing was a rule about them. A redirection that OPENS its target
+is refused when the path names the machinery trees or a toolchain root file;
+reading through `<` is untouched, since reading the machinery is what half this
+command does. The three measured above are refused, and the write no longer
+lands. So the `Edit(...)` rules in this file and the hook now bound the same
+surface from two sides, which is what the paragraph above said they did not.
+
+The residual that replaces it, because closing one is not closing the class: a
+redirection is not the only way a command writes — `tee`, `cp`, `sed -i` and an
+interpreter all do, and none is judged. What made the redirection worth closing
+first is that it rides on a command that is already approved.
 
 **`node_modules/` is denied too, and the sentence that used to stand here was
 wrong.** It is gitignored, so no enumeration built on `git ls-files` names it,

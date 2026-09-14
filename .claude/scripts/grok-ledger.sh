@@ -41,7 +41,8 @@
 # empty — which is exactly why the two cases had to be separated upstream of it
 # rather than told apart downstream.
 #
-# `reserve` and `release` are the REVIEW HELPER'S verbs, not the caller's.
+# `reserve`, `complete`, `converge` and `release` are the REVIEW HELPER'S
+# verbs, not the caller's.
 # grok-review.sh posts the reservation itself, immediately before the model call
 # it accounts for, so that invoking a review and spending a slot are one
 # operation rather than two an ordering mistake can separate. .claude/settings.json
@@ -105,6 +106,7 @@ LEDGER_READ_SLOTS='[1-9]|1[0-2]'
 usage() {
   echo "usage: grok-ledger.sh <pr-number> reserve <n> <full|recheck>" >&2
   echo "       grok-ledger.sh <pr-number> release <n>" >&2
+  echo "       grok-ledger.sh <pr-number> complete <n> <clean|findings>" >&2
   echo "       grok-ledger.sh <pr-number> converge <n>" >&2
   echo "       grok-ledger.sh <pr-number> count" >&2
   echo "       grok-ledger.sh <pr-number> status" >&2
@@ -153,7 +155,7 @@ ledger_rows() {
   seen=""
   gh api "repos/{owner}/{repo}/issues/$pr/comments" --paginate \
     --jq '.[]
-      | select(.body | test("^Grok check ('"$LEDGER_READ_SLOTS"')/('"$LEDGER_DENOMINATORS"') — (reserved \\((full|recheck)\\)|released: skipped on limits|converged: loop clean)$"))
+      | select(.body | test("^Grok check ('"$LEDGER_READ_SLOTS"')/('"$LEDGER_DENOMINATORS"') — (reserved \\((full|recheck)\\)|released: skipped on limits|completed: (clean|findings)|converged: loop clean)$"))
       | "\(.id)\t\(.user.login)\t\(.body)"' |
   while IFS=$'\t' read -r id login body; do
     record=$(printf '%s' "$seen" | grep -m1 -e "^${login}$(printf '\t')" || true)
@@ -247,10 +249,28 @@ if [ "$op" = "status" ]; then
   # a skip neither spends nor converges.
   read_rows ||
     { echo "the ledger's trust check failed; refusing to print a status" >&2; exit 3; }
+  # **Judged by SLOT, not by comment order.** `converge` validates the ledger
+  # and then posts, and another run can reserve slot n+1 in between — so the
+  # reservation lands above the marker in comment order, and "a later
+  # reservation supersedes it" read the marker as the last word while a newer
+  # review was active. A marker now stands only if no slot above it is
+  # reserved or completed, wherever that row sits in the thread. Raised by
+  # Copilot.
   emit_rows | awk -F'\t' '
-    $2 ~ /converged/ { conv = 1 }
-    $2 ~ /reserved/  { conv = 0 }
-    END { print conv ? "converged" : "unconverged" }'
+    {
+      split($2, a, "/")
+      sub(/^Grok check /, "", a[1])
+      slot = a[1] + 0
+    }
+    $2 ~ /converged/ { if (slot > conv) conv = slot; next }
+    $2 ~ /released/  { state[slot] = "released"; next }
+    { state[slot] = "active" }
+    END {
+      active = 0
+      for (i in state)
+        if (state[i] == "active" && i + 0 > active) active = i + 0
+      print (conv > 0 && conv >= active) ? "converged" : "unconverged"
+    }'
   exit 0
 fi
 
@@ -274,11 +294,86 @@ case "$op" in
     [ -z "$mode" ] || usage
     body="Grok check $n/$CEILING — released: skipped on limits"
     ;;
+  complete)
+    case "$mode" in
+      clean|findings) ;;
+      *) usage ;;
+    esac
+    # grok-review.sh reaches this only after its sentinel and findings import
+    # make the outcome meaningful. An absent, released or already completed
+    # slot cannot be turned into a review result after the fact.
+    read_rows ||
+      { echo "the ledger's trust check failed; refusing to record a review outcome" >&2; exit 3; }
+    state=$(emit_rows | awk -F'\t' -v wanted="$n" '
+      $2 ~ /converged/ { next }
+      {
+        split($2, a, "/")
+        sub(/^Grok check /, "", a[1])
+        if (a[1] + 0 == wanted) {
+          if ($2 ~ /reserved/) state = "reserved"
+          else if ($2 ~ /released/) state = "released"
+          else if ($2 ~ /completed: clean/) state = "clean"
+          else if ($2 ~ /completed: findings/) state = "findings"
+        }
+      }
+      END { print state }')
+    [ "$state" = reserved ] ||
+      { echo "refusing to record $mode for check $n on PR $pr: its current ledger state is ${state:-absent}, not reserved" >&2; exit 5; }
+    body="Grok check $n/$CEILING — completed: $mode"
+    ;;
   converge)
     # Spend alone cannot distinguish a loop that converged on its last
     # allowed check from one the ceiling cut off — both read as N spent.
     # The marker says which; any later reservation supersedes it.
     [ -z "$mode" ] || usage
+    # **The marker is trusted and nothing validated it (#18).** `status`
+    # reports `converged` and a resumed `/ship` reads that as "the loop is
+    # done, skip review" — so this verb could assert a convergence that never
+    # happened, on rounds that were never run, and only prose stood between
+    # the two. The comments a hundred lines up record the matching incident one
+    # operation over: a trusted `Grok check 9/6 — converged: loop clean` that
+    # `status` did not catch, and a resumed run that skipped review entirely.
+    #
+    # **Copilot proposed denying the verb, and that is the wrong fix** —
+    # `/ship` legitimately calls it, so the deny would stop the chain one step
+    # from the end. State validation is the right shape: the helper reads the
+    # ledger it is about to write and refuses unless the rounds it claims are
+    # already on it.
+    #
+    # Completed rows are written by grok-review.sh only after its sentinel and
+    # findings import have succeeded. Fold the latest event for every slot,
+    # then require the two highest active checks to be completed clean.
+    read_rows ||
+      { echo "the ledger's trust check failed; refusing to post a convergence marker" >&2; exit 3; }
+    outcomes=$(emit_rows | awk -F'\t' '
+      $2 ~ /converged/ { next }
+      {
+        split($2, a, "/")
+        sub(/^Grok check /, "", a[1])
+        if ($2 ~ /reserved/) state[a[1] + 0] = "reserved"
+        else if ($2 ~ /released/) state[a[1] + 0] = "released"
+        else if ($2 ~ /completed: clean/) state[a[1] + 0] = "clean"
+        else if ($2 ~ /completed: findings/) state[a[1] + 0] = "findings"
+      }
+      END {
+        high = 0; next_high = 0
+        for (i in state)
+          if (state[i] != "released") {
+            if (i + 0 > high) { next_high = high; high = i + 0 }
+            else if (i + 0 > next_high) next_high = i + 0
+          }
+        print high "\t" state[high] "\t" next_high "\t" state[next_high]
+      }')
+    highest="${outcomes%%$(printf '\t')*}"
+    remainder="${outcomes#*$(printf '\t')}"
+    latest="${remainder%%$(printf '\t')*}"
+    remainder="${remainder#*$(printf '\t')}"
+    previous="${remainder%%$(printf '\t')*}"
+    previous_state="${remainder##*$(printf '\t')}"
+    [ "$n" -eq "$highest" ] ||
+      { echo "refusing to converge at $n: the highest completed-or-reserved check on PR $pr is $highest" >&2; exit 5; }
+    [ "$latest" = clean ] && [ "$previous" -gt 0 ] && [ "$previous_state" = clean ] ||
+      { echo "refusing to converge at $n: the latest two active checks are not completed clean rounds" >&2; exit 5; }
     body="Grok check $n/$CEILING — converged: loop clean"
     ;;
   *) usage ;;

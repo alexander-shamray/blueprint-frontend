@@ -1,7 +1,7 @@
 ---
 description: Open a pull request with a body in the house form
 argument-hint: "[title — omit to derive it from the commits]"
-allowed-tools: Read, Grep, Glob, Write, Bash(git status:*), Bash(git log:*), Bash(git diff:*), Bash(git branch --list:*), Bash(git branch --show-current), Bash(git branch -a), Bash(git push -u origin:*), Bash(git push origin:*), Bash(gh pr create:*), Bash(bash .claude/scripts/pr-closure-input.sh:*), Bash(bash .claude/scripts/pr-for-branch.sh:*), Bash(bash .claude/scripts/npm-checks.sh:*)
+allowed-tools: Read, Grep, Glob, Write, Bash(git status:*), Bash(git log:*), Bash(git diff:*), Bash(git branch --list:*), Bash(git branch --show-current), Bash(git branch -a), Bash(git push -u origin:*), Bash(git push origin:*), Bash(bash .claude/scripts/gh-pr-create.sh), Bash(bash .claude/scripts/pr-closure-input.sh:*), Bash(bash .claude/scripts/pr-for-branch.sh:*), Bash(bash .claude/scripts/npm-checks.sh:*)
 disallowed-tools: Edit(.claude/**), Edit(./.claude/**), Edit(.github/**), Edit(./.github/**), Edit(.remember/**), Edit(./.remember/**), Edit(android/**), Edit(./android/**), Edit(ios/**), Edit(./ios/**), Edit(.git/**), Edit(./.git/**), Edit(package.json), Edit(./package.json), Edit(package-lock.json), Edit(./package-lock.json), Edit(npm-shrinkwrap.json), Edit(./npm-shrinkwrap.json), Edit(.npmrc), Edit(./.npmrc), Edit(angular.json), Edit(./angular.json), Edit(tsconfig.json), Edit(./tsconfig.json), Edit(tsconfig.app.json), Edit(./tsconfig.app.json), Edit(tsconfig.spec.json), Edit(./tsconfig.spec.json), Edit(eslint.config.js), Edit(./eslint.config.js), Edit(.prettierrc), Edit(./.prettierrc), Edit(capacitor.config.ts), Edit(./capacitor.config.ts), Edit(playwright.config.ts), Edit(./playwright.config.ts), Edit(ionic.config.json), Edit(./ionic.config.json), Edit(.nvmrc), Edit(./.nvmrc), Edit(.editorconfig), Edit(./.editorconfig), Edit(.gitattributes), Edit(./.gitattributes), Edit(.gitignore), Edit(./.gitignore), Edit(CLAUDE.md), Edit(./CLAUDE.md), Edit(README.md), Edit(./README.md), Edit(**/*.config.js), Edit(**/*.config.cjs), Edit(**/*.config.mjs), Edit(**/*.config.ts), Edit(**/*.config.mts), Edit(**/package.json), Edit(**/.npmrc), Edit(**/tsconfig*.json), Edit(**/.prettierrc*), Edit(node_modules/**), Edit(./node_modules/**)
 ---
 
@@ -162,18 +162,38 @@ owns the trigger contract.
 ## Before opening
 
 - `bash .claude/scripts/pr-for-branch.sh` — an OPEN row means you are
-  updating, not creating. Say so and stop.
+  updating, not creating. Say so and stop. It returns the newest row for this
+  repository and no other, so a branch name reused after a merge cannot show
+  the old `MERGED` row here and have this command open a duplicate (#24).
 - `bash .claude/scripts/npm-checks.sh all` — lint, tests and build, green
   before the PR opens, or said plainly in the body if not.
 
 ## Steps
 
-Write the body to a scratchpad file and pass it with `--body-file`; heredocs
-through `gh` mangle the wrapping. Then:
+Write the title with `Write` to `pr-title.txt` and the body to `pr-body.md`,
+both at the checkout root — the only two paths the helper reads — rather than
+through a heredoc, which mangles the wrapping. Then:
 
 ```bash
-gh pr create --base main --title "<title>" --body-file <path>
+bash .claude/scripts/gh-pr-create.sh
 ```
+
+**The title never appears on the command line.** It comes from `$1` or from
+commit text, and inside double quotes a title such as `fix: $(…)` runs the
+substitution in the calling shell before the helper can refuse anything. A
+file is the channel `gh-issue-filing.sh` already uses for untrusted titles,
+and it is why the helper takes no argument.
+
+**The helper rather than `gh pr create` since #16.** `Bash(gh pr create:*)` was
+a prefix grant, so a trailing `--repo`, `--head`, `--base` or `--body-file`
+chose a repository, a branch, a base and a body that were not the ones this
+command derived. All four are fixed in the helper now: the repository and the
+branch come from the checkout, the base is the literal `main`, and the body
+file is the caller-created `pr-body.md` at the checkout root — `--body-file`
+publishes whatever it reads, including a file the session's own `Read` is
+bounded away from. Both files are gitignored, a tracked one is refused as the
+branch's text rather than this run's, and the helper removes both once the PR
+is open, so a successful run leaves nothing for `/ship`'s clean-tree gate.
 
 ## Report
 

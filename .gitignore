@@ -52,3 +52,13 @@ Thumbs.db
 
 # Python — the hooks and their suite under .claude/ are scripts, not a package.
 __pycache__/
+
+# /review-branch's proof that it ran, which grok-review.sh requires before it
+# reads a missing suggestions.md as a clean pass. Ignored so that a standalone
+# review does not dirty the tree the same helper refuses to review over.
+/.grok-review-ran
+
+# /pr's description, written at the checkout root because gh-pr-create.sh
+# publishes no other path, and removed by that helper once the PR is open.
+/pr-body.md
+/pr-title.txt

@@ -26,6 +26,40 @@ pr="${1:?usage: pr-issue-comments.sh <pr-number>}"
 # run, where the same call inline would reach jq as an empty --argjson and
 # report a parse error instead of the missing owner.
 admitted=$(copilot_admitted_json)
-gh pr view "$pr" --json comments |
-  jq '.comments // []' |
+# **`gh pr view --json comments` is a GraphQL connection with no cursor path
+# (#22).** It returns a first page and reports it as the whole feed, so later
+# comments were hidden BEFORE `copilot_partition` saw them — and the helper
+# then printed an admitted/dropped count that reads as a complete filter over
+# an incomplete feed. `/review-copilot` reports those counts as the evidence
+# its filter ran, so the number would be true of the page rather than of the
+# pull request, and a suppressed finding on a long PR could be missed with
+# nothing indicating it.
+#
+# So the query is spelled here and cursor-paginated. `--paginate` requires the
+# variable to be named `$endCursor` and the connection to return `pageInfo`;
+# `--slurp` wraps the pages in an array, which is the shape
+# `copilot-request-count.sh` already argues for — "with --paginate, a per-page
+# --jq emits one number per page, and a busy PR would hand the loop several
+# where it expects one." The field set stays fixed, which is what this helper
+# is for.
+owner=$(gh repo view --json owner --jq .owner.login)
+repo=$(gh repo view --json name --jq .name)
+#
+# Fetched whole before anything is filtered, for the reason
+# `pr-review-bodies.sh` gives: a failed fetch piped into the partition printed
+# an empty feed's count line.
+feed=$(gh api graphql --paginate --slurp -f query='
+  query($owner:String!,$repo:String!,$pr:Int!,$endCursor:String){
+    repository(owner:$owner,name:$repo){
+      pullRequest(number:$pr){
+        comments(first:100, after:$endCursor){
+          pageInfo{ hasNextPage endCursor }
+          nodes{ author{ login } body url createdAt }
+        }
+      }
+    }
+  }' -F owner="$owner" -F repo="$repo" -F pr="$pr") ||
+  { echo "the issue comment feed could not be fetched; printing nothing rather than an empty one" >&2
+    exit 3; }
+jq '[ .[].data.repository.pullRequest.comments.nodes[] ]' <<<"$feed" |
   copilot_partition "$admitted" '.author.login' '.url' 'issue comments'

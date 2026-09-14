@@ -168,7 +168,7 @@ These stay here because they have to be true before anyone opens the guide:
 
 | | |
 |---|---|
-| `/ship` | Clean `main` → `/branch` → checks → `/commit` → `/pr` → both review loops → merge → teardown. **It stops for nothing that is a judgement** |
+| `/ship` | Clean `main` → `/branch` → checks → `/commit` → `/pr` → the Copilot review loop (Grok is disabled) → merge → teardown. **It stops for nothing that is a judgement** |
 | `/branch` | A correctly named branch **in a sibling worktree** the session moves into; in place when the tree is dirty or the parent is not writable |
 | `/commit` | Split the working tree into semantic commits with arguing bodies |
 | `/pr` | Open a PR in the house body form |
@@ -192,11 +192,8 @@ rather than here. Three rules reach every session, so they stay:
 - **`.claude/settings.json` self-locks, not instantaneously** — a change to it
   lands complete and goes last, and a restore is verified by reading the file,
   never by trying what it forbids.
-- **The two hooks are wired as `py -3.12`, which is Windows-only** — a
-  standard 3.12 on macOS or Linux has `python3` and no `py`, so every
-  `PreToolUse` call fails there before the guard runs. Loud and total rather
-  than silent, but not portable; `docs/harness-boundaries.md` argues it and
-  #23 tracks the fix.
+- **The two hooks use `run-guard.sh`**, which locates a compatible Python
+  launcher before invoking the guard.
 - **`python -m unittest discover -s .claude/scripts -p 'test_*.py'` is the
   harness's own suite** — it covers the deny lists, the frontmatter grants,
   the helper shapes and the hooks. It reads `git ls-files`, so a new tracked
@@ -205,7 +202,8 @@ rather than here. Three rules reach every session, so they stay:
   3.12 will do — `py -3.12` on Windows, `python` elsewhere — and CI's
   `harness` job runs `python` on all three platforms, Windows included, so
   that is the spelling to use when reproducing it. `docs/testing.md` owns the
-  prerequisite; the hooks' `py` wiring above is a different question.
+  prerequisite; which interpreter the hooks' launcher picks is a different
+  question.
 
 ### What was not ported, and is therefore missing
 

@@ -35,6 +35,32 @@ commit="$1"
 git rev-parse --verify --quiet "$commit^{commit}" >/dev/null ||
   { echo "no such commit: $commit" >&2; exit 3; }
 
+# **The sweeps' `$work` containment is a rule about the SPELLING of a path, and
+# a tracked symbolic link defeats it (#18).** Both sweeps fan out auditors under
+# "root every path under `$work`", and a git worktree preserves tracked links —
+# so `$work/leak -> ~/.ssh/id_rsa` is an absolute path under `$work` whose
+# target is not, and `Read`, `Grep` and `Glob` all follow it. The auditor's
+# findings then reach `gh-sweep-issue-create.sh` and a public issue body.
+#
+# **`/review-grok` already carries this argument and the sweeps did not.** It
+# records that the suite's "no tracked symbolic link" case is a claim about
+# `main` while the exposure is on the branch, and points at
+# `guard-edit-target.py`, which resolves the target of every `Edit` and `Write`
+# and refuses one that does not land where its path spells. That closes the
+# WRITE half. Nothing closed the read half, and a subagent profile cannot: the
+# auditors are denied every tool except `Read`, `Grep` and `Glob`, which are the
+# three that follow a link.
+#
+# So it is closed here, at the one endpoint both sweeps pass through, before the
+# worktree exists. Asked of the pinned COMMIT rather than of `main` or of the
+# working tree, because the commit is what the worktree will materialise —
+# which is the half `/review-grok`'s paragraph says the suite's case does not
+# reach. Refused rather than pruned: a sweep over a tree with a file silently
+# removed would report a clean audit of something that is not the branch.
+links=$(git ls-tree -r "$commit" | awk '$1 == "120000" { print $4 }' | head -5)
+[ -z "$links" ] ||
+  { echo "$commit carries tracked symbolic links, and a sweep's reads follow them out of the worktree it is bounded to (#18): $(printf '%s ' $links)" >&2; exit 5; }
+
 tmproot=$(cd "${TMPDIR:-/tmp}" 2>/dev/null && pwd -P) ||
   { echo "cannot resolve the temp root" >&2; exit 4; }
 # Six X's, so the name `mktemp` invents is `secsweep-` plus exactly six

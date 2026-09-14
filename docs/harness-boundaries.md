@@ -205,15 +205,82 @@ why its own tree denies are called defence in depth there. `/pr`, `/ship`,
 raised it against PR #13. They now carry the path denies; none of them can
 deny `Bash`, because fixed helpers are their API.
 
-**So the honest statement of the boundary is narrower than the deny list
-looks.** What holds is that every granted `Bash` entry names a fixed helper or
-a read-only git verb, so a redirect must be appended by the model rather than
-supplied by anything it read; and that the editing tools themselves are
-path-scoped and target-resolved. What does not hold is "this command cannot
-write there". Closing it needs the argv guard to refuse a redirect whose
-target is a denied path — the machinery is present, since #183 already parses
-redirections — and that is a change to the hook with its own test surface,
-tracked rather than made here.
+**So the honest statement of the boundary was narrower than the deny list
+looked**, and the paragraphs above are kept in the past tense they were written
+in rather than rewritten, because a residual's history is how the next reader
+knows what the fix was for. What held was that every granted `Bash` entry names
+a fixed helper or a read-only git verb, so a redirect had to be appended by the
+model rather than supplied by anything it read; and that the editing tools
+themselves are path-scoped and target-resolved. What did not hold was "this
+command cannot write there".
+
+**It is closed now, in the place the paragraph above named (#20).**
+`guard-git-argv.py` already parsed redirections in order to strip them — #183's
+work — so the targets were in hand and what was missing was a rule about them.
+It has one: `redirection_spans` carries the operator and the target word with
+each span, and a redirection that OPENS its target refuses a path naming the
+machinery trees or a toolchain root file. Read redirections are untouched,
+since reading the machinery is what half these commands are for. **The
+application trees any command denies — `src`, `docs`, `e2e`, `public`, which
+`/review-branch` refuses its editing tools — are refused too**, matched only as
+the first folder under the checkout the target lands in, so a `docs` directory
+in scratch stays writable. A hook cannot see which command is running, so it
+protects the union, and the suite reads every command's frontmatter to keep
+that union complete. A relative target is placed against the event's `cwd`,
+so **a relative write target in a command that can change directory — `cd`,
+`pushd`, `popd`, anywhere in it — is refused** rather than modelled; name the
+path absolutely or run the `cd` on its own. An unquoted leading `~` or `~+`
+is expanded from the home and working directories the hook shares with the
+session and judged as that path; `~-` and `~user` are refused. The names
+are compared case-folded, and a target inside a checkout is judged again where
+it resolves, from the hook event's `cwd`, so a branch's `docs/out ->
+../.claude/settings.json` link does not make the write an unprotected one.
+
+**`grok-review.sh` is refused in the same hook, and `grok-ledger.sh` is
+admitted only as `<pr> count` or `<pr> status`, spelled literally.** The
+`settings.json` denies are substrings of the typed command, so a verb split by
+empty quotes spells nothing they match; and a list of write verbs judged after
+quote removal still missed one built by a substitution, which bash hands the
+helper while the token holds no verb at all. An allow-list of the two reads is
+what that leaves. A helper handed to a shell on stdin — `< grok-ledger.sh`, or
+`cat grok-ledger.sh | bash -s` — is refused too, since the shell then runs it
+past the allow-list.
+
+**`gh` inside a command, backtick or process substitution is refused
+wherever it stands.** A substitution runs while bash is still building the
+argv of the command that holds it, so `bash gh-pr-merge.sh 1 $(gh pr merge
+42 --admin)` merges under the helper's prefix grant before the helper checks
+a single argument — and the same holds on a globally approved `ls`. No
+command here runs `gh` inside one. **And a substitution may run only an
+allow-list** — `SUBSTITUTION_PROGRAMS`: `git`, `echo`, `printf`, `cat`, `jq`,
+`date` and a few more, each by bare name — because a deny-list of interpreters
+was walked around by a branch-controlled `ls "$(./tools/run)"`, which names
+nothing on any list. A word with a `/` is refused whatever its basename. `awk`
+and `sed` no longer count as reading commands either, since `system()` and
+`e` run a shell. A relative write after `source`, `.` or `eval`
+is refused like one after `cd`. The one helper that takes no argument,
+`gh-pr-create.sh`, is also granted exactly rather than by prefix. A run led by a reader — `grep`, `git`, `cat` and the rest of
+`READING_COMMANDS` — is inspecting those files rather than running them, and is
+admitted.
+
+Three things about that rule are worth stating here rather than only in the
+hook. **A hook is handed a command and never the frontmatter that granted it**,
+so the protected set cannot be derived at run time the way
+`test_grok_helpers.py` derives the frontmatter denies from the frontmatter;
+what stands instead is a case whose subject is the list, asserting it covers
+`MACHINERY_TREES` and every tracked root file. **A target built by a command
+substitution is refused rather than guessed at**, and **a parameter expansion
+is expanded or refused**: `CLAUDE_PROJECT_DIR`, `HOME`, `TEMP`, `TMP` and
+`TMPDIR` are read from the hook's own environment, which the session shares,
+and judged as the path they produce, unless the same command assigns or reads
+into that name; any other expansion is refused. It had been admitted as a
+residual, and `F=.claude/settings.json; ls > $F` on a globally approved `ls`
+wrote the settings file. And **a redirection
+is not the only way a command writes**: `tee`, `cp`, `sed -i` and an
+interpreter all do, and none is judged. What made the redirection the case
+worth closing is that it rides on a command that is already approved and needs
+no grant of its own; everything else in that list has to be granted first, and
+none of it is.
 
 **`.claude/hooks/**` joined the list when the first hook landed, and the way it
 joined is the lesson.** It had been excluded on a stated condition — "no hook is
@@ -260,6 +327,33 @@ one thing the measurement did not reach** — the classifier refused the probe
 that would have copied the host's session into a container — so the first
 real review behind it is that measurement, and the proxy logs a `deny` line
 naming any host it refuses.
+
+**A third residual stood behind both of those and was the one that decided
+what the other two were worth: the image was built from the branch it was
+about to review (#15).** `grok-review.sh` resolved its build context from its
+own location — this checkout's `.claude/sandbox` — and during `/ship` this
+checkout is on the branch under review. So a branch that edited `Dockerfile`
+or `egress-proxy.py` chose what the image does, and the image is then handed
+the credentials the paragraph above narrows: a `RUN` step executes at build
+time with the network, `ENTRYPOINT` and `USER` decide what runs with
+`auth.json` mounted, and `egress-proxy.py` **is** the allow-list, so editing it
+removes the confinement rather than widening it. Binding the image by digest
+ruled out a concurrent build swapping the tag and said nothing about this
+branch's own content; denying `.claude/**` to the review commands stops an
+agent writing those files and says nothing about a branch that arrives with
+them written, which is what an external review is for.
+
+**The context is now written out of `refs/remotes/origin/main` with `git
+archive`, and a branch that changes `.claude/sandbox/**` refuses the run.**
+`git archive` rather than a per-file `git show`, so the trusted revision
+decides which files the context holds and a file added to the image later
+travels without the script being edited. The refusal is the half a script
+cannot perform: building the branch's sandbox change from a revision that does
+not carry it would be a check that quietly does the wrong thing, so the run
+stops and names the human step — read that diff, merge it, then review. **What
+this does not close**: `origin/main` is trusted because it is what a human
+merged, which is a claim about the review process rather than about a
+mechanism here, and a compromised `main` builds a compromised reviewer.
 
 Stated here as well as in the script because `/ship` and both
 sweeps cite `CLAUDE.md` as where the boundary and its residuals are recorded,
@@ -361,22 +455,27 @@ the harness waves through as promptless built-ins, where no allow or deny rule
 is consulted at all. Measured, not read — the docs do not say so, and a
 `git log --out''put=` probe was refused by the hook with no file written.
 
-**Both hooks are invoked as `py -3.12`, and that wiring is Windows-only.**
+**Both hooks were invoked as `py -3.12`, and that wiring was Windows-only.**
 `py` is the Windows Python launcher. A standard 3.12 on macOS or Linux
 provides `python3` and no `py` at all, so on those hosts **every**
-`PreToolUse` call fails before the guard runs — `Bash`, `Edit` and `Write`
-alike. The version is pinned rather than left to a bare `python` for the
-reason every pin here exists: the default interpreter on this host is
-newer, a hook is judged by whether it refuses the right argv, and "it
-worked on the version I had" is not a property anyone can check.
+`PreToolUse` call failed before the guard ran — `Bash`, `Edit` and `Write`
+alike. **Both now go through `.claude/hooks/run-guard.sh`**, which probes
+`py -3.12`, then `py -3`, then `python3`, then `python`, and `exec`s the
+first that actually runs 3.12 or newer, exactly once — each candidate is tried
+with a `-c` version check first, because a name on `PATH` can be a `py` with no
+3.12 registered or the Store alias. `py` goes first because on Windows `python3` is
+the Store alias, present on `PATH` and not Python; `python` goes last because
+`docs/testing.md` lets a host expose 3.12 under either name. The floor is
+pinned only where the launcher can pin it: `python3` and `python` are whatever
+the host provides.
 
-**The failure mode is loud and total, which is the good kind** — the
-command cannot start, so a call reports a hook error rather than quietly
-proceeding unguarded. A checkout on a machine without the launcher does
-not discover the guards were off. But loud is not the same as portable,
-and this file said "installs 3.12 or changes this line deliberately" as
-though installing were enough. On macOS and Linux it is not: the line has
-to change. #23 carries that.
+**The failure mode is loud and total, which is the good kind** — a host with
+none of the three gets `exit 2` and a message, and exit 2 is the only code a
+`PreToolUse` hook blocks with: any other non-zero exit is reported and the
+tool runs unguarded, which is what an unprobed last `exec` failing with 127
+would have done. #23 stays open for the part no
+suite here can show: the launcher running as the harness's hook on a
+non-Windows host.
 
 **CI does not cover it, and the shape of the gap is worth naming.**
 `ci.yml`'s `harness` job runs the suite across Ubuntu, Windows and macOS
@@ -440,11 +539,15 @@ already refuses twice over.
 
 **So state the bound as what has been looked for, not as what is left.** The
 residual named today is what the shell **computes** rather than what a caller
-writes, and it has two measured shapes: a flag or command assembled from a
-variable (`F=--output=x; git log $F`), and a substitution whose OUTPUT becomes
-the command line (`sh -c "$(echo 'git push origin +HEAD:main')"`). Closing
-either needs the argv after expansion, which no hook is given. Both are pinned
-as **admitted** in the suite, on the same argument as the degraded-check case:
+writes, and it has one measured shape left: an ARGUMENT or flag assembled
+from a variable (`F=--output=x; git log $F`). Two more shapes were named here
+and are refused now — a command WORD taken from a variable
+(`F='git push origin +HEAD:main'; $F`), and a substitution whose output
+becomes the command line (`sh -c "$(echo 'git push origin +HEAD:main')"`) —
+because a computed word in program position, or right after a launcher such
+as `bash`, could name the review helpers, and is refused wherever it stands.
+Closing the remaining shape needs the argv after expansion, which no hook is
+given. It is pinned as **admitted** in the suite, on the same argument as the degraded-check case:
 a residual nobody can run is one the next reader assumes was closed.
 
 Three earlier versions of that sentence were each falsified by a spelling
@@ -1043,21 +1146,55 @@ traffic. Raised by Copilot, and the premise is the half that failed; a passing
 case pins the verdict and names what to invert if the harness ever stops
 normalising.
 
-**Its residual is the half the harness itself needs, stated rather than
-rounded up.** The subject is a target spelled *inside* a checkout the session
-is standing in; a path spelled entirely outside one is not judged, because
-the session's memory and scratch state are written that way by absolute path
-and refusing them would take both with it. Nothing in the exposure this
-closes can spell one — a review row is one plain repository-relative path and
-the adjudicator drops a row that is not — so what is owed is a rule about
-which out-of-tree paths are legitimate, which is a different argument from
-this one. The residual is a passing test, not a paragraph alone.
+**Its residual was the half the harness itself needs, and the sentence naming
+what was owed is what got paid (#21).** The subject is a target spelled
+*inside* a checkout the session is standing in; a path spelled entirely
+outside one was not judged, because the session's memory and scratch state are
+written that way by absolute path and refusing them would take both with it.
+That was argued against the wrong threat: it reads as though the alternative
+were refusing everything, when what was owed — this paragraph said so — is "a
+rule about which out-of-tree paths are legitimate". Meanwhile `/review-branch`
+holds an unrestricted `Write`, consumes untrusted branch text and runs
+unattended inside `/ship`, so an injected diff could name a shell profile, an
+SSH key or a credential, and the fallback allowed it.
+
+**It is an allow-list now: the platform temp directory the scratchpad is
+created under, and `~/.claude`.** Within that second root the harness's own
+control surface is refused as well — `settings.json`, `.credentials.json`,
+`hooks/`, `commands/`, `agents/`, `plugins/` — because the root is admitted for
+STATE and a credential is not state, which is this repository's own argument
+about its `.claude/` applied one level up where the grant is wider. Each root
+is matched in both its spelled and resolved forms, since macOS reaches `TMPDIR`
+through a link and comparing against the spelling alone would refuse the
+scratchpad on every macOS host. The control-surface names are that second
+root's exclusion only: under the temp root a folder called `scripts` is
+scratch. What the temp root refuses instead is a checkout's machinery — the
+sweeps' detached worktrees live there, so a target inside a checkout under it
+is judged against the protected inventory relative to that checkout. **What is
+left**: the rest of the temp root is admitted rather than the session's own
+subdirectory within it, because no environment variable names the scratchpad
+and deriving it would be a guess the hook cannot check.
 **The sweeps' item 5 (#75) closed by the same shape** — a second read-only
-dispatch returns a verdict, the parent opens nothing in `$work`, and
-`gh-issue-create.sh` leaves `gh issue create` with no free parameter — so
+dispatch returns a verdict, the parent opens nothing in `$work`, and the issue
+helper leaves `gh issue create` with no free parameter — so
 the two residuals #149 named as one class went in one change, and the raw
 `Bash(gh issue create:*)` is denied by name in both sweeps now that the
 fifth entry's measurement exists.
+
+**One parameter escaped that reasoning for a while, and it was the one
+asserting the finding had been checked (#19).** The route — `sweep` or `hand` —
+decides the fixed trailer the body must end with, and both sweeps held a prefix
+grant on the script, so the model chose it along with the kind and the
+severity. A hand-filed or injected finding claiming `sweep` asserts a
+verification that did not happen, which is the same shape as a gate that passes
+vacuously, in the sentence a triager reads to decide whether anybody looked.
+The filing logic is now a sourced library with two entry points that each pass
+a constant — `gh-sweep-issue-create.sh` and `gh-issue-create.sh` — and the
+sweeps grant the first while **denying the second by name**, since a grant is
+auto-approval and only a deny refuses. **The residual**: nothing stops a
+session invoking the sweep entry point by hand, because no `gh` rule exists at
+all and it is a `bash` invocation like any other. What the split removes is the
+case that runs unattended over a tree that is prompt-injection input.
 
 **The two sweeps are one shape asking two questions**, split by what makes a
 finding rather than by where they look. `/security-sweep` files what an

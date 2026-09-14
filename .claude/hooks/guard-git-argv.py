@@ -74,7 +74,10 @@ reason the caller can read, and a guard that refuses without saying why is one
 that gets worked around rather than fixed.
 """
 
+import collections
+import fnmatch
 import json
+import os
 import re
 import shlex
 import sys
@@ -116,6 +119,72 @@ FORBIDDEN_FLAGS = ("--output", "--upload-pack", "--receive-pack", "--exec",
 # repository — a branch name, a path or a commit body may carry the sequence
 # without using it as a transport.
 FORBIDDEN_SUBSTRINGS = ("ext::",)
+
+# **The trees a redirection may not write into, and the reason this list is
+# here rather than read off the deny rules is that a hook cannot see them.**
+# `.claude/settings.json` denies `Edit(.claude/scripts/**)` and every editing
+# command denies the same trees in its own frontmatter — and all of that binds
+# the EDITING TOOLS. A `>` on any granted `Bash` command writes what every one
+# of those refuses (#20), measured on this repository's own hook: `ls >
+# .claude/settings.json`, `wc -l README.md > package.json` and `git log
+# --oneline > package.json` were all admitted, and in a scratch directory the
+# write landed.
+#
+# `/review-grok` answered this by denying `Bash` whole, which is available to
+# exactly one command: the other four editing commands have fixed helpers as
+# their API and cannot. So the rule moves here, where it binds the redirection
+# rather than the tool beside it.
+#
+# **A hook is handed a command, never the frontmatter that granted it**, so the
+# set cannot be derived at run time the way `test_grok_helpers.py` derives the
+# frontmatter denies from the frontmatter. What stands instead is a test whose
+# subject is this list: the suite asserts it covers `MACHINERY_TREES` and every
+# tracked root file, so a new tree or a new root file fails the suite until
+# somebody decides which side of the boundary it is on — the same shape
+# `CLAUDE.md` already describes for the harness suite as a whole.
+#
+# `.vscode` is here and is not in the suite's machinery set, because
+# `tasks.json` runs on folder open and this list is about writes rather than
+# about what a command may edit; the suite asserts coverage in one direction
+# only for exactly that reason.
+#
+# `.remember` is here because `.claude/settings.json` denies editing it
+# globally — session state no command writes by hand — and `ls` and `wc` are
+# approved just as globally, so `ls > .remember/now.md` wrote past that deny
+# exactly as the trees above were written past. Raised by Copilot.
+PROTECTED_TREES = frozenset({
+    ".claude", ".git", ".github", ".remember", ".vscode", "android", "ios",
+    "node_modules",
+})
+
+# **The root files, matched on the BASENAME, and the over-refusal is
+# deliberate.** A target is judged lexically — this hook has no `cwd` it can
+# trust and resolving one would be a second answer to the question
+# `guard-edit-target.py` already answers — so `src/app/README.md` is refused
+# along with `README.md`. That costs a redirection nobody makes and buys the
+# nested spellings that matter: an `eslint.config.js` or a `vite.config.ts` in
+# a subdirectory is loaded by EXECUTING it, and `../package.json` is the root
+# file under another name. The editing tools remain the way to write one, where
+# the permission rules see the path and judge it.
+PROTECTED_FILES = frozenset({
+    ".editorconfig", ".gitattributes", ".gitignore", ".npmrc", ".nvmrc",
+    ".prettierrc", ".prettierrc.cjs", ".prettierrc.js", ".prettierrc.json",
+    "AGENTS.md", "CLAUDE.md", "README.md",
+    "angular.json", "capacitor.config.ts", "ionic.config.json",
+    "eslint.config.cjs", "eslint.config.js", "eslint.config.mjs",
+    "jest.config.js", "karma.conf.js",
+    "npm-shrinkwrap.json", "package-lock.json", "package.json",
+    "playwright.config.ts",
+    "prettier.config.cjs", "prettier.config.js", "prettier.config.mjs",
+    "tsconfig.app.json", "tsconfig.json", "tsconfig.spec.json",
+    "vite.config.js", "vite.config.mts", "vite.config.ts",
+    "vitest.config.js", "vitest.config.mts", "vitest.config.ts",
+})
+
+# The comparison copies `protected_path` reads; the sets above stay in their
+# real spelling because the suite compares them against `git ls-files`.
+PROTECTED_TREES_FOLDED = frozenset(name.lower() for name in PROTECTED_TREES)
+PROTECTED_FILES_FOLDED = frozenset(name.lower() for name in PROTECTED_FILES)
 
 # `git -c <key>=<value>` sets configuration for one invocation, and a long list
 # of config keys are EXECUTED by git: `alias.*`, `core.pager`, `core.editor`,
@@ -1365,6 +1434,23 @@ def separate_lines(command):
 # `redirection_spans` argues both.
 REDIRECTION_OPERATORS = ("&>>", "&>", ">>", ">&", ">|", "<>", "<&", ">", "<")
 
+# **The operators that OPEN THE TARGET FOR WRITING**, which is the half #20 is
+# about. `<`, `<<` and `<<<` read, so a protected path on the right of one is a
+# read this hook has no quarrel with. `<>` is here because it opens read-write.
+#
+# `>&` and `<&` are the fd-duplication forms and are judged by their target
+# rather than by the operator: bash reads `>&1` and `>&-` as duplication and
+# `>&file` as `&>file`, redirecting both streams into a file. So the operator
+# alone cannot say, and `writes_to_a_file` asks about the word.
+WRITING_OPERATORS = frozenset({"&>>", "&>", ">>", ">|", "<>", ">"})
+DUPLICATING_OPERATORS = frozenset({">&", "<&"})
+
+# What `redirection_spans` found: the span bash consumes, the operator it read,
+# and the source text of the target word. `target` is the empty string for a
+# heredoc introducer, whose delimiter is a name rather than a path.
+Redirection = collections.namedtuple(
+    "Redirection", "start end operator target")
+
 
 def word_end(command, position, ordinary):
     """The end of the shell WORD beginning at `position`.
@@ -1455,12 +1541,18 @@ def word_end(command, position, ordinary):
 
 
 def redirection_spans(command):
-    """Every redirection in `command`, as `(start, end)` character offsets.
+    """Every redirection in `command`, as `Redirection` records.
 
     `start` is the first character of the file descriptor where one is written
     and of the operator otherwise, and `end` is just past the target word — so
     `command[start:end]` is everything bash consumes as redirection syntax and
     never hands to the program.
+
+    **The operator and the target travel with the span because there were very
+    nearly two parses of this grammar.** `strip_redirections` wants only the
+    span; #20 wants the target, and a second walk to find it would be the
+    disagreement `word_end`'s own docstring records happening again one
+    function along. One parse, three consumers.
 
     **A heredoc introducer IS one of these, and an earlier revision of this
     docstring said the opposite.** The reasoning then was that `strip_heredocs`
@@ -1534,8 +1626,9 @@ def redirection_spans(command):
             end = digits + 3
             while plain(end) and command[end] in " \t":
                 end += 1
+            target = end
             end = word_end(command, end, ordinary)
-            spans.append((start, end))
+            spans.append(Redirection(start, end, "<<<", command[target:end]))
             index = end
             continue
         if command[digits:digits + 2] == "<<":
@@ -1553,14 +1646,15 @@ def redirection_spans(command):
             # dash form and both quoted spellings included.
             introducer = HEREDOC.match(command, digits)
             if introducer is not None:
-                spans.append((start, introducer.end()))
+                spans.append(
+                    Redirection(start, introducer.end(), "<<", ""))
                 index = introducer.end()
                 continue
             # An introducer this file cannot parse keeps its old treatment, and
             # a descriptor in front of one is still the stray word every other
             # spelling leaves.
             if digits > start:
-                spans.append((start, digits))
+                spans.append(Redirection(start, digits, "<<", ""))
             index = digits + 2
             continue
         operator = None
@@ -1592,11 +1686,13 @@ def redirection_spans(command):
                 and plain(end) and plain(end + 1)):
             close = _closing_paren(command, end + 2)
             if close is not None:
-                spans.append((start, close + 1))
+                spans.append(Redirection(
+                    start, close + 1, operator, command[end:close + 1]))
                 index = close + 1
                 continue
+        target = end
         end = word_end(command, end, ordinary)
-        spans.append((start, end))
+        spans.append(Redirection(start, end, operator, command[target:end]))
         index = end
     return spans
 
@@ -1631,11 +1727,465 @@ def strip_redirections(command):
     someone happened to be looking at.
     """
     out, cursor = [], 0
-    for start, end in redirection_spans(command):
-        out.append(command[cursor:start])
-        cursor = end
+    for span in redirection_spans(command):
+        out.append(command[cursor:span.start])
+        cursor = span.end
     out.append(command[cursor:])
     return "".join(out)
+
+
+def writes_to_a_file(span):
+    """Whether this redirection opens its target for writing.
+
+    The duplication operators are the only ones the operator cannot answer for.
+    Bash reads `>&1` and `>&-` as duplication of a descriptor, and `>&word` as
+    `&>word` — both streams into a FILE — so the word decides. A descriptor is
+    digits or `-`; anything else is a path.
+    """
+    if span.operator in WRITING_OPERATORS:
+        return True
+    if span.operator not in DUPLICATING_OPERATORS:
+        return False
+    word = span.target.strip()
+    return bool(word) and word != "-" and not word.isdigit()
+
+
+def globbed(word):
+    """Whether `word` carries an unquoted pathname-expansion metacharacter.
+
+    **Bash expands a redirection target, and the expansion is what opens the
+    file.** `ls > package.jso?` is expanded to the existing `package.json`
+    before the redirect is performed, while `shlex` hands back the literal
+    pattern — so `protected_path` compared a string that is not the file, and
+    the write landed on a name it would otherwise have refused. Raised by
+    Copilot against the commit that added the check.
+
+    Quoting is what turns it off, so quoting is what this asks about: `>
+    "package.jso?"` names a file with a question mark in it and expands to
+    nothing. `shell_positions` is the module's one answer to that question, and
+    an escaped metacharacter is counted as unquoted here — over-refusal in a
+    position where nothing legitimate writes.
+
+    **`extglob` adds three openers that are not in that set**: `@(`, `+(` and
+    `!(`. A shell started with `-O extglob` expands `package.@(json)` to the
+    existing `package.json` exactly as it expands `package.jso?`, so each of
+    them, unquoted and followed by `(`, counts as a pattern too. (`?(` and `*(`
+    were already caught by their first character.) Raised by Copilot.
+    """
+    for index, in_quotes, in_comment in shell_positions(word):
+        if in_quotes or in_comment:
+            continue
+        if word[index] in "*?[":
+            return True
+        if word[index] in "@+!" and word[index + 1:index + 2] == "(":
+            return True
+        # **A brace expansion is the same answer by another route.**
+        # `package.{j..j}son` is a range bash expands to `package.json` before
+        # the redirect opens it, and the literal holds no protected name.
+        # Every unquoted `{` counts, rather than the forms that expand, because
+        # enumerating those is how the range was missed. Raised by Copilot.
+        if word[index] == "{" and word[index - 1:index] != "$":
+            return True
+    return False
+
+
+def target_literal(word):
+    """The filename `word` names, or `None` when that cannot be read.
+
+    **A target built by a command substitution is refused rather than guessed
+    at**, which is the answer this file gives everywhere else the deciding text
+    is not in the source — `substitution_fed_shells`, `unmodelled_printer` and
+    the stdin-script scan all say it in their own words. `substitutions` is
+    asked rather than a `$(` scan written here, so single quotes still mean
+    what they mean.
+
+    A process substitution is the same answer for a nearer reason: `> >(sh -c
+    …)` writes through a command rather than to a path, so there is no
+    filename to judge.
+
+    **A parameter expansion is left in the literal here and judged by the
+    caller**, through `expanded_target`: this function answers what the word
+    spells, and whether a `$F` in it can be read is a question about the
+    variable rather than about the quoting.
+    """
+    if word.startswith(("<(", ">(")) or substitutions(word):
+        return None
+    try:
+        parsed = shlex.split(strip_dollar_quotes(word), posix=True)
+    except ValueError:
+        return None
+    return parsed[0] if parsed else None
+
+
+def protected_path(literal):
+    """Which protected surface `literal` names, or `None`.
+
+    Judged on the components of the path as written. `docs/../.claude/x` holds
+    a `.claude` component and is refused; so is `/tmp/checkout/.git/config`,
+    which is the point of matching a component rather than a prefix.
+
+    **Compared folded, on every host, because the filesystem decides and not
+    the string.** Windows and a default macOS volume look names up without
+    regard to case, so `ls > PACKAGE.JSON` and `ls > .CLAUDE/settings.json`
+    overwrite the protected file while matching neither set as spelled. This
+    hook cannot ask the volume — it has no `cwd` it can trust, which is the
+    reason it judges lexically at all — so it folds everywhere, and a Linux
+    redirect to a genuinely distinct `Package.json` is refused along with it.
+    Raised by Copilot.
+
+    Windows also discards trailing dots and spaces from a component, so
+    `package.json.` opens `package.json`; those are stripped before comparing.
+    An 8.3 short name — `PACKAG~1.JSO`, `CLAUDE~1` — is the same file under a
+    spelling no set can list, so a `~<digit>` component is refused when its
+    stem could abbreviate a protected name. Not every such component: Windows
+    spells the temp root itself that way (`C:/Users/RUNNER~1/…`), and refusing
+    those would take the session's scratch writes with it.
+
+    **An NTFS stream suffix names the same file too.** `package.json::$DATA`
+    opens the default data stream — the file's contents — while the component
+    as written is not `package.json`. So a component is compared up to its
+    first `:`. A drive letter is a component of its own (`C:`), which folds to
+    `c` and names nothing here. Raised by Copilot.
+    """
+    parts = [part for part in re.split(r"[\\/]+", literal)
+             if part not in ("", ".")]
+
+    def comparable(part):
+        return part.split(":", 1)[0].rstrip(". ").lower()
+
+    for part in parts:
+        short = re.match(r"([^~]+)~\d", part)
+        if short and any(
+                name.replace(".", "").startswith(short.group(1).lower())
+                for name in PROTECTED_TREES_FOLDED | PROTECTED_FILES_FOLDED):
+            return part
+        if comparable(part) in PROTECTED_TREES_FOLDED:
+            return part
+    if parts and comparable(parts[-1]) in PROTECTED_FILES_FOLDED:
+        return parts[-1]
+    return None
+
+
+# The variables a redirection target may expand, because this hook can read
+# their values from its own environment, which the session shares.
+EXPANDABLE_VARIABLES = frozenset({
+    "CLAUDE_PROJECT_DIR", "HOME", "TEMP", "TMP", "TMPDIR",
+})
+
+
+def expanded_target(literal, command):
+    """`literal` with its parameter expansions replaced, or `None`.
+
+    **A parameter-expanded target was the stated residual, and it was a bypass
+    on a globally approved command.** `F=.claude/settings.json; ls > $F` holds
+    no protected component in the target as written, and bash opens the
+    settings file. Raised by Copilot.
+
+    Refusing every `$` would take the ordinary `> "$TMP/out"` scratch write
+    with it, so the few variables whose values this hook shares with the
+    session are expanded from its own environment, and judged as the path they
+    produce. Everything else is refused: another name, a positional or special
+    parameter, any `${…}` operator, an unset variable, and an allowed name that
+    appears anywhere in the command other than as a plain reference — an
+    assignment, a `read`, an `export`, a `for` loop — because then its value at
+    the redirection is not the one this process holds.
+    """
+    references = re.compile(r"\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))")
+    failed = False
+
+    def replace(match):
+        nonlocal failed
+        name = match.group(1) or match.group(2)
+        value = os.environ.get(name)
+        if name not in EXPANDABLE_VARIABLES or not value:
+            failed = True
+            return ""
+        bare = references.sub("", command)
+        if re.search(rf"(?<![A-Za-z0-9_]){name}(?![A-Za-z0-9_])", bare):
+            failed = True
+            return ""
+        return value
+
+    expanded = references.sub(replace, literal)
+    if failed or "$" in expanded:
+        return None
+    return expanded
+
+
+# **The application trees a command denies, judged only at a checkout's root.**
+# `/review-branch` denies `Edit(src/**)`, `docs/**`, `e2e/**` and `public/**`,
+# and a globally approved `ls > src/app/x.ts` wrote past every one of them —
+# the list above named the machinery and nothing a read-only review exists not
+# to touch. Raised by Copilot. A hook cannot see which command is running, so
+# the union of every command's denies is what it protects.
+#
+# Matched as the FIRST component under the checkout containing the target,
+# not at any depth like the trees above: `src` and `docs` are ordinary names,
+# and refusing `/tmp/x/docs/out` would take scratch writes with them.
+APPLICATION_TREES = frozenset({"docs", "e2e", "public", "src"})
+
+
+def application_tree(literal):
+    """Which application tree `literal` writes into at a checkout's root."""
+    cwd = EVENT_CWD or os.getcwd()
+    joined = literal if os.path.isabs(literal) else os.path.join(cwd, literal)
+    lexical = os.path.normpath(os.path.abspath(joined))
+    for path in (lexical, os.path.realpath(joined)):
+        root = path
+        while not os.path.exists(os.path.join(root, ".git")):
+            parent = os.path.dirname(root)
+            if parent == root:
+                root = None
+                break
+            root = parent
+        if root is None:
+            continue
+        try:
+            relative = os.path.relpath(path, root)
+        except ValueError:
+            continue
+        first = re.split(r"[\\/]+", relative)[0]
+        if first.split(":", 1)[0].rstrip(". ").lower() in APPLICATION_TREES:
+            return first
+    return None
+
+
+# A command word that moves the shell's working directory, wherever it stands
+# in the command: after a separator, inside a group or a subshell, or behind
+# a `builtin`/`command` wrapper, which the leading boundary also admits.
+#
+# `source`, `.` and `eval` are here too: a sourced script runs in the current
+# shell and can `cd` in a file this hook never reads, and `eval` runs text it
+# may build. Raised by Copilot.
+CHANGES_DIRECTORY = re.compile(
+    r"(?:^|[\s;&|(){}`])(?:cd|pushd|popd|source|eval|\.)(?=$|[\s;&|()])")
+
+
+def changes_directory(command):
+    """Whether `command` may change directory, read before AND after quotes.
+
+    **The raw text is not what bash runs.** `c''d .claude` spells no `cd` and
+    bash runs `cd`, so the pattern is also asked of the command with every
+    quote, `$` before a quote, and backslash removed — over-matching a `cd`
+    inside a quoted string, which is the direction to be wrong in. An
+    expansion that joins into `cd` is judged by the readings `offence` runs
+    before this, each of which reaches here with the expansion gone. Raised
+    by Copilot.
+    """
+    unquoted = re.sub(r"\$?[\"']|\\", "", command)
+    return bool(CHANGES_DIRECTORY.search(command)
+                or CHANGES_DIRECTORY.search(unquoted))
+
+
+# The directory the session's command runs in, from the hook event. `None`
+# until `main` reads one, and then the process's own directory stands in.
+EVENT_CWD = None
+
+
+def linked_protected_path(literal):
+    """Which protected surface `literal` reaches THROUGH a link, or `None`.
+
+    **The lexical check reads the spelling, and bash opens the file.** A branch
+    can carry `docs/out -> ../.claude/settings.json`, and `ls > docs/out`
+    holds no protected component while the write lands on the denied file.
+    Raised by Copilot.
+
+    So the target is placed against the checkout that contains it, resolved
+    through the filesystem — a missing leaf beneath a linked parent included,
+    which `realpath` resolves as far as the path exists — and judged again
+    WHERE IT LANDS, but only where the two disagree. Comparing the resolution
+    to the root's own resolution plus the spelled remainder is what keeps a
+    checkout under a linked temp root (`/tmp` on macOS) from reading as a link
+    on every write. A target outside every checkout is left to the lexical
+    check: this list is the repository's machinery, not the filesystem's.
+    """
+    cwd = EVENT_CWD or os.getcwd()
+    joined = literal if os.path.isabs(literal) else os.path.join(cwd, literal)
+    lexical = os.path.normpath(os.path.abspath(joined))
+    root = lexical
+    while not os.path.exists(os.path.join(root, ".git")):
+        parent = os.path.dirname(root)
+        if parent == root:
+            return None
+        root = parent
+    real_root = os.path.realpath(root)
+    expected = os.path.normpath(
+        os.path.join(real_root, os.path.relpath(lexical, root)))
+    resolved = os.path.realpath(joined)
+    if os.path.normcase(expected) == os.path.normcase(resolved):
+        return None
+    try:
+        landed = os.path.relpath(resolved, real_root)
+    except ValueError:
+        landed = resolved
+    if landed == ".." or landed.startswith(".." + os.sep):
+        landed = resolved
+    return protected_path(landed)
+
+
+def redirection_offence(command):
+    """The reason to refuse a redirection in `command`, or `None`.
+
+    **This is the half of the deny lists that was defence in depth and is now a
+    boundary.** Every `Edit(...)` entry in `.claude/settings.json` and in every
+    command's `disallowed-tools` binds the editing tools; `Bash(ls:*)` and
+    `Bash(wc:*)` are auto-approved for every session, and a `>` on either one
+    wrote what all of them refuse.
+
+    **The residual, because it is narrower than the fix reads.** A redirection
+    is not the only way a command writes: `tee`, `cp`, `sed -i` and an
+    interpreter all do, and none of them is judged here. What makes the
+    redirection the case worth closing is that it rides on a command that is
+    ALREADY approved, so it needs no grant of its own — everything else in that
+    list has to be granted first, and none of it is.
+    """
+    for span in redirection_spans(command):
+        # **A review helper read INTO a command is a script being handed to
+        # it.** `bash -s -- 42 re''serve 1 full < .claude/scripts/grok-ledger.sh`
+        # runs the ledger from stdin, and the strip that follows removes the
+        # redirection before `review_helper_offence` sees the path. Refused on
+        # any reading redirection, since reading the helper's source is what
+        # `Read` and `grep` are for. Raised by Copilot.
+        #
+        # A source this guard cannot read — a substitution, a variable — is
+        # refused only where a shell is in the command to run it, because
+        # `wc -l < "$TMP/out"` is ordinary traffic.
+        if span.operator == "<" and span.target.strip():
+            source = target_literal(span.target)
+            named = helper_named(span.target if source is None else source)
+            if named == "computed" or source is None:
+                named = ("computed" if re.search(
+                    r"(?<![\w.-])(?:ba|da|k|z)?sh(?:\.exe)?(?![\w.-])", command)
+                    else None)
+            if named is not None:
+                return (
+                    f"`<` feeds `{span.target.strip()}` into a command's "
+                    "stdin, and it is, or may expand to, `grok-ledger.sh` or "
+                    "`grok-review.sh` — a shell reading it runs the helper "
+                    "past the literal allow-list. Read the file with the "
+                    "`Read` tool or `grep` instead."
+                )
+        if not writes_to_a_file(span):
+            continue
+        # **An empty target is not a write and refusing it broke an admitted
+        # case.** `word_end` stops without consuming anything when the word
+        # would BEGIN with `(`, because `git log >(cat) -1` is a process
+        # substitution bash passes as an ARGUMENT rather than a redirect with
+        # `(cat)` for a target — so the span holds a bare `>` and there is no
+        # path here to judge. What runs inside those parentheses is judged by
+        # the run splitter, which is the arrangement
+        # `test_a_substitution_is_part_of_the_target_word` pins.
+        if not span.target.strip():
+            continue
+        if globbed(span.target):
+            return (
+                "a redirection's target carries an unquoted `*`, `?` or `[`, "
+                "so bash expands it and the file it opens is not the string "
+                "written here — `> package.jso?` writes `package.json`. "
+                "Refusing rather than judging the pattern instead of the file: "
+                "quote the name, or write it out (#20, "
+                "docs/harness-boundaries.md)."
+            )
+        # **A dollar quote this guard cannot read is refused on the target
+        # itself**, because the command-wide check runs after the redirection
+        # strip has already removed it. `target_literal` read `$"HOME"/../src/…`
+        # as a `$HOME` expansion and judged `~/../src/…`, while bash opens the
+        # relative `HOME/../src/…` — the checkout's denied `src`. Raised by
+        # Copilot.
+        unreadable = unreadable_dollar_quote(span.target)
+        if unreadable is not None:
+            return f"a redirection's target: {unreadable}"
+        literal = target_literal(span.target)
+        if literal is None:
+            return (
+                "a redirection's target is built by a command substitution, "
+                "so the file it writes cannot be read from this command; "
+                "refusing rather than admitting a write nothing judged. Name "
+                "the path, or use the editing tools, which the permission "
+                "rules see (#20, docs/harness-boundaries.md)."
+            )
+        # **An unquoted leading `~` is expanded before the file opens.**
+        # `ls > ~/checkout/src/app/x.ts` reached the tree checks as a relative
+        # path whose first component is `~`, while bash wrote the checkout's
+        # `src`. Raised by Copilot. `~` and `~+` have values this hook shares
+        # with the session — the home directory, and the working directory the
+        # event names — so they are expanded and judged; `~-` and `~user`
+        # have none it can read, and are refused. A quoted `'~'` is a literal
+        # name, which is why the raw word is asked rather than the literal.
+        raw = span.target.strip()
+        if raw.startswith("~"):
+            prefix = re.match(r"~[^/\\]*", raw).group(0)
+            remainder = literal[len(prefix):]
+            if prefix == "~":
+                literal = os.environ.get("HOME") or os.path.expanduser("~")
+                literal += remainder
+            elif prefix == "~+":
+                literal = (EVENT_CWD or os.getcwd()) + remainder
+            else:
+                return (
+                    f"a redirection's target begins `{prefix}`, which bash "
+                    "expands to a directory this guard cannot read — the "
+                    "previous working directory, or another user's home. "
+                    "Refusing rather than judging the tilde instead of the "
+                    "path (#20, docs/harness-boundaries.md)."
+                )
+        if "$" in literal:
+            expanded = expanded_target(literal, command)
+            if expanded is None:
+                return (
+                    f"a redirection writes `{literal}`, whose path is built by "
+                    "a parameter expansion this guard cannot read — a "
+                    "variable set earlier in the same command, or one outside "
+                    f"{', '.join(sorted(EXPANDABLE_VARIABLES))}. Refusing "
+                    "rather than judging the name instead of the file it opens "
+                    "(#20, docs/harness-boundaries.md)."
+                )
+            # **An expanded value can be a pattern too**, and `globbed` ran on
+            # the word before it was expanded. With `TMPDIR=package.jso?`,
+            # `ls > $TMPDIR` opens `package.json` while the tree checks see
+            # the pattern. Refused whether or not the expansion was quoted: a
+            # temp root carrying `*`, `?`, `[` or `{` is not one to write
+            # scratch into. Raised by Copilot.
+            if any(char in expanded for char in "*?[{"):
+                return (
+                    f"a redirection's target `{literal}` expands to "
+                    f"`{expanded}`, which carries a pattern character, so the "
+                    "file bash opens is not the string judged here (#20, "
+                    "docs/harness-boundaries.md)."
+                )
+            literal = expanded
+        # **A relative target is placed against the event's `cwd`, and a
+        # directory change earlier in the command moves where it lands.**
+        # `ls >/dev/null; cd .claude; ls > settings.json` was judged as
+        # `<checkout>/settings.json` and bash wrote `.claude/settings.json`.
+        # Modelling `cd`, `pushd` and `popd` through subshells and compound
+        # commands is the kind of shell emulation this file refuses to guess
+        # at, so a relative write target is refused whenever the command can
+        # change directory. Name the path absolutely, or split the command.
+        # Raised by Copilot.
+        # A leading slash is absolute to bash on every host, and to
+        # `os.path.isabs` only where there is no drive letter to ask for.
+        absolute = os.path.isabs(literal) or literal.startswith(("/", "\\"))
+        if not absolute and changes_directory(command):
+            return (
+                f"`{span.operator}` writes the relative path `{literal}` in a "
+                "command that also changes directory, so where it lands is "
+                "not the event's working directory and this guard cannot "
+                "place it. Name the path absolutely, or run the `cd` as its "
+                "own command (#20, docs/harness-boundaries.md)."
+            )
+        named = (protected_path(literal) or linked_protected_path(literal)
+                 or application_tree(literal))
+        if named is not None:
+            return (
+                f"`{span.operator}` would write `{literal}`, and `{named}` is "
+                "the agent's own machinery or the toolchain that runs on it. "
+                "Every `Edit(...)` deny that names it binds the editing tools, "
+                "so a redirection on an approved command wrote straight past "
+                "them (#20, docs/harness-boundaries.md). Write it with an "
+                "editing tool, where a permission rule judges the path."
+            )
+    return None
 
 
 def expandable_regions(command):
@@ -1666,6 +2216,126 @@ def expandable_regions(command):
         cursor = end
     line.append(command[cursor:])
     return [(strip_comments("".join(line)), True)] + regions
+
+
+def substituted_gh_offence(inner):
+    """The reason to refuse `gh` run inside a substitution, or `None`.
+
+    **A substitution runs before the command that holds it, and the grant is
+    judged on the holder.** `bash .claude/scripts/gh-pr-merge.sh 1 $(gh pr
+    merge --merge 42 --admin)` matches the helper's prefix grant, and the merge
+    happens while bash is still building the helper's argv — before any of the
+    helper's own checks. The same holds on a globally approved `ls`. No command
+    here runs `gh` inside a substitution, so every `gh` there is refused rather
+    than its subcommand judged. Raised by Copilot.
+
+    **Every word, not the first program.** The first form stopped at the
+    first program it met, so `$(printf ok; gh pr merge 42 --admin)` reached
+    `printf` and was admitted, and `$(bash -c 'gh …')` hid it one level down.
+    Raised by Copilot. So the body is read after quote removal and split on
+    whitespace and shell punctuation, and a `gh` word anywhere in it refuses —
+    over-refusing a substitution that merely mentions `gh`, which nothing here
+    needs to do.
+    """
+    if contains_gh_word(inner):
+        return (
+            "a command substitution runs `gh`, and it runs before the "
+            "command that holds it is checked against its grant — so a "
+            "fixed helper's own validation never sees it. Nothing here "
+            "runs `gh` inside a substitution; call the helper directly."
+        )
+    if runs_unmodelled_program(inner):
+        return (
+            "a command substitution runs a program outside the short list "
+            "whose effects this guard models — a script path, an interpreter, "
+            "`awk` or `sed` — and it runs before the command that holds it is "
+            "checked against its grant. Run it as its own command, where the "
+            "permission rules see it."
+        )
+    return None
+
+
+def runs_unmodelled_program(text):
+    """Whether any command run in `text` is led by a program outside the list.
+
+    Led means the first word past assignments and the wrappers that run their
+    argument — `env`, `command`, `exec`, `nohup`, `time`, `xargs` — so wrapping
+    a program does not hide it. A word carrying a `/` is refused whatever its
+    basename, since `./tools/cat` is the branch's file and not `cat`.
+    """
+    unquoted = re.sub(r"\$?[\"']|\\", "", text)
+    for run in re.split(r"[;&|()\n`]+", unquoted):
+        for word in run.split():
+            if ASSIGNMENT.match(word) or word.startswith("-"):
+                continue
+            # Splitting at every parenthesis leaves the tail of a nested
+            # `${…}` or `$(…)` as its own "run": a bare `}` or `$` is that
+            # tail, not a program.
+            if re.fullmatch(r"[{}$]+", word):
+                continue
+            name = program_name(word)
+            if name in {"builtin", "command", "env", "exec", "nohup", "time",
+                        "xargs"}:
+                continue
+            if "/" in word or "\\" in word or name not in SUBSTITUTION_PROGRAMS:
+                return True
+            break
+    return False
+
+
+def names_gh(word):
+    """Whether `word` is `gh`, or a pattern or brace expansion bash makes `gh`."""
+    name = program_name(word)
+    for candidate in brace_alternatives(name):
+        if candidate == "gh" or (any(char in candidate for char in "*?[")
+                                 and fnmatch.fnmatchcase("gh", candidate)):
+            return True
+    return False
+
+
+def contains_gh_word(text):
+    """Whether `text`, with its quoting removed, may run `gh`.
+
+    **A literal word misses what bash expands first.** `/usr/bin/[g]h` holds no
+    `gh` and bash runs `gh`. Raised by Copilot. So a word is compared as a
+    pattern and a brace expansion would produce, anywhere in the body; and a
+    program word whose value is not in the source at all — a variable, a
+    backtick, a range or an extglob — is refused where a command stands,
+    since it may be `gh` too.
+    """
+    unquoted = re.sub(r"\$?[\"']|\\", "", text)
+    if any(names_gh(word) for word in re.split(r"[\s;&|()<>`]+", unquoted)):
+        return True
+    for run in re.split(r"[;&|()\n`]+", unquoted):
+        for word in run.split():
+            if ASSIGNMENT.match(word) or word.startswith("-"):
+                continue
+            if program_name(word) in {"builtin", "command", "env", "exec",
+                                      "nohup", "time", "xargs"}:
+                continue
+            if "$" in word or "{" in word or re.search(r"[@+!?*]\(", word) or (
+                    any(char in word for char in "*?[")):
+                return True
+            break
+    return False
+
+
+def process_substitution_bodies(command):
+    """The body of every `<(…)` and `>(…)` in `command`, by paren balance."""
+    bodies = []
+    # Only where bash would perform one: `"see <(foo)"` inside quotes is text,
+    # and so is a heredoc body, which the caller strips before asking.
+    quoted = {index for index, in_quotes, in_comment in shell_positions(command)
+              if in_quotes or in_comment}
+    for match in re.finditer(r"[<>]\(", command):
+        if match.start() in quoted:
+            continue
+        depth, index = 1, match.end()
+        while index < len(command) and depth:
+            depth += {"(": 1, ")": -1}.get(command[index], 0)
+            index += 1
+        bodies.append(command[match.end():index - 1 if depth == 0 else index])
+    return bodies
 
 
 def substitutions(command, quotes=True):
@@ -2435,6 +3105,210 @@ def command_runs(tokens):
         yield current
 
 
+# The Grok ledger's two READ verbs, and the reviewer runner beside it.
+# `.claude/settings.json` denies the write verbs and the runner as substrings
+# of the typed command, and a substring deny is a speed bump: a verb split by
+# empty quotes, or built by a substitution, spells nothing it matches while
+# bash runs it — so `/ship`'s `grok-ledger.sh:*` grant could manufacture a
+# clean outcome and a convergence. Judged here as an allow-list over the argv
+# `shlex` resolves. Raised by Copilot, twice.
+LEDGER_READ_VERBS = frozenset({"count", "status"})
+REVIEW_HELPERS = frozenset({"grok-ledger.sh", "grok-review.sh"})
+
+# Commands that only READ a file named in their arguments, so a helper's path
+# there is a file being inspected and not a helper being run. Anything else in
+# the leading position — `bash`, `sh`, `env`, `command`, `xargs`, `source` —
+# is judged, because the wrapper list is the one that fails open.
+#
+# **Only programs that cannot run a command.** `awk` was here and its
+# `system()` and `cmd | getline` run a shell; GNU `sed` runs one with `e`; and
+# `less` runs one with `!`. Each is removed, so a run they lead is judged like
+# any other. Raised by Copilot.
+READING_COMMANDS = frozenset({
+    "cat", "diff", "file", "git", "grep", "head", "ls", "rg", "stat", "tail",
+    "wc",
+})
+
+# **The only programs a substitution may run, and it is an allow-list.** A
+# substitution runs before the approved command holding it is judged, so what
+# runs inside one decides before any grant does. The first form listed the
+# programs whose argument is code — `awk`, `sed`, the interpreters — and a
+# branch-controlled executable walked around it: `ls "$(./tools/run)"` names
+# nothing on a list and runs whatever the branch put there, `gh` and the
+# ledger included. Raised by Copilot, twice. So only programs whose effects
+# are modelled or harmless run here, each by bare name — a word with a `/` is
+# a file somebody chose, whatever it is called — and everything else,
+# `awk` and `sed` among it, is refused. `git` is on the list because every
+# `git` word is judged by the rest of this file.
+SUBSTITUTION_PROGRAMS = frozenset({
+    "[", "basename", "cat", "cut", "date", "dirname", "echo", "expr", "false",
+    "git", "grep", "head", "hostname", "id", "jq", "ls", "printf", "pwd",
+    "readlink", "realpath", "rg", "seq", "sort", "stat", "tail", "test", "tr",
+    "true", "uname", "uniq", "wc", "whoami",
+})
+
+
+# What runs the word after it as a script or a program, so a computed word in
+# that position is a program nobody can name from the source.
+LAUNCHERS = frozenset({
+    ".", "bash", "command", "dash", "env", "exec", "ksh", "nohup", "sh",
+    "source", "time", "xargs", "zsh",
+})
+
+
+def brace_alternatives(word):
+    """Every word a comma brace expansion in `word` produces, `word` if none."""
+    match = re.search(r"\{([^{}]*,[^{}]*)\}", word)
+    if match is None:
+        return [word]
+    return [
+        expanded
+        for choice in match.group(1).split(",")
+        for expanded in brace_alternatives(
+            word[:match.start()] + choice + word[match.end():])
+    ]
+
+
+def helper_named(token):
+    """Which review helper `token` runs: a name, `"computed"`, or `None`.
+
+    **A literal comparison misses what bash expands before it runs.**
+    `bash .claude/scripts/grok-ledger.s? 42 reserve 1 full` holds no helper
+    token and no substring the deny list matches, and the glob expands to the
+    ledger. So a word whose basename is a pattern, or a brace expansion, is
+    compared as bash would expand it, and a word carrying `$` or a backtick —
+    whose value is not in the source at all — is reported as computed. Raised
+    by Copilot.
+    """
+    name = program_name(token)
+    for candidate in brace_alternatives(name):
+        for helper in REVIEW_HELPERS:
+            if candidate == helper or (
+                    any(char in candidate for char in "*?[")
+                    and fnmatch.fnmatchcase(helper, candidate)):
+                return helper
+    # **A range, a nested brace or an extglob is computed too**, rather than
+    # expanded here: `grok-{l..l}edger.sh` is the ledger and the comma-only
+    # expansion above cannot see it, and `grok-@(ledger).sh` is the ledger in
+    # an extglob shell. Modelling each form is the enumeration that missed
+    # these, so any `{` left unmatched, and any extglob opener, is reported as
+    # computed and refused in program position. Raised by Copilot.
+    if ("$" in token or "`" in token or re.search(r"(?<!\$)\{", token)
+            or re.search(r"[@+!?*]\(", token)):
+        return "computed"
+    return None
+
+
+def launched(run, index):
+    """Whether `run[index]` is in a position where it is RUN as a program."""
+    if ASSIGNMENT.match(run[index]):
+        return False
+    if run[index] == leading_command(run):
+        return True
+    # A `-c` script is a script, not a program name, and `evaluated_scripts`
+    # has already judged what it runs.
+    if index > 0 and SCRIPT_FLAG.match(run[index - 1]):
+        return False
+    previous = index - 1
+    while previous >= 0 and (run[previous].startswith("-")
+                             or ASSIGNMENT.match(run[previous])):
+        previous -= 1
+    return previous >= 0 and program_name(run[previous]) in LAUNCHERS
+
+
+def token_followed_by_group(tokens, run, index):
+    """Whether `run[index]` is immediately followed by a `(` in `tokens`.
+
+    `command_runs` drops the boundary, so the flat token list is searched for
+    this run's position — the last token of `run` only, which is the only one
+    a `(` can follow without ending the run first.
+    """
+    if index != len(run) - 1:
+        return False
+    for position in range(len(tokens) - 1):
+        if tokens[position] is run[index] and tokens[position + 1].startswith("("):
+            return True
+    return False
+
+
+def review_helper_offence(tokens):
+    """The reason to refuse a Grok review or a ledger write, or `None`."""
+    # **A helper named anywhere, beside a shell that runs its stdin, is the
+    # helper being run.** `cat .claude/scripts/grok-ledger.sh | bash -s -- 42
+    # reserve 1 full` is led by a reader, so the loop below skips it, and the
+    # shell runs the ledger with a write verb. Raised by Copilot.
+    #
+    # A shell whose OWN script is the literal helper is the ordinary call the
+    # loop below judges, so a stdin-reading run counts here only when it names
+    # no helper itself, or reads its script from stdin by `-s`.
+    runs = list(command_runs(tokens))
+
+    def names_helper(words):
+        return any(helper_named(word) in REVIEW_HELPERS for word in words)
+
+    if names_helper(tokens) and any(
+            reads_stdin_as_script(run)
+            and (not names_helper(run) or "-s" in run)
+            for run in runs):
+        return (
+            "a command names `grok-ledger.sh` or `grok-review.sh` beside a "
+            "shell that runs what arrives on its stdin, so the helper can run "
+            "past the literal allow-list. Read the file with the `Read` tool "
+            "or `grep` instead."
+        )
+    for run in runs:
+        if program_name(leading_command(run)) in READING_COMMANDS:
+            continue
+        for index, token in enumerate(run):
+            name = helper_named(token)
+            # The tokeniser splits an extglob at its parenthesis, so
+            # `grok-@(ledger).sh` arrives as `grok-@` with the group in a
+            # separate run. A word ending in an extglob operator is computed.
+            if name is None and token[-1:] in ("@", "+", "!", "?", "*") and (
+                    token_followed_by_group(tokens, run, index)):
+                name = "computed"
+            if name is None:
+                continue
+            if name == "computed" or token != token.strip() or (
+                    program_name(token) not in REVIEW_HELPERS):
+                if name == "computed" and not launched(run, index):
+                    continue
+                return (
+                    f"`{token}` is run as a program whose name bash computes "
+                    "— a pattern, a brace expansion or a variable — and it "
+                    "can be `grok-ledger.sh` or `grok-review.sh`, which run "
+                    "here only when spelled literally. Refusing rather than "
+                    "judging the word instead of the script it opens."
+                )
+            if name == "grok-review.sh":
+                return (
+                    "`grok-review.sh` is disabled: it runs the branch's own "
+                    "code with the reviewer's credentials, and "
+                    "`.claude/settings.json` denies it. This hook refuses it "
+                    "after quote removal, which the substring deny cannot."
+                )
+            # **An allow-list of the two reads, because the tokens are not the
+            # argv bash executes.** A verb list compared after quote removal
+            # still missed `"$(printf '\143omplete')"`: the token holds no
+            # write verb, the empty-substitution reading holds none either,
+            # and bash hands the helper `complete`. So a session may run the
+            # ledger only as `<pr> count` or `<pr> status`, spelled literally;
+            # anything computed, and every write verb, is refused. Raised by
+            # Copilot.
+            arguments = run[index + 1:]
+            if (len(arguments) == 2 and re.fullmatch(r"[0-9]+", arguments[0])
+                    and arguments[1] in LEDGER_READ_VERBS):
+                continue
+            return (
+                "`grok-ledger.sh` runs here only as `<pr> count` or `<pr> "
+                "status`, spelled literally. Every other verb writes a review "
+                "outcome, which only `grok-review.sh` may record and "
+                "`.claude/settings.json` denies, and an argument built by an "
+                "expansion is a verb this guard cannot read."
+            )
+    return None
+
+
 def git_segments(tokens):
     """Yield the argv slice of every `git` invocation in a compound command.
 
@@ -2646,6 +3520,15 @@ def _offence(command, depth, judged):
             if refusal is not None:
                 return f"with {description}: {refusal}"
 
+    if any(contains_gh_word(body) or runs_unmodelled_program(body)
+           for body in process_substitution_bodies(strip_heredocs(command))):
+        return (
+            "a process substitution runs `gh` or a program outside the short "
+            "list whose effects this guard models, and it executes before "
+            "the command holding it is checked against its grant. Run it as "
+            "its own command."
+        )
+
     if substitution_fed_shells(command):
         return (
             "a shell is handed its script by a process substitution, so what "
@@ -2684,9 +3567,15 @@ def _offence(command, depth, judged):
         # body arrives with `quotes` false and is not a command line.
         text = join_continuations(text, quotes=quotes)
         for inner in substitutions(text, quotes=quotes):
+            # The body is judged in its own right first, so a refusal that
+            # names what it found — a shell evaluator, a push — is the one
+            # reported; the allow-list below then refuses what that admits.
             refusal = offence(inner, depth + 1, judged)
             if refusal is not None:
                 return f"inside a command substitution: {refusal}"
+            refusal = substituted_gh_offence(inner)
+            if refusal is not None:
+                return refusal
 
     # Stripped once, and used by BOTH paths below. The fallback used to scan the
     # raw `command`, which put the heredoc false positive straight back: a body
@@ -2702,9 +3591,23 @@ def _offence(command, depth, judged):
     # `join_continuations` sits after `strip_comments` because a backslash at
     # the end of a COMMENT continues nothing — bash ends a comment at the
     # newline — so joining first would have swallowed the next line into it.
-    resolved = strip_redirections(
-        separate_lines(
-            join_continuations(strip_comments(strip_heredocs(command)))))
+    performed = separate_lines(
+        join_continuations(strip_comments(strip_heredocs(command))))
+
+    # **Judged on the string the strip is about to read, and that is the whole
+    # placement argument.** A `>` inside a heredoc body or a comment is not a
+    # redirection bash performs, so judging the raw command would refuse a
+    # commit message describing this very change — the mistake
+    # `unreadable_dollar_quote` records making one line down. And judging after
+    # the strip is impossible: the strip is what removes the targets.
+    #
+    # Every reading above recurses through `offence`, so a target assembled by
+    # an expansion is judged under each of them too.
+    refusal = redirection_offence(performed)
+    if refusal is not None:
+        return refusal
+
+    resolved = strip_redirections(performed)
 
     # **The check and the code that acts on it must read the SAME string**, and
     # putting this on the raw command was wrong twice over. It refused a
@@ -2773,6 +3676,10 @@ def _offence(command, depth, judged):
         refusal = offence(script, depth + 1, judged)
         if refusal is not None:
             return f"inside a shell evaluator: {refusal}"
+
+    refusal = review_helper_offence(tokens)
+    if refusal is not None:
+        return refusal
 
     for segment in git_segments(tokens):
         refusal = push_offence(segment)
@@ -2862,6 +3769,10 @@ def main():
     command = (event.get("tool_input") or {}).get("command")
     if not isinstance(command, str):
         return 0
+
+    global EVENT_CWD
+    cwd = event.get("cwd")
+    EVENT_CWD = cwd if isinstance(cwd, str) and cwd else None
 
     try:
         reason = offence(command)

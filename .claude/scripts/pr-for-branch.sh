@@ -55,7 +55,75 @@ repo=$(gh repo view --json nameWithOwner --jq .nameWithOwner) ||
 # establish whose it was, which is the fail-open direction.
 [ -n "$repo" ] ||
   { echo "this checkout's repository resolved to nothing" >&2; exit 2; }
-gh pr list --state all --head "$branch" --json number,state,url,headRepository |
-  jq --arg repo "$repo" \
-    '[ .[] | select((.headRepository.nameWithOwner // "") == $repo)
-       | {number, state, url} ]'
+# **`--head` matches a branch NAME, so this returned every pull request that
+# has ever used it, in whatever order the API gave (#24).** A branch name
+# reused after a merge — ordinary, and nothing in `/branch` prevents it —
+# leaves an older `MERGED` row beside a newer `OPEN` one. `/ship` step 0 reads
+# a `MERGED` row as proof the branch is finished and tears the workspace down;
+# `/pr` has the mirror of it and creates a duplicate. That is the worst answer
+# this chain can give: not a refusal and not a red check, but a confident
+# teardown of live work, justified by a true statement about a different pull
+# request.
+#
+# So the selection is bounded here rather than left to the caller: the rows are
+# filtered to this repository, sorted, and **the newest alone is returned**.
+# `ship.md` already says "the newest row" in as many words; this is what makes
+# that true. Sorted by `number`, which GitHub assigns monotonically per
+# repository, so it needs no date parsing to be a total order.
+#
+# **And the page is bounded where the field set was not (#22).** `gh pr list`
+# defaults to 30 and has no `--paginate`; a popular branch name across forks
+# can fill it, and this helper's own repository filter runs AFTER the page is
+# taken — so the row that matters could be the one left off. `--limit` pages
+# internally, and a response holding exactly the limit is refused rather than
+# returned, because a truncated listing here is a wrong answer and not a
+# smaller one.
+limit=1000
+rows=$(gh pr list --state all --head "$branch" --limit "$limit" \
+         --json number,state,url,headRepository,headRefOid,baseRefName,mergeCommit)
+[ "$(jq 'length' <<<"$rows")" -lt "$limit" ] ||
+  { echo "gh pr list returned exactly $limit rows for $branch, so the listing may be truncated and the newest row cannot be established" >&2; exit 4; }
+# **Into `main` only.** GitHub lets one head branch open PRs against several
+# bases, so a newer PR from this branch into `develop` was the newest row and
+# masked the `main` PR: `/pr` refused to open the right one and `/ship`
+# reviewed the wrong one until `gh-pr-merge.sh` refused it at the end. Every
+# PR this chain opens targets `main`, so no other base is its PR. Raised by
+# Copilot.
+newest=$(jq --arg repo "$repo" \
+  '[ .[] | select((.headRepository.nameWithOwner // "") == $repo)
+         | select(.baseRefName == "main") ]
+   | sort_by(.number) | reverse | .[0:1]' <<<"$rows")
+
+# **The newest row can still be a previous incarnation of the branch.** Sorting
+# settles a reused name once the new PR exists; before that, the old `MERGED`
+# row is the only row, and `/ship` step 0 read new work on the reused branch as
+# already delivered. Raised by Copilot.
+#
+# The local branch says which incarnation this is, and **the merge commit is
+# the test, not the PR's head**. The first form dropped a merged row whenever
+# its head was a strict ancestor of the tip — which is equally true of a branch
+# recreated from `main` and of the ORIGINAL branch with commits added after its
+# PR merged. `ship.md` stops on the second (the work is past a merged PR and
+# needs a decision), and dropping the row sent it to `/pr` instead. Raised by
+# Copilot. A branch recreated from a `main` that contains the merge carries the
+# PR's merge commit; the original branch with commits on top does not. So the
+# row is dropped only when that merge commit is an ancestor of the tip. A merge
+# commit this checkout has not fetched, or no local branch at all, leaves the
+# row as reported — the stop is the safe answer when this cannot be shown.
+# An open row is never dropped: an open PR is the branch's current one by
+# definition.
+#
+# **Merged only, never closed.** A PR closed unmerged is somebody's decision
+# that this branch does not land, and `/ship` stops on it; dropping the row
+# after one more local commit sent the run to `/pr` to open a replacement over
+# that decision. Raised by Copilot.
+state=$(jq -r '.[0].state // ""' <<<"$newest")
+if [ "$state" = MERGED ]; then
+  merge_oid=$(jq -r '.[0].mergeCommit.oid // ""' <<<"$newest")
+  tip=$(git rev-parse --verify --quiet "refs/heads/$branch" || true)
+  if [ -n "$merge_oid" ] && [ -n "$tip" ] &&
+     git merge-base --is-ancestor "$merge_oid" "$tip" 2>/dev/null; then
+    newest='[]'
+  fi
+fi
+jq '[ .[] | {number, state, url} ]' <<<"$newest"
