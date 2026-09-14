@@ -80,7 +80,7 @@ repo=$(gh repo view --json nameWithOwner --jq .nameWithOwner) ||
 # smaller one.
 limit=1000
 rows=$(gh pr list --state all --head "$branch" --limit "$limit" \
-         --json number,state,url,headRepository,headRefOid,baseRefName)
+         --json number,state,url,headRepository,headRefOid,baseRefName,mergeCommit)
 [ "$(jq 'length' <<<"$rows")" -lt "$limit" ] ||
   { echo "gh pr list returned exactly $limit rows for $branch, so the listing may be truncated and the newest row cannot be established" >&2; exit 4; }
 # **Into `main` only.** GitHub lets one head branch open PRs against several
@@ -99,14 +99,19 @@ newest=$(jq --arg repo "$repo" \
 # row is the only row, and `/ship` step 0 read new work on the reused branch as
 # already delivered. Raised by Copilot.
 #
-# The local branch says which incarnation this is. A merged PR whose head is
-# a strict ancestor of the local branch tip describes commits this branch has
-# since moved past — a branch recreated from a `main` that contains the merge
-# is exactly that — so it is not this branch's PR and nothing is returned. A
-# tip EQUAL to the head is the PR that landed, and a head the local branch
-# does not contain (or no local branch at all) is left as reported, because
-# nothing here shows it to be stale. An open row is never dropped: an open PR
-# is the branch's current one by definition.
+# The local branch says which incarnation this is, and **the merge commit is
+# the test, not the PR's head**. The first form dropped a merged row whenever
+# its head was a strict ancestor of the tip — which is equally true of a branch
+# recreated from `main` and of the ORIGINAL branch with commits added after its
+# PR merged. `ship.md` stops on the second (the work is past a merged PR and
+# needs a decision), and dropping the row sent it to `/pr` instead. Raised by
+# Copilot. A branch recreated from a `main` that contains the merge carries the
+# PR's merge commit; the original branch with commits on top does not. So the
+# row is dropped only when that merge commit is an ancestor of the tip. A merge
+# commit this checkout has not fetched, or no local branch at all, leaves the
+# row as reported — the stop is the safe answer when this cannot be shown.
+# An open row is never dropped: an open PR is the branch's current one by
+# definition.
 #
 # **Merged only, never closed.** A PR closed unmerged is somebody's decision
 # that this branch does not land, and `/ship` stops on it; dropping the row
@@ -114,10 +119,10 @@ newest=$(jq --arg repo "$repo" \
 # that decision. Raised by Copilot.
 state=$(jq -r '.[0].state // ""' <<<"$newest")
 if [ "$state" = MERGED ]; then
-  head_oid=$(jq -r '.[0].headRefOid // ""' <<<"$newest")
+  merge_oid=$(jq -r '.[0].mergeCommit.oid // ""' <<<"$newest")
   tip=$(git rev-parse --verify --quiet "refs/heads/$branch" || true)
-  if [ -n "$head_oid" ] && [ -n "$tip" ] && [ "$tip" != "$head_oid" ] &&
-     git merge-base --is-ancestor "$head_oid" "$tip" 2>/dev/null; then
+  if [ -n "$merge_oid" ] && [ -n "$tip" ] &&
+     git merge-base --is-ancestor "$merge_oid" "$tip" 2>/dev/null; then
     newest='[]'
   fi
 fi

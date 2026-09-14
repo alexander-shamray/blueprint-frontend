@@ -4190,17 +4190,37 @@ class AFeedHelperReturnsTheWholeAnswer(unittest.TestCase):
                  "-c", "user.name=t", *args],
                 check=True, capture_output=True, text=True).stdout.strip()
 
-        git("init", "-q", "-b", "feat/reused")
+        # `main`, the PR's branch, and the merge commit that landed it.
+        git("init", "-q", "-b", "main")
+        git("commit", "-q", "--allow-empty", "-m", "root")
+        git("switch", "-q", "-c", "feat/reused")
         git("commit", "-q", "--allow-empty", "-m", "the merged work")
         old_head = git("rev-parse", "HEAD")
-        row = {**self._row(3, "MERGED"), "headRefOid": old_head}
+        git("switch", "-q", "main")
+        git("merge", "-q", "--no-ff", "-m", "Merge pull request #3", "feat/reused")
+        merge = git("rev-parse", "HEAD")
+        row = {**self._row(3, "MERGED"), "headRefOid": old_head,
+               "mergeCommit": {"oid": merge}}
 
         # The tip IS the merged head: this is the PR that landed.
         result = self._pr_list_stub([row], cwd=str(repo))
         self.assertEqual(0, result.returncode, result.stderr)
         self.assertEqual([3], [r["number"] for r in json.loads(result.stdout)])
 
-        # New work on the reused name: the merged head is behind the tip.
+        # **Commits added to the ORIGINAL branch after its PR merged** keep the
+        # row: the head is behind the tip, but the branch does not carry the
+        # merge, and `ship.md` stops on this case. Raised by Copilot.
+        git("switch", "-q", "feat/reused")
+        git("commit", "-q", "--allow-empty", "-m", "after the merge, same branch")
+        result = self._pr_list_stub([row], cwd=str(repo))
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual([3], [r["number"] for r in json.loads(result.stdout)])
+
+        # A branch RECREATED from a `main` that contains the merge is a new
+        # incarnation: the merged row is not its PR.
+        git("switch", "-q", "main")
+        git("branch", "-q", "-D", "feat/reused")
+        git("switch", "-q", "-c", "feat/reused")
         git("commit", "-q", "--allow-empty", "-m", "new work, same name")
         result = self._pr_list_stub([row], cwd=str(repo))
         self.assertEqual(0, result.returncode, result.stderr)
