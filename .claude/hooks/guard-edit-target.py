@@ -404,6 +404,26 @@ def outside_offence(spelled, lexical, resolved):
                             f"surface — `{named}` — through the temp root "
                             "(docs/harness-boundaries.md)."
                         )
+                    return None
+            # **A home directory inside the temp root is not scratch.** With
+            # HOME at `/tmp/home`, `~/.ssh/authorized_keys` sat under the temp
+            # root and was admitted — the arbitrary home write #21 closed.
+            # Only when home is BENEATH the temp root: on Windows the temp root
+            # is usually beneath home instead, and excluding home there would
+            # refuse the scratchpad itself. `~/.claude` is judged just above,
+            # as state. Raised by Copilot.
+            home = os.path.abspath(os.path.expanduser("~"))
+            for home_root in {home, os.path.realpath(home)}:
+                if (within(home_root)
+                        and not same(home_root, spelled_root, traits)
+                        and (under(lexical, home_root, traits)
+                             or under(resolved, home_root, traits))):
+                    return (
+                        f"guard-edit-target: {spelled} resolves to {resolved}, "
+                        "inside the home directory, which sits under the temp "
+                        "root here and is not scratch (#21, "
+                        "docs/harness-boundaries.md)."
+                    )
             for path in (lexical, resolved):
                 checkout = checkout_root(path)
                 if checkout is None or not within(checkout):

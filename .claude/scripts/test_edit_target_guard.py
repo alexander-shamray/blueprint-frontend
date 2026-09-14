@@ -806,6 +806,21 @@ class WhatThisGuardIsNotTheSubjectOf(GuardCase):
         self.assertIsNotNone(into_checkout)
         self.assertIsNone(scratch)
 
+        # **The rest of that home is not scratch either.** Under the temp
+        # root it was admitted whole, `~/.ssh` included. Raised by Copilot.
+        # `~/.claude` state stays admitted through its own root.
+        with mock.patch.object(tempfile, "gettempdir",
+                               return_value=self.outside):
+            with mock.patch.dict(os.environ,
+                                 {"HOME": home, "USERPROFILE": home}):
+                for parts in ((".ssh", "authorized_keys"), (".bashrc",)):
+                    path = os.path.join(home, *parts)
+                    with self.subTest(parts=parts):
+                        self.assertIsNotNone(
+                            module.outside_offence(path, path, path))
+                memory = os.path.join(home, ".claude", "projects", "p", "m.md")
+                self.assertIsNone(module.outside_offence(memory, memory, memory))
+
     def test_a_sibling_worktree_of_this_repository_is_judged_not_refused(self):
         """The false positive the allow-list introduced, found by walking into it.
 
