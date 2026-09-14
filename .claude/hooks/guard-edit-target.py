@@ -309,10 +309,15 @@ def scratch_roots():
     """
     roots = [
         tempfile.gettempdir(),
-        os.path.join(os.path.expanduser("~"), ".claude"),
+        harness_state_root(),
     ]
     return [(os.path.abspath(root), os.path.realpath(root))
             for root in roots if root]
+
+
+def harness_state_root():
+    """`~/.claude`, spelled once for `scratch_roots` and `outside_offence`."""
+    return os.path.abspath(os.path.join(os.path.expanduser("~"), ".claude"))
 
 
 def control_surface(path, root, traits):
@@ -362,6 +367,30 @@ def outside_offence(spelled, lexical, resolved):
 
         if not (within(lexical) and within(resolved)):
             continue
+        # **The control-surface exclusion is the harness-state root's, not the
+        # temp root's.** `control_surface` reads `scripts`, `commands` and
+        # `settings.json` as protected at any depth, which is right under
+        # `~/.claude` and refused a scratch `/tmp/session/scripts/note.md`
+        # under the temp root. Raised by Copilot.
+        #
+        # **What the temp root refuses instead is a checkout's machinery.**
+        # Admitting it whole, the first repair, made `.claude/` writable in
+        # every checkout the temp root holds — and the sweeps' detached
+        # worktrees live exactly there. So a target inside a checkout under
+        # this root is judged against the protected inventory, relative to
+        # that checkout, and a plain scratch file is admitted.
+        if not same(spelled_root, harness_state_root(), traits):
+            checkout = checkout_root(lexical)
+            if checkout is None or not within(checkout):
+                return None
+            machinery = protected_in_worktree(lexical, checkout)
+            if machinery is None:
+                return None
+            return (
+                f"guard-edit-target: {spelled} targets {machinery} in a "
+                "checkout under the temp root, where none of this session's "
+                "permission rules apply (docs/harness-boundaries.md)."
+            )
         base = real_root if under(resolved, real_root, traits) else spelled_root
         named = control_surface(resolved, base, traits)
         if named is None:

@@ -859,6 +859,33 @@ class WhatThisGuardIsNotTheSubjectOf(GuardCase):
                              "some-project", "memory", "note.md")
         self.assertAdmitted(state)
 
+    def test_the_temp_root_is_admitted_whole(self):
+        # The control-surface names are `~/.claude`'s exclusion, and applying
+        # them under the temp root refused ordinary scratch folders named
+        # `scripts` or files named `settings.json`. Raised by Copilot.
+        temp = tempfile.gettempdir()
+        for parts in (("session", "scripts", "note.md"),
+                      ("session", "settings.json"),
+                      ("session", "commands", "x.txt")):
+            with self.subTest(parts=parts):
+                self.assertAdmitted(os.path.join(temp, *parts))
+        # And the exclusion still stands where it belongs.
+        self.assertRefused(
+            os.path.join(os.path.expanduser("~"), ".claude", "settings.json"))
+
+        # **Whole is not whole for a checkout's machinery.** The sweeps'
+        # detached worktrees live under the temp root, and admitting it
+        # outright made their `.claude/` writable; the application tree of
+        # the same checkout stays admitted.
+        checkout = os.path.join(self.outside, "sweep-checkout")
+        os.makedirs(os.path.join(checkout, ".git"))
+        for parts in ((".claude", "scripts", "helper.sh"),
+                      (".github", "workflows", "ci.yml"),
+                      ("package.json",)):
+            with self.subTest(parts=parts):
+                self.assertRefused(os.path.join(checkout, *parts))
+        self.assertAdmitted(os.path.join(checkout, "src", "app", "x.ts"))
+
     def test_a_path_outside_every_checkout_and_every_scratch_root_is_refused(self):
         # **The finding.** The fallback was argued as "refusing would break the
         # harness's own state writes", which reads as though the alternative

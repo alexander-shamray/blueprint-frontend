@@ -1122,10 +1122,14 @@ STATE and a credential is not state, which is this repository's own argument
 about its `.claude/` applied one level up where the grant is wider. Each root
 is matched in both its spelled and resolved forms, since macOS reaches `TMPDIR`
 through a link and comparing against the spelling alone would refuse the
-scratchpad on every macOS host. **What is left**: the temp root is admitted
-whole rather than the session's own subdirectory within it, because no
-environment variable names the scratchpad and deriving it would be a guess the
-hook cannot check.
+scratchpad on every macOS host. The control-surface names are that second
+root's exclusion only: under the temp root a folder called `scripts` is
+scratch. What the temp root refuses instead is a checkout's machinery — the
+sweeps' detached worktrees live there, so a target inside a checkout under it
+is judged against the protected inventory relative to that checkout. **What is
+left**: the rest of the temp root is admitted rather than the session's own
+subdirectory within it, because no environment variable names the scratchpad
+and deriving it would be a guess the hook cannot check.
 **The sweeps' item 5 (#75) closed by the same shape** — a second read-only
 dispatch returns a verdict, the parent opens nothing in `$work`, and the issue
 helper leaves `gh issue create` with no free parameter — so
