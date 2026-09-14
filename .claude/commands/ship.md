@@ -1,5 +1,5 @@
 ---
-description: Start from a clean main, fork a worktree where one can be forked, branch, commit, push and open a PR, loop the external reviews — Grok until two consecutive clean passes, Copilot until one — then merge the PR and tear the workspace down. Decides for itself rather than stopping to ask
+description: Start from a clean main, fork a worktree where one can be forked, branch, commit, push and open a PR, loop the Copilot review until one clean pass (Grok is disabled pending a trusted launcher) — then merge the PR and tear the workspace down. Decides for itself rather than stopping to ask
 argument-hint: "[what the change does] — omit and each step derives its own"
 allowed-tools: Read, Grep, Glob, Write, Skill, EnterWorktree, ExitWorktree, Bash(git status:*), Bash(git diff:*), Bash(git branch --list:*), Bash(git branch --show-current), Bash(git branch -a), Bash(git log:*), Bash(git fetch origin:*), Bash(bash .claude/scripts/git-branch-create.sh:*), Bash(bash .claude/scripts/git-worktree-fork.sh:*), Bash(bash .claude/scripts/git-switch-existing.sh:*), Bash(git rev-parse:*), Bash(git worktree list:*), Bash(ls:*), Bash(git add:*), Bash(git commit:*), Bash(bash .claude/scripts/git-unstage.sh:*), Bash(git push -u origin:*), Bash(git push origin:*), Bash(wc:*), Bash(bash .claude/scripts/gh-pr-create.sh:*), Bash(bash .claude/scripts/pr-state.sh:*), Bash(bash .claude/scripts/pr-for-branch.sh:*), Bash(gh pr checks:*), Bash(bash .claude/scripts/gh-pr-merge.sh:*), Bash(git pull --ff-only), Bash(git merge-base --is-ancestor:*), Bash(bash .claude/scripts/git-worktree-remove.sh:*), Bash(git worktree prune:*), Bash(rm -f suggestions.md), Bash(bash .claude/scripts/grok-ledger.sh:*), Bash(bash .claude/scripts/copilot-request.sh:*), Bash(bash .claude/scripts/copilot-request-count.sh:*), Bash(bash .claude/scripts/pr-review-comments.sh:*), Bash(bash .claude/scripts/pr-review-bodies.sh:*), Bash(bash .claude/scripts/pr-issue-comments.sh:*), Bash(bash .claude/scripts/pr-review-threads.sh:*), Bash(bash .claude/scripts/grok-review.sh:*), Bash(sleep:*), Bash(bash .claude/scripts/pr-locality.sh:*), Bash(bash .claude/scripts/npm-checks.sh:*)
 disallowed-tools: Edit(.claude/**), Edit(./.claude/**), Edit(.github/**), Edit(./.github/**), Edit(.remember/**), Edit(./.remember/**), Edit(android/**), Edit(./android/**), Edit(ios/**), Edit(./ios/**), Edit(.git/**), Edit(./.git/**), Edit(package.json), Edit(./package.json), Edit(package-lock.json), Edit(./package-lock.json), Edit(npm-shrinkwrap.json), Edit(./npm-shrinkwrap.json), Edit(.npmrc), Edit(./.npmrc), Edit(angular.json), Edit(./angular.json), Edit(tsconfig.json), Edit(./tsconfig.json), Edit(tsconfig.app.json), Edit(./tsconfig.app.json), Edit(tsconfig.spec.json), Edit(./tsconfig.spec.json), Edit(eslint.config.js), Edit(./eslint.config.js), Edit(.prettierrc), Edit(./.prettierrc), Edit(capacitor.config.ts), Edit(./capacitor.config.ts), Edit(playwright.config.ts), Edit(./playwright.config.ts), Edit(ionic.config.json), Edit(./ionic.config.json), Edit(.nvmrc), Edit(./.nvmrc), Edit(.editorconfig), Edit(./.editorconfig), Edit(.gitattributes), Edit(./.gitattributes), Edit(.gitignore), Edit(./.gitignore), Edit(CLAUDE.md), Edit(./CLAUDE.md), Edit(README.md), Edit(./README.md), Edit(**/*.config.js), Edit(**/*.config.cjs), Edit(**/*.config.mjs), Edit(**/*.config.ts), Edit(**/*.config.mts), Edit(**/package.json), Edit(**/.npmrc), Edit(**/tsconfig*.json), Edit(**/.prettierrc*), Edit(node_modules/**), Edit(./node_modules/**)
@@ -32,10 +32,11 @@ branch keeps catching a round late.
 ## It runs to the end, and the end is a merged PR
 
 `/pr` pushes the branch itself, so the chain reaches an open PR without waiting
-for anyone, and step 7 merges it. Steps 5 and 6 sit between: Grok reads the
-branch and `/review-grok` triages what it found, then Copilot reads the PR and
-`/review-copilot` triages that. When both loops have finished — however they
-finished — the PR is merged, the session returns to the main checkout and the
+for anyone, and step 7 merges it. Steps 5 and 6 sit between. **Step 5, the
+Grok half, is disabled** until its launcher lives outside the branch it
+reviews, so a run reports it skipped; Copilot reads the PR and
+`/review-copilot` triages that. When the Copilot loop has finished — however
+it finished — the PR is merged, the session returns to the main checkout and the
 worktree is removed.
 
 **Nothing in this chain stops to ask.** Where an earlier version handed a
@@ -113,7 +114,7 @@ that reaches a merge — so the rows below say what is owed *between* them:
 | On a branch, tree dirty | Checks, `/commit`, push, `/pr` |
 | On a branch, tree clean, unpushed or ahead | Push, `/pr` |
 | On a branch, tree clean and pushed | `/pr`, then the review loops |
-| On a branch with an open PR | The review loops (steps 5–6), Grok before Copilot — and, if the tree is dirty, checks, `/commit` **scoped to the implementation paths** and a push first, so the reviewers read what the PR will actually carry. Never unscoped while `suggestions.md` is on disk: that file is Grok's working state, and the unscoped form sweeps untracked files into the commit |
+| On a branch with an open PR | The review loops (steps 5–6) — step 5 reported skipped while Grok is disabled, then Copilot — and, if the tree is dirty, checks, `/commit` **scoped to the implementation paths** and a push first, so the reviewers read what the PR will actually carry. Never unscoped while `suggestions.md` is on disk: that file is Grok's working state, and the unscoped form sweeps untracked files into the commit |
 | On a branch whose PR was **closed unmerged** | **Stop.** Somebody decided this branch does not land, and the open-PR read cannot see that: with no open PR the *clean and pushed* row would send the run to `/pr`, which refuses only an **open** one — so the chain would open a replacement and merge it, overriding a deliberate closure with no human in the loop. Report the closed PR and its number |
    | On a branch whose PR is **already merged** | **Step 0 alone, and then the run is over.** `pr-state.sh` reporting `MERGED` is the check, and it comes before the review loops rather than after them — re-requesting a review on a merged PR spends a round of somebody's budget on a branch nobody can change. With nothing left in the workspace, step 0's teardown is a complete one (switch, pull, remove, prune); with a dirty tree or commits made after the merge the branch is **not** finished, step 0 stays put and tears nothing down, and the run still ends here. Either way step 7 has nothing left to do: there is no PR to merge |
 
@@ -1434,10 +1435,11 @@ same argument as never calling a branch clean because asking failed.
    only thing that would resolve it.
 
    **Non-empty is not a stop, because there is an obvious right answer.** The
-   run goes back: commit — **scoped**, always — push, and re-enter both review
-   loops for whatever each has left of its own ceiling — `CEILING` for Grok,
-   step 6's own for Copilot — then return to the **top of
-   this step**, not to this gate. The top is where `suggestions.md` is
+   run goes back: commit — **scoped**, always — push, and re-enter the review
+   loops for whatever each has left of its own ceiling — step 6's own for
+   Copilot; step 5 is reported skipped again while Grok is disabled, and
+   `CEILING` applies to it only once it is restored — then return to the
+   **top of this step**, not to this gate. The top is where `suggestions.md` is
    removed, and re-entering the Grok loop is exactly what puts it back. That
    is what a resumed `/ship` would do from the *on a branch with an open PR*
    row, so doing it here costs nothing new and terminates for the same

@@ -168,7 +168,7 @@ These stay here because they have to be true before anyone opens the guide:
 
 | | |
 |---|---|
-| `/ship` | Clean `main` → `/branch` → checks → `/commit` → `/pr` → both review loops → merge → teardown. **It stops for nothing that is a judgement** |
+| `/ship` | Clean `main` → `/branch` → checks → `/commit` → `/pr` → the Copilot review loop (Grok is disabled) → merge → teardown. **It stops for nothing that is a judgement** |
 | `/branch` | A correctly named branch **in a sibling worktree** the session moves into; in place when the tree is dirty or the parent is not writable |
 | `/commit` | Split the working tree into semantic commits with arguing bodies |
 | `/pr` | Open a PR in the house body form |
