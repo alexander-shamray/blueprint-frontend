@@ -8071,6 +8071,29 @@ class TheGitArgvGuard(unittest.TestCase):
         # Quoting makes the metacharacter literal, so this is not the bypass.
         self.assertAdmitted('ls > "package.jso?"')
 
+    def test_a_protected_name_in_another_case_or_spelling_is_refused(self):
+        # Windows and default macOS volumes look names up without regard to
+        # case, and Windows drops trailing dots and spaces and answers to 8.3
+        # short names — each of these opens a protected file on some host
+        # while matching neither set as written.
+        for command in (
+            "ls > PACKAGE.JSON",
+            "ls > Package.Json",
+            "ls > .CLAUDE/settings.json",
+            "ls > .Git/config",
+            "ls > src/../ANDROID/app/build.gradle",
+            "ls > package.json.",
+            'ls > "package.json "',
+            "ls > PACKAG~1.JSO",
+            "ls > CLAUDE~1/settings.json",
+        ):
+            with self.subTest(command=command):
+                self.assertRefused(command)
+
+        # The positive control for the short-name rule: Windows spells the
+        # temp root with `~1` too, and a scratch write there stays admitted.
+        self.assertAdmitted("ls > C:/Users/RUNNER~1/AppData/Local/Temp/out.txt")
+
     def test_a_protected_path_inside_a_heredoc_or_a_quote_is_data(self):
         # The invariant the rest of this pipeline is built on, applied to the
         # new rule: a commit body describing this very change has to remain

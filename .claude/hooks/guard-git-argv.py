@@ -173,6 +173,11 @@ PROTECTED_FILES = frozenset({
     "vitest.config.js", "vitest.config.mts", "vitest.config.ts",
 })
 
+# The comparison copies `protected_path` reads; the sets above stay in their
+# real spelling because the suite compares them against `git ls-files`.
+PROTECTED_TREES_FOLDED = frozenset(name.lower() for name in PROTECTED_TREES)
+PROTECTED_FILES_FOLDED = frozenset(name.lower() for name in PROTECTED_FILES)
+
 # `git -c <key>=<value>` sets configuration for one invocation, and a long list
 # of config keys are EXECUTED by git: `alias.*`, `core.pager`, `core.editor`,
 # `core.sshCommand`, `core.hooksPath`, `diff.external`, `diff.*.textconv`,
@@ -1796,13 +1801,35 @@ def protected_path(literal):
     Judged on the components of the path as written. `docs/../.claude/x` holds
     a `.claude` component and is refused; so is `/tmp/checkout/.git/config`,
     which is the point of matching a component rather than a prefix.
+
+    **Compared folded, on every host, because the filesystem decides and not
+    the string.** Windows and a default macOS volume look names up without
+    regard to case, so `ls > PACKAGE.JSON` and `ls > .CLAUDE/settings.json`
+    overwrite the protected file while matching neither set as spelled. This
+    hook cannot ask the volume — it has no `cwd` it can trust, which is the
+    reason it judges lexically at all — so it folds everywhere, and a Linux
+    redirect to a genuinely distinct `Package.json` is refused along with it.
+    Raised by Copilot.
+
+    Windows also discards trailing dots and spaces from a component, so
+    `package.json.` opens `package.json`; those are stripped before comparing.
+    An 8.3 short name — `PACKAG~1.JSO`, `CLAUDE~1` — is the same file under a
+    spelling no set can list, so a `~<digit>` component is refused when its
+    stem could abbreviate a protected name. Not every such component: Windows
+    spells the temp root itself that way (`C:/Users/RUNNER~1/…`), and refusing
+    those would take the session's scratch writes with it.
     """
     parts = [part for part in re.split(r"[\\/]+", literal)
              if part not in ("", ".")]
     for part in parts:
-        if part in PROTECTED_TREES:
+        short = re.match(r"([^~]+)~\d", part)
+        if short and any(
+                name.replace(".", "").startswith(short.group(1).lower())
+                for name in PROTECTED_TREES_FOLDED | PROTECTED_FILES_FOLDED):
             return part
-    if parts and parts[-1] in PROTECTED_FILES:
+        if part.rstrip(". ").lower() in PROTECTED_TREES_FOLDED:
+            return part
+    if parts and parts[-1].rstrip(". ").lower() in PROTECTED_FILES_FOLDED:
         return parts[-1]
     return None
 
