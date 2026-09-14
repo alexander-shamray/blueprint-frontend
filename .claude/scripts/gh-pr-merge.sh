@@ -49,15 +49,19 @@ repo=$(gh repo view --json nameWithOwner --jq .nameWithOwner) ||
 # `--match-head-commit` binds the merge to an oid, and the caller supplies
 # that too: any open PR in this repository, named with its own head, passed.
 # So the PR must be the one for the branch checked out here, from this
-# repository rather than a fork, with that head. Raised by Copilot.
+# repository rather than a fork, with that head, and into `main` — the only
+# base `/pr` opens against, so a PR from this branch into anything else is not
+# the delivery this helper exists for. Raised by Copilot.
 branch=$(git branch --show-current)
 [ -n "$branch" ] && [ "$branch" != main ] ||
   { echo "not on a PR branch: there is no branch to bind pull request #$pr to" >&2; exit 3; }
 head=$(gh pr view "$pr" --repo "$repo" \
-  --json headRefName,headRefOid,isCrossRepository \
-  --jq '[.headRefName, .headRefOid, (.isCrossRepository|tostring)] | @tsv') ||
+  --json headRefName,headRefOid,isCrossRepository,baseRefName \
+  --jq '[.headRefName, .headRefOid, (.isCrossRepository|tostring), .baseRefName] | @tsv') ||
   { echo "cannot read pull request #$pr" >&2; exit 3; }
-IFS=$'\t' read -r head_branch head_oid cross <<<"${head%$'\r'}"
+IFS=$'\t' read -r head_branch head_oid cross base <<<"${head%$'\r'}"
+[ "$base" = main ] ||
+  { echo "pull request #$pr targets $base, not main" >&2; exit 3; }
 [ "$cross" = false ] ||
   { echo "pull request #$pr comes from another repository" >&2; exit 3; }
 [ "$head_branch" = "$branch" ] ||

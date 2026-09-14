@@ -3675,7 +3675,8 @@ class NoCommandHoldsAPrefixGrantThatAdmitsAForbiddenFlag(unittest.TestCase):
                       "headRefName,headRefOid,isCrossRepository",
                       '[ "$head_branch" = "$branch" ]',
                       '[ "$cross" = false ]',
-                      '[ "$head_oid" = "$oid" ]'):
+                      '[ "$head_oid" = "$oid" ]',
+                      '[ "$base" = main ]'):
             with self.subTest(check=check):
                 self.assertIn(check, merge)
                 self.assertLess(merge.find(check), merge.find("gh pr merge"))
@@ -3759,7 +3760,8 @@ class NoCommandHoldsAPrefixGrantThatAdmitsAForbiddenFlag(unittest.TestCase):
     def test_the_create_helper_refuses_a_body_it_should_not_publish(self):
         # `--body-file` publishes what it reads, including a file the session's
         # own `Read` is bounded away from — so the path is resolved and has to
-        # land inside the checkout or under the temp root.
+        # be exactly the checkout-root `pr-body.md`, which is what this case
+        # checks the refusal names.
         outside = Path(os.path.expanduser("~")) / ".gitconfig"
         if not outside.is_file():
             outside = Path(os.path.expanduser("~")) / ".bashrc"

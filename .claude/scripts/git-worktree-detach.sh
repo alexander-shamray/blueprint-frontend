@@ -40,7 +40,7 @@ git rev-parse --verify --quiet "$commit^{commit}" >/dev/null ||
 # "root every path under `$work`", and a git worktree preserves tracked links —
 # so `$work/leak -> ~/.ssh/id_rsa` is an absolute path under `$work` whose
 # target is not, and `Read`, `Grep` and `Glob` all follow it. The auditor's
-# findings then reach `gh-issue-create.sh` and a public issue body.
+# findings then reach `gh-sweep-issue-create.sh` and a public issue body.
 #
 # **`/review-grok` already carries this argument and the sweeps did not.** It
 # records that the suite's "no tracked symbolic link" case is a claim about
