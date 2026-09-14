@@ -8487,6 +8487,18 @@ class TheHookWiringRunsOnMoreThanOneOperatingSystem(unittest.TestCase):
                 out = launch()
                 self.assertEqual(expected, out.stdout.strip(), out.stderr)
 
+        # **None that runs is a refusal, and only exit 2 refuses.** Any other
+        # non-zero exit from a `PreToolUse` hook is non-blocking, so the tool
+        # would run unguarded. Raised by Copilot.
+        for name in ("py", "python3", "python"):
+            (bin_dir / name).unlink(missing_ok=True)
+            stand_in(name, probe_ok=False)
+        with self.subTest(broken="all"):
+            out = launch()
+            self.assertEqual(2, out.returncode, out.stderr)
+            self.assertEqual("", out.stdout.strip())
+            self.assertIn("no Python 3.12", out.stderr)
+
     def test_the_launcher_execs_once_rather_than_falling_back(self):
         # `py -3.12 … || python3 …` re-runs the hook whenever the first
         # invocation exits non-zero for a real reason — and for a `PreToolUse`

@@ -434,8 +434,10 @@ pinned only where the launcher can pin it: `python3` and `python` are whatever
 the host provides.
 
 **The failure mode is loud and total, which is the good kind** — a host with
-none of the three cannot start the command, so a call reports a hook error
-rather than quietly proceeding unguarded. #23 stays open for the part no
+none of the three gets `exit 2` and a message, and exit 2 is the only code a
+`PreToolUse` hook blocks with: any other non-zero exit is reported and the
+tool runs unguarded, which is what an unprobed last `exec` failing with 127
+would have done. #23 stays open for the part no
 suite here can show: the launcher running as the harness's hook on a
 non-Windows host.
 

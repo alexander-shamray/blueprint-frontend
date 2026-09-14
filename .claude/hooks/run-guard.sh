@@ -60,6 +60,13 @@ fi
 if command -v python3 >/dev/null 2>&1 && python3 -c "$probe" >/dev/null 2>&1; then
   exec python3 "$dir/$1"
 fi
-# The last candidate is not probed: there is nothing left to fall back to, and
-# its own failure is the loud hook error the header argues for.
-exec python "$dir/$1"
+if command -v python >/dev/null 2>&1 && python -c "$probe" >/dev/null 2>&1; then
+  exec python "$dir/$1"
+fi
+# **Exit 2, because it is the only code that blocks.** A `PreToolUse` hook
+# that exits with anything else is a non-blocking error: the harness reports
+# it and runs the tool unguarded. The unprobed last `exec` this replaces would
+# have run a 3.11 `python`, or failed with 127 and let the call through —
+# neither the loud refusal the header promises. Raised by Copilot.
+echo "run-guard.sh: no Python 3.12 or newer found as py -3.12, python3 or python; refusing the call rather than running it unguarded" >&2
+exit 2
