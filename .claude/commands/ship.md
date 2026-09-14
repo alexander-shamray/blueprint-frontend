@@ -594,7 +594,7 @@ same argument as never calling a branch clean because asking failed.
    second time:
 
    ```bash
-   bash .claude/scripts/git-worktree-remove.sh ../<checkout-name>-<slug>
+   bash .claude/scripts/git-worktree-remove.sh ../<checkout-name>-<slug> <branch>
    ```
 
    **One definition, read at both sites, and it is the predicate above rather
@@ -1571,7 +1571,7 @@ same argument as never calling a branch clean because asking failed.
    bash .claude/scripts/git-switch-existing.sh main     # 3. in-place runs only
    git pull --ff-only                                   # 4. main, now containing the merge
    git merge-base --is-ancestor <merge-oid> HEAD        # 5. and it really does contain it
-   bash .claude/scripts/git-worktree-remove.sh ../<checkout-name>-<slug>  # 6. forked only
+   bash .claude/scripts/git-worktree-remove.sh ../<checkout-name>-<slug> <branch>  # 6. forked only
    git worktree prune                                   # 7.
    ```
 

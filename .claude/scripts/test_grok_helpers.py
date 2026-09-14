@@ -3664,9 +3664,56 @@ class NoCommandHoldsAPrefixGrantThatAdmitsAForbiddenFlag(unittest.TestCase):
                     "../../sibling"):
             with self.subTest(arg=arg):
                 out = subprocess.run(
-                    [BASH, str(SCRIPTS / "git-worktree-remove.sh"), arg],
+                    [BASH, str(SCRIPTS / "git-worktree-remove.sh"), arg,
+                     "fix/sibling"],
                     capture_output=True, text=True)
                 self.assertEqual(2, out.returncode, out.stderr)
+
+    def test_the_worktree_helper_removes_only_the_worktree_it_is_named_for(self):
+        # **Registration is not ownership** (Copilot). Driven against a real
+        # repository with two sibling worktrees: naming the other run's path,
+        # or this run's path with a branch it does not hold, is refused and
+        # leaves the directory standing; the matching pair is removed.
+        base = Path(tempfile.mkdtemp(prefix="wt-remove-"))
+        self.addCleanup(shutil.rmtree, str(base), ignore_errors=True)
+        repo = base / "repo"
+        repo.mkdir()
+
+        def git(*args):
+            subprocess.run(["git", "-C", str(repo), *args], check=True,
+                           capture_output=True, text=True)
+
+        git("init", "-q", "-b", "main")
+        git("-c", "user.email=t@example.com", "-c", "user.name=t",
+            "commit", "-q", "--allow-empty", "-m", "root")
+        git("worktree", "add", "-q", "-b", "fix/mine", "../repo-mine")
+        git("worktree", "add", "-q", "-b", "fix/theirs", "../repo-theirs")
+
+        def remove(*args):
+            return subprocess.run(
+                [BASH, str(SCRIPTS / "git-worktree-remove.sh"), *args],
+                capture_output=True, text=True, cwd=str(repo))
+
+        for args in (("../repo-theirs", "fix/mine"),
+                     ("../repo-mine", "fix/theirs"),
+                     ("../repo-mine", "main"),
+                     ("../repo-mine", "-f")):
+            with self.subTest(args=args):
+                out = remove(*args)
+                self.assertNotEqual(0, out.returncode, out.stderr)
+                self.assertTrue((base / "repo-mine").is_dir())
+                self.assertTrue((base / "repo-theirs").is_dir())
+
+        # The slug matches but the branch is not the one checked out there.
+        git("worktree", "add", "-q", "-b", "feat/mine", "../repo-other-mine")
+        out = remove("../repo-other-mine", "fix/mine")
+        self.assertEqual(3, out.returncode, out.stderr)
+        self.assertTrue((base / "repo-other-mine").is_dir())
+
+        out = remove("../repo-mine", "fix/mine")
+        self.assertEqual(0, out.returncode, out.stderr)
+        self.assertFalse((base / "repo-mine").exists())
+        self.assertTrue((base / "repo-theirs").is_dir())
 
     def test_the_create_helper_refuses_a_body_it_should_not_publish(self):
         # `--body-file` publishes what it reads, including a file the session's
