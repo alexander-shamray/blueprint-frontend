@@ -8288,6 +8288,23 @@ class TheGitArgvGuard(unittest.TestCase):
             with self.subTest(command=command):
                 self.assertRefused(command, cwd=root)
 
+        # **A directory change moves a relative target**, and the guard
+        # places it against the event's `cwd`. So any relative write in a
+        # command that can change directory is refused, and an absolute one
+        # is still judged. Raised by Copilot.
+        for command in ("ls >/dev/null; cd .claude; ls > settings.json",
+                        "cd src && ls > app/x.ts",
+                        "(cd notes && ls > out.txt)",
+                        "pushd .claude >/dev/null; ls > x; popd",
+                        "builtin cd .git && ls > config"):
+            with self.subTest(command=command):
+                self.assertRefused(command, cwd=root)
+        os.makedirs(os.path.join(root, "notes"))
+        self.assertAdmitted(
+            f"cd notes && ls > {Path(root).as_posix()}/notes/out.txt", cwd=root)
+        self.assertAdmitted("cd notes && ls >/dev/null", cwd=root)
+        self.assertAdmitted("ls > notes/out.txt # cd later", cwd=root)
+
         # The control: a `src` directory that is not at a checkout's root.
         elsewhere = tempfile.mkdtemp(prefix="argv-noapp-")
         self.addCleanup(shutil.rmtree, elsewhere, ignore_errors=True)

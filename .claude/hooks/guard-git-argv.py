@@ -1950,6 +1950,12 @@ def application_tree(literal):
     return None
 
 
+# A command word that moves the shell's working directory, wherever it stands
+# in the command: after a separator, inside a group or a subshell, or behind
+# a `builtin`/`command` wrapper, which the leading boundary also admits.
+CHANGES_DIRECTORY = re.compile(r"(?:^|[\s;&|(){}`])(?:cd|pushd|popd)(?=$|[\s;&|()])")
+
+
 # The directory the session's command runs in, from the hook event. `None`
 # until `main` reads one, and then the process's own directory stands in.
 EVENT_CWD = None
@@ -2080,6 +2086,26 @@ def redirection_offence(command):
                     "(#20, docs/harness-boundaries.md)."
                 )
             literal = expanded
+        # **A relative target is placed against the event's `cwd`, and a
+        # directory change earlier in the command moves where it lands.**
+        # `ls >/dev/null; cd .claude; ls > settings.json` was judged as
+        # `<checkout>/settings.json` and bash wrote `.claude/settings.json`.
+        # Modelling `cd`, `pushd` and `popd` through subshells and compound
+        # commands is the kind of shell emulation this file refuses to guess
+        # at, so a relative write target is refused whenever the command can
+        # change directory. Name the path absolutely, or split the command.
+        # Raised by Copilot.
+        # A leading slash is absolute to bash on every host, and to
+        # `os.path.isabs` only where there is no drive letter to ask for.
+        absolute = os.path.isabs(literal) or literal.startswith(("/", "\\"))
+        if not absolute and CHANGES_DIRECTORY.search(command):
+            return (
+                f"`{span.operator}` writes the relative path `{literal}` in a "
+                "command that also changes directory, so where it lands is "
+                "not the event's working directory and this guard cannot "
+                "place it. Name the path absolutely, or run the `cd` as its "
+                "own command (#20, docs/harness-boundaries.md)."
+            )
         named = (protected_path(literal) or linked_protected_path(literal)
                  or application_tree(literal))
         if named is not None:
