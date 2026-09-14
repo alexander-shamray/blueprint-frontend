@@ -220,7 +220,14 @@ work — so the targets were in hand and what was missing was a rule about them.
 It has one: `redirection_spans` carries the operator and the target word with
 each span, and a redirection that OPENS its target refuses a path naming the
 machinery trees or a toolchain root file. Read redirections are untouched,
-since reading the machinery is what half these commands are for. The names
+since reading the machinery is what half these commands are for. **The
+application trees any command denies — `src`, `docs`, `e2e`, `public`, which
+`/review-branch` refuses its editing tools — are refused too**, matched only as
+the first folder under the checkout the target lands in, so a `docs` directory
+in scratch stays writable. A hook cannot see which command is running, so it
+protects the union, and the suite reads every command's frontmatter to keep
+that union complete. A `cd` earlier in the same command is not modelled: the
+target is placed against the event's `cwd`. The names
 are compared case-folded, and a target inside a checkout is judged again where
 it resolves, from the hook event's `cwd`, so a branch's `docs/out ->
 ../.claude/settings.json` link does not make the write an unprotected one.

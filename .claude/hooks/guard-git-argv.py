@@ -1912,6 +1912,44 @@ def expanded_target(literal, command):
     return expanded
 
 
+# **The application trees a command denies, judged only at a checkout's root.**
+# `/review-branch` denies `Edit(src/**)`, `docs/**`, `e2e/**` and `public/**`,
+# and a globally approved `ls > src/app/x.ts` wrote past every one of them —
+# the list above named the machinery and nothing a read-only review exists not
+# to touch. Raised by Copilot. A hook cannot see which command is running, so
+# the union of every command's denies is what it protects.
+#
+# Matched as the FIRST component under the checkout containing the target,
+# not at any depth like the trees above: `src` and `docs` are ordinary names,
+# and refusing `/tmp/x/docs/out` would take scratch writes with them.
+APPLICATION_TREES = frozenset({"docs", "e2e", "public", "src"})
+
+
+def application_tree(literal):
+    """Which application tree `literal` writes into at a checkout's root."""
+    cwd = EVENT_CWD or os.getcwd()
+    joined = literal if os.path.isabs(literal) else os.path.join(cwd, literal)
+    lexical = os.path.normpath(os.path.abspath(joined))
+    for path in (lexical, os.path.realpath(joined)):
+        root = path
+        while not os.path.exists(os.path.join(root, ".git")):
+            parent = os.path.dirname(root)
+            if parent == root:
+                root = None
+                break
+            root = parent
+        if root is None:
+            continue
+        try:
+            relative = os.path.relpath(path, root)
+        except ValueError:
+            continue
+        first = re.split(r"[\\/]+", relative)[0]
+        if first.split(":", 1)[0].rstrip(". ").lower() in APPLICATION_TREES:
+            return first
+    return None
+
+
 # The directory the session's command runs in, from the hook event. `None`
 # until `main` reads one, and then the process's own directory stands in.
 EVENT_CWD = None
@@ -2042,7 +2080,8 @@ def redirection_offence(command):
                     "(#20, docs/harness-boundaries.md)."
                 )
             literal = expanded
-        named = protected_path(literal) or linked_protected_path(literal)
+        named = (protected_path(literal) or linked_protected_path(literal)
+                 or application_tree(literal))
         if named is not None:
             return (
                 f"`{span.operator}` would write `{literal}`, and `{named}` is "

@@ -8259,15 +8259,40 @@ class TheGitArgvGuard(unittest.TestCase):
         # The positive control. A rule that refused every redirection would
         # satisfy every case above and take the session's own scratch writes
         # with it.
+        root = tempfile.mkdtemp(prefix="argv-control-")
+        self.addCleanup(shutil.rmtree, root, ignore_errors=True)
+        os.makedirs(os.path.join(root, ".git"))
         for command in (
             "ls > /dev/null",
             "npm test 2>&1 | head -5",
             "git log --oneline > D:/tmp/alexa/out.txt",
-            "cat foo.txt > docs/notes.md",
-            "printf x > src/app/probe.ts",
+            "cat foo.txt > notes.md",
+            "printf x > scratch/docs/probe.ts",
         ):
             with self.subTest(command=command):
-                self.assertAdmitted(command)
+                self.assertAdmitted(command, cwd=root)
+
+    def test_a_redirection_into_an_application_tree_is_refused(self):
+        # `/review-branch` denies `src/**`, `docs/**`, `e2e/**` and
+        # `public/**`, and `ls` is approved globally — so `ls > src/app/x.ts`
+        # wrote what that deny refuses. Raised by Copilot. Judged at the
+        # checkout root the target is under, so an ordinary `docs` directory
+        # elsewhere stays writable.
+        root = tempfile.mkdtemp(prefix="argv-app-")
+        self.addCleanup(shutil.rmtree, root, ignore_errors=True)
+        os.makedirs(os.path.join(root, ".git"))
+        os.makedirs(os.path.join(root, "src", "app"))
+        for command in ("ls > src/app/x.ts", "ls > docs/notes.md",
+                        "ls > E2E/smoke.spec.ts", "ls > ./public/index.html",
+                        f"ls > {Path(root).as_posix()}/src/app/x.ts"):
+            with self.subTest(command=command):
+                self.assertRefused(command, cwd=root)
+
+        # The control: a `src` directory that is not at a checkout's root.
+        elsewhere = tempfile.mkdtemp(prefix="argv-noapp-")
+        self.addCleanup(shutil.rmtree, elsewhere, ignore_errors=True)
+        os.makedirs(os.path.join(elsewhere, "src"))
+        self.assertAdmitted("ls > src/x.ts", cwd=elsewhere)
 
     def test_a_globbed_redirection_target_is_refused(self):
         # Bash expands an unquoted target before opening it. A lexical check of
@@ -8333,34 +8358,34 @@ class TheGitArgvGuard(unittest.TestCase):
         # session may make one, a junction where only that is granted.
         root = tempfile.mkdtemp(prefix="argv-link-")
         self.addCleanup(shutil.rmtree, root, ignore_errors=True)
-        for tree in (".git", ".claude", "docs"):
+        for tree in (".git", ".claude", "notes-in"):
             os.makedirs(os.path.join(root, tree))
         target = os.path.join(root, ".claude")
-        link = os.path.join(root, "docs", "linked")
+        link = os.path.join(root, "notes-in", "linked")
         try:
             os.symlink(target, link, target_is_directory=True)
         except (OSError, NotImplementedError):
             from _winapi import CreateJunction
             CreateJunction(target, link)
 
-        for command in ("ls > docs/linked/settings.json",
-                        "ls > docs/linked/new-helper.sh",
-                        "wc -l README.md >> ./docs/linked/x"):
+        for command in ("ls > notes-in/linked/settings.json",
+                        "ls > notes-in/linked/new-helper.sh",
+                        "wc -l README.md >> ./notes-in/linked/x"):
             with self.subTest(command=command):
                 self.assertRefused(command, cwd=root)
 
         # The control: an ordinary write in the same checkout, and a write
         # through a link that lands somewhere unprotected.
         os.makedirs(os.path.join(root, "notes"))
-        other = os.path.join(root, "docs", "to-notes")
+        other = os.path.join(root, "notes-in", "to-notes")
         try:
             os.symlink(os.path.join(root, "notes"), other,
                        target_is_directory=True)
         except (OSError, NotImplementedError):
             from _winapi import CreateJunction
             CreateJunction(os.path.join(root, "notes"), other)
-        self.assertAdmitted("ls > docs/plain.txt", cwd=root)
-        self.assertAdmitted("ls > docs/to-notes/out.txt", cwd=root)
+        self.assertAdmitted("ls > notes-in/plain.txt", cwd=root)
+        self.assertAdmitted("ls > notes-in/to-notes/out.txt", cwd=root)
 
     def test_a_ledger_write_or_a_review_run_is_refused_after_quote_removal(self):
         # `.claude/settings.json` denies these as substrings of the typed
@@ -8444,6 +8469,25 @@ class TheGitArgvGuard(unittest.TestCase):
         for tree in CommandsEnforceTheEditingBoundariesTheyState.MACHINERY_TREES:
             with self.subTest(tree=tree):
                 self.assertIn(tree, module.PROTECTED_TREES)
+
+        # **And every tree ANY command denies, which the machinery set was
+        # not.** `/review-branch` denies `src/**` and the list did not name it,
+        # so a globally approved redirect wrote there. Raised by Copilot. Read
+        # from the frontmatter, so a tree a command starts denying fails here
+        # until the hook protects it.
+        denied = set()
+        for path in sorted((SCRIPTS.parent / "commands").glob("*.md")):
+            for line in path.read_text(encoding="utf-8").splitlines():
+                if line.startswith("disallowed-tools:"):
+                    for rule in re.findall(r"Edit\(([^)]*)\)", line):
+                        first = rule.removeprefix("./").split("/")[0]
+                        if rule.endswith("/**") and first != "**":
+                            denied.add(first)
+        self.assertIn("src", denied, "the frontmatter listing went empty")
+        for tree in sorted(denied):
+            with self.subTest(denied=tree):
+                self.assertTrue(tree in module.PROTECTED_TREES
+                                or tree in module.APPLICATION_TREES)
 
     def test_the_protected_files_cover_every_tracked_root_file(self):
         # The same argument for the other half, derived from `git ls-files` —
