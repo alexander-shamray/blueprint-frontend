@@ -8382,6 +8382,12 @@ class TheGitArgvGuard(unittest.TestCase):
             "bash .claude/scripts/grok-{l..l}edger.sh 42 re''serve 1 full",
             "bash .claude/scripts/grok-@(ledger).sh 42 reserve 1 full",
             "bash .claude/scripts/grok-{{ledger,x},y}.sh 42 reserve 1 full",
+            # The helper handed to a shell on stdin. Raised by Copilot.
+            "bash -s -- 42 re''serve 1 full < .claude/scripts/grok-ledger.sh",
+            "bash 0< .claude/scripts/grok-ledger.sh -s 42 reserve",
+            "cat .claude/scripts/grok-ledger.sh | bash -s -- 42 reserve 1 full",
+            "X=.claude/scripts/grok-ledger.sh; bash -s 42 reserve < $X",
+            "bash -s 42 reserve < .claude/scripts/grok-*.sh",
             "bash .claude/scripts/grok-rev''iew.sh 42 full",
             "git log -1 && bash .claude/scripts/grok-review.sh 42 recheck",
         ):
@@ -8399,6 +8405,11 @@ class TheGitArgvGuard(unittest.TestCase):
             "bash .claude/scripts/npm-checks.sh $MODE",
             "ls $TMP",
             "bash -c 'echo $HOME'",
+            # A reading redirection that names no helper, with or without a
+            # shell nearby.
+            'wc -l < "$TMP/out"',
+            "wc -l < README.md",
+            "grep -c reserve .claude/scripts/grok-ledger.sh",
         ):
             with self.subTest(command=command):
                 self.assertAdmitted(command)

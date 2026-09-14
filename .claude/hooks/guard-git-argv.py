@@ -1975,6 +1975,31 @@ def redirection_offence(command):
     list has to be granted first, and none of it is.
     """
     for span in redirection_spans(command):
+        # **A review helper read INTO a command is a script being handed to
+        # it.** `bash -s -- 42 re''serve 1 full < .claude/scripts/grok-ledger.sh`
+        # runs the ledger from stdin, and the strip that follows removes the
+        # redirection before `review_helper_offence` sees the path. Refused on
+        # any reading redirection, since reading the helper's source is what
+        # `Read` and `grep` are for. Raised by Copilot.
+        #
+        # A source this guard cannot read — a substitution, a variable — is
+        # refused only where a shell is in the command to run it, because
+        # `wc -l < "$TMP/out"` is ordinary traffic.
+        if span.operator == "<" and span.target.strip():
+            source = target_literal(span.target)
+            named = helper_named(span.target if source is None else source)
+            if named == "computed" or source is None:
+                named = ("computed" if re.search(
+                    r"(?<![\w.-])(?:ba|da|k|z)?sh(?:\.exe)?(?![\w.-])", command)
+                    else None)
+            if named is not None:
+                return (
+                    f"`<` feeds `{span.target.strip()}` into a command's "
+                    "stdin, and it is, or may expand to, `grok-ledger.sh` or "
+                    "`grok-review.sh` — a shell reading it runs the helper "
+                    "past the literal allow-list. Read the file with the "
+                    "`Read` tool or `grep` instead."
+                )
         if not writes_to_a_file(span):
             continue
         # **An empty target is not a write and refusing it broke an admitted
@@ -2932,7 +2957,30 @@ def token_followed_by_group(tokens, run, index):
 
 def review_helper_offence(tokens):
     """The reason to refuse a Grok review or a ledger write, or `None`."""
-    for run in command_runs(tokens):
+    # **A helper named anywhere, beside a shell that runs its stdin, is the
+    # helper being run.** `cat .claude/scripts/grok-ledger.sh | bash -s -- 42
+    # reserve 1 full` is led by a reader, so the loop below skips it, and the
+    # shell runs the ledger with a write verb. Raised by Copilot.
+    #
+    # A shell whose OWN script is the literal helper is the ordinary call the
+    # loop below judges, so a stdin-reading run counts here only when it names
+    # no helper itself, or reads its script from stdin by `-s`.
+    runs = list(command_runs(tokens))
+
+    def names_helper(words):
+        return any(helper_named(word) in REVIEW_HELPERS for word in words)
+
+    if names_helper(tokens) and any(
+            reads_stdin_as_script(run)
+            and (not names_helper(run) or "-s" in run)
+            for run in runs):
+        return (
+            "a command names `grok-ledger.sh` or `grok-review.sh` beside a "
+            "shell that runs what arrives on its stdin, so the helper can run "
+            "past the literal allow-list. Read the file with the `Read` tool "
+            "or `grep` instead."
+        )
+    for run in runs:
         if program_name(leading_command(run)) in READING_COMMANDS:
             continue
         for index, token in enumerate(run):

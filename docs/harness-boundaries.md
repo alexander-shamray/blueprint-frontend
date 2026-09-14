@@ -231,7 +231,9 @@ admitted only as `<pr> count` or `<pr> status`, spelled literally.** The
 empty quotes spells nothing they match; and a list of write verbs judged after
 quote removal still missed one built by a substitution, which bash hands the
 helper while the token holds no verb at all. An allow-list of the two reads is
-what that leaves. A run led by a reader — `grep`, `git`, `cat` and the rest of
+what that leaves. A helper handed to a shell on stdin — `< grok-ledger.sh`, or
+`cat grok-ledger.sh | bash -s` — is refused too, since the shell then runs it
+past the allow-list. A run led by a reader — `grep`, `git`, `cat` and the rest of
 `READING_COMMANDS` — is inspecting those files rather than running them, and is
 admitted.
 
