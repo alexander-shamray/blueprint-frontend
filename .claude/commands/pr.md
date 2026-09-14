@@ -170,13 +170,19 @@ owns the trigger contract.
 
 ## Steps
 
-Write the body with `Write` to `pr-body.md` at the checkout root — the one
-path the helper publishes — rather than through a heredoc, which mangles the
-wrapping. Then:
+Write the title with `Write` to `pr-title.txt` and the body to `pr-body.md`,
+both at the checkout root — the only two paths the helper reads — rather than
+through a heredoc, which mangles the wrapping. Then:
 
 ```bash
-bash .claude/scripts/gh-pr-create.sh "<title>" pr-body.md
+bash .claude/scripts/gh-pr-create.sh
 ```
+
+**The title never appears on the command line.** It comes from `$1` or from
+commit text, and inside double quotes a title such as `fix: $(…)` runs the
+substitution in the calling shell before the helper can refuse anything. A
+file is the channel `gh-issue-filing.sh` already uses for untrusted titles,
+and it is why the helper takes no argument.
 
 **The helper rather than `gh pr create` since #16.** `Bash(gh pr create:*)` was
 a prefix grant, so a trailing `--repo`, `--head`, `--base` or `--body-file`
@@ -185,9 +191,9 @@ command derived. All four are fixed in the helper now: the repository and the
 branch come from the checkout, the base is the literal `main`, and the body
 file is the caller-created `pr-body.md` at the checkout root — `--body-file`
 publishes whatever it reads, including a file the session's own `Read` is
-bounded away from. The file is gitignored, a tracked one is refused as the
-branch's text rather than this run's, and the helper removes it once the PR is
-open, so a successful run leaves nothing for `/ship`'s clean-tree gate.
+bounded away from. Both files are gitignored, a tracked one is refused as the
+branch's text rather than this run's, and the helper removes both once the PR
+is open, so a successful run leaves nothing for `/ship`'s clean-tree gate.
 
 ## Report
 

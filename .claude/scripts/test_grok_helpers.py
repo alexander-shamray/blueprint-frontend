@@ -3759,39 +3759,41 @@ class NoCommandHoldsAPrefixGrantThatAdmitsAForbiddenFlag(unittest.TestCase):
 
     def test_the_create_helper_refuses_a_body_it_should_not_publish(self):
         # `--body-file` publishes what it reads, including a file the session's
-        # own `Read` is bounded away from — so the path is resolved and has to
-        # be exactly the checkout-root `pr-body.md`, which is what this case
-        # checks the refusal names.
-        outside = Path(os.path.expanduser("~")) / ".gitconfig"
-        if not outside.is_file():
-            outside = Path(os.path.expanduser("~")) / ".bashrc"
-            outside.parent.mkdir(parents=True, exist_ok=True)
-        if outside.is_file():
-            out = subprocess.run(
-                [BASH, str(SCRIPTS / "gh-pr-create.sh"), "title", str(outside)],
-                capture_output=True, text=True, cwd=str(SCRIPTS.parent.parent))
-            self.assertEqual(2, out.returncode, out.stderr)
-            self.assertIn("pr-body.md", out.stderr)
+        # own `Read` is bounded away from — so no path is accepted at all, and
+        # neither is a title: a title on the command line ran any substitution
+        # in it before the helper saw anything. Raised by Copilot.
+        outside = str(Path(os.path.expanduser("~")) / ".gitconfig")
+        for args in (["title", outside], ["title"], [outside], ["-f"]):
+            with self.subTest(args=args):
+                out = subprocess.run(
+                    [BASH, str(SCRIPTS / "gh-pr-create.sh"), *args],
+                    capture_output=True, text=True,
+                    cwd=str(SCRIPTS.parent.parent))
+                self.assertEqual(2, out.returncode, out.stderr)
+                self.assertIn("pr-title.txt and pr-body.md", out.stderr)
 
         # And a title that is not one line, which `gh` would otherwise take as
-        # body text with nothing in the report to show what was sent.
-        body = Path(tempfile.mkdtemp(prefix="pr-body-")) / "body.md"
-        self.addCleanup(shutil.rmtree, str(body.parent), ignore_errors=True)
-        body.write_text("body\n", encoding="utf-8")
-        # **The newline is built inside bash rather than passed as an
-        # argument**, and that is not a style choice.
-        # `subprocess.list2cmdline` quotes an argument containing a space or a
-        # tab and NOT one containing a newline, so on Windows `"a\nb"` reached
-        # the shell unquoted, split into two words, and the helper answered
-        # with its usage line — the case failing for the harness's reason
-        # rather than the helper's, which is the shape that gets a real check
-        # deleted as broken.
+        # body text with nothing in the report to show what was sent — driven
+        # in a scratch checkout, where the helper refuses before any `gh`.
+        repo = Path(tempfile.mkdtemp(prefix="pr-create-"))
+        self.addCleanup(shutil.rmtree, str(repo), ignore_errors=True)
+        subprocess.run(["git", "init", "-q", "-b", "feat/x", str(repo)],
+                       check=True, capture_output=True)
+        (repo / "pr-body.md").write_text("body\n", encoding="utf-8")
+        (repo / "pr-title.txt").write_bytes(b"a\nb\n")
         out = subprocess.run(
-            [BASH, "-c", 'exec bash "$0" "$(printf "a\\nb")" "$1"',
-             str(SCRIPTS / "gh-pr-create.sh"), str(body)],
-            capture_output=True, text=True, cwd=str(SCRIPTS.parent.parent))
+            [BASH, str(SCRIPTS / "gh-pr-create.sh")],
+            capture_output=True, text=True, cwd=str(repo))
         self.assertEqual(2, out.returncode, out.stderr)
         self.assertIn("more than one line", out.stderr)
+
+        # A missing title file is refused by name.
+        (repo / "pr-title.txt").unlink()
+        out = subprocess.run(
+            [BASH, str(SCRIPTS / "gh-pr-create.sh")],
+            capture_output=True, text=True, cwd=str(repo))
+        self.assertEqual(2, out.returncode, out.stderr)
+        self.assertIn("pr-title.txt", out.stderr)
 
     def test_the_create_helper_leaves_no_body_behind_and_takes_none_tracked(self):
         # Copilot, suppressed in round four: every successful `/pr` left an
@@ -3799,14 +3801,15 @@ class NoCommandHoldsAPrefixGrantThatAdmitsAForbiddenFlag(unittest.TestCase):
         # rather than driven, because the removal sits after a real
         # `gh pr create`, which this suite cannot run.
         create = self._code("gh-pr-create.sh")
-        self.assertIn("ls-files --error-unmatch pr-body.md", create)
-        self.assertLess(create.find("ls-files --error-unmatch pr-body.md"),
+        self.assertIn('ls-files --error-unmatch "${file##*/}"', create)
+        self.assertLess(create.find("ls-files --error-unmatch"),
                         create.find("gh pr create"))
-        self.assertGreater(create.find('rm -f -- "$body"'),
+        self.assertGreater(create.find('rm -f -- "$body" "$title_file"'),
                            create.find("gh pr create"))
         ignored = (SCRIPTS.parent.parent / ".gitignore").read_text(
             encoding="utf-8").splitlines()
         self.assertIn("/pr-body.md", ignored)
+        self.assertIn("/pr-title.txt", ignored)
 
 
 class TheFourPortedResiduals(unittest.TestCase):
