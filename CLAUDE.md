@@ -202,7 +202,8 @@ rather than here. Three rules reach every session, so they stay:
   3.12 will do — `py -3.12` on Windows, `python` elsewhere — and CI's
   `harness` job runs `python` on all three platforms, Windows included, so
   that is the spelling to use when reproducing it. `docs/testing.md` owns the
-  prerequisite; the hooks' `py` wiring above is a different question.
+  prerequisite; which interpreter the hooks' launcher picks is a different
+  question.
 
 ### What was not ported, and is therefore missing
 

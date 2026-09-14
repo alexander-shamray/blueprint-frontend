@@ -3849,6 +3849,35 @@ class TheFourPortedResiduals(unittest.TestCase):
         # Before the directory exists, so a refusal leaves nothing behind.
         self.assertLess(code.find("ls-tree"), code.find("mktemp -d"))
 
+    def test_a_commit_carrying_a_link_is_refused_when_driven(self):
+        # **The source test above cannot see a broken pipeline.** A parsing
+        # change that stopped matching would keep every string it asserts.
+        # Raised by Copilot. Driven against a real commit instead — the index
+        # records mode 120000 without any OS symlink privilege.
+        repo = Path(tempfile.mkdtemp(prefix="detach-link-"))
+        self.addCleanup(shutil.rmtree, str(repo), ignore_errors=True)
+
+        def git(*args, **kw):
+            return subprocess.run(
+                ["git", "-C", str(repo), "-c", "user.email=t@example.com",
+                 "-c", "user.name=t", *args],
+                check=True, capture_output=True, text=True, **kw).stdout.strip()
+
+        git("init", "-q")
+        blob = git("hash-object", "-w", "--stdin", input="../../outside")
+        git("update-index", "--add", "--cacheinfo", f"120000,{blob},leak")
+        git("commit", "-q", "-m", "a tracked link")
+        commit = git("rev-parse", "HEAD")
+
+        before = set(os.listdir(tempfile.gettempdir()))
+        out = subprocess.run([BASH, str(SCRIPTS / "git-worktree-detach.sh"), commit],
+                             capture_output=True, text=True, cwd=str(repo))
+        self.assertEqual(5, out.returncode, out.stderr)
+        self.assertIn("leak", out.stderr)
+        created = {name for name in set(os.listdir(tempfile.gettempdir())) - before
+                   if name.startswith("secsweep-")}
+        self.assertEqual(set(), created)
+
     def test_both_sweeps_state_the_half_that_is_closed(self):
         # The other half of #18.1: `/review-grok` carried this argument and the
         # sweeps did not, which is what let the read half go unnoticed while
@@ -4005,6 +4034,61 @@ class AFeedHelperReturnsTheWholeAnswer(unittest.TestCase):
                 # the page info it advances on.
                 self.assertIn("$endCursor", code)
                 self.assertIn("pageInfo{ hasNextPage endCursor }", code)
+
+    def _graphql_feed(self, helper, connection, pages):
+        """Run `helper` against a `gh` whose GraphQL answer is `pages`."""
+        d = Path(tempfile.mkdtemp(prefix="feed-stub-"))
+        self.addCleanup(shutil.rmtree, str(d), ignore_errors=True)
+        slurped = [{"data": {"repository": {"pullRequest": {connection: page}}}}
+                   for page in pages]
+        (d / "pages.json").write_text(json.dumps(slurped), encoding="utf-8")
+        gh = d / "gh"
+        gh.write_text(
+            "#!/usr/bin/env bash\n"
+            'case "$*" in\n'
+            '  *"repo view"*"owner"*) echo acme; exit 0 ;;\n'
+            '  *"repo view"*"name"*) echo widgets; exit 0 ;;\n'
+            f'  *"api graphql"*"--paginate --slurp"*) cat {(d / "pages.json").as_posix()!r}; exit 0 ;;\n'
+            "esac\n"
+            'echo "stub gh: unexpected call: $*" >&2; exit 99\n',
+            encoding="utf-8", newline="\n")
+        gh.chmod(0o755)
+        env = {**os.environ, "PATH": str(d) + os.pathsep + os.environ["PATH"]}
+        return subprocess.run([BASH, str(SCRIPTS / helper), "7"],
+                              capture_output=True, text=True, env=env)
+
+    def test_every_page_of_a_graphql_feed_reaches_the_filter(self):
+        # **The pagination was only asserted as strings in the source**, so an
+        # aggregation that read the first page alone kept every string green.
+        # Raised by Copilot. Two pages, one Copilot item on each and a
+        # stranger on the second: both items arrive, the stranger is dropped,
+        # and a review keeps its commit pin.
+        def node(login, n, **extra):
+            return {"author": {"login": login}, "body": f"b{n}",
+                    "url": f"u{n}", **extra}
+
+        cases = (
+            ("pr-issue-comments.sh", "comments", {"createdAt": "t"}),
+            ("pr-review-bodies.sh", "reviews",
+             {"state": "COMMENTED", "submittedAt": "t", "id": "R",
+              "commit": {"oid": "a" * 40}}),
+        )
+        for helper, connection, extra in cases:
+            pages = [
+                {"pageInfo": {"hasNextPage": True, "endCursor": "c1"},
+                 "nodes": [node("copilot-pull-request-reviewer", 1, **extra)]},
+                {"pageInfo": {"hasNextPage": False, "endCursor": None},
+                 "nodes": [node("copilot-pull-request-reviewer", 2, **extra),
+                           node("drive-by", 3, **extra)]},
+            ]
+            with self.subTest(helper=helper):
+                out = self._graphql_feed(helper, connection, pages)
+                self.assertEqual(0, out.returncode, out.stderr)
+                got = json.loads(out.stdout)
+                self.assertEqual(["b1", "b2"], [item["body"] for item in got])
+                self.assertIn("admitted 2, dropped 1", out.stderr)
+                if connection == "reviews":
+                    self.assertEqual("a" * 40, got[1]["commit"]["oid"])
 
     def test_the_review_feed_keeps_its_commit_pin(self):
         # `/ship`'s resume proves a clean review belongs to the pushed head by
