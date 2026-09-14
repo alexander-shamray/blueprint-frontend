@@ -3671,7 +3671,7 @@ class NoCommandHoldsAPrefixGrantThatAdmitsAForbiddenFlag(unittest.TestCase):
                 [BASH, str(SCRIPTS / "gh-pr-create.sh"), "title", str(outside)],
                 capture_output=True, text=True, cwd=str(SCRIPTS.parent.parent))
             self.assertEqual(2, out.returncode, out.stderr)
-            self.assertIn("outside this checkout", out.stderr)
+            self.assertIn("pr-body.md", out.stderr)
 
         # And a title that is not one line, which `gh` would otherwise take as
         # body text with nothing in the report to show what was sent.
