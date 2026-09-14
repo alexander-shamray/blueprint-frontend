@@ -2562,9 +2562,11 @@ class CopilotFeedHelpersAreTheOnlyIntake(unittest.TestCase):
                     i for i, line in enumerate(lines)
                     if "admitted=$(copilot_admitted_json)" in line
                 )
+                # The fetch is a `feed=$(gh …)` assignment since it stopped
+                # piping straight into the partition.
                 fetch = next(
                     i for i, line in enumerate(lines)
-                    if line.startswith("gh ")
+                    if line.startswith(("gh ", "feed=$(gh "))
                 )
                 self.assertLess(resolve, fetch)
 
@@ -4096,6 +4098,33 @@ class AFeedHelperReturnsTheWholeAnswer(unittest.TestCase):
                 self.assertIn("admitted 2, dropped 1", out.stderr)
                 if connection == "reviews":
                     self.assertEqual("a" * 40, got[1]["commit"]["oid"])
+
+    def test_a_feed_that_cannot_be_fetched_prints_nothing(self):
+        # **Measured during a network outage on PR #25**: piped straight into
+        # the partition, a failed fetch still printed the filter's count line
+        # and, for the REST feed, `[]` — an empty review to any caller that
+        # reads stdout and not the exit code. Now each feed stops first.
+        d = Path(tempfile.mkdtemp(prefix="feed-fail-"))
+        self.addCleanup(shutil.rmtree, str(d), ignore_errors=True)
+        gh = d / "gh"
+        gh.write_text(
+            "#!/usr/bin/env bash\n"
+            'case "$*" in\n'
+            '  *"repo view"*"owner"*) echo acme; exit 0 ;;\n'
+            '  *"repo view"*"name"*) echo widgets; exit 0 ;;\n'
+            "esac\n"
+            'echo "dial tcp: timeout" >&2; exit 1\n',
+            encoding="utf-8", newline="\n")
+        gh.chmod(0o755)
+        env = {**os.environ, "PATH": str(d) + os.pathsep + os.environ["PATH"]}
+        for helper in ("pr-review-bodies.sh", "pr-issue-comments.sh",
+                       "pr-review-comments.sh"):
+            with self.subTest(helper=helper):
+                out = subprocess.run([BASH, str(SCRIPTS / helper), "7"],
+                                     capture_output=True, text=True, env=env)
+                self.assertEqual(3, out.returncode, out.stderr)
+                self.assertEqual("", out.stdout.strip())
+                self.assertNotIn("admitted", out.stderr)
 
     def test_the_review_feed_keeps_its_commit_pin(self):
         # `/ship`'s resume proves a clean review belongs to the pushed head by

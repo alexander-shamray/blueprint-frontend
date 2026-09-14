@@ -44,7 +44,11 @@ admitted=$(copilot_admitted_json)
 # is for.
 owner=$(gh repo view --json owner --jq .owner.login)
 repo=$(gh repo view --json name --jq .name)
-gh api graphql --paginate --slurp -f query='
+#
+# Fetched whole before anything is filtered, for the reason
+# `pr-review-bodies.sh` gives: a failed fetch piped into the partition printed
+# an empty feed's count line.
+feed=$(gh api graphql --paginate --slurp -f query='
   query($owner:String!,$repo:String!,$pr:Int!,$endCursor:String){
     repository(owner:$owner,name:$repo){
       pullRequest(number:$pr){
@@ -54,6 +58,8 @@ gh api graphql --paginate --slurp -f query='
         }
       }
     }
-  }' -F owner="$owner" -F repo="$repo" -F pr="$pr" |
-  jq '[ .[].data.repository.pullRequest.comments.nodes[] ]' |
+  }' -F owner="$owner" -F repo="$repo" -F pr="$pr") ||
+  { echo "the issue comment feed could not be fetched; printing nothing rather than an empty one" >&2
+    exit 3; }
+jq '[ .[].data.repository.pullRequest.comments.nodes[] ]' <<<"$feed" |
   copilot_partition "$admitted" '.author.login' '.url' 'issue comments'

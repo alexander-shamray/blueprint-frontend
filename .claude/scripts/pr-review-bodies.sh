@@ -43,7 +43,13 @@ admitted=$(copilot_admitted_json)
 # one. Raised by Copilot.
 owner=$(gh repo view --json owner --jq .owner.login)
 repo=$(gh repo view --json name --jq .name)
-gh api graphql --paginate --slurp -f query='
+#
+# **Fetched whole before anything is filtered.** Piped straight into the
+# partition, a failed fetch still reached it: the filter printed its count line
+# for an empty feed, which reads as "Copilot said nothing" beside an exit code
+# a caller may not check — the fail-open `grok-ledger.sh` records as #51.
+# Measured during a network outage on PR #25.
+feed=$(gh api graphql --paginate --slurp -f query='
   query($owner:String!,$repo:String!,$pr:Int!,$endCursor:String){
     repository(owner:$owner,name:$repo){
       pullRequest(number:$pr){
@@ -53,6 +59,8 @@ gh api graphql --paginate --slurp -f query='
         }
       }
     }
-  }' -F owner="$owner" -F repo="$repo" -F pr="$pr" |
-  jq '[ .[].data.repository.pullRequest.reviews.nodes[] ]' |
+  }' -F owner="$owner" -F repo="$repo" -F pr="$pr") ||
+  { echo "the review feed could not be fetched; printing nothing rather than an empty one" >&2
+    exit 3; }
+jq '[ .[].data.repository.pullRequest.reviews.nodes[] ]' <<<"$feed" |
   copilot_partition "$admitted" '.author.login' '.submittedAt' 'review bodies'

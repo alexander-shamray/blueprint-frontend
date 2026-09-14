@@ -23,6 +23,11 @@ pr="${1:?usage: pr-review-comments.sh <pr-number>}"
 # run, where the same call inline would reach jq as an empty --argjson and
 # report a parse error instead of the missing owner.
 admitted=$(copilot_admitted_json)
-gh api "repos/{owner}/{repo}/pulls/$pr/comments" --paginate |
-  jq -s 'add // []' |
+# Fetched whole before anything is filtered, for the reason
+# `pr-review-bodies.sh` gives: piped, a failed fetch printed `[]` and an empty
+# feed's count line.
+feed=$(gh api "repos/{owner}/{repo}/pulls/$pr/comments" --paginate) ||
+  { echo "the inline comment feed could not be fetched; printing nothing rather than an empty one" >&2
+    exit 3; }
+jq -s 'add // []' <<<"$feed" |
   copilot_partition "$admitted" '.user.login' '.html_url' 'inline comments'
