@@ -8128,12 +8128,19 @@ class TheGitArgvGuard(unittest.TestCase):
         for command in (
             "ls > package.jso?",
             "ls > package.[j]son",
+            # `extglob`'s openers, which a `-O extglob` shell expands the
+            # same way. Raised by Copilot.
+            "ls > package.@(json)",
+            "ls > package.+(json)",
+            "ls > package.!(xml)",
+            "bash -O extglob -c 'ls > package.@(json)'",
         ):
             with self.subTest(command=command):
                 self.assertRefused(command)
 
         # Quoting makes the metacharacter literal, so this is not the bypass.
         self.assertAdmitted('ls > "package.jso?"')
+        self.assertAdmitted('ls > "package.@(json)"')
 
     def test_a_protected_name_in_another_case_or_spelling_is_refused(self):
         # Windows and default macOS volumes look names up without regard to

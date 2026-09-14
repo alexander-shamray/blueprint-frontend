@@ -1764,11 +1764,19 @@ def globbed(word):
     nothing. `shell_positions` is the module's one answer to that question, and
     an escaped metacharacter is counted as unquoted here — over-refusal in a
     position where nothing legitimate writes.
+
+    **`extglob` adds three openers that are not in that set**: `@(`, `+(` and
+    `!(`. A shell started with `-O extglob` expands `package.@(json)` to the
+    existing `package.json` exactly as it expands `package.jso?`, so each of
+    them, unquoted and followed by `(`, counts as a pattern too. (`?(` and `*(`
+    were already caught by their first character.) Raised by Copilot.
     """
     for index, in_quotes, in_comment in shell_positions(word):
         if in_quotes or in_comment:
             continue
         if word[index] in "*?[":
+            return True
+        if word[index] in "@+!" and word[index + 1:index + 2] == "(":
             return True
     return False
 
