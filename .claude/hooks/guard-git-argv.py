@@ -1956,6 +1956,22 @@ def application_tree(literal):
 CHANGES_DIRECTORY = re.compile(r"(?:^|[\s;&|(){}`])(?:cd|pushd|popd)(?=$|[\s;&|()])")
 
 
+def changes_directory(command):
+    """Whether `command` may change directory, read before AND after quotes.
+
+    **The raw text is not what bash runs.** `c''d .claude` spells no `cd` and
+    bash runs `cd`, so the pattern is also asked of the command with every
+    quote, `$` before a quote, and backslash removed — over-matching a `cd`
+    inside a quoted string, which is the direction to be wrong in. An
+    expansion that joins into `cd` is judged by the readings `offence` runs
+    before this, each of which reaches here with the expansion gone. Raised
+    by Copilot.
+    """
+    unquoted = re.sub(r"\$?[\"']|\\", "", command)
+    return bool(CHANGES_DIRECTORY.search(command)
+                or CHANGES_DIRECTORY.search(unquoted))
+
+
 # The directory the session's command runs in, from the hook event. `None`
 # until `main` reads one, and then the process's own directory stands in.
 EVENT_CWD = None
@@ -2123,7 +2139,7 @@ def redirection_offence(command):
         # A leading slash is absolute to bash on every host, and to
         # `os.path.isabs` only where there is no drive letter to ask for.
         absolute = os.path.isabs(literal) or literal.startswith(("/", "\\"))
-        if not absolute and CHANGES_DIRECTORY.search(command):
+        if not absolute and changes_directory(command):
             return (
                 f"`{span.operator}` writes the relative path `{literal}` in a "
                 "command that also changes directory, so where it lands is "

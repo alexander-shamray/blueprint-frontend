@@ -8296,7 +8296,15 @@ class TheGitArgvGuard(unittest.TestCase):
                         "cd src && ls > app/x.ts",
                         "(cd notes && ls > out.txt)",
                         "pushd .claude >/dev/null; ls > x; popd",
-                        "builtin cd .git && ls > config"):
+                        "builtin cd .git && ls > config",
+                        # Quote removal: bash runs `cd`, the raw text spells
+                        # none. Raised by Copilot.
+                        "ls >/dev/null; c''d .claude; ls > settings.json",
+                        "\"cd\" .claude; ls > settings.json",
+                        "$'cd' .claude; ls > settings.json",
+                        "c\\d .claude; ls > settings.json",
+                        "pu''shd .claude; ls > settings.json",
+                        "${X}cd .claude; ls > settings.json"):
             with self.subTest(command=command):
                 self.assertRefused(command, cwd=root)
         os.makedirs(os.path.join(root, "notes"))
