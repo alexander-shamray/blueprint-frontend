@@ -135,6 +135,15 @@ describe('NativeAuthStrategy', () => {
     );
   }
 
+  /** Answers the token endpoint with a session and the revocation endpoint with nothing. */
+  function realm(refresh: string, username = 'demo'): void {
+    fetchMock.mockImplementation(async (url: string) =>
+      url.endsWith('/revoke')
+        ? { ok: true, json: async () => ({}) }
+        : tokenResponse(refresh, username),
+    );
+  }
+
   it('opens the SYSTEM browser, never a web view', async () => {
     void startSignIn();
     await vi.waitFor(() => expect(browser.open).toHaveBeenCalled());
@@ -309,19 +318,25 @@ describe('NativeAuthStrategy', () => {
     // picked up by the revocation instead.
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
 
-    // Sign out completes while that request is outstanding.
+    // Sign out is asked for while that request is outstanding. It waits its
+    // turn (#8) rather than racing the renewal.
     fetchMock.mockResolvedValue({ ok: true, json: async () => ({}) });
-    await strategy.signOut();
-    expect(strategy.accessToken()).toBeNull();
+    const signOut = strategy.signOut();
 
     // Now the renewal's response arrives, carrying a perfectly good token.
     releaseRenewal(tokenResponse('refresh-2'));
     await renewal;
+    await signOut;
 
-    // Adopting it would resurrect a session the user ended, and would write a
-    // credential back into storage they asked to have cleared.
+    // Adopting it and keeping it would resurrect a session the user ended.
+    // Serialised, the renewal completes first and the sign-out then revokes
+    // the ROTATED token — the one the unserialised strategy left live at the
+    // realm, because it revoked the token the renewal had already retired.
     expect(strategy.accessToken()).toBeNull();
     expect(store.has(REFRESH_TOKEN_KEY)).toBe(false);
+    expect(new URLSearchParams(String(fetchMock.mock.calls[1][1].body)).get('token')).toBe(
+      'refresh-2',
+    );
   });
 
   it('survives a renewal that throws, rather than raising an unhandled rejection', async () => {
@@ -429,13 +444,15 @@ describe('NativeAuthStrategy', () => {
     const renewal = strategy.renewNow();
     await vi.waitFor(() => expect(secure.set).toHaveBeenCalled());
 
-    await strategy.signOut();
+    fetchMock.mockResolvedValue({ ok: true, json: async () => ({}) });
+    const signOut = strategy.signOut();
     releaseWrite();
     await renewal;
+    await signOut;
 
-    // The generation check before adopt() is not enough on its own: the write
-    // inside adopt() is itself an await, and a sign-out crossing it put the
-    // credential back into storage the user had just cleared.
+    // The write inside adopt() is itself an await, and a sign-out crossing it
+    // put the credential back into storage the user had just cleared. Queued
+    // behind the write, the sign-out finds it and removes it.
     expect(store.has(REFRESH_TOKEN_KEY)).toBe(false);
     expect(strategy.accessToken()).toBeNull();
   });
@@ -489,23 +506,24 @@ describe('NativeAuthStrategy', () => {
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled());
 
     fetchMock.mockResolvedValue({ ok: true, json: async () => ({}) });
-    await strategy.signOut();
+    const signOut = strategy.signOut();
+
+    // The flow must REJECT, not resolve, and at once rather than when the
+    // exchange returns. Resolving told CheckoutPage.signInAndReplay() that
+    // authentication had completed, so it replayed the order with no access
+    // token and collected another 401.
+    await expect(flow).rejects.toThrow(/sign-out/i);
 
     releaseExchange(tokenResponse('refresh-1'));
     await callback;
+    await signOut;
 
-    // The flow must REJECT, not resolve. Swallowing the outcome here hid a
-    // real bug: `adopt` correctly declined to adopt, and `handleCallback`
-    // then resolved anyway — telling CheckoutPage.signInAndReplay() that
-    // authentication had completed, so it replayed the order with no access
-    // token and collected another 401.
-    await expect(flow).rejects.toThrow(/session ended/i);
-
-    // handleCallback captures the generation BEFORE the exchange; adopting on
-    // the generation current when the response lands would sign the user
-    // straight back in after they left.
+    // Adopting the exchange's tokens would sign the user straight back in
+    // after they left. Nor may they be written and left for the sign-out to
+    // find: that stores a credential for a session nobody asked for.
     expect(strategy.accessToken()).toBeNull();
     expect(store.has(REFRESH_TOKEN_KEY)).toBe(false);
+    expect(secure.set).not.toHaveBeenCalled();
   });
 
   it('a stale renewal does not tear down a session that started after it', async () => {
@@ -527,43 +545,32 @@ describe('NativeAuthStrategy', () => {
     const stale = strategy.renewNow();
     await vi.waitFor(() => expect(secure.set).toHaveBeenCalled());
 
-    fetchMock.mockResolvedValue({ ok: true, json: async () => ({}) });
-    await strategy.signOut();
-
-    // A whole new session, established while the stale write is still parked.
-    store.set(REFRESH_TOKEN_KEY, 'brand-new');
-    // A different username, so this session's token is a different string
-    // from the stale one and the assertions below cannot pass by accident.
-    fetchMock.mockResolvedValue(tokenResponse('brand-new-2', 'second-session'));
-    await strategy.renewNow();
-    expect(strategy.user()()?.username).toBe('second-session');
+    // Sign out, and sign in again as someone else, before it resumes. A
+    // different username, so this session's token is a different string from
+    // the stale one and the assertions below cannot pass by accident.
+    realm('brand-new', 'second-session');
+    const signOut = strategy.signOut();
+    const flow = strategy.signIn();
+    const callback = deliverCallback();
 
     releaseWrite();
     await stale;
+    await signOut;
+    await callback;
+    await flow;
 
-    // What is guaranteed: the new session is NOT logged out. An unconditional
-    // rollback cleared the token signal and deleted the shared key, which
-    // ended a session that had nothing to do with the renewal being undone.
+    // The new session is NOT logged out, and — the part the unserialised
+    // strategy documented as a residual rather than fixing — it keeps its
+    // STORED credential too. The stale write used to land on top of the new
+    // session's value and its rollback then removed it; now the write
+    // finishes before the sign-out, which finishes before the sign-in.
     expect(strategy.user()()?.username).toBe('second-session');
-
-    // What is NOT guaranteed, and is documented rather than fixed: the stale
-    // write was already in flight, so it landed on top of the new session's
-    // value before the rollback removed it. The new session therefore has no
-    // STORED credential until its next renewal writes one — it stays signed
-    // in on the token in memory, and the window self-heals. Closing it would
-    // need a compare-and-set the Preferences/Keychain API does not offer, or a
-    // write queue holding a generation check inside its critical section; both
-    // are a lot of machinery for a window measured in milliseconds whose
-    // consequence repairs itself. What matters is that the stale value does
-    // not survive to be presented to Keycloak.
-    expect(store.get(REFRESH_TOKEN_KEY)).not.toBe('stale');
+    expect(store.get(REFRESH_TOKEN_KEY)).toBe('brand-new');
   });
 
   it('a late exchange does not delete the credential of the session that replaced it', async () => {
-    // The distinguishing case for `discard`'s value check. Here the stale
-    // tokens never reach storage at all — the exchange is still in flight
-    // when the session ends — so at rollback time the key holds the NEW
-    // session's value. Removing by key alone would delete it.
+    // The stale tokens never reach storage — the exchange is still in flight
+    // when the session ends — and a newer session is asked for behind it.
     let releaseExchange!: (value: unknown) => void;
     fetchMock.mockImplementationOnce(
       () => new Promise((resolve) => (releaseExchange = resolve)),
@@ -573,19 +580,24 @@ describe('NativeAuthStrategy', () => {
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled());
 
     fetchMock.mockResolvedValue({ ok: true, json: async () => ({}) });
-    await strategy.signOut();
+    const signOut = strategy.signOut();
+    await expect(flow).rejects.toThrow(/sign-out/i);
 
-    // A whole new session while that exchange is still parked.
-    store.set(REFRESH_TOKEN_KEY, 'brand-new');
-    fetchMock.mockResolvedValue(tokenResponse('brand-new-2', 'second-session'));
-    await strategy.renewNow();
-    expect(store.get(REFRESH_TOKEN_KEY)).toBe('brand-new-2');
+    const next = strategy.signIn();
+    const nextCallback = deliverCallback();
+    fetchMock.mockImplementation(async (url: string) =>
+      url.endsWith('/revoke')
+        ? { ok: true, json: async () => ({}) }
+        : tokenResponse('brand-new', 'second-session'),
+    );
 
     releaseExchange(tokenResponse('stale-1'));
     await callback;
-    await expect(flow).rejects.toThrow(/session ended/i);
+    await signOut;
+    await nextCallback;
+    await next;
 
-    expect(store.get(REFRESH_TOKEN_KEY)).toBe('brand-new-2');
+    expect(store.get(REFRESH_TOKEN_KEY)).toBe('brand-new');
     expect(strategy.user()()?.username).toBe('second-session');
   });
 
@@ -631,18 +643,19 @@ describe('NativeAuthStrategy', () => {
     const stale = strategy.renewNow();
     await vi.waitFor(() => expect(secure.get).toHaveBeenCalled());
 
-    fetchMock.mockResolvedValue({ ok: true, json: async () => ({}) });
-    await strategy.signOut();
-
-    store.set(REFRESH_TOKEN_KEY, 'brand-new');
-    fetchMock.mockResolvedValue(tokenResponse('brand-new-2', 'second-session'));
-    await strategy.renewNow();
+    realm('brand-new', 'second-session');
+    const signOut = strategy.signOut();
+    const flow = strategy.signIn();
+    const callback = deliverCallback();
 
     releaseRead(null);
     await stale;
+    await signOut;
+    await callback;
+    await flow;
 
     expect(strategy.user()()?.username).toBe('second-session');
-    expect(store.get(REFRESH_TOKEN_KEY)).toBe('brand-new-2');
+    expect(store.get(REFRESH_TOKEN_KEY)).toBe('brand-new');
   });
 
   it('keeps a still-valid session when a renewal cannot reach Keycloak, and tries again', async () => {
@@ -679,17 +692,19 @@ describe('NativeAuthStrategy', () => {
     const signOut = strategy.signOut();
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled());
 
-    // A fresh interactive sign-in, started AFTER the sign-out began and
-    // completing before its revocation returns — the checkout 401 path can do
-    // exactly this.
+    // A fresh interactive sign-in, asked for AFTER the sign-out began and
+    // while its revocation is outstanding — the checkout 401 path can do
+    // exactly this. It opens no browser until the sign-out has finished (#8).
     fetchMock.mockResolvedValue(tokenResponse('after-signout', 'second-session'));
-    const { flow } = await startSignIn();
-    await deliverCallback();
-    await flow;
-    expect(strategy.user()()?.username).toBe('second-session');
+    const flow = strategy.signIn();
+    const callback = deliverCallback();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(browser.open).not.toHaveBeenCalled();
 
     releaseRevoke({ ok: true, json: async () => ({}) });
     await signOut;
+    await callback;
+    await flow;
 
     // The sign-out's own cleanup must not reach past the session it ended.
     expect(strategy.user()()?.username).toBe('second-session');
@@ -887,5 +902,229 @@ describe('NativeAuthStrategy', () => {
 
   it('says the session survives a reload, because the token is stored', () => {
     expect(strategy.sessionEndsOnReload).toBe(false);
+  });
+
+  /**
+   * #8: the four interleavings five review rounds left open, written as
+   * interleavings rather than as tests of the guard that used to stand in each
+   * one's way. Each is two user-or-timer actions crossing an await; each
+   * failed against the guarded, unserialised strategy.
+   */
+  describe('one lifecycle operation at a time (#8)', () => {
+    function revoked(): string[] {
+      return fetchMock.mock.calls
+        .filter(([url]) => String(url).endsWith('/revoke'))
+        .map(([, init]) => new URLSearchParams(String(init.body)).get('token') ?? '');
+    }
+
+    it('does not let a request that never answers hold every sign-out behind it', async () => {
+      store.set(REFRESH_TOKEN_KEY, 'refresh-1');
+      // A network that neither answers nor refuses: the request settles only
+      // when the strategy gives up on it.
+      fetchMock.mockImplementation(
+        (_url: string, init: RequestInit) =>
+          new Promise((_resolve, reject) =>
+            init.signal?.addEventListener('abort', () => reject(new Error('aborted'))),
+          ),
+      );
+      const renewal = strategy.renewNow();
+      const signOut = strategy.signOut();
+
+      await vi.advanceTimersByTimeAsync(60_000);
+
+      await expect(renewal).resolves.toBeUndefined();
+      await expect(signOut).resolves.toBeUndefined();
+      expect(store.has(REFRESH_TOKEN_KEY)).toBe(false);
+    });
+
+    it('bounds a response whose headers arrive and whose body never does', async () => {
+      store.set(REFRESH_TOKEN_KEY, 'refresh-1');
+      // `fetch` resolves on the headers; the body is read afterwards, and a
+      // timer cleared at the headers left that read unbounded.
+      fetchMock.mockImplementation(async (_url: string, init: RequestInit) => ({
+        ok: true,
+        status: 200,
+        json: () =>
+          new Promise((_resolve, reject) =>
+            init.signal?.addEventListener('abort', () => reject(new Error('aborted'))),
+          ),
+      }));
+      const renewal = strategy.renewNow();
+      const signOut = strategy.signOut();
+
+      await vi.advanceTimersByTimeAsync(60_000);
+
+      await expect(renewal).resolves.toBeUndefined();
+      await expect(signOut).resolves.toBeUndefined();
+      expect(store.has(REFRESH_TOKEN_KEY)).toBe(false);
+    });
+
+    it('does not read its own close of the browser as the user dismissing it', async () => {
+      // The real plugin fires `browserFinished` for ANY close, including the
+      // one the callback makes. The flow is still pending at that point now —
+      // it has to be, or a second sign-in would open a second browser — so
+      // the dismissal listener must tell a redeeming flow from an abandoned one.
+      await strategy.initialize();
+      fetchMock.mockResolvedValue(tokenResponse('refresh-1'));
+      browser.close.mockImplementation(async () => browser.finished?.());
+      const { flow } = await startSignIn();
+
+      await deliverCallback();
+
+      await expect(flow).resolves.toBeUndefined();
+      expect(strategy.accessToken()).not.toBeNull();
+    });
+
+    it('the close a sign-out queued does not dismiss the sign-in asked for after it', async () => {
+      await strategy.initialize();
+      fetchMock.mockResolvedValue({ ok: true, json: async () => ({}) });
+      const { flow: first } = await startSignIn();
+      browser.close.mockImplementation(async () => browser.finished?.());
+
+      // The sign-out abandons the open flow at once but closes its browser
+      // only at its turn in the queue, and that close fires the dismissal
+      // event — by which time the pending flow is a newer one, not yet open.
+      const signOut = strategy.signOut();
+      const second = strategy.signIn();
+      await expect(first).rejects.toThrow(/sign-out/i);
+      await signOut;
+      await vi.waitFor(() => expect(browser.open).toHaveBeenCalledTimes(2));
+
+      browser.close.mockImplementation(async () => undefined);
+      fetchMock.mockResolvedValue(tokenResponse('refresh-1'));
+      await deliverCallback();
+      await expect(second).resolves.toBeUndefined();
+    });
+
+    it('a sign-out crossing the callback’s storage write leaves no token in memory or in storage', async () => {
+      fetchMock.mockResolvedValue(tokenResponse('refresh-1'));
+      let releaseWrite!: () => void;
+      secure.set.mockImplementationOnce(
+        (k: string, v: string) =>
+          new Promise<undefined>((resolve) => {
+            releaseWrite = () => {
+              store.set(k, v);
+              resolve(undefined);
+            };
+          }),
+      );
+      const { flow } = await startSignIn();
+      const callback = deliverCallback();
+      await vi.waitFor(() => expect(secure.set).toHaveBeenCalled());
+
+      const signOut = strategy.signOut();
+      await expect(flow).rejects.toThrow(/sign-out/i);
+      // The caller has been told the sign-in did not happen, so nothing may
+      // act on the token `adopt` has already put in memory.
+      releaseWrite();
+      await callback;
+      expect(strategy.accessToken()).toBeNull();
+
+      realm('unused');
+      await signOut;
+      expect(revoked()).toEqual(['refresh-1']);
+      expect(store.has(REFRESH_TOKEN_KEY)).toBe(false);
+    });
+
+    it('a sign-in abandoned inside its digest window opens no browser over the next one', async () => {
+      realm('refresh-1');
+
+      // Synchronously, with no await between them: the first flow is still on
+      // its S256 digest when the sign-out abandons it and a second flow
+      // claims the slot. The first used to carry on into `browser.open`
+      // regardless, putting a dead flow's login page over the live one.
+      const first = strategy.signIn();
+      void first.catch(() => undefined);
+      const signOut = strategy.signOut();
+      const { flow: second } = await startSignIn();
+      await signOut;
+
+      await expect(first).rejects.toThrow(/sign-out/i);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(browser.open).toHaveBeenCalledOnce();
+
+      await deliverCallback();
+      await expect(second).resolves.toBeUndefined();
+      expect(strategy.accessToken()).not.toBeNull();
+    });
+
+    it('a renewal that began before an interactive sign-in cannot end the session it produced', async () => {
+      store.set(REFRESH_TOKEN_KEY, 'refresh-1');
+      let refuse!: (value: unknown) => void;
+      fetchMock.mockImplementationOnce(() => new Promise((resolve) => (refuse = resolve)));
+      const renewal = strategy.renewNow();
+      await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+
+      // A whole interactive sign-in requested while that renewal is on the
+      // wire. A sign-in never advanced `sessionGeneration`, so the renewal's
+      // check passed afterwards and its refusal ended the NEW session.
+      realm('after-sign-in', 'second-session');
+      const flow = strategy.signIn();
+      const callback = deliverCallback();
+      await vi.advanceTimersByTimeAsync(0);
+
+      refuse({ ok: false, status: 400, json: async () => ({}) });
+      await renewal;
+      await callback;
+      await flow;
+
+      expect(strategy.user()()?.username).toBe('second-session');
+      expect(store.get(REFRESH_TOKEN_KEY)).toBe('after-sign-in');
+    });
+
+    it('a sign-in completed while sign-out waits on the browser survives the sign-out', async () => {
+      store.set(REFRESH_TOKEN_KEY, 'refresh-1');
+      realm('refresh-2');
+      await strategy.renewNow();
+
+      let releaseClose!: () => void;
+      browser.close.mockImplementationOnce(
+        () => new Promise<void>((resolve) => (releaseClose = resolve)),
+      );
+      const signOut = strategy.signOut();
+      await vi.waitFor(() => expect(browser.close).toHaveBeenCalled());
+
+      // A sign-in that begins after the sign-out and completes while it is
+      // still closing the browser. Sign-out took its `adoptions` snapshot
+      // after that await, so it counted this session as its own, revoked its
+      // refresh token and cleared it.
+      realm('after-sign-in', 'second-session');
+      const flow = strategy.signIn();
+      const callback = deliverCallback();
+      await vi.advanceTimersByTimeAsync(0);
+
+      releaseClose();
+      await signOut;
+      await callback;
+      await flow;
+
+      expect(strategy.user()()?.username).toBe('second-session');
+      expect(store.get(REFRESH_TOKEN_KEY)).toBe('after-sign-in');
+      expect(revoked()).toEqual(['refresh-2']);
+    });
+
+    it('a second sign-in during the code exchange joins the flow rather than opening another browser', async () => {
+      let releaseExchange!: (value: unknown) => void;
+      fetchMock.mockImplementationOnce(() => new Promise((resolve) => (releaseExchange = resolve)));
+      const { flow: first } = await startSignIn();
+      const state = strategy.pendingState();
+      const callback = deliverCallback();
+      await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled());
+
+      // `handleCallback` used to clear the flow before the exchange, which
+      // dropped the in-flight guard while `first` was still unsettled: this
+      // call minted a second flow and opened a second browser, and the first
+      // callback's `close()` then dismissed it.
+      const second = strategy.signIn();
+      expect(strategy.pendingState()).toBe(state);
+
+      releaseExchange(tokenResponse('refresh-1'));
+      await callback;
+
+      await expect(first).resolves.toBeUndefined();
+      await expect(second).resolves.toBeUndefined();
+      expect(browser.open).toHaveBeenCalledOnce();
+      expect(strategy.accessToken()).not.toBeNull();
+    });
   });
 });
