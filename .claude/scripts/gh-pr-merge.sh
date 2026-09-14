@@ -45,4 +45,24 @@ repo=$(gh repo view --json nameWithOwner --jq .nameWithOwner) ||
 [ -n "$repo" ] ||
   { echo "this checkout's repository resolved to nothing" >&2; exit 3; }
 
+# **The number is the caller's, so it is checked against the checkout.**
+# `--match-head-commit` binds the merge to an oid, and the caller supplies
+# that too: any open PR in this repository, named with its own head, passed.
+# So the PR must be the one for the branch checked out here, from this
+# repository rather than a fork, with that head. Raised by Copilot.
+branch=$(git branch --show-current)
+[ -n "$branch" ] && [ "$branch" != main ] ||
+  { echo "not on a PR branch: there is no branch to bind pull request #$pr to" >&2; exit 3; }
+head=$(gh pr view "$pr" --repo "$repo" \
+  --json headRefName,headRefOid,isCrossRepository \
+  --jq '[.headRefName, .headRefOid, (.isCrossRepository|tostring)] | @tsv') ||
+  { echo "cannot read pull request #$pr" >&2; exit 3; }
+IFS=$'\t' read -r head_branch head_oid cross <<<"${head%$'\r'}"
+[ "$cross" = false ] ||
+  { echo "pull request #$pr comes from another repository" >&2; exit 3; }
+[ "$head_branch" = "$branch" ] ||
+  { echo "pull request #$pr is for $head_branch, not the checked-out $branch" >&2; exit 3; }
+[ "$head_oid" = "$oid" ] ||
+  { echo "pull request #$pr's head is $head_oid, not $oid" >&2; exit 3; }
+
 gh pr merge --merge --repo "$repo" --match-head-commit "$oid" "$pr"

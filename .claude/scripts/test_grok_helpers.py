@@ -3667,6 +3667,17 @@ class NoCommandHoldsAPrefixGrantThatAdmitsAForbiddenFlag(unittest.TestCase):
         # ship.md calls it the only guard in step 7 that fails closed and then
         # relied on prose to make it present.
         self.assertIn('[ "$#" -eq 2 ]', merge)
+        # The number and the oid are both the caller's, so the PR is bound to
+        # the checked-out branch, from this repository, before the merge.
+        # Raised by Copilot.
+        for check in ("git branch --show-current",
+                      "headRefName,headRefOid,isCrossRepository",
+                      '[ "$head_branch" = "$branch" ]',
+                      '[ "$cross" = false ]',
+                      '[ "$head_oid" = "$oid" ]'):
+            with self.subTest(check=check):
+                self.assertIn(check, merge)
+                self.assertLess(merge.find(check), merge.find("gh pr merge"))
 
         create = self._code("gh-pr-create.sh")
         self.assertIn('gh pr create --repo "$repo" --base main --head "$branch"',
