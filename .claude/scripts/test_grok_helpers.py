@@ -8402,6 +8402,13 @@ class TheGitArgvGuard(unittest.TestCase):
             self.assertAdmitted("ls > ${TMPDIR}/out", cwd=scratch)
         with mock.patch.dict(os.environ, {"TMPDIR": ".claude"}):
             self.assertRefused('ls > "$TMPDIR/settings.json"')
+        # An allowed variable whose VALUE is a pattern expands after the glob
+        # check has run. Raised by Copilot.
+        with mock.patch.dict(os.environ, {"TMPDIR": "package.jso?"}):
+            self.assertRefused("ls > $TMPDIR", cwd=scratch)
+            self.assertRefused('ls > "$TMPDIR"', cwd=scratch)
+        with mock.patch.dict(os.environ, {"TMP": "{package.json,x}"}):
+            self.assertRefused("ls > $TMP", cwd=scratch)
 
     def test_an_ordinary_redirection_is_still_admitted(self):
         # The positive control. A rule that refused every redirection would

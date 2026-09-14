@@ -2140,6 +2140,19 @@ def redirection_offence(command):
                     "rather than judging the name instead of the file it opens "
                     "(#20, docs/harness-boundaries.md)."
                 )
+            # **An expanded value can be a pattern too**, and `globbed` ran on
+            # the word before it was expanded. With `TMPDIR=package.jso?`,
+            # `ls > $TMPDIR` opens `package.json` while the tree checks see
+            # the pattern. Refused whether or not the expansion was quoted: a
+            # temp root carrying `*`, `?`, `[` or `{` is not one to write
+            # scratch into. Raised by Copilot.
+            if any(char in expanded for char in "*?[{"):
+                return (
+                    f"a redirection's target `{literal}` expands to "
+                    f"`{expanded}`, which carries a pattern character, so the "
+                    "file bash opens is not the string judged here (#20, "
+                    "docs/harness-boundaries.md)."
+                )
             literal = expanded
         # **A relative target is placed against the event's `cwd`, and a
         # directory change earlier in the command moves where it lands.**
