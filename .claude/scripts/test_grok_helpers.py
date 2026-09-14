@@ -8133,6 +8133,10 @@ class TheGitArgvGuard(unittest.TestCase):
             'ls > "package.json "',
             "ls > PACKAG~1.JSO",
             "ls > CLAUDE~1/settings.json",
+            # Globally edit-denied session state, and not in the inventory
+            # until Copilot's fourth round.
+            "ls > .remember/now.md",
+            "wc -l README.md > .REMEMBER/recent.md",
         ):
             with self.subTest(command=command):
                 self.assertRefused(command)

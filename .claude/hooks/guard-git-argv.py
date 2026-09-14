@@ -145,8 +145,14 @@ FORBIDDEN_SUBSTRINGS = ("ext::",)
 # `tasks.json` runs on folder open and this list is about writes rather than
 # about what a command may edit; the suite asserts coverage in one direction
 # only for exactly that reason.
+#
+# `.remember` is here because `.claude/settings.json` denies editing it
+# globally — session state no command writes by hand — and `ls` and `wc` are
+# approved just as globally, so `ls > .remember/now.md` wrote past that deny
+# exactly as the trees above were written past. Raised by Copilot.
 PROTECTED_TREES = frozenset({
-    ".claude", ".git", ".github", ".vscode", "android", "ios", "node_modules",
+    ".claude", ".git", ".github", ".remember", ".vscode", "android", "ios",
+    "node_modules",
 })
 
 # **The root files, matched on the BASENAME, and the over-refusal is
