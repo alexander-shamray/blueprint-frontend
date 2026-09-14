@@ -1779,6 +1779,13 @@ def globbed(word):
             return True
         if word[index] in "@+!" and word[index + 1:index + 2] == "(":
             return True
+        # **A brace expansion is the same answer by another route.**
+        # `package.{j..j}son` is a range bash expands to `package.json` before
+        # the redirect opens it, and the literal holds no protected name.
+        # Every unquoted `{` counts, rather than the forms that expand, because
+        # enumerating those is how the range was missed. Raised by Copilot.
+        if word[index] == "{" and word[index - 1:index] != "$":
+            return True
     return False
 
 
@@ -2879,7 +2886,14 @@ def helper_named(token):
                     any(char in candidate for char in "*?[")
                     and fnmatch.fnmatchcase(helper, candidate)):
                 return helper
-    if "$" in token or "`" in token:
+    # **A range, a nested brace or an extglob is computed too**, rather than
+    # expanded here: `grok-{l..l}edger.sh` is the ledger and the comma-only
+    # expansion above cannot see it, and `grok-@(ledger).sh` is the ledger in
+    # an extglob shell. Modelling each form is the enumeration that missed
+    # these, so any `{` left unmatched, and any extglob opener, is reported as
+    # computed and refused in program position. Raised by Copilot.
+    if ("$" in token or "`" in token or re.search(r"(?<!\$)\{", token)
+            or re.search(r"[@+!?*]\(", token)):
         return "computed"
     return None
 
@@ -2901,6 +2915,21 @@ def launched(run, index):
     return previous >= 0 and program_name(run[previous]) in LAUNCHERS
 
 
+def token_followed_by_group(tokens, run, index):
+    """Whether `run[index]` is immediately followed by a `(` in `tokens`.
+
+    `command_runs` drops the boundary, so the flat token list is searched for
+    this run's position — the last token of `run` only, which is the only one
+    a `(` can follow without ending the run first.
+    """
+    if index != len(run) - 1:
+        return False
+    for position in range(len(tokens) - 1):
+        if tokens[position] is run[index] and tokens[position + 1].startswith("("):
+            return True
+    return False
+
+
 def review_helper_offence(tokens):
     """The reason to refuse a Grok review or a ledger write, or `None`."""
     for run in command_runs(tokens):
@@ -2908,6 +2937,12 @@ def review_helper_offence(tokens):
             continue
         for index, token in enumerate(run):
             name = helper_named(token)
+            # The tokeniser splits an extglob at its parenthesis, so
+            # `grok-@(ledger).sh` arrives as `grok-@` with the group in a
+            # separate run. A word ending in an extglob operator is computed.
+            if name is None and token[-1:] in ("@", "+", "!", "?", "*") and (
+                    token_followed_by_group(tokens, run, index)):
+                name = "computed"
             if name is None:
                 continue
             if name == "computed" or token != token.strip() or (

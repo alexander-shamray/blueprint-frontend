@@ -8269,6 +8269,10 @@ class TheGitArgvGuard(unittest.TestCase):
             "ls > package.+(json)",
             "ls > package.!(xml)",
             "bash -O extglob -c 'ls > package.@(json)'",
+            # Brace expansion, including the range form. Raised by Copilot.
+            "ls > package.{j..j}son",
+            "ls > package.{json,x}",
+            "ls > .{claude,x}/settings.json",
         ):
             with self.subTest(command=command):
                 self.assertRefused(command)
@@ -8371,6 +8375,10 @@ class TheGitArgvGuard(unittest.TestCase):
             "bash .claude/scripts/$HELPER 42 complete 2 clean",
             "bash -e \"$(printf .claude/scripts/grok-ledger.sh)\" 42 release 1",
             "$LEDGER 42 reserve 1 full",
+            # A range or an extglob in the program word. Raised by Copilot.
+            "bash .claude/scripts/grok-{l..l}edger.sh 42 re''serve 1 full",
+            "bash .claude/scripts/grok-@(ledger).sh 42 reserve 1 full",
+            "bash .claude/scripts/grok-{{ledger,x},y}.sh 42 reserve 1 full",
             "bash .claude/scripts/grok-rev''iew.sh 42 full",
             "git log -1 && bash .claude/scripts/grok-review.sh 42 recheck",
         ):
