@@ -8525,6 +8525,18 @@ class TheGitArgvGuard(unittest.TestCase):
         os.makedirs(os.path.join(root, "notes"), exist_ok=True)
         self.assertAdmitted("ls > '~'", cwd=os.path.join(root, "notes"))
 
+        # **A locale-quoted target is read by bash as its literal text**, and
+        # the guard read `$"HOME"` as an expansion of `$HOME`, placing the
+        # write in the home directory while bash wrote the checkout's `src`.
+        # Raised by Copilot.
+        for command in ('ls > $"HOME"/../src/app/x.ts',
+                        'ls > $"package.json"',
+                        "ls > $'\\q'"):
+            with self.subTest(command=command):
+                self.assertRefused(command, cwd=root)
+        # An ANSI-C quote the decoder reads is still judged as what it spells.
+        self.assertRefused("ls > $'\\x70ackage.json'", cwd=root)
+
         # The control: a `src` directory that is not at a checkout's root.
         elsewhere = tempfile.mkdtemp(prefix="argv-noapp-")
         self.addCleanup(shutil.rmtree, elsewhere, ignore_errors=True)

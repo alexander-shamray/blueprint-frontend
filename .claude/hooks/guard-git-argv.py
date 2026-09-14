@@ -2086,6 +2086,15 @@ def redirection_offence(command):
                 "quote the name, or write it out (#20, "
                 "docs/harness-boundaries.md)."
             )
+        # **A dollar quote this guard cannot read is refused on the target
+        # itself**, because the command-wide check runs after the redirection
+        # strip has already removed it. `target_literal` read `$"HOME"/../src/…`
+        # as a `$HOME` expansion and judged `~/../src/…`, while bash opens the
+        # relative `HOME/../src/…` — the checkout's denied `src`. Raised by
+        # Copilot.
+        unreadable = unreadable_dollar_quote(span.target)
+        if unreadable is not None:
+            return f"a redirection's target: {unreadable}"
         literal = target_literal(span.target)
         if literal is None:
             return (
