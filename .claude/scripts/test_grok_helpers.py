@@ -3425,13 +3425,13 @@ class OnlyThisCheckoutsPullRequestsSurvive(unittest.TestCase):
 
     ROWS = """[
       {"number": 1, "state": "OPEN", "url": "u1",
-       "headRepository": {"nameWithOwner": "acme/widgets"}},
+       "headRepository": {"nameWithOwner": "acme/widgets"}, "baseRefName": "main"},
       {"number": 2, "state": "OPEN", "url": "u2",
-       "headRepository": {"nameWithOwner": "mallory/widgets"}},
+       "headRepository": {"nameWithOwner": "mallory/widgets"}, "baseRefName": "main"},
       {"number": 3, "state": "MERGED", "url": "u3",
-       "headRepository": null},
+       "headRepository": null, "baseRefName": "main"},
       {"number": 4, "state": "CLOSED", "url": "u4",
-       "headRepository": {"nameWithOwner": "acme/widgets-fork"}}
+       "headRepository": {"nameWithOwner": "acme/widgets-fork"}, "baseRefName": "main"}
     ]"""
 
     def setUp(self):
@@ -4144,7 +4144,7 @@ class AFeedHelperReturnsTheWholeAnswer(unittest.TestCase):
         return {
             "number": number, "state": state,
             "url": f"https://example.invalid/{number}",
-            "headRepository": {"nameWithOwner": repo},
+            "headRepository": {"nameWithOwner": repo}, "baseRefName": "main",
         }
 
     def test_a_merged_pr_behind_the_reused_branch_is_not_its_pr(self):
@@ -4204,6 +4204,19 @@ class AFeedHelperReturnsTheWholeAnswer(unittest.TestCase):
         self.assertEqual([{"number": 9, "state": "OPEN",
                            "url": "https://example.invalid/9"}],
                          json.loads(result.stdout))
+
+    def test_a_newer_pr_into_another_base_does_not_mask_the_main_pr(self):
+        # GitHub lets one head branch open PRs against several bases, so a
+        # newer PR into `develop` was the newest row and hid the `main` PR.
+        # Raised by Copilot.
+        develop = {**self._row(12, "OPEN"), "baseRefName": "develop"}
+        result = self._pr_list_stub([self._row(9, "OPEN"), develop])
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual([9], [row["number"] for row in json.loads(result.stdout)])
+
+        # With no PR into `main` at all, there is no PR for this chain.
+        result = self._pr_list_stub([develop])
+        self.assertEqual([], json.loads(result.stdout))
 
     def test_a_fork_row_is_not_this_repositorys_row(self):
         # The other half of the same query: a fork's pull request can carry the

@@ -80,11 +80,18 @@ repo=$(gh repo view --json nameWithOwner --jq .nameWithOwner) ||
 # smaller one.
 limit=1000
 rows=$(gh pr list --state all --head "$branch" --limit "$limit" \
-         --json number,state,url,headRepository,headRefOid)
+         --json number,state,url,headRepository,headRefOid,baseRefName)
 [ "$(jq 'length' <<<"$rows")" -lt "$limit" ] ||
   { echo "gh pr list returned exactly $limit rows for $branch, so the listing may be truncated and the newest row cannot be established" >&2; exit 4; }
+# **Into `main` only.** GitHub lets one head branch open PRs against several
+# bases, so a newer PR from this branch into `develop` was the newest row and
+# masked the `main` PR: `/pr` refused to open the right one and `/ship`
+# reviewed the wrong one until `gh-pr-merge.sh` refused it at the end. Every
+# PR this chain opens targets `main`, so no other base is its PR. Raised by
+# Copilot.
 newest=$(jq --arg repo "$repo" \
-  '[ .[] | select((.headRepository.nameWithOwner // "") == $repo) ]
+  '[ .[] | select((.headRepository.nameWithOwner // "") == $repo)
+         | select(.baseRefName == "main") ]
    | sort_by(.number) | reverse | .[0:1]' <<<"$rows")
 
 # **The newest row can still be a previous incarnation of the branch.** Sorting
