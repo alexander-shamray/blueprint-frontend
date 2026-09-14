@@ -2191,6 +2191,48 @@ def expandable_regions(command):
     return [(strip_comments("".join(line)), True)] + regions
 
 
+def substituted_gh_offence(inner):
+    """The reason to refuse `gh` run inside a substitution, or `None`.
+
+    **A substitution runs before the command that holds it, and the grant is
+    judged on the holder.** `bash .claude/scripts/gh-pr-merge.sh 1 $(gh pr
+    merge --merge 42 --admin)` matches the helper's prefix grant, and the merge
+    happens while bash is still building the helper's argv — before any of the
+    helper's own checks. The same holds on a globally approved `ls`. No command
+    here runs `gh` inside a substitution, so every `gh` there is refused rather
+    than its subcommand judged. Raised by Copilot.
+
+    Read after quote removal and past assignments and the wrappers that run
+    their argument, for the reason `helper_named` is: the raw text is not what
+    bash runs.
+    """
+    try:
+        words = shlex.split(strip_dollar_quotes(inner), posix=True)
+    except ValueError:
+        words = inner.split()
+    for word in words:
+        if ASSIGNMENT.match(word) or word.startswith("-"):
+            continue
+        name = program_name(word)
+        if name in {"command", "env", "exec", "nohup", "time", "builtin"}:
+            continue
+        if name == "gh":
+            return (
+                "a command substitution runs `gh`, and it runs before the "
+                "command that holds it is checked against its grant — so a "
+                "fixed helper's own validation never sees it. Nothing here "
+                "runs `gh` inside a substitution; call the helper directly."
+            )
+        return None
+    return None
+
+
+# A process substitution is executed too, and `substitutions` does not return
+# one: judged by pattern, after quote removal, for the same `gh`.
+PROCESS_SUBSTITUTED_GH = re.compile(
+    r"[<>]\(\s*(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+|(?:command|env|exec|builtin)\s+)*gh(?:\.exe)?(?=\s|\))")
+
+
 def substitutions(command, quotes=True):
     """Every `$(...)` and backtick body in `command`, innermost included.
 
@@ -3350,6 +3392,14 @@ def _offence(command, depth, judged):
             if refusal is not None:
                 return f"with {description}: {refusal}"
 
+    if (PROCESS_SUBSTITUTED_GH.search(command)
+            or PROCESS_SUBSTITUTED_GH.search(re.sub(r"\$?[\"']|\\", "", command))):
+        return (
+            "a process substitution runs `gh`, which executes before the "
+            "command holding it is checked against its grant. Call the "
+            "helper directly."
+        )
+
     if substitution_fed_shells(command):
         return (
             "a shell is handed its script by a process substitution, so what "
@@ -3388,6 +3438,9 @@ def _offence(command, depth, judged):
         # body arrives with `quotes` false and is not a command line.
         text = join_continuations(text, quotes=quotes)
         for inner in substitutions(text, quotes=quotes):
+            refusal = substituted_gh_offence(inner)
+            if refusal is not None:
+                return refusal
             refusal = offence(inner, depth + 1, judged)
             if refusal is not None:
                 return f"inside a command substitution: {refusal}"

@@ -244,7 +244,15 @@ quote removal still missed one built by a substitution, which bash hands the
 helper while the token holds no verb at all. An allow-list of the two reads is
 what that leaves. A helper handed to a shell on stdin — `< grok-ledger.sh`, or
 `cat grok-ledger.sh | bash -s` — is refused too, since the shell then runs it
-past the allow-list. A run led by a reader — `grep`, `git`, `cat` and the rest of
+past the allow-list.
+
+**`gh` inside a command, backtick or process substitution is refused
+wherever it stands.** A substitution runs while bash is still building the
+argv of the command that holds it, so `bash gh-pr-merge.sh 1 $(gh pr merge
+42 --admin)` merges under the helper's prefix grant before the helper checks
+a single argument — and the same holds on a globally approved `ls`. No
+command here runs `gh` inside one. The one helper that takes no argument,
+`gh-pr-create.sh`, is also granted exactly rather than by prefix. A run led by a reader — `grep`, `git`, `cat` and the rest of
 `READING_COMMANDS` — is inspecting those files rather than running them, and is
 admitted.
 

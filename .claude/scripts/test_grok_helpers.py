@@ -3645,9 +3645,16 @@ class NoCommandHoldsAPrefixGrantThatAdmitsAForbiddenFlag(unittest.TestCase):
         ship = self.frontmatter(COMMANDS / "ship.md")
         for name in self.REPLACEMENTS:
             with self.subTest(command="ship.md", helper=name):
-                self.assertIn(f"bash .claude/scripts/{name}:*", ship)
-        self.assertIn("bash .claude/scripts/gh-pr-create.sh:*",
-                      self.frontmatter(COMMANDS / "pr.md"))
+                self.assertIn(f"bash .claude/scripts/{name}", ship)
+        # **The argument-free helper is granted exactly, never by prefix.**
+        # Under `:*` an extra `$(gh pr create …)` argument ran before the
+        # arity check refused it. Raised by Copilot.
+        for command in ("ship.md", "pr.md"):
+            with self.subTest(command=command, grant="exact"):
+                frontmatter = self.frontmatter(COMMANDS / command)
+                self.assertIn("Bash(bash .claude/scripts/gh-pr-create.sh)",
+                              frontmatter)
+                self.assertNotIn("gh-pr-create.sh:*", frontmatter)
 
     @staticmethod
     def _code(name):
@@ -8389,6 +8396,20 @@ class TheGitArgvGuard(unittest.TestCase):
                         "c\\d .claude; ls > settings.json",
                         "pu''shd .claude; ls > settings.json",
                         "${X}cd .claude; ls > settings.json"):
+            with self.subTest(command=command):
+                self.assertRefused(command, cwd=root)
+
+        # **`gh` inside a substitution runs before the holder's grant is
+        # judged**, so a prefix-granted helper's own checks never see it.
+        # Raised by Copilot.
+        for command in (
+                "bash .claude/scripts/gh-pr-merge.sh 1 $(gh pr merge --merge 42 --admin)",
+                'bash .claude/scripts/gh-pr-create.sh "$(gh pr create -t x -b y)"',
+                "bash .claude/scripts/gh-sweep-issue-create.sh a b `gh issue create -t x`",
+                "ls $(gh pr merge 42 --admin)",
+                "ls $(env GH_HOST=x \"g\"h api -X POST repos/x/y/issues)",
+                "cat <(gh pr merge 42 --admin)",
+                "cat <( command gh pr merge 42)"):
             with self.subTest(command=command):
                 self.assertRefused(command, cwd=root)
         os.makedirs(os.path.join(root, "notes"))
