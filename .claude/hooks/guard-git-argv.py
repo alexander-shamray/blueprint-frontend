@@ -2074,6 +2074,31 @@ def redirection_offence(command):
                 "the path, or use the editing tools, which the permission "
                 "rules see (#20, docs/harness-boundaries.md)."
             )
+        # **An unquoted leading `~` is expanded before the file opens.**
+        # `ls > ~/checkout/src/app/x.ts` reached the tree checks as a relative
+        # path whose first component is `~`, while bash wrote the checkout's
+        # `src`. Raised by Copilot. `~` and `~+` have values this hook shares
+        # with the session — the home directory, and the working directory the
+        # event names — so they are expanded and judged; `~-` and `~user`
+        # have none it can read, and are refused. A quoted `'~'` is a literal
+        # name, which is why the raw word is asked rather than the literal.
+        raw = span.target.strip()
+        if raw.startswith("~"):
+            prefix = re.match(r"~[^/\\]*", raw).group(0)
+            remainder = literal[len(prefix):]
+            if prefix == "~":
+                literal = os.environ.get("HOME") or os.path.expanduser("~")
+                literal += remainder
+            elif prefix == "~+":
+                literal = (EVENT_CWD or os.getcwd()) + remainder
+            else:
+                return (
+                    f"a redirection's target begins `{prefix}`, which bash "
+                    "expands to a directory this guard cannot read — the "
+                    "previous working directory, or another user's home. "
+                    "Refusing rather than judging the tilde instead of the "
+                    "path (#20, docs/harness-boundaries.md)."
+                )
         if "$" in literal:
             expanded = expanded_target(literal, command)
             if expanded is None:

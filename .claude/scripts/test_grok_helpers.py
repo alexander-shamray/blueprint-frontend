@@ -8305,6 +8305,22 @@ class TheGitArgvGuard(unittest.TestCase):
         self.assertAdmitted("cd notes && ls >/dev/null", cwd=root)
         self.assertAdmitted("ls > notes/out.txt # cd later", cwd=root)
 
+        # **An unquoted tilde is expanded before the file opens.** Raised by
+        # Copilot. Driven with HOME set to the checkout's parent, so `~/`
+        # reaches the same `src` a spelled-out path would.
+        parent, name = os.path.split(root)
+        with mock.patch.dict(os.environ, {"HOME": parent}):
+            self.assertRefused(f"ls > ~/{name}/src/app/x.ts", cwd=parent)
+            self.assertRefused(f"ls > ~/{name}/.claude/settings.json",
+                               cwd=parent)
+        self.assertRefused("ls > ~+/src/app/x.ts", cwd=root)
+        for command in ("ls > ~-/src/app/x.ts", "ls > ~root/x"):
+            with self.subTest(command=command):
+                self.assertRefused(command, cwd=root)
+        # Quoted, the tilde is a file name and nothing expands.
+        os.makedirs(os.path.join(root, "notes"), exist_ok=True)
+        self.assertAdmitted("ls > '~'", cwd=os.path.join(root, "notes"))
+
         # The control: a `src` directory that is not at a checkout's root.
         elsewhere = tempfile.mkdtemp(prefix="argv-noapp-")
         self.addCleanup(shutil.rmtree, elsewhere, ignore_errors=True)

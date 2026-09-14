@@ -229,7 +229,9 @@ protects the union, and the suite reads every command's frontmatter to keep
 that union complete. A relative target is placed against the event's `cwd`,
 so **a relative write target in a command that can change directory — `cd`,
 `pushd`, `popd`, anywhere in it — is refused** rather than modelled; name the
-path absolutely or run the `cd` on its own. The names
+path absolutely or run the `cd` on its own. An unquoted leading `~` or `~+`
+is expanded from the home and working directories the hook shares with the
+session and judged as that path; `~-` and `~user` are refused. The names
 are compared case-folded, and a target inside a checkout is judged again where
 it resolves, from the hook event's `cwd`, so a branch's `docs/out ->
 ../.claude/settings.json` link does not make the write an unprotected one.
