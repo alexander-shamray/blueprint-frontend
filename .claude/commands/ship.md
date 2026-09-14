@@ -754,7 +754,13 @@ same argument as never calling a branch clean because asking failed.
    is that decision already made: pushes that close review findings update
    the PR without asking again.
 
-5. **The review loop.** Once the PR is open, alternate the two halves of the
+5. **The review loop.** Grok is disabled: report that half as skipped and move
+   directly to step 6. `grok-review.sh` exits before any credential or network
+   operation, and `.claude/settings.json` denies invoking it. Re-enable it only
+   after its launcher is installed outside the branch it reviews.
+
+   The retained design below documents the loop to restore once a trusted
+   launcher exists. Once the PR is open, alternate the two halves of the
    external review until it has nothing left to say.
 
    **First, once, synchronise the branch with its remote**, because both

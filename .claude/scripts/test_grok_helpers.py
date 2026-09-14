@@ -730,6 +730,16 @@ class ReviewArgumentValidation(unittest.TestCase):
                 self.assertEqual(2, result.returncode)
                 self.assertNotIn("pull request", result.stderr)
 
+    def test_a_valid_invocation_is_disabled_before_credentials_or_network(self):
+        result = self.run_review("1", "full")
+        self.assertEqual(19, result.returncode)
+        self.assertIn("disabled", result.stderr)
+        code = REVIEW.read_text(encoding="utf-8")
+        self.assertLess(code.index("exit 19"),
+                        code.index('if [ -n "${XAI_API_KEY:-}" ]'))
+        deny = json.loads(SETTINGS.read_text(encoding="utf-8"))["permissions"]["deny"]
+        self.assertIn("Bash(*grok-review.sh*)", deny)
+
 
 class LedgerStub:
     """A `gh` on PATH that answers the calls grok-ledger.sh makes.

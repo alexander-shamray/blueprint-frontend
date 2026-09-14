@@ -90,6 +90,13 @@ case "$mode" in
   *) echo "mode must be full or recheck: $mode" >&2; exit 2 ;;
 esac
 
+# Disabled until the launcher lives outside the branch it reviews. A branch
+# controls this repository's scripts, so no code here can establish the trust
+# needed before receiving XAI_API_KEY or the OAuth fallback. Keep this before
+# every credential, Docker, ledger and network operation.
+echo "Grok review is disabled until a trusted out-of-repository launcher is installed" >&2
+exit 19
+
 # Two patterns, declared together and away from the code that applies them, so
 # the suite beside this file has ONE subject to read. That is the SOURCE_INPUTS
 # discipline the deploy/** gates arrived at: a value a test asserts about has to
