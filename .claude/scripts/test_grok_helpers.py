@@ -976,6 +976,35 @@ class LedgerDoesNotFailOpen(unittest.TestCase):
         )
         self.assertEqual("unconverged", stub.run("42", "status").stdout.strip())
 
+    def test_a_reservation_posted_before_the_marker_still_supersedes_it(self):
+        # The interleaving Copilot raised: `converge` validates slot 4 as the
+        # highest, another run reserves 5, and only then is the marker posted —
+        # so the marker is LATER in comment order than the reservation that
+        # supersedes it. Judged by slot, it is still unconverged.
+        stub = self.ledger(
+            [
+                "101\talice\tGrok check 3/12 — completed: clean",
+                "102\talice\tGrok check 4/12 — completed: clean",
+                "103\talice\tGrok check 5/12 — reserved (recheck)",
+                "104\talice\tGrok check 4/12 — converged: loop clean",
+            ],
+            {"alice": "write"},
+        )
+        self.assertEqual("unconverged", stub.run("42", "status").stdout.strip())
+
+        # A slot above the marker that was released is no newer review, and
+        # the completed rows at or below it do not undo the marker.
+        stub = self.ledger(
+            [
+                "101\talice\tGrok check 4/12 — completed: clean",
+                "102\talice\tGrok check 5/12 — reserved (recheck)",
+                "103\talice\tGrok check 5/12 — released: skipped on limits",
+                "104\talice\tGrok check 4/12 — converged: loop clean",
+            ],
+            {"alice": "write"},
+        )
+        self.assertEqual("converged", stub.run("42", "status").stdout.strip())
+
     def test_no_consumer_pipes_the_row_reader_directly(self):
         # The structural half. The behavioural tests above prove the three
         # consumers that exist are safe; this one is why a fourth cannot

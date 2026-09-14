@@ -249,10 +249,28 @@ if [ "$op" = "status" ]; then
   # a skip neither spends nor converges.
   read_rows ||
     { echo "the ledger's trust check failed; refusing to print a status" >&2; exit 3; }
+  # **Judged by SLOT, not by comment order.** `converge` validates the ledger
+  # and then posts, and another run can reserve slot n+1 in between — so the
+  # reservation lands above the marker in comment order, and "a later
+  # reservation supersedes it" read the marker as the last word while a newer
+  # review was active. A marker now stands only if no slot above it is
+  # reserved or completed, wherever that row sits in the thread. Raised by
+  # Copilot.
   emit_rows | awk -F'\t' '
-    $2 ~ /converged/ { conv = 1 }
-    $2 ~ /reserved/  { conv = 0 }
-    END { print conv ? "converged" : "unconverged" }'
+    {
+      split($2, a, "/")
+      sub(/^Grok check /, "", a[1])
+      slot = a[1] + 0
+    }
+    $2 ~ /converged/ { if (slot > conv) conv = slot; next }
+    $2 ~ /released/  { state[slot] = "released"; next }
+    { state[slot] = "active" }
+    END {
+      active = 0
+      for (i in state)
+        if (state[i] == "active" && i + 0 > active) active = i + 0
+      print (conv > 0 && conv >= active) ? "converged" : "unconverged"
+    }'
   exit 0
 fi
 
