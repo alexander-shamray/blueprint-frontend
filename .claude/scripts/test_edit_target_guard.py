@@ -844,11 +844,28 @@ class WhatThisGuardIsNotTheSubjectOf(GuardCase):
         # FILE naming a gitdir under the anchor's own `.git`.
         worktree = os.path.join(self.outside, "linked-worktree")
         os.makedirs(os.path.join(worktree, "docs"), exist_ok=True)
-        self.write(
-            os.path.join(worktree, ".git"),
-            "gitdir: "
-            + os.path.join(self.root, ".git", "worktrees", "linked") + "\n")
-        self.assertAdmitted(os.path.join(worktree, "docs", "note.md"))
+        admin = os.path.join(self.root, ".git", "worktrees", "linked")
+        self.write(os.path.join(worktree, ".git"), "gitdir: " + admin + "\n")
+
+        # **A `.git` file alone is a claim** — without the backlink git keeps
+        # in the admin directory, an unregistered directory naming this
+        # repository's gitdir was taken for its worktree. Raised by Copilot.
+        # Asked of the predicate, because this fixture sits under the temp
+        # root, where the directory would be admitted as scratch regardless.
+        module = self.guard_module()
+        checkouts = [(self.root, os.path.realpath(self.root),
+                      module.traits_of(self.root))]
+        target = os.path.join(worktree, "docs", "note.md")
+        self.assertIsNone(module.linked_worktree(target, checkouts))
+        os.makedirs(admin, exist_ok=True)
+        self.write(os.path.join(admin, "gitdir"),
+                   os.path.join(self.outside, "not-this-worktree", ".git") + "\n")
+        self.assertIsNone(module.linked_worktree(target, checkouts))
+
+        self.write(os.path.join(admin, "gitdir"),
+                   os.path.join(worktree, ".git") + "\n")
+        self.assertIsNotNone(module.linked_worktree(target, checkouts))
+        self.assertAdmitted(target)
 
         # **The same sibling's machinery and toolchain are refused**, because
         # a session standing in the parent is reached by none of its rules

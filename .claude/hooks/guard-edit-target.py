@@ -523,6 +523,20 @@ def linked_worktree(path, checkouts):
     if not text.startswith("gitdir:"):
         return None
     gitdir = os.path.realpath(text.split(":", 1)[1].strip())
+    # **The `.git` file is a claim, and git keeps the proof on the other end.**
+    # Any directory holding a `.git` file that names `<anchor>/.git/worktrees/x`
+    # passed, registered or not, and its ordinary files became writable. A
+    # worktree git created has an admin directory whose `gitdir` file points
+    # back at this `.git` file, so the backlink is required. Raised by
+    # Copilot.
+    try:
+        with open(os.path.join(gitdir, "gitdir"), encoding="utf-8") as handle:
+            backlink = handle.read().strip()
+    except OSError:
+        return None
+    if os.path.normcase(os.path.realpath(backlink)) != os.path.normcase(
+            os.path.realpath(marker)):
+        return None
     for spelled_root, real_root, traits in checkouts:
         for base in (spelled_root, real_root):
             if under(gitdir, os.path.join(base, ".git"), traits):
