@@ -220,7 +220,17 @@ work — so the targets were in hand and what was missing was a rule about them.
 It has one: `redirection_spans` carries the operator and the target word with
 each span, and a redirection that OPENS its target refuses a path naming the
 machinery trees or a toolchain root file. Read redirections are untouched,
-since reading the machinery is what half these commands are for.
+since reading the machinery is what half these commands are for. The names
+are compared case-folded, and a target inside a checkout is judged again where
+it resolves, from the hook event's `cwd`, so a branch's `docs/out ->
+../.claude/settings.json` link does not make the write an unprotected one.
+
+**The Grok ledger's write verbs and `grok-review.sh` are refused in the same
+hook**, on the argv after quote removal: the `settings.json` denies are
+substrings of the typed command, and `grok-ledger.sh 42 com''plete` spells no
+`complete`. A run led by a reader — `grep`, `git`, `cat` and the rest of
+`READING_COMMANDS` — is inspecting those files rather than running them, and is
+admitted.
 
 Three things about that rule are worth stating here rather than only in the
 hook. **A hook is handed a command and never the frontmatter that granted it**,

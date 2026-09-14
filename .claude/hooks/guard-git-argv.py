@@ -76,6 +76,7 @@ that gets worked around rather than fixed.
 
 import collections
 import json
+import os
 import re
 import shlex
 import sys
@@ -1840,6 +1841,52 @@ def protected_path(literal):
     return None
 
 
+# The directory the session's command runs in, from the hook event. `None`
+# until `main` reads one, and then the process's own directory stands in.
+EVENT_CWD = None
+
+
+def linked_protected_path(literal):
+    """Which protected surface `literal` reaches THROUGH a link, or `None`.
+
+    **The lexical check reads the spelling, and bash opens the file.** A branch
+    can carry `docs/out -> ../.claude/settings.json`, and `ls > docs/out`
+    holds no protected component while the write lands on the denied file.
+    Raised by Copilot.
+
+    So the target is placed against the checkout that contains it, resolved
+    through the filesystem — a missing leaf beneath a linked parent included,
+    which `realpath` resolves as far as the path exists — and judged again
+    WHERE IT LANDS, but only where the two disagree. Comparing the resolution
+    to the root's own resolution plus the spelled remainder is what keeps a
+    checkout under a linked temp root (`/tmp` on macOS) from reading as a link
+    on every write. A target outside every checkout is left to the lexical
+    check: this list is the repository's machinery, not the filesystem's.
+    """
+    cwd = EVENT_CWD or os.getcwd()
+    joined = literal if os.path.isabs(literal) else os.path.join(cwd, literal)
+    lexical = os.path.normpath(os.path.abspath(joined))
+    root = lexical
+    while not os.path.exists(os.path.join(root, ".git")):
+        parent = os.path.dirname(root)
+        if parent == root:
+            return None
+        root = parent
+    real_root = os.path.realpath(root)
+    expected = os.path.normpath(
+        os.path.join(real_root, os.path.relpath(lexical, root)))
+    resolved = os.path.realpath(joined)
+    if os.path.normcase(expected) == os.path.normcase(resolved):
+        return None
+    try:
+        landed = os.path.relpath(resolved, real_root)
+    except ValueError:
+        landed = resolved
+    if landed == ".." or landed.startswith(".." + os.sep):
+        landed = resolved
+    return protected_path(landed)
+
+
 def redirection_offence(command):
     """The reason to refuse a redirection in `command`, or `None`.
 
@@ -1887,7 +1934,7 @@ def redirection_offence(command):
                 "the path, or use the editing tools, which the permission "
                 "rules see (#20, docs/harness-boundaries.md)."
             )
-        named = protected_path(literal)
+        named = protected_path(literal) or linked_protected_path(literal)
         if named is not None:
             return (
                 f"`{span.operator}` would write `{literal}`, and `{named}` is "
@@ -2697,6 +2744,53 @@ def command_runs(tokens):
         yield current
 
 
+# The Grok ledger's verbs that write an outcome, and the reviewer runner.
+# `.claude/settings.json` denies both as substrings of the typed command, and
+# a substring deny is a speed bump: `grok-ledger.sh 42 com''plete 2 clean`
+# spells no `complete` and bash runs it, so `/ship`'s `grok-ledger.sh:*` grant
+# could manufacture a clean outcome and a convergence. Judged here on the argv
+# `shlex` resolves, which is the quoting bash removes. Raised by Copilot.
+LEDGER_WRITE_VERBS = frozenset({"reserve", "release", "complete", "converge"})
+REVIEW_HELPERS = frozenset({"grok-ledger.sh", "grok-review.sh"})
+
+# Commands that only READ a file named in their arguments, so a helper's path
+# there is a file being inspected and not a helper being run. Anything else in
+# the leading position — `bash`, `sh`, `env`, `command`, `xargs`, `source` —
+# is judged, because the wrapper list is the one that fails open.
+READING_COMMANDS = frozenset({
+    "awk", "cat", "diff", "file", "git", "grep", "head", "less", "ls", "rg",
+    "sed", "stat", "tail", "wc",
+})
+
+
+def review_helper_offence(tokens):
+    """The reason to refuse a Grok review or a ledger write, or `None`."""
+    for run in command_runs(tokens):
+        if program_name(leading_command(run)) in READING_COMMANDS:
+            continue
+        for index, token in enumerate(run):
+            name = program_name(token)
+            if name not in REVIEW_HELPERS:
+                continue
+            if name == "grok-review.sh":
+                return (
+                    "`grok-review.sh` is disabled: it runs the branch's own "
+                    "code with the reviewer's credentials, and "
+                    "`.claude/settings.json` denies it. This hook refuses it "
+                    "after quote removal, which the substring deny cannot."
+                )
+            verbs = LEDGER_WRITE_VERBS.intersection(run[index + 1:])
+            if verbs:
+                return (
+                    f"`grok-ledger.sh … {sorted(verbs)[0]}` writes a review "
+                    "outcome, which only `grok-review.sh` may record and "
+                    "`.claude/settings.json` denies to every session. Refused "
+                    "on the resolved argv, so quoting inside the verb does not "
+                    "reach past it."
+                )
+    return None
+
+
 def git_segments(tokens):
     """Yield the argv slice of every `git` invocation in a compound command.
 
@@ -3050,6 +3144,10 @@ def _offence(command, depth, judged):
         if refusal is not None:
             return f"inside a shell evaluator: {refusal}"
 
+    refusal = review_helper_offence(tokens)
+    if refusal is not None:
+        return refusal
+
     for segment in git_segments(tokens):
         refusal = push_offence(segment)
         if refusal is not None:
@@ -3138,6 +3236,10 @@ def main():
     command = (event.get("tool_input") or {}).get("command")
     if not isinstance(command, str):
         return 0
+
+    global EVENT_CWD
+    cwd = event.get("cwd")
+    EVENT_CWD = cwd if isinstance(cwd, str) and cwd else None
 
     try:
         reason = offence(command)

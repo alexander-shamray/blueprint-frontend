@@ -5064,9 +5064,11 @@ class TheGitArgvGuard(unittest.TestCase):
     built-in, so it reaches commands no allow or deny rule is consulted for.
     """
 
-    def judge(self, command, tool="Bash"):
+    def judge(self, command, tool="Bash", cwd=None):
         """The hook's verdict on one command: None to allow, or the reason."""
         event = {"tool_name": tool, "tool_input": {"command": command}}
+        if cwd is not None:
+            event["cwd"] = cwd
         result = subprocess.run(
             [sys.executable, str(HOOK)],
             input=json.dumps(event), capture_output=True, text=True,
@@ -5079,13 +5081,13 @@ class TheGitArgvGuard(unittest.TestCase):
         self.assertEqual("deny", decision["permissionDecision"])
         return decision["permissionDecisionReason"]
 
-    def assertRefused(self, command):
-        reason = self.judge(command)
+    def assertRefused(self, command, cwd=None):
+        reason = self.judge(command, cwd=cwd)
         self.assertIsNotNone(reason, f"admitted: {command}")
         return reason
 
-    def assertAdmitted(self, command):
-        self.assertIsNone(self.judge(command), f"refused: {command}")
+    def assertAdmitted(self, command, cwd=None):
+        self.assertIsNone(self.judge(command, cwd=cwd), f"refused: {command}")
 
     # ---- the positive control comes first, because everything rests on it ---
 
@@ -8159,6 +8161,68 @@ class TheGitArgvGuard(unittest.TestCase):
         # The positive control for the short-name rule: Windows spells the
         # temp root with `~1` too, and a scratch write there stays admitted.
         self.assertAdmitted("ls > C:/Users/RUNNER~1/AppData/Local/Temp/out.txt")
+
+    def test_a_redirection_through_a_link_into_a_protected_tree_is_refused(self):
+        # The spelling holds no protected component and bash follows the link:
+        # a branch carrying `docs/linked -> ../.claude` turned `ls >
+        # docs/linked/settings.json` into a write on the denied file. Raised
+        # by Copilot. Run against a real link — a symbolic link where the
+        # session may make one, a junction where only that is granted.
+        root = tempfile.mkdtemp(prefix="argv-link-")
+        self.addCleanup(shutil.rmtree, root, ignore_errors=True)
+        for tree in (".git", ".claude", "docs"):
+            os.makedirs(os.path.join(root, tree))
+        target = os.path.join(root, ".claude")
+        link = os.path.join(root, "docs", "linked")
+        try:
+            os.symlink(target, link, target_is_directory=True)
+        except (OSError, NotImplementedError):
+            from _winapi import CreateJunction
+            CreateJunction(target, link)
+
+        for command in ("ls > docs/linked/settings.json",
+                        "ls > docs/linked/new-helper.sh",
+                        "wc -l README.md >> ./docs/linked/x"):
+            with self.subTest(command=command):
+                self.assertRefused(command, cwd=root)
+
+        # The control: an ordinary write in the same checkout, and a write
+        # through a link that lands somewhere unprotected.
+        os.makedirs(os.path.join(root, "notes"))
+        other = os.path.join(root, "docs", "to-notes")
+        try:
+            os.symlink(os.path.join(root, "notes"), other,
+                       target_is_directory=True)
+        except (OSError, NotImplementedError):
+            from _winapi import CreateJunction
+            CreateJunction(os.path.join(root, "notes"), other)
+        self.assertAdmitted("ls > docs/plain.txt", cwd=root)
+        self.assertAdmitted("ls > docs/to-notes/out.txt", cwd=root)
+
+    def test_a_ledger_write_or_a_review_run_is_refused_after_quote_removal(self):
+        # `.claude/settings.json` denies these as substrings of the typed
+        # command, and `com''plete` spells no `complete` while bash runs it.
+        # Raised by Copilot.
+        for command in (
+            "bash .claude/scripts/grok-ledger.sh 42 com''plete 2 clean",
+            "bash .claude/scripts/grok-ledger.sh 42 con''verge",
+            'bash .claude/scripts/grok-ledger.sh 42 "reserve"',
+            "env bash .claude/scripts/grok-ledger.sh 42 release 3",
+            "bash .claude/scripts/grok-rev''iew.sh 42 full",
+            "git log -1 && bash .claude/scripts/grok-review.sh 42 recheck",
+        ):
+            with self.subTest(command=command):
+                self.assertRefused(command)
+
+        # The reads `/ship` keeps, and reading the helpers as files.
+        for command in (
+            "bash .claude/scripts/grok-ledger.sh 42 count",
+            "bash .claude/scripts/grok-ledger.sh 42 status",
+            "grep -n converge .claude/scripts/grok-ledger.sh",
+            "git log --oneline -- .claude/scripts/grok-review.sh",
+        ):
+            with self.subTest(command=command):
+                self.assertAdmitted(command)
 
     def test_a_protected_path_inside_a_heredoc_or_a_quote_is_data(self):
         # The invariant the rest of this pipeline is built on, applied to the
