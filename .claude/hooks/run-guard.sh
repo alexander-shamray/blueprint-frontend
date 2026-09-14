@@ -42,14 +42,24 @@ esac
 # print the directory it chose and land somewhere else.
 dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 
-if command -v py >/dev/null 2>&1; then
+# **A name on PATH is not a working interpreter, so each candidate is RUN
+# before it is chosen.** `command -v` alone picked a `py` with no 3.12
+# registered while a good `python3` sat beside it, and on Windows it picks the
+# Store `python3` alias whenever `py` is absent — in both cases the `exec`
+# failed and no fallback was ever reached. The probe is a harmless `-c` that
+# exits non-zero below the 3.12 floor, and it judges no event, so the hook
+# itself still runs exactly once. Raised by Copilot.
+probe='import sys; sys.exit(sys.version_info < (3, 12))'
+
+if command -v py >/dev/null 2>&1 && py -3.12 -c "$probe" >/dev/null 2>&1; then
   exec py -3.12 "$dir/$1"
 fi
 # `python` after `python3`, because `docs/testing.md` lets a host expose 3.12 as
 # either, and a POSIX host with only `python` otherwise failed every guarded
-# call before the guard ran. Probed with `command -v` like the others, so this
-# is still one choice and one `exec`. Raised by Copilot.
-if command -v python3 >/dev/null 2>&1; then
+# call before the guard ran. Raised by Copilot.
+if command -v python3 >/dev/null 2>&1 && python3 -c "$probe" >/dev/null 2>&1; then
   exec python3 "$dir/$1"
 fi
+# The last candidate is not probed: there is nothing left to fall back to, and
+# its own failure is the loud hook error the header argues for.
 exec python "$dir/$1"

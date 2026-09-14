@@ -425,7 +425,9 @@ provides `python3` and no `py` at all, so on those hosts **every**
 `PreToolUse` call failed before the guard ran — `Bash`, `Edit` and `Write`
 alike. **Both now go through `.claude/hooks/run-guard.sh`**, which probes
 `py` (and runs `py -3.12`), then `python3`, then `python`, and `exec`s the
-first it finds exactly once. `py` goes first because on Windows `python3` is
+first that actually runs 3.12 or newer, exactly once — each candidate is tried
+with a `-c` version check first, because a name on `PATH` can be a `py` with no
+3.12 registered or the Store alias. `py` goes first because on Windows `python3` is
 the Store alias, present on `PATH` and not Python; `python` goes last because
 `docs/testing.md` lets a host expose 3.12 under either name. The floor is
 pinned only where the launcher can pin it: `python3` and `python` are whatever

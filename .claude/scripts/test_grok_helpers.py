@@ -8386,6 +8386,48 @@ class TheHookWiringRunsOnMoreThanOneOperatingSystem(unittest.TestCase):
         self.assertIn("exec python ", code)
         self.assertLess(code.find("command -v python3"), code.find("exec python "))
 
+    def test_a_launcher_that_is_present_but_broken_is_passed_over(self):
+        # `command -v` proves a name exists, not that it runs: a `py` with no
+        # 3.12 registered, or Windows' Store `python3` alias, was chosen and
+        # its `exec` failed with a good interpreter still on PATH. Raised by
+        # Copilot. Driven with stand-ins on a PATH of their own, each of which
+        # says whether it was probed or ran the hook.
+        bin_dir = Path(tempfile.mkdtemp(prefix="launcher-"))
+        self.addCleanup(shutil.rmtree, str(bin_dir), ignore_errors=True)
+
+        def stand_in(name, probe_ok):
+            script = bin_dir / name
+            script.write_text(
+                "#!/bin/sh\n"
+                'if [ "$1" = -3.12 ]; then shift; fi\n'
+                f'if [ "$1" = -c ]; then exit {0 if probe_ok else 1}; fi\n'
+                f'echo "ran {name} $(basename "$1")"\n',
+                encoding="utf-8", newline="\n")
+            script.chmod(0o755)
+
+        tools = {os.path.dirname(shutil.which(t)) for t in ("dirname", "sh")}
+        path = os.pathsep.join([str(bin_dir), *sorted(tools)])
+
+        def launch():
+            return subprocess.run(
+                [BASH, str(self.LAUNCHER), "guard-git-argv.py"],
+                capture_output=True, text=True,
+                env={**os.environ, "PATH": path})
+
+        for broken in ("py", "python3"):
+            for name in ("py", "python3", "python"):
+                (bin_dir / name).unlink(missing_ok=True)
+            stand_in(broken, probe_ok=False)
+            if broken == "py":
+                stand_in("python3", probe_ok=True)
+                expected = "ran python3 guard-git-argv.py"
+            else:
+                stand_in("python", probe_ok=True)
+                expected = "ran python guard-git-argv.py"
+            with self.subTest(broken=broken):
+                out = launch()
+                self.assertEqual(expected, out.stdout.strip(), out.stderr)
+
     def test_the_launcher_execs_once_rather_than_falling_back(self):
         # `py -3.12 … || python3 …` re-runs the hook whenever the first
         # invocation exits non-zero for a real reason — and for a `PreToolUse`
