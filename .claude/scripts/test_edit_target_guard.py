@@ -771,6 +771,21 @@ class WhatThisGuardIsNotTheSubjectOf(GuardCase):
                        os.path.realpath(self.outside)), roots)
         self.assertNotIn((os.path.abspath(home), os.path.realpath(home)), roots)
 
+    def test_a_home_under_the_temp_root_keeps_its_control_surface(self):
+        # The first matching root answered, and the temp root came first — so a
+        # host with HOME at `/tmp/home` admitted `~/.claude/settings.json` as
+        # scratch. Raised by Copilot.
+        module = self.guard_module()
+        home = os.path.join(self.outside, "home")
+        target = os.path.join(home, ".claude", "settings.json")
+        with mock.patch.object(tempfile, "gettempdir",
+                               return_value=self.outside):
+            with mock.patch.dict(os.environ,
+                                 {"HOME": home, "USERPROFILE": home}):
+                reason = module.outside_offence(target, target, target)
+        self.assertIsNotNone(reason)
+        self.assertIn("control surface", reason)
+
     def test_a_sibling_worktree_of_this_repository_is_judged_not_refused(self):
         """The false positive the allow-list introduced, found by walking into it.
 

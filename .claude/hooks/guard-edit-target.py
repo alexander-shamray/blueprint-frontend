@@ -307,9 +307,13 @@ def scratch_roots():
     this suite on three platforms, which is the only reason that is knowable
     from here.
     """
+    # **The narrower root first.** The first matching root answers, and a
+    # host whose HOME sits under the temp directory (`/tmp/home`) put
+    # `~/.claude/settings.json` inside the temp root, which admitted it before
+    # the control-surface exclusion was ever asked. Raised by Copilot.
     roots = [
-        tempfile.gettempdir(),
         harness_state_root(),
+        tempfile.gettempdir(),
     ]
     return [(os.path.abspath(root), os.path.realpath(root))
             for root in roots if root]
