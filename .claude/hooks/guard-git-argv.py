@@ -1795,11 +1795,10 @@ def target_literal(word):
     …)` writes through a command rather than to a path, so there is no
     filename to judge.
 
-    **A parameter expansion is NOT refused, and that is the module docstring's
-    stated residual rather than a second decision.** `git log $F` is already
-    unjudgeable for the same reason, and refusing every `> "$TMPDIR/out"` would
-    charge a real cost against a hole that a literal spelling walks around
-    anyway. What closes it is the argv after expansion, which no hook is given.
+    **A parameter expansion is left in the literal here and judged by the
+    caller**, through `expanded_target`: this function answers what the word
+    spells, and whether a `$F` in it can be read is a question about the
+    variable rather than about the quoting.
     """
     if word.startswith(("<(", ">(")) or substitutions(word):
         return None
@@ -1857,6 +1856,52 @@ def protected_path(literal):
     if parts and comparable(parts[-1]) in PROTECTED_FILES_FOLDED:
         return parts[-1]
     return None
+
+
+# The variables a redirection target may expand, because this hook can read
+# their values from its own environment, which the session shares.
+EXPANDABLE_VARIABLES = frozenset({
+    "CLAUDE_PROJECT_DIR", "HOME", "TEMP", "TMP", "TMPDIR",
+})
+
+
+def expanded_target(literal, command):
+    """`literal` with its parameter expansions replaced, or `None`.
+
+    **A parameter-expanded target was the stated residual, and it was a bypass
+    on a globally approved command.** `F=.claude/settings.json; ls > $F` holds
+    no protected component in the target as written, and bash opens the
+    settings file. Raised by Copilot.
+
+    Refusing every `$` would take the ordinary `> "$TMP/out"` scratch write
+    with it, so the few variables whose values this hook shares with the
+    session are expanded from its own environment, and judged as the path they
+    produce. Everything else is refused: another name, a positional or special
+    parameter, any `${…}` operator, an unset variable, and an allowed name that
+    appears anywhere in the command other than as a plain reference — an
+    assignment, a `read`, an `export`, a `for` loop — because then its value at
+    the redirection is not the one this process holds.
+    """
+    references = re.compile(r"\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))")
+    failed = False
+
+    def replace(match):
+        nonlocal failed
+        name = match.group(1) or match.group(2)
+        value = os.environ.get(name)
+        if name not in EXPANDABLE_VARIABLES or not value:
+            failed = True
+            return ""
+        bare = references.sub("", command)
+        if re.search(rf"(?<![A-Za-z0-9_]){name}(?![A-Za-z0-9_])", bare):
+            failed = True
+            return ""
+        return value
+
+    expanded = references.sub(replace, literal)
+    if failed or "$" in expanded:
+        return None
+    return expanded
 
 
 # The directory the session's command runs in, from the hook event. `None`
@@ -1952,6 +1997,18 @@ def redirection_offence(command):
                 "the path, or use the editing tools, which the permission "
                 "rules see (#20, docs/harness-boundaries.md)."
             )
+        if "$" in literal:
+            expanded = expanded_target(literal, command)
+            if expanded is None:
+                return (
+                    f"a redirection writes `{literal}`, whose path is built by "
+                    "a parameter expansion this guard cannot read — a "
+                    "variable set earlier in the same command, or one outside "
+                    f"{', '.join(sorted(EXPANDABLE_VARIABLES))}. Refusing "
+                    "rather than judging the name instead of the file it opens "
+                    "(#20, docs/harness-boundaries.md)."
+                )
+            literal = expanded
         named = protected_path(literal) or linked_protected_path(literal)
         if named is not None:
             return (

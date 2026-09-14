@@ -241,8 +241,13 @@ so the protected set cannot be derived at run time the way
 `test_grok_helpers.py` derives the frontmatter denies from the frontmatter;
 what stands instead is a case whose subject is the list, asserting it covers
 `MACHINERY_TREES` and every tracked root file. **A target built by a command
-substitution is refused rather than guessed at**, and a parameter expansion is
-admitted — the module docstring's own residual, unchanged. And **a redirection
+substitution is refused rather than guessed at**, and **a parameter expansion
+is expanded or refused**: `CLAUDE_PROJECT_DIR`, `HOME`, `TEMP`, `TMP` and
+`TMPDIR` are read from the hook's own environment, which the session shares,
+and judged as the path they produce, unless the same command assigns or reads
+into that name; any other expansion is refused. It had been admitted as a
+residual, and `F=.claude/settings.json; ls > $F` on a globally approved `ls`
+wrote the settings file. And **a redirection
 is not the only way a command writes**: `tee`, `cp`, `sed -i` and an
 interpreter all do, and none is judged. What made the redirection the case
 worth closing is that it rides on a command that is already approved and needs

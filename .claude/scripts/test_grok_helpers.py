@@ -138,6 +138,7 @@ import sys
 import tempfile
 import textwrap
 import unittest
+from unittest import mock
 from pathlib import Path
 
 SCRIPTS = Path(__file__).resolve().parent
@@ -8187,7 +8188,7 @@ class TheGitArgvGuard(unittest.TestCase):
             with self.subTest(command=command):
                 self.assertAdmitted(command)
 
-    def test_an_unreadable_target_is_refused_and_an_expansion_is_not(self):
+    def test_an_unreadable_target_is_refused_and_an_expansion_is_judged(self):
         # **A target built by a command substitution is the answer this file
         # gives everywhere the deciding text is not in the source.** A process
         # substitution is the same answer for a nearer reason: there is no
@@ -8200,10 +8201,35 @@ class TheGitArgvGuard(unittest.TestCase):
             with self.subTest(command=command):
                 self.assertRefused(command)
 
-        # And the stated residual, pinned so that closing it is a decision
-        # rather than a side effect: a parameter expansion is admitted, exactly
-        # as `git log $F` already is.
-        self.assertAdmitted('ls > "$TMPDIR/out"')
+        # **The residual this case used to pin is closed.** A parameter
+        # expansion in a write target was admitted, and on a globally approved
+        # `ls` that wrote the settings file. Raised by Copilot. A variable set
+        # in the same command, any other name, and an operator are refused.
+        for command in (
+            "F=.claude/settings.json; ls > $F",
+            'ls > "$F"',
+            "ls > ${F:-package.json}",
+            "ls > $1",
+            "TMP=.claude; ls > $TMP/settings.json",
+            "export HOME=.; ls > $HOME/package.json",
+            "for TMP in .claude; do ls > $TMP/x; done",
+        ):
+            with self.subTest(command=command):
+                self.assertRefused(command)
+
+        # The scratch write the residual was kept for stays admitted, expanded
+        # from the environment this hook shares with the session — and judged
+        # as the path it produces.
+        scratch = tempfile.mkdtemp(prefix="expand-")
+        self.addCleanup(shutil.rmtree, scratch, ignore_errors=True)
+        # Run from the scratch directory: the whitespace reading of the target
+        # is judged against the event's `cwd`, and the suite's own cwd may sit
+        # inside `.claude/`.
+        with mock.patch.dict(os.environ, {"TMPDIR": scratch}):
+            self.assertAdmitted('ls > "$TMPDIR/out"', cwd=scratch)
+            self.assertAdmitted("ls > ${TMPDIR}/out", cwd=scratch)
+        with mock.patch.dict(os.environ, {"TMPDIR": ".claude"}):
+            self.assertRefused('ls > "$TMPDIR/settings.json"')
 
     def test_an_ordinary_redirection_is_still_admitted(self):
         # The positive control. A rule that refused every redirection would
