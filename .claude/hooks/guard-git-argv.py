@@ -3042,54 +3042,15 @@ def reads_stdin_as_script(words):
 
     A run carrying `-c` reads its script from the argv rather than from stdin,
     and `evaluated_scripts` judges that channel at any position already.
-
-    **A shell handed a script FILE reads its stdin as data, and this refused
-    every hand-filed issue that quoted code (#33).** `bash
-    .claude/scripts/gh-issue-create.sh bug medium <<'DELIM'` puts the title and
-    body on the helper's stdin; the backticks in the body were read as a script
-    building itself by substitution. The exemption is as narrow as the grants
-    that call for it: the word straight after the shell — no option, no
-    redirection between — is a helper under `.claude/scripts/`, spelled with
-    nothing a shell could expand. An operand in general is not enough, because
-    `bash /dev/stdin`, `bash /dev/fd/3 3<<EOF` and `bash $X <<EOF` with `X`
-    empty all run the heredoc — and where an expansion sits beside the helper,
-    the guard cannot know what it becomes, so that spelling is refused as not
-    provably the literal helper. What the helper then does with its stdin is the on-disk
-    residual the module docstring names, and none of them executes it.
-
-    **And only where the shell LEADS the run.** Taken at any position, the
-    exemption undid the reason the shell is looked for anywhere:
-    `python -c 'import sys; exec(sys.stdin.read())' bash .claude/scripts/a.sh
-    <<'EOF'` has Python run the heredoc, with `bash` and the helper as nothing
-    but its argv — refused before the exemption, admitted by it. Raised by
-    Copilot; verified allowed. A wrapper in front (`env bash …`) loses the
-    exemption too, which costs an over-refusal and nothing else.
-
-    **The word after the shell is read from `words`, not from `body`.** `body`
-    drops assignment-shaped words at every position, so `bash X=1
-    .claude/scripts/gh-issue-create.sh <<'EOF'` read as the helper — where bash
-    takes `X=1` as its script file and the helper as that file's argument.
-    Assignments are skipped only in FRONT of the shell. Raised by Copilot;
-    verified allowed.
-
-    **A relative helper path resolves against the working directory**, and
-    `cd /tmp && bash .claude/scripts/gh-issue-create.sh` can name another file.
-    That is the on-disk residual, not a new one: a planted script there could
-    carry the push itself, which `bash /tmp/x.sh` already runs unjudged, and
-    the Bash tool's working directory persists between calls, so a `cd` check
-    in one command would close nothing.
+    `_helper_reads_stdin_as_data` is the one exemption, and it is taken where
+    the run's position in the command is known rather than here.
     """
     body = [word for word in words if not ASSIGNMENT.match(word)]
     if not body or program_name(body[0]) in DATA_ONLY_COMMANDS:
         return False
-    leading = next(index for index, word in enumerate(words)
-                   if not ASSIGNMENT.match(word))
     for position, word in enumerate(body):
         if program_name(word) not in EVALUATORS:
             continue
-        if (position == 0 and leading + 1 < len(words)
-                and HELPER_SCRIPT.match(words[leading + 1])):
-            return False
         # **A `-c` before the shell is the WRAPPER's option**, and reading the
         # whole run for one confused the two: `ionice -c 2 bash` runs bash on
         # its stdin, `-c` there being the scheduling class, and the run was
@@ -3176,12 +3137,54 @@ def forwards_to_evaluator(command, position, ordinary):
     return False
 
 
+def _helper_reads_stdin_as_data(command, start, words):
+    """Whether the run at `start`, made of `words`, is a shell handed one of the
+    issue helpers as its script file — so its stdin is that helper's data.
+
+    **A shell handed a script FILE reads its stdin as data, and the stdin pass
+    refused every hand-filed issue that quoted code (#33).** `bash
+    .claude/scripts/gh-issue-create.sh bug medium <<'DELIM'` puts the title and
+    body on the helper's stdin; the backticks in the body were read as a script
+    building itself by substitution.
+
+    **The exemption is the one literal shape and nothing near it**, because
+    each widening Copilot found on PR #36 was a way to run the heredoc while
+    the helper's name stood in the argv, verified allowed each time:
+
+    * **The word straight after the shell is the helper**, spelled with nothing
+      a shell could expand (`HELPER_SCRIPT`). `bash /dev/stdin`,
+      `bash /dev/fd/3 3<<EOF` and `bash $X <<EOF` all run the heredoc; and
+      `bash X=1 <helper>` takes `X=1` as the script file.
+    * **The shell is the run's first word, spelled `bash` or `sh`.** At any
+      other position the helper is somebody else's argv —
+      `python -c 'exec(sys.stdin.read())' bash <helper> <<EOF` has Python run
+      the body. No assignment in front either: `BASH_ENV=/dev/stdin bash
+      <helper>` sources the heredoc before the helper starts.
+    * **The run is the command's first**, with nothing before it. A function
+      or alias defined earlier in the same command replaces the shell —
+      `bash() { source /dev/stdin; }; bash <helper> <<EOF` — and a `cd` can
+      move what the relative path names. Shell state does not survive between
+      Bash tool calls, so the command's own text is the only place such an
+      override can be set; what remains is a profile or a planted file, the
+      on-disk residual the module docstring names.
+
+    Every refusal this gives up is an over-refusal: `env bash <helper>` and a
+    helper run after `&&` are refused as they were before the exemption.
+    """
+    return (not command[:start].strip()
+            and len(words) > 1
+            and words[0] in ("bash", "sh")
+            and HELPER_SCRIPT.match(words[1]) is not None)
+
+
 def _consumes_as_script(command, position, ordinary):
     """Whether the script at `position` is executed by its own run or a later
     one in the same pipeline."""
     start, end = _run_bounds(command, position, ordinary)
-    return (reads_stdin_as_script(_run_words(command, start, end, ordinary))
-            or forwards_to_evaluator(command, position, ordinary))
+    words = _run_words(command, start, end, ordinary)
+    reads = (not _helper_reads_stdin_as_data(command, start, words)
+             and reads_stdin_as_script(words))
+    return reads or forwards_to_evaluator(command, position, ordinary)
 
 
 def pipeline_groups(tokens):

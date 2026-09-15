@@ -7450,10 +7450,28 @@ class TheGitArgvGuard(unittest.TestCase):
             with self.subTest(command=command):
                 self.assertRefused(command)
 
-        # An assignment in front is not a program, so the shell still leads.
-        self.assertAdmitted(
-            "X=1 bash .claude/scripts/gh-issue-create.sh bug medium <<'DELIM'\n"
-            "title\n\nrun `git status` first\nDELIM")
+        # **Nothing may come before the helper run.** Each of these replaces
+        # the shell, or what it reads first, before the helper starts. Raised
+        # by Copilot on PR #36; the shadowing forms verified allowed.
+        for command in (
+            "bash() { source /dev/stdin; }; bash .claude/scripts/gh-issue-create.sh"
+            " bug medium <<'EOF'\ngit push origin +HEAD:main\nEOF",
+            "function bash { source /dev/stdin; }; bash .claude/scripts/"
+            "gh-issue-create.sh bug medium <<'EOF'\ngit push origin +HEAD:main\nEOF",
+            "shopt -s expand_aliases; alias bash='source /dev/stdin #'; bash "
+            ".claude/scripts/gh-issue-create.sh bug medium <<'EOF'\n"
+            "git push origin +HEAD:main\nEOF",
+            "BASH_ENV=/dev/stdin bash .claude/scripts/gh-issue-create.sh bug medium"
+            " <<'EOF'\ngit push origin +HEAD:main\nEOF",
+            "PATH=/tmp/evil:$PATH bash .claude/scripts/gh-issue-create.sh bug medium"
+            " <<'EOF'\ngit push origin +HEAD:main\nEOF",
+            "cd /tmp && bash .claude/scripts/gh-issue-create.sh bug medium"
+            " <<'EOF'\ngit push origin +HEAD:main\nEOF",
+            "/tmp/evil/bash .claude/scripts/gh-issue-create.sh bug medium"
+            " <<'EOF'\ngit push origin +HEAD:main\nEOF",
+        ):
+            with self.subTest(command=command):
+                self.assertRefused(command)
 
     def test_a_shell_reads_a_script_from_its_stdin(self):
         # **`evaluated_scripts` modelled one channel by which a shell receives
