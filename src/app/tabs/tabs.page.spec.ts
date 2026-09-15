@@ -17,8 +17,8 @@ function ionicHosts(root: Element): StencilHost[] {
   );
 }
 
-// Mounting is not finished when `detectChanges` returns, and this file is
-// where that bit (#31).
+// Mounting is not finished when `detectChanges` returns, and treating it as
+// finished is what caused #31.
 //
 // Every `ion-*` element here is a lazy Stencil component: connecting it
 // starts a dynamic `import()` of its entry chunk, and the component is built
