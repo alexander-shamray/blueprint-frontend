@@ -7416,7 +7416,9 @@ class TheGitArgvGuard(unittest.TestCase):
             with self.subTest(command=command):
                 self.assertAdmitted(command)
 
-        # **Only that spelling.** Each of these runs the heredoc as a script.
+        # **Only that spelling.** Some of these run the heredoc as a script;
+        # the rest (an expansion beside the helper, a quoted or `..` path) are
+        # refused because the operand is not provably the literal helper.
         for command in (
             "bash <<'DELIM'\necho `git status`\nDELIM",
             "bash /dev/stdin <<'DELIM'\ngit push origin +HEAD:main\nDELIM",
@@ -7428,9 +7430,21 @@ class TheGitArgvGuard(unittest.TestCase):
             "bash '.claude/scripts/a.sh'$X <<'DELIM'\ngit push origin +HEAD:main\nDELIM",
             "bash .claude/scripts/../../x.sh <<'DELIM'\ngit push origin +HEAD:main\nDELIM",
             "echo 'git push origin +HEAD:main' | bash",
+            # The helper as ANOTHER program's argv: Python runs the heredoc.
+            # Raised by Copilot on PR #36; verified allowed.
+            "python -c 'import sys; exec(sys.stdin.read())' "
+            "bash .claude/scripts/a.sh <<'EOF'\ngit push origin +HEAD:main\nEOF",
+            "perl -e 'eval join q(), <STDIN>' "
+            "bash .claude/scripts/a.sh <<'EOF'\ngit push origin +HEAD:main\nEOF",
+            "env bash .claude/scripts/a.sh <<'EOF'\ngit push origin +HEAD:main\nEOF",
         ):
             with self.subTest(command=command):
                 self.assertRefused(command)
+
+        # An assignment in front is not a program, so the shell still leads.
+        self.assertAdmitted(
+            "X=1 bash .claude/scripts/gh-issue-create.sh bug medium <<'DELIM'\n"
+            "title\n\nrun `git status` first\nDELIM")
 
     def test_a_shell_reads_a_script_from_its_stdin(self):
         # **`evaluated_scripts` modelled one channel by which a shell receives

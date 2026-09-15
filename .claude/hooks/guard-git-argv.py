@@ -3047,9 +3047,19 @@ def reads_stdin_as_script(words):
     that call for it: the word straight after the shell — no option, no
     redirection between — is a helper under `.claude/scripts/`, spelled with
     nothing a shell could expand. An operand in general is not enough, because
-    `bash /dev/stdin`, `bash /dev/fd/3 3<<EOF` and an unquoted empty `$X` all
-    run the heredoc. What the helper then does with its stdin is the on-disk
+    `bash /dev/stdin`, `bash /dev/fd/3 3<<EOF` and `bash $X <<EOF` with `X`
+    empty all run the heredoc — and where an expansion sits beside the helper,
+    the guard cannot know what it becomes, so that spelling is refused as not
+    provably the literal helper. What the helper then does with its stdin is the on-disk
     residual the module docstring names, and none of them executes it.
+
+    **And only where the shell LEADS the run.** Taken at any position, the
+    exemption undid the reason the shell is looked for anywhere:
+    `python -c 'import sys; exec(sys.stdin.read())' bash .claude/scripts/a.sh
+    <<'EOF'` has Python run the heredoc, with `bash` and the helper as nothing
+    but its argv — refused before the exemption, admitted by it. Raised by
+    Copilot; verified allowed. A wrapper in front (`env bash …`) loses the
+    exemption too, which costs an over-refusal and nothing else.
     """
     body = [word for word in words if not ASSIGNMENT.match(word)]
     if not body or program_name(body[0]) in DATA_ONLY_COMMANDS:
@@ -3057,7 +3067,8 @@ def reads_stdin_as_script(words):
     for position, word in enumerate(body):
         if program_name(word) not in EVALUATORS:
             continue
-        if position + 1 < len(body) and HELPER_SCRIPT.match(body[position + 1]):
+        if (position == 0 and len(body) > 1
+                and HELPER_SCRIPT.match(body[1])):
             return False
         # **A `-c` before the shell is the WRAPPER's option**, and reading the
         # whole run for one confused the two: `ionice -c 2 bash` runs bash on
