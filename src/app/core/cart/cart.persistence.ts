@@ -6,15 +6,21 @@ import type { CartLine } from './cart.store';
  * One check per `CartLine` field, typed so that the two definitions cannot
  * drift apart silently: adding, renaming or removing a field on `CartLine`
  * fails compilation here until this table says how to read it (issue #9).
- * `quantity` is a positive integer because `CartStore.setQuantity` removes a
- * line rather than keep one at nought, so no write ever stores anything else.
+ *
+ * Each check is exactly what `CartLine` declares plus what `CartStore`
+ * enforces, and no stricter: anything `write()` can be handed, `read()` must
+ * give back, or a value the store accepted empties the cart on next launch.
+ * So `quantity` is above zero — `setQuantity` removes a line at nought or
+ * below — and not an integer, which the store never requires; and the strings
+ * are not required to be non-empty, because nothing upstream refuses one.
+ * Finite, because `JSON.stringify` writes `NaN` and `Infinity` as `null`.
  */
 const FIELDS: { readonly [K in keyof CartLine]-?: (value: unknown) => boolean } = {
-  productId: (value) => typeof value === 'string' && value !== '',
+  productId: (value) => typeof value === 'string',
   name: (value) => typeof value === 'string',
   amount: (value) => typeof value === 'number' && Number.isFinite(value),
-  currency: (value) => typeof value === 'string' && value !== '',
-  quantity: (value) => typeof value === 'number' && Number.isInteger(value) && value > 0,
+  currency: (value) => typeof value === 'string',
+  quantity: (value) => typeof value === 'number' && Number.isFinite(value) && value > 0,
 };
 
 /**
