@@ -282,6 +282,50 @@ worth closing is that it rides on a command that is already approved and needs
 no grant of its own; everything else in that list has to be granted first, and
 none of it is.
 
+**That last sentence was false, and it was false outside this repository
+(#26).** It assumed a permission mode in which an un-granted `Bash` command
+prompts, and nothing here sets one: a user-level `"defaultMode": "auto"`
+approves a `cp` with no rule at all. So a redirection onto `src/…` was refused
+and `cp <scratch>/new.ts src/…` — the same bytes onto the same path — was
+admitted and landed. It is the shape the `.claude/hooks/**` lesson below
+records: a condition that stopped being true where nobody re-reads it, and
+this time in a file the repository cannot read.
+
+**The writing verbs are judged now, by the same rules as a redirection's
+target.** `WRITING_VERBS` in `guard-git-argv.py` gives each verb an operand
+model — the destination of `cp`, `install` and `ln`, including a `-t` or
+`--target-directory`; every operand of `mv`, `tee`, `rm`, `rmdir`, `unlink`,
+`shred`, `truncate` and `touch`; the files of `sed -i` and `perl -i`; the
+`of=` of `dd` — and `destination_offence`, lifted out of the redirection
+check, judges each destination: protected trees and root files, application
+trees, links, globs, `~`, expansions and a relative path after `cd`. The verb
+is found anywhere in its run, behind `sudo`, `env` or `find -exec`, unless a
+reader or a printer leads the run. **`xargs` in front of a verb is refused**,
+because its names arrive on stdin, and so is an operand the guard cannot read
+where it could be an option moving the destination. The suite drives every
+name on the list through its model, so a verb added without one fails.
+
+**Three shapes the first model missed, raised by Copilot on PR #30.** A hard
+link — `ln` without `-s`, and `cp -l` — makes a protected source writable
+under an admitted name, so its sources are judged too; a symbolic link needs
+nothing extra, because a write through it is judged where it resolves. The
+`-i` of `sed` and `perl` writes a backup named by its suffix, so each file is
+judged again with the suffix appended, and a suffix carrying `*` or a path
+separator is refused. And `env -S` runs a command line held in a single word,
+so that string is judged as a command in its own right, the way a `bash -c`
+script is. It had been hiding a `git push` from the push grammar as well.
+
+**What stands is the rest of the programs that write, and it is not
+closed.** An interpreter — `python -c`, `node -e`, `python <script>`, an `awk`
+or `sed` script using its own `w` — writes wherever its code says, and the code
+is data this hook does not model. So does every writer not on the list: `curl
+-o`, `rsync`, `tar -x`, `unzip`, `patch`, `find -delete`, and whatever a
+branch-controlled executable does. **Under `auto` mode none of them needs a
+grant**, so the boundary against them is the classifier and the review of what
+the model chose to run, not this hook; a startup warning about the mode was
+considered and not built, because it would need a `settings.json` hook entry
+and would warn rather than refuse.
+
 **`.claude/hooks/**` joined the list when the first hook landed, and the way it
 joined is the lesson.** It had been excluded on a stated condition — "no hook is
 configured here" — which was true, and which is the kind of exemption that

@@ -338,6 +338,11 @@ redirection is not the only way a command writes — `tee`, `cp`, `sed -i` and a
 interpreter all do, and none is judged. What made the redirection worth closing
 first is that it rides on a command that is already approved.
 
+**The verbs are judged too since #26**, because under a user-level `auto` mode
+an un-granted `cp` is approved as well; the interpreters and the writers not on
+the hook's list are what stands, and `docs/harness-boundaries.md` owns that
+residual.
+
 **`node_modules/` is denied too, and the sentence that used to stand here was
 wrong.** It is gitignored, so no enumeration built on `git ls-files` names it,
 and `node_modules/.bin` holds every executable `npm-checks.sh` invokes. This

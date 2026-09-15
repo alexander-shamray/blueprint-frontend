@@ -8663,6 +8663,162 @@ class TheGitArgvGuard(unittest.TestCase):
         self.assertAdmitted("ls > notes-in/plain.txt", cwd=root)
         self.assertAdmitted("ls > notes-in/to-notes/out.txt", cwd=root)
 
+    # ---- #26: a writing verb writes what a redirection may not -------------
+
+    def writing_checkout(self):
+        root = tempfile.mkdtemp(prefix="argv-verb-")
+        self.addCleanup(shutil.rmtree, root, ignore_errors=True)
+        for tree in (".git", os.path.join("src", "app"), "notes"):
+            os.makedirs(os.path.join(root, tree))
+        return root
+
+    def test_the_measured_copy_is_refused(self):
+        # **The third spelling in #26, which was admitted and landed.** The
+        # first two — a computed redirection target and a redirection onto
+        # `src` — were refused, and a copy of the same bytes onto the same
+        # path was not, because the verb was the only difference.
+        root = self.writing_checkout()
+        scratch = Path(tempfile.gettempdir()).as_posix()
+        self.assertRefused(f"cat a > {Path(root).as_posix()}/src/app/x.ts",
+                           cwd=root)
+        self.assertRefused(
+            f"cat a > {scratch}/new.ts && cp {scratch}/new.ts "
+            f"{Path(root).as_posix()}/src/app/x.ts", cwd=root)
+
+    def test_every_writing_verb_reaches_the_machinery_check(self):
+        # **The case whose subject is the list, as #26 asked for.** Each verb
+        # is driven through the operand model it is declared with, so a name
+        # added without a model — or a model `verb_offence` does not read —
+        # fails here rather than admitting its writes.
+        module = self.guard_module()
+        shapes = {
+            "destination": "{verb} /tmp/a .claude/settings.json",
+            "every": "{verb} .claude/settings.json",
+            "in-place": "{verb} -i -e 1 .claude/settings.json",
+            "of": "{verb} if=/tmp/a of=.claude/settings.json",
+        }
+        self.assertEqual(set(shapes), set(module.WRITING_VERBS.values()))
+        for verb, model in sorted(module.WRITING_VERBS.items()):
+            with self.subTest(verb=verb):
+                self.assertRefused(shapes[model].format(verb=verb))
+        # The verbs #26 named, which the list may grow past and never shrink
+        # below.
+        for verb in ("cp", "mv", "install", "tee", "sed", "perl", "dd"):
+            with self.subTest(named=verb):
+                self.assertIn(verb, module.WRITING_VERBS)
+
+    def test_a_verbs_destination_is_found_through_its_options(self):
+        # An option can carry the destination, or stand where a last-operand
+        # rule would look for it, and the verb can arrive behind a wrapper,
+        # a quote or a platform spelling.
+        root = self.writing_checkout()
+        for command in (
+            "cp -t .claude/hooks /tmp/x",
+            "cp -rt.claude/hooks /tmp/x",
+            "cp --target-directory=.claude/hooks /tmp/x",
+            "cp --target .claude/hooks /tmp/x",
+            "cp /tmp/x .claude/settings.json -S .bak",
+            "mv .claude/hooks/guard-git-argv.py /tmp/x",
+            "install -m 644 /tmp/a .claude/settings.json",
+            "install -d src/app/new",
+            "ln -sf /tmp/evil .claude/hooks/run-guard.sh",
+            "sed -ie s/a/b/ package.json",
+            "sed --in-place -e s/a/b/ package.json",
+            "perl -pi -e s/a/b/ src/app/x.ts",
+            "perl -i.bak -pe 1 src/app/x.ts",
+            "rm -- -x .claude/x",
+            "echo x | sudo tee -a package.json",
+            "env cp /tmp/a package.json",
+            "X=1 cp /tmp/a package.json",
+            "c''p /tmp/a .claude/settings.json",
+            '"cp" /tmp/a .claude/settings.json',
+            "cp.exe /tmp/a package.json",
+            "/usr/bin/cp /tmp/a PACKAGE.JSON",
+            "(cp /tmp/a .claude/settings.json)",
+            "if (cp /tmp/a .claude/settings.json); then :; fi",
+            "if true; then cp /tmp/a .claude/settings.json; fi",
+            "cp <(echo hi) .claude/settings.json",
+            "bash -c 'cp /tmp/a .claude/settings.json'",
+            "cd .claude && cp /tmp/a settings.json",
+            # A hard link makes a protected source writable under an admitted
+            # name. Raised by Copilot.
+            "ln .claude/settings.json notes/alias",
+            "ln -f package.json notes/alias",
+            "ln /tmp/checkout/package.json",
+            "cp -l .claude/settings.json notes/alias",
+            "cp --link .claude/settings.json notes/alias",
+            # The `-i` backup is a second write, named by its suffix. Raised
+            # by Copilot.
+            "sed -i'.claude/*' -e s/a/b/ settings.json",
+            "sed -i.json -e s/a/b/ package",
+            "sed --in-place=.json -e s/a/b/ package",
+            "perl -pi'*.orig' -e 1 notes/x",
+            "perl -i.json -pe 1 package",
+            # `env -S` runs a command line held in one word, and the push
+            # grammar never saw it either. Raised by Copilot.
+            "env -S 'cp /tmp/a .claude/settings.json'",
+            "env -iS 'tee package.json'",
+            "env --split-string='rm .claude/hooks/run-guard.sh'",
+            "env -S'git push origin +HEAD:main'",
+            "env -S 'cp /tmp/a $HOME/x'",
+        ):
+            with self.subTest(command=command):
+                self.assertRefused(command, cwd=root)
+
+    def test_a_verb_operand_nothing_can_read_is_refused(self):
+        # The answer `destination_offence` gives a redirection, given to the
+        # verbs — and two shapes of their own: an operand that can be an
+        # option moving the destination, and names arriving on stdin.
+        root = self.writing_checkout()
+        for command in (
+            "cp /tmp/a $F",
+            "cp $X /tmp/y",
+            "cp /tmp/a $(printf package.json)",
+            "cp /tmp/a ${F:-package.json}",
+            "cp /tmp/a package.jso?",
+            "git ls-files .claude | xargs rm",
+            "find /tmp -name x -exec cp /tmp/a {} \\;",
+            "find /tmp -name x -exec cp {} .claude/ \\;",
+        ):
+            with self.subTest(command=command):
+                self.assertRefused(command, cwd=root)
+
+    def test_an_ordinary_writing_verb_is_still_admitted(self):
+        # The positive control: a rule refusing every `cp` passes every case
+        # above, and takes `/ship`'s own `rm -f suggestions.md` with it. A
+        # source is read and not written, and a run led by a reader or a
+        # printer names the verbs without running them.
+        root = self.writing_checkout()
+        for command in (
+            "rm -f suggestions.md",
+            "cp /tmp/a /tmp/b",
+            "cp .claude/settings.json /tmp/settings.json",
+            "cp -r src /tmp/backup",
+            "rm -rf /tmp/x",
+            "mv notes/a notes/b",
+            "touch notes/x",
+            "ln -s /tmp/a notes/b",
+            "ln -s .claude/settings.json /tmp/alias",
+            "ln /tmp/a notes/b",
+            "cp -l /tmp/a notes/b",
+            "sed -i.bak -e s/a/b/ notes/x",
+            "perl -pi.orig -e 1 notes/x",
+            "env -S 'cp /tmp/a /tmp/b'",
+            "env -u HOME cp /tmp/a /tmp/b",
+            "sed -n 1,5p .claude/settings.json",
+            "sed s/a/b/ package.json",
+            "dd if=package.json of=/tmp/x",
+            "npm test 2>&1 | tee /tmp/log",
+            "find /tmp -name x -exec cp {} /tmp/y \\;",
+            "cp /tmp/a >(cat)",
+            "grep -rn tee .claude/hooks",
+            "git log --oneline -- cp .claude/x",
+            "echo rm .claude/settings.json",
+            "which cp",
+        ):
+            with self.subTest(command=command):
+                self.assertAdmitted(command, cwd=root)
+
     def test_a_ledger_write_or_a_review_run_is_refused_after_quote_removal(self):
         # `.claude/settings.json` denies these as substrings of the typed
         # command, and `com''plete` spells no `complete` while bash runs it.
