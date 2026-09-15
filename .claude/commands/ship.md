@@ -33,9 +33,10 @@ branch keeps catching a round late.
 
 `/pr` pushes the branch itself, so the chain reaches an open PR without waiting
 for anyone where the harness admits that push — under a user-level `auto` mode
-it may not, and a refused push is a stop (below) — and step 7 merges it. Steps 5 and 6 sit between. **Step 5, the
-Grok half, is disabled** until its launcher lives outside the branch it
-reviews, so a run reports it skipped; Copilot reads the PR and
+it may not, and a refused push is a stop (below) — and step 7 merges it.
+Steps 5 and 6 sit between. **Step 5, the Grok half, is disabled** until its
+launcher lives outside the branch it reviews, so a run reports it skipped;
+Copilot reads the PR and
 `/review-copilot` triages that. When the Copilot loop has finished — however
 it finished — the PR is merged, the session returns to the main checkout and the
 worktree is removed.
