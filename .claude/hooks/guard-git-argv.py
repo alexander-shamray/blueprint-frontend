@@ -2956,6 +2956,11 @@ EVALUATORS = {"bash", "sh", "dash", "zsh", "ksh"}
 # introducer, so `--` forms are left alone.
 SCRIPT_FLAG = re.compile(r"^-[A-Za-z]*c[A-Za-z]*$")
 
+# A repository helper named as a shell's script operand, in the one spelling
+# the grants use. No quote, `$`, glob, backslash or `..` can appear in it, so
+# the word bash sees is the word typed.
+HELPER_SCRIPT = re.compile(r"^(?:\./)?\.claude/scripts/[A-Za-z0-9_-]+\.sh$")
+
 
 # Windows resolves `git.exe`, `GIT.EXE` and `C:/Git/bin/git.exe` to one
 # program, and this repository is developed on Windows.
@@ -3033,6 +3038,18 @@ def reads_stdin_as_script(words):
 
     A run carrying `-c` reads its script from the argv rather than from stdin,
     and `evaluated_scripts` judges that channel at any position already.
+
+    **A shell handed a script FILE reads its stdin as data, and this refused
+    every hand-filed issue that quoted code (#33).** `bash
+    .claude/scripts/gh-issue-create.sh bug medium <<'DELIM'` puts the title and
+    body on the helper's stdin; the backticks in the body were read as a script
+    building itself by substitution. The exemption is as narrow as the grants
+    that call for it: the word straight after the shell — no option, no
+    redirection between — is a helper under `.claude/scripts/`, spelled with
+    nothing a shell could expand. An operand in general is not enough, because
+    `bash /dev/stdin`, `bash /dev/fd/3 3<<EOF` and an unquoted empty `$X` all
+    run the heredoc. What the helper then does with its stdin is the on-disk
+    residual the module docstring names, and none of them executes it.
     """
     body = [word for word in words if not ASSIGNMENT.match(word)]
     if not body or program_name(body[0]) in DATA_ONLY_COMMANDS:
@@ -3040,6 +3057,8 @@ def reads_stdin_as_script(words):
     for position, word in enumerate(body):
         if program_name(word) not in EVALUATORS:
             continue
+        if position + 1 < len(body) and HELPER_SCRIPT.match(body[position + 1]):
+            return False
         # **A `-c` before the shell is the WRAPPER's option**, and reading the
         # whole run for one confused the two: `ionice -c 2 bash` runs bash on
         # its stdin, `-c` there being the scheduling class, and the run was
@@ -3052,12 +3071,24 @@ def reads_stdin_as_script(words):
 
 
 def _run_words(command, start, end, ordinary):
-    """`command[start:end]` split into words on its unquoted metacharacters."""
+    """`command[start:end]` split into words on its unquoted metacharacters.
+
+    **A redirection operator is kept as a word of its own.** Dropping it made
+    `bash < .claude/scripts/a.sh <<'EOF'` read as a shell with a script
+    operand, when the helper is a redirection target and the heredoc, the last
+    stdin redirection, is what bash runs.
+    """
     words, index = [], start
     while index < end:
         while index < end and command[index] in " 	":
             index += 1
         cursor = index
+        while cursor < end and ordinary[cursor] and command[cursor] in "<>":
+            cursor += 1
+        if cursor > index:
+            words.append(command[index:cursor])
+            index = cursor
+            continue
         while cursor < end and not (
                 ordinary[cursor] and command[cursor] in METACHARACTERS):
             cursor += 1
