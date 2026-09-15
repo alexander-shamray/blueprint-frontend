@@ -699,7 +699,10 @@ is not in `disallowed-tools`, and omitting it withholds nothing — which is the
 very rule the sentence above just established. It is worse than unlisted:
 `.claude/settings.json` **allows** `Bash(git push origin:*)` and
 `Bash(git push -u origin:*)` globally, so a push of the current branch does not
-even prompt. Force-pushes and pushes to `main` are denied by name; an ordinary
+even prompt — under the allow rules alone; a user-level `auto` mode has been
+seen refusing it anyway (#33), which `docs/harness-boundaries.md` owns and
+which no sweep may lean on, because the deny below decides this case whatever
+the classifier would say. Force-pushes and pushes to `main` are denied by name; an ordinary
 push is not. So "no branch can move" was false, and it was false in exactly the
 way this section exists to warn about — reading an absence as a control.
 

@@ -975,7 +975,9 @@ one.
 see `/security-sweep`'s copy for the whole argument, which is the same one
 twice. It is not in `disallowed-tools`, omitting it withholds nothing, and
 `.claude/settings.json` **allows** `Bash(git push origin:*)` globally, so a
-push of the current branch does not even prompt. Naming it in
+push of the current branch does not even prompt under the allow rules alone
+(a user-level `auto` mode has refused it anyway — #33, owned by
+`docs/harness-boundaries.md`, and not leaned on here). Naming it in
 `disallowed-tools` is the fix, and it is taken here because the `Bash(...)`
 form in that key was measured first — a throwaway command in a detached
 worktree had its `git diff` refused with the harness's own text while its

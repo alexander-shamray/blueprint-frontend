@@ -844,6 +844,36 @@ ran, which separates the two exactly. Both sweeps deny `git push origin`,
 its `-u` form and the raw `gh issue create` by name, and the deny wins over
 the global allow because precedence is deny first.
 
+**"Does not prompt at all" was false under the mode this repository is run in
+(#33)**, and it is the same shape as the writing verbs above: the sentence
+assumed the allow rule decides the push, and a user-level `"defaultMode":
+"auto"` is a file this repository cannot read. On three branches in a row —
+`fix/tabs-teardown-race`, `fix/late-browser-finished` and
+`fix/cart-line-validation` — `git push -u origin <branch>` was refused with
+the harness's "has been denied" text and no hook reason, while
+`guard-git-argv.py`, run on the same event, allowed it. The documentation
+says the opposite should happen: auto mode drops only broad allow rules on
+entry and keeps a narrow one like this, which resolves before the classifier
+is consulted
+([permission modes](https://code.claude.com/docs/en/permission-modes.md)).
+**So the cause is not established.** The standing inference is the classifier
+reading an `autoMode.environment` block that names only the backend's remote
+as trusted source control; it explains why `gh-pr-create.sh`, whose text
+names no remote, ran unattended in the same sessions, and nothing has
+measured it. What is established is the outcome: **under that setup the
+project grant does not deliver an unattended push**, `/pr` and `/ship` name a
+refused push as a stop with the manual line, and the remedy that does not
+route around a refusal is a user-level one — naming this repository and its
+`origin` as trusted source control in `autoMode.environment`.
+
+**The sweeps' push deny does not depend on that answer.** Deny rules, a
+command's `disallowed-tools` included, are evaluated before the classifier and
+refuse whatever it would have said
+([auto mode configuration](https://code.claude.com/docs/en/auto-mode-config.md)),
+so the measurement above still decides the sweeps' case: a push the global
+allow may or may not admit is one they refuse either way. That is documented
+precedence, not a second measurement under `auto`.
+
 The sixth **was** the `--output` deny itself — the inventory's one entry that
 is a *deny* rather than an allow, listed because a deny over a command string
 is defeated by shell quoting. **#30 closed it, and not by improving the rule.**

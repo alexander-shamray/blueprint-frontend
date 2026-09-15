@@ -32,7 +32,8 @@ branch keeps catching a round late.
 ## It runs to the end, and the end is a merged PR
 
 `/pr` pushes the branch itself, so the chain reaches an open PR without waiting
-for anyone, and step 7 merges it. Steps 5 and 6 sit between. **Step 5, the
+for anyone where the harness admits that push — under a user-level `auto` mode
+it may not, and a refused push is a stop (below) — and step 7 merges it. Steps 5 and 6 sit between. **Step 5, the
 Grok half, is disabled** until its launcher lives outside the branch it
 reviews, so a run reports it skipped; Copilot reads the PR and
 `/review-copilot` triages that. When the Copilot loop has finished — however
@@ -64,7 +65,7 @@ could have made differently:
 
 | | |
 |---|---|
-| A helper or a guarded git command exits non-zero | The step did not run; a report that says otherwise is false. `git pull --ff-only` refusing a diverged branch is the commonest one |
+| A helper or a guarded git command exits non-zero, or the harness refuses it | The step did not run; a report that says otherwise is false. `git pull --ff-only` refusing a diverged branch is the commonest exit; a refused push is the commonest refusal, and has its own paragraph below |
 | This branch's PR was closed unmerged | Reopening a deliberate closure is not a recommended option |
 | A requested review never registers | Same shape: the round did not happen, so no verdict may be minted from it |
 | `main` is ahead of `origin/main` at step 0 | Local commits on `main` need a decision this chain has no way to take |
@@ -85,6 +86,17 @@ Step 6 already says never to call a branch clean because asking failed; this
 row is where that becomes a chain outcome rather than a loop one, so step 7
 cannot be reached with a loop that never finished. It is **not** *skipped on
 limits*: that exit is about quota, where this is a round that did not happen.
+
+**A refused push stops the chain before any PR exists, and it is the first
+row rather than a new one because the outcome is the same: the step did not
+run.** It needs naming because it has no exit code and no hook reason — only
+the harness's "has been denied" text — and because the section above promises
+an unattended push that a user-level `auto` mode has refused on every run
+measured (#33; `docs/harness-boundaries.md` owns the argument). `/pr` owns the
+report: the push did not happen, the `! git push -u origin <branch>` line for
+the caller, and the user-level `autoMode.environment` setting that removes the
+need for it. A resumed run after that push lands at the *clean and pushed* row
+and carries on.
 
 **A review loop hitting its ceiling is not on that list, and putting it there
 was a real confusion rather than a wording slip.** A ceiling ends a *loop* —
