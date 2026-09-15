@@ -7402,6 +7402,77 @@ class TheGitArgvGuard(unittest.TestCase):
             with self.subTest(command=command):
                 self.assertAdmitted(command)
 
+    def test_a_helper_script_reads_its_heredoc_as_data(self):
+        # **A shell handed a script file reads stdin as data (#33).** Filing
+        # an issue by hand with a quoted heredoc whose body quoted code was
+        # refused as a script building itself by substitution.
+        for command in (
+            "bash .claude/scripts/gh-issue-create.sh bug medium <<'DELIM'\n"
+            "title\n\nrun `git status` first\nDELIM",
+            "bash ./.claude/scripts/gh-issue-create.sh bug medium <<<'a `b`'",
+            "bash .claude/scripts/gh-sweep-issue-create.sh bug high <<'DELIM'\n"
+            "title\n\nrun `git status` first\nDELIM",
+            "bash .claude/scripts/gh-issue-create.sh bug medium <<'DELIM'\n"
+            "git push origin +HEAD:main\nDELIM",
+        ):
+            with self.subTest(command=command):
+                self.assertAdmitted(command)
+
+        # **Only that spelling.** Some of these run the heredoc as a script;
+        # the rest (an expansion beside the helper, a quoted or `..` path) are
+        # refused because the operand is not provably the literal helper.
+        for command in (
+            "bash <<'DELIM'\necho `git status`\nDELIM",
+            "bash /dev/stdin <<'DELIM'\ngit push origin +HEAD:main\nDELIM",
+            "bash /dev/fd/3 3<<'DELIM'\ngit push origin +HEAD:main\nDELIM",
+            "bash - <<'DELIM'\ngit push origin +HEAD:main\nDELIM",
+            "bash -s .claude/scripts/a.sh <<'DELIM'\ngit push origin +HEAD:main\nDELIM",
+            "bash $X .claude/scripts/a.sh <<'DELIM'\ngit push origin +HEAD:main\nDELIM",
+            "bash < .claude/scripts/a.sh <<'DELIM'\ngit push origin +HEAD:main\nDELIM",
+            "bash '.claude/scripts/a.sh'$X <<'DELIM'\ngit push origin +HEAD:main\nDELIM",
+            "bash .claude/scripts/../../x.sh <<'DELIM'\ngit push origin +HEAD:main\nDELIM",
+            "echo 'git push origin +HEAD:main' | bash",
+            # The helper as ANOTHER program's argv: Python runs the heredoc.
+            # Raised by Copilot on PR #36; verified allowed.
+            "python -c 'import sys; exec(sys.stdin.read())' "
+            "bash .claude/scripts/a.sh <<'EOF'\ngit push origin +HEAD:main\nEOF",
+            "perl -e 'eval join q(), <STDIN>' "
+            "bash .claude/scripts/a.sh <<'EOF'\ngit push origin +HEAD:main\nEOF",
+            "env bash .claude/scripts/a.sh <<'EOF'\ngit push origin +HEAD:main\nEOF",
+            # An assignment AFTER the shell is its script file, not a prefix.
+            # Raised by Copilot on PR #36; verified allowed.
+            "bash X=1 .claude/scripts/gh-issue-create.sh bug medium "
+            "<<'EOF'\ngit push origin +HEAD:main\nEOF",
+            # Only the two helpers that read stdin as data are exempt.
+            "bash .claude/scripts/gh-pr-create.sh <<'EOF'\ngit push origin +HEAD:main\nEOF",
+            "bash .claude/scripts/whatever.sh <<'EOF'\ngit push origin +HEAD:main\nEOF",
+        ):
+            with self.subTest(command=command):
+                self.assertRefused(command)
+
+        # **Nothing may come before the helper run.** Each of these replaces
+        # the shell, or what it reads first, before the helper starts. Raised
+        # by Copilot on PR #36; the shadowing forms verified allowed.
+        for command in (
+            "bash() { source /dev/stdin; }; bash .claude/scripts/gh-issue-create.sh"
+            " bug medium <<'EOF'\ngit push origin +HEAD:main\nEOF",
+            "function bash { source /dev/stdin; }; bash .claude/scripts/"
+            "gh-issue-create.sh bug medium <<'EOF'\ngit push origin +HEAD:main\nEOF",
+            "shopt -s expand_aliases; alias bash='source /dev/stdin #'; bash "
+            ".claude/scripts/gh-issue-create.sh bug medium <<'EOF'\n"
+            "git push origin +HEAD:main\nEOF",
+            "BASH_ENV=/dev/stdin bash .claude/scripts/gh-issue-create.sh bug medium"
+            " <<'EOF'\ngit push origin +HEAD:main\nEOF",
+            "PATH=/tmp/evil:$PATH bash .claude/scripts/gh-issue-create.sh bug medium"
+            " <<'EOF'\ngit push origin +HEAD:main\nEOF",
+            "cd /tmp && bash .claude/scripts/gh-issue-create.sh bug medium"
+            " <<'EOF'\ngit push origin +HEAD:main\nEOF",
+            "/tmp/evil/bash .claude/scripts/gh-issue-create.sh bug medium"
+            " <<'EOF'\ngit push origin +HEAD:main\nEOF",
+        ):
+            with self.subTest(command=command):
+                self.assertRefused(command)
+
     def test_a_shell_reads_a_script_from_its_stdin(self):
         # **`evaluated_scripts` modelled one channel by which a shell receives
         # a script, and bash has three.** It read the argv element after `-c`;

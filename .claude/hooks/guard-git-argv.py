@@ -2956,6 +2956,15 @@ EVALUATORS = {"bash", "sh", "dash", "zsh", "ksh"}
 # introducer, so `--` forms are left alone.
 SCRIPT_FLAG = re.compile(r"^-[A-Za-z]*c[A-Za-z]*$")
 
+# The helpers that read their stdin as DATA — a title and a body — named as a
+# shell's script operand, in the one spelling the grants use. No quote, `$`,
+# glob, backslash or `..` can appear in it, so the word bash sees is the word
+# typed. **Only these two, not every helper**: the guard can read a heredoc,
+# and exempting one throws that reading away, which is right only for a
+# helper known to consume stdin as text. Raised by Copilot on PR #36.
+HELPER_SCRIPT = re.compile(
+    r"^(?:\./)?\.claude/scripts/gh-(?:sweep-)?issue-create\.sh$")
+
 
 # Windows resolves `git.exe`, `GIT.EXE` and `C:/Git/bin/git.exe` to one
 # program, and this repository is developed on Windows.
@@ -3033,6 +3042,8 @@ def reads_stdin_as_script(words):
 
     A run carrying `-c` reads its script from the argv rather than from stdin,
     and `evaluated_scripts` judges that channel at any position already.
+    `_helper_reads_stdin_as_data` is the one exemption, and it is taken where
+    the run's position in the command is known rather than here.
     """
     body = [word for word in words if not ASSIGNMENT.match(word)]
     if not body or program_name(body[0]) in DATA_ONLY_COMMANDS:
@@ -3052,12 +3063,24 @@ def reads_stdin_as_script(words):
 
 
 def _run_words(command, start, end, ordinary):
-    """`command[start:end]` split into words on its unquoted metacharacters."""
+    """`command[start:end]` split into words on its unquoted metacharacters.
+
+    **A redirection operator is kept as a word of its own.** Dropping it made
+    `bash < .claude/scripts/a.sh <<'EOF'` read as a shell with a script
+    operand, when the helper is a redirection target and the heredoc, the last
+    stdin redirection, is what bash runs.
+    """
     words, index = [], start
     while index < end:
         while index < end and command[index] in " 	":
             index += 1
         cursor = index
+        while cursor < end and ordinary[cursor] and command[cursor] in "<>":
+            cursor += 1
+        if cursor > index:
+            words.append(command[index:cursor])
+            index = cursor
+            continue
         while cursor < end and not (
                 ordinary[cursor] and command[cursor] in METACHARACTERS):
             cursor += 1
@@ -3114,12 +3137,54 @@ def forwards_to_evaluator(command, position, ordinary):
     return False
 
 
+def _helper_reads_stdin_as_data(command, start, words):
+    """Whether the run at `start`, made of `words`, is a shell handed one of the
+    issue helpers as its script file — so its stdin is that helper's data.
+
+    **A shell handed a script FILE reads its stdin as data, and the stdin pass
+    refused every hand-filed issue that quoted code (#33).** `bash
+    .claude/scripts/gh-issue-create.sh bug medium <<'DELIM'` puts the title and
+    body on the helper's stdin; the backticks in the body were read as a script
+    building itself by substitution.
+
+    **The exemption is the one literal shape and nothing near it**, because
+    each widening Copilot found on PR #36 was a way to run the heredoc while
+    the helper's name stood in the argv, verified allowed each time:
+
+    * **The word straight after the shell is the helper**, spelled with nothing
+      a shell could expand (`HELPER_SCRIPT`). `bash /dev/stdin`,
+      `bash /dev/fd/3 3<<EOF` and `bash $X <<EOF` all run the heredoc; and
+      `bash X=1 <helper>` takes `X=1` as the script file.
+    * **The shell is the run's first word, spelled `bash` or `sh`.** At any
+      other position the helper is somebody else's argv —
+      `python -c 'exec(sys.stdin.read())' bash <helper> <<EOF` has Python run
+      the body. No assignment in front either: `BASH_ENV=/dev/stdin bash
+      <helper>` sources the heredoc before the helper starts.
+    * **The run is the command's first**, with nothing before it. A function
+      or alias defined earlier in the same command replaces the shell —
+      `bash() { source /dev/stdin; }; bash <helper> <<EOF` — and a `cd` can
+      move what the relative path names. Shell state does not survive between
+      Bash tool calls, so the command's own text is the only place such an
+      override can be set; what remains is a profile or a planted file, the
+      on-disk residual the module docstring names.
+
+    Every refusal this gives up is an over-refusal: `env bash <helper>` and a
+    helper run after `&&` are refused as they were before the exemption.
+    """
+    return (not command[:start].strip()
+            and len(words) > 1
+            and words[0] in ("bash", "sh")
+            and HELPER_SCRIPT.match(words[1]) is not None)
+
+
 def _consumes_as_script(command, position, ordinary):
     """Whether the script at `position` is executed by its own run or a later
     one in the same pipeline."""
     start, end = _run_bounds(command, position, ordinary)
-    return (reads_stdin_as_script(_run_words(command, start, end, ordinary))
-            or forwards_to_evaluator(command, position, ordinary))
+    words = _run_words(command, start, end, ordinary)
+    reads = (not _helper_reads_stdin_as_data(command, start, words)
+             and reads_stdin_as_script(words))
+    return reads or forwards_to_evaluator(command, position, ordinary)
 
 
 def pipeline_groups(tokens):
