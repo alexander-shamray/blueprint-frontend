@@ -3130,16 +3130,21 @@ def _ends_run(command, index, ordinary):
     or `|` is as much a word character; each split the run at a character bash
     does not treat as a control operator. Found by the adversarial pass over
     this fix, and allowed on `main` too.
+
+    **A neighbour is the next character bash tokenises, not the next byte.**
+    Bash removes a backslash-newline before it splits tokens, so
+    `bash >\\<newline>&2 <<'EOF'` is `bash >&2 <<'EOF'` and runs the heredoc,
+    and `&\\<newline>>` is `&>`; reading the byte beside the `&` saw the
+    newline and ended the run. Raised by Copilot on PR #38; measured under
+    Git Bash, and allowed on `main` too.
     """
     if not (_unescaped(command, index, ordinary)
             and command[index] in RUN_SEPARATORS):
         return False
     if command[index] != "&":
         return True
-    before = (command[index - 1]
-              if index > 0 and _unescaped(command, index - 1, ordinary) else "")
-    after = (command[index + 1]
-             if index + 1 < len(command) and ordinary[index + 1] else "")
+    before = _neighbour(command, index, -1, ordinary)
+    after = _neighbour(command, index, 1, ordinary)
     if before in ("<", ">"):
         return False
     return not (after == ">" and before not in ("&", "|"))
@@ -3153,6 +3158,35 @@ def _unescaped(command, index, ordinary):
            and command[index - slashes - 1] == "\\"):
         slashes += 1
     return ordinary[index] and slashes % 2 == 0
+
+
+def _neighbour(command, index, step, ordinary):
+    """The syntax character beside `index` in direction `step` (-1 or 1), past
+    any line continuations, or "" where that character is quoted or escaped.
+
+    A backslash straight after an unescaped `&` is unquoted and unescaped
+    itself, so a backslash-newline found walking forwards is always a
+    continuation; walking backwards, the newline's own escape is counted."""
+    cursor = index + step
+    if step < 0:
+        while (cursor > 0 and command[cursor] == "\n"
+               and _continues(command, cursor)):
+            cursor -= 2
+        return (command[cursor]
+                if cursor >= 0 and _unescaped(command, cursor, ordinary) else "")
+    while (cursor + 1 < len(command) and command[cursor] == "\\"
+           and command[cursor + 1] == "\n"):
+        cursor += 2
+    return command[cursor] if cursor < len(command) and ordinary[cursor] else ""
+
+
+def _continues(command, newline):
+    """Whether the newline at `newline` is escaped by an odd run of backslashes,
+    counted whatever the mask says of them: both masks mark them differently."""
+    slashes = 0
+    while newline - slashes > 0 and command[newline - slashes - 1] == "\\":
+        slashes += 1
+    return slashes % 2 == 1
 
 
 def forwards_to_evaluator(command, position, ordinary):

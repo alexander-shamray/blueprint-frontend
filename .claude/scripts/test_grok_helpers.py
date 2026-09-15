@@ -7539,6 +7539,11 @@ class TheGitArgvGuard(unittest.TestCase):
             "bash >\\&2 <<'EOF'" + body,
             "bash 2>\\;x <<'EOF'" + body,
             "bash 2>\\&1 <<<'git push origin +HEAD:main'",
+            # Bash joins a backslash-newline before it tokenises, so these are
+            # `>&2`, `2>&1` and `&>`. Raised by Copilot on PR #38.
+            "bash >\\\n&2 <<'EOF'" + body,
+            "bash 2>\\\n&1 <<'EOF'" + body,
+            "bash &\\\n>/dev/null <<'EOF'" + body,
         ):
             with self.subTest(command=command):
                 self.assertRefused(command)
@@ -7569,6 +7574,7 @@ class TheGitArgvGuard(unittest.TestCase):
         self.assertAdmitted("cat <<'EOF' 2>&1" + body)
         self.assertAdmitted("cat >&2 <<'EOF'" + body)
         self.assertAdmitted("bash <<'EOF' 2>&1\ngit status\nEOF")
+        self.assertAdmitted("git status 2>\\\n&1")
 
     def test_a_printer_that_formats_is_not_read_as_its_arguments(self):
         # **Joining a printer's argv is not the bytes it writes**, and where
