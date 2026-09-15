@@ -120,4 +120,48 @@ describe('CartPersistence', () => {
 
     await expect(persistence.read()).resolves.toEqual([]);
   });
+
+  // Issue #9: `Array.isArray` answers the shape question one level deep, and
+  // every case below passed it — reaching `CartStore` as lines whose fields
+  // are `undefined`, rendering `NaN` and sending an `undefined` productId to
+  // the quote. Each is one element that is not a `CartLine`.
+  it.each<[string, unknown]>([
+    ['a number', 1],
+    ['null', null],
+    ['an empty object', {}],
+    ['a line missing its productId', { ...line('p1'), productId: undefined }],
+    ['a line whose productId is empty', { ...line('p1'), productId: '' }],
+    ['a line whose amount is a string', { ...line('p1'), amount: '10' }],
+    ['a line whose currency is missing', { ...line('p1'), currency: undefined }],
+    ['a line whose name is not a string', { ...line('p1'), name: 42 }],
+    ['a line whose quantity is zero', { ...line('p1'), quantity: 0 }],
+    ['a line whose quantity is fractional', { ...line('p1'), quantity: 1.5 }],
+  ])('treats a stored array holding %s as an empty cart', async (_, element) => {
+    await Preferences.set({ key: STORED_KEY, value: JSON.stringify([element]) });
+
+    await expect(persistence.read()).resolves.toEqual([]);
+  });
+
+  it('treats the whole cart as empty when one line of several is malformed', async () => {
+    // Not a filter. A cart missing one line the customer put in it is a
+    // different cart shown as theirs; an empty one is visibly a lost cart,
+    // which is the posture the corrupt-entry case already takes.
+    await Preferences.set({
+      key: STORED_KEY,
+      value: JSON.stringify([line('p1'), { productId: 'p2' }]),
+    });
+
+    await expect(persistence.read()).resolves.toEqual([]);
+  });
+
+  it('keeps only the CartLine fields of a stored line', async () => {
+    // A stored line with an extra field is still a readable cart, but the
+    // extra field must not ride into the store under the CartLine type.
+    await Preferences.set({
+      key: STORED_KEY,
+      value: JSON.stringify([{ ...line('p1'), stray: true }]),
+    });
+
+    await expect(persistence.read()).resolves.toEqual([line('p1')]);
+  });
 });
