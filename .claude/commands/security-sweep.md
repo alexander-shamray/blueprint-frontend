@@ -704,8 +704,8 @@ seen refusing it anyway (#33), which `docs/harness-boundaries.md` owns and
 which no sweep may lean on, because the deny below decides this case whatever
 the classifier would say. Force-pushes and pushes to `main` are denied by
 name; an ordinary push is not. So "no branch can move" was false, and it was
-false in exactly the
-way this section exists to warn about — reading an absence as a control.
+false in exactly the way this section exists to warn about — reading an
+absence as a control.
 
 **Naming `git push` in `disallowed-tools` is the fix, and it is taken here
 because the form was measured first.** No command in this repository had ever
