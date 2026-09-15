@@ -3093,14 +3093,100 @@ def _run_words(command, start, end, ordinary):
 def _run_bounds(command, position, ordinary):
     """The half-open span of the command run containing `position`."""
     start = position
-    while start > 0 and not (
-            ordinary[start - 1] and command[start - 1] in RUN_SEPARATORS):
+    while start > 0 and not _ends_run(command, start - 1, ordinary):
         start -= 1
     end = position
-    while end < len(command) and not (
-            ordinary[end] and command[end] in RUN_SEPARATORS):
+    while end < len(command) and not _ends_run(command, end, ordinary):
         end += 1
     return start, end
+
+
+def _ends_run(command, index, ordinary):
+    """Whether the character at `index` ends the command run it is in.
+
+    **The `&` of a redirection operator is not a run boundary (#37).** Every
+    unquoted `&` was read as one, so in `bash >&2 <<'EOF'` the run was taken to
+    begin after the `&`, its words were `2` alone, no shell owned the heredoc,
+    and bash ran the body. `<&`, `N>&M`, `&>` and `&>>` did the same, and so
+    did `cat <<'EOF' 2>&1 | bash`, whose run ended before the pipe it feeds.
+    Found by Copilot on PR #36; all measured allowed.
+
+    Bash's lexer is greedy from the left, which settles each `&` by its two
+    neighbours: after an unquoted `<` or `>` it is the second half of `<&` or
+    `>&`; before an unquoted `>` it opens `&>` — unless an `&` or a `|` in front
+    has already claimed it as `&&` or `|&`, which are separators. A quoted or
+    escaped neighbour is a word character and claims nothing, so an `&` after
+    an escaped `>` still ends the run.
+
+    **The escape is counted here rather than read from `ordinary`**, because
+    `stdin_scripts` builds a mask that calls an escaped character ordinary and
+    tracks the escape beside it. Read from that mask alone, `echo \\>& bash
+    <<'EOF'` — a backgrounded echo, then a shell running the heredoc — joined
+    into one run led by `echo`, and a shape refused before this fix was
+    admitted by it. Measured while writing it.
+
+    **The same holds for the character being judged.** `bash 2>\\&1 <<'EOF'`
+    sends stderr to a file named `&1` and runs the heredoc, and an escaped `;`
+    or `|` is as much a word character; each split the run at a character bash
+    does not treat as a control operator. Found by the adversarial pass over
+    this fix, and allowed on `main` too.
+
+    **A neighbour is the next character bash tokenises, not the next byte.**
+    Bash removes a backslash-newline before it splits tokens, so
+    `bash >\\<newline>&2 <<'EOF'` is `bash >&2 <<'EOF'` and runs the heredoc,
+    and `&\\<newline>>` is `&>`; reading the byte beside the `&` saw the
+    newline and ended the run. Raised by Copilot on PR #38; measured under
+    Git Bash, and allowed on `main` too.
+    """
+    if not (_unescaped(command, index, ordinary)
+            and command[index] in RUN_SEPARATORS):
+        return False
+    if command[index] != "&":
+        return True
+    before = _neighbour(command, index, -1, ordinary)
+    after = _neighbour(command, index, 1, ordinary)
+    if before in ("<", ">"):
+        return False
+    return not (after == ">" and before not in ("&", "|"))
+
+
+def _unescaped(command, index, ordinary):
+    """Whether `command[index]` is shell syntax: ordinary, and not the
+    character an odd run of unquoted backslashes in front of it escapes."""
+    slashes = 0
+    while (index - slashes > 0 and ordinary[index - slashes - 1]
+           and command[index - slashes - 1] == "\\"):
+        slashes += 1
+    return ordinary[index] and slashes % 2 == 0
+
+
+def _neighbour(command, index, step, ordinary):
+    """The syntax character beside `index` in direction `step` (-1 or 1), past
+    any line continuations, or "" where that character is quoted or escaped.
+
+    A backslash straight after an unescaped `&` is unquoted and unescaped
+    itself, so a backslash-newline found walking forwards is always a
+    continuation; walking backwards, the newline's own escape is counted."""
+    cursor = index + step
+    if step < 0:
+        while (cursor > 0 and command[cursor] == "\n"
+               and _continues(command, cursor)):
+            cursor -= 2
+        return (command[cursor]
+                if cursor >= 0 and _unescaped(command, cursor, ordinary) else "")
+    while (cursor + 1 < len(command) and command[cursor] == "\\"
+           and command[cursor + 1] == "\n"):
+        cursor += 2
+    return command[cursor] if cursor < len(command) and ordinary[cursor] else ""
+
+
+def _continues(command, newline):
+    """Whether the newline at `newline` is escaped by an odd run of backslashes,
+    counted whatever the mask says of them: both masks mark them differently."""
+    slashes = 0
+    while newline - slashes > 0 and command[newline - slashes - 1] == "\\":
+        slashes += 1
+    return slashes % 2 == 1
 
 
 def forwards_to_evaluator(command, position, ordinary):
@@ -3129,8 +3215,7 @@ def forwards_to_evaluator(command, position, ordinary):
             return False
         index += 2 if command.startswith("|&", index) else 1
         start = index
-        while index < len(command) and not (
-                ordinary[index] and command[index] in RUN_SEPARATORS):
+        while index < len(command) and not _ends_run(command, index, ordinary):
             index += 1
         if reads_stdin_as_script(_run_words(command, start, index, ordinary)):
             return True
@@ -3587,7 +3672,8 @@ METACHARACTERS = set("|&;()<> \t\n")
 
 # What ends a command RUN. A subset of METACHARACTERS: a redirection
 # operator and a space separate words within one run rather than ending
-# it.
+# it. **Read only through `_ends_run`**, because the `&` here is also the
+# second character of `>&` and `<&` and the first of `&>` (#37).
 RUN_SEPARATORS = set(";&|()\n")
 
 
