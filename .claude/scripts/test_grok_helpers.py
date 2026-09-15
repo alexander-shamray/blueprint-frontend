@@ -7513,6 +7513,63 @@ class TheGitArgvGuard(unittest.TestCase):
         self.assertAdmitted("echo 'git push origin +HEAD:main'")
         self.assertAdmitted("bash <<<'git log --oneline -5'")
 
+    def test_a_redirection_ampersand_does_not_end_the_run(self):
+        # **#37: every unquoted `&` was a run boundary, including the one
+        # inside a redirection operator.** So `bash >&2 <<'EOF'` was read as a
+        # run of `2` alone, no shell owned the heredoc, and bash ran the push
+        # in its body. Found by Copilot on PR #36; each shape below measured
+        # allowed on `main` before the fix, the pipe row included — its run
+        # ended at the `&` of `2>&1`, short of the `|` that feeds bash. The
+        # escaped rows were found by an adversarial pass over the fix.
+        body = "\ngit push origin +HEAD:main\nEOF"
+        for command in (
+            "bash <&0 <<'EOF'" + body,
+            "bash 0<&0 <<'EOF'" + body,
+            "bash >&2 <<'EOF'" + body,
+            "bash 2>&1 <<'EOF'" + body,
+            "bash 2>&- <<'EOF'" + body,
+            "sh 1>&2 <<EOF" + body,
+            "bash &>/dev/null <<'EOF'" + body,
+            "bash &>>/dev/null <<'EOF'" + body,
+            "bash <&0 <<<'git push origin +HEAD:main'",
+            "cat <<'EOF' 2>&1 | bash" + body,
+            # An escaped separator is a word character: these redirect into
+            # files named `&1`, `&2` and `;x`, and bash runs the heredoc.
+            "bash 2>\\&1 <<'EOF'" + body,
+            "bash >\\&2 <<'EOF'" + body,
+            "bash 2>\\;x <<'EOF'" + body,
+            "bash 2>\\&1 <<<'git push origin +HEAD:main'",
+        ):
+            with self.subTest(command=command):
+                self.assertRefused(command)
+
+        # **A separating `&` still separates**, which is the half a fix that
+        # dropped `&` from the set would lose: each shell below is its own run
+        # after a backgrounded, `&&`-joined or `|&`-piped neighbour, and an
+        # escaped `>` claims no `&`.
+        for command in (
+            "bash <<'EOF' 2>&1" + body,
+            "sleep 1 & bash <<'EOF'" + body,
+            "sleep 1& bash <<'EOF'" + body,
+            "true &&bash <<'EOF'" + body,
+            "echo x |& bash <<'EOF'" + body,
+            "echo \\>& bash <<'EOF'" + body,
+        ):
+            with self.subTest(command=command):
+                self.assertRefused(command)
+
+        # The longer run costs nothing ordinary: `2>&1` is the commonest suffix
+        # a command carries, a reader's heredoc is still data, and a filing
+        # through the helper is still a filing.
+        self.assertAdmitted("git status 2>&1")
+        self.assertAdmitted("git status >&2")
+        self.assertAdmitted("git status &")
+        self.assertAdmitted("git log -1 & git status")
+        self.assertAdmitted("npm test &>/dev/null")
+        self.assertAdmitted("cat <<'EOF' 2>&1" + body)
+        self.assertAdmitted("cat >&2 <<'EOF'" + body)
+        self.assertAdmitted("bash <<'EOF' 2>&1\ngit status\nEOF")
+
     def test_a_printer_that_formats_is_not_read_as_its_arguments(self):
         # **Joining a printer's argv is not the bytes it writes**, and where
         # the two differ the join is the safe-looking one:
