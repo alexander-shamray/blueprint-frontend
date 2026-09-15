@@ -2956,10 +2956,14 @@ EVALUATORS = {"bash", "sh", "dash", "zsh", "ksh"}
 # introducer, so `--` forms are left alone.
 SCRIPT_FLAG = re.compile(r"^-[A-Za-z]*c[A-Za-z]*$")
 
-# A repository helper named as a shell's script operand, in the one spelling
-# the grants use. No quote, `$`, glob, backslash or `..` can appear in it, so
-# the word bash sees is the word typed.
-HELPER_SCRIPT = re.compile(r"^(?:\./)?\.claude/scripts/[A-Za-z0-9_-]+\.sh$")
+# The helpers that read their stdin as DATA — a title and a body — named as a
+# shell's script operand, in the one spelling the grants use. No quote, `$`,
+# glob, backslash or `..` can appear in it, so the word bash sees is the word
+# typed. **Only these two, not every helper**: the guard can read a heredoc,
+# and exempting one throws that reading away, which is right only for a
+# helper known to consume stdin as text. Raised by Copilot on PR #36.
+HELPER_SCRIPT = re.compile(
+    r"^(?:\./)?\.claude/scripts/gh-(?:sweep-)?issue-create\.sh$")
 
 
 # Windows resolves `git.exe`, `GIT.EXE` and `C:/Git/bin/git.exe` to one
@@ -3060,15 +3064,31 @@ def reads_stdin_as_script(words):
     but its argv — refused before the exemption, admitted by it. Raised by
     Copilot; verified allowed. A wrapper in front (`env bash …`) loses the
     exemption too, which costs an over-refusal and nothing else.
+
+    **The word after the shell is read from `words`, not from `body`.** `body`
+    drops assignment-shaped words at every position, so `bash X=1
+    .claude/scripts/gh-issue-create.sh <<'EOF'` read as the helper — where bash
+    takes `X=1` as its script file and the helper as that file's argument.
+    Assignments are skipped only in FRONT of the shell. Raised by Copilot;
+    verified allowed.
+
+    **A relative helper path resolves against the working directory**, and
+    `cd /tmp && bash .claude/scripts/gh-issue-create.sh` can name another file.
+    That is the on-disk residual, not a new one: a planted script there could
+    carry the push itself, which `bash /tmp/x.sh` already runs unjudged, and
+    the Bash tool's working directory persists between calls, so a `cd` check
+    in one command would close nothing.
     """
     body = [word for word in words if not ASSIGNMENT.match(word)]
     if not body or program_name(body[0]) in DATA_ONLY_COMMANDS:
         return False
+    leading = next(index for index, word in enumerate(words)
+                   if not ASSIGNMENT.match(word))
     for position, word in enumerate(body):
         if program_name(word) not in EVALUATORS:
             continue
-        if (position == 0 and len(body) > 1
-                and HELPER_SCRIPT.match(body[1])):
+        if (position == 0 and leading + 1 < len(words)
+                and HELPER_SCRIPT.match(words[leading + 1])):
             return False
         # **A `-c` before the shell is the WRAPPER's option**, and reading the
         # whole run for one confused the two: `ionice -c 2 bash` runs bash on

@@ -7410,6 +7410,8 @@ class TheGitArgvGuard(unittest.TestCase):
             "bash .claude/scripts/gh-issue-create.sh bug medium <<'DELIM'\n"
             "title\n\nrun `git status` first\nDELIM",
             "bash ./.claude/scripts/gh-issue-create.sh bug medium <<<'a `b`'",
+            "bash .claude/scripts/gh-sweep-issue-create.sh bug high <<'DELIM'\n"
+            "title\n\nrun `git status` first\nDELIM",
             "bash .claude/scripts/gh-issue-create.sh bug medium <<'DELIM'\n"
             "git push origin +HEAD:main\nDELIM",
         ):
@@ -7437,6 +7439,13 @@ class TheGitArgvGuard(unittest.TestCase):
             "perl -e 'eval join q(), <STDIN>' "
             "bash .claude/scripts/a.sh <<'EOF'\ngit push origin +HEAD:main\nEOF",
             "env bash .claude/scripts/a.sh <<'EOF'\ngit push origin +HEAD:main\nEOF",
+            # An assignment AFTER the shell is its script file, not a prefix.
+            # Raised by Copilot on PR #36; verified allowed.
+            "bash X=1 .claude/scripts/gh-issue-create.sh bug medium "
+            "<<'EOF'\ngit push origin +HEAD:main\nEOF",
+            # Only the two helpers that read stdin as data are exempt.
+            "bash .claude/scripts/gh-pr-create.sh <<'EOF'\ngit push origin +HEAD:main\nEOF",
+            "bash .claude/scripts/whatever.sh <<'EOF'\ngit push origin +HEAD:main\nEOF",
         ):
             with self.subTest(command=command):
                 self.assertRefused(command)
