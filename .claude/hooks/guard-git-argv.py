@@ -2378,8 +2378,15 @@ def verb_offence(verb, words, command):
                     return refusal
         return None
 
-    operands, targets = [], []
+    operands, targets, suffixes = [], [], []
     in_place = script_given = directory_mode = options_done = False
+    # **A hard link makes a source writable under the destination's name.**
+    # `ln .claude/settings.json notes/alias` judged only `notes/alias`, and a
+    # redirection to that admitted name then wrote the settings file's inode.
+    # Raised by Copilot. A symbolic link is judged where it lands already —
+    # `linked_protected_path` resolves it — so only the hard forms, `ln`
+    # without `-s` and `cp -l`, judge their sources too.
+    symbolic = hard_link = False
     short_values = SHORT_VALUE_OPTIONS.get(verb, "")
     long_values = LONG_VALUE_OPTIONS.get(verb, ())
     position = 0
@@ -2408,6 +2415,15 @@ def verb_offence(verb, words, command):
                 continue
             if verb == "sed" and abbreviates("--in-place"):
                 in_place = True
+                if equals:
+                    suffixes.append(literal[len(name) + 1:])
+                continue
+            if verb == "ln" and abbreviates("--symbolic") and not abbreviates(
+                    "--suffix"):
+                symbolic = True
+                continue
+            if verb == "cp" and abbreviates("--link"):
+                hard_link = True
                 continue
             if verb == "install" and abbreviates("--directory"):
                 directory_mode = True
@@ -2424,7 +2440,15 @@ def verb_offence(verb, words, command):
             rest = letters[offset + 1:]
             if verb in ("sed", "perl") and letter == "i":
                 in_place = True
+                if rest:
+                    suffixes.append(rest)
                 break
+            if verb == "ln" and letter == "s":
+                symbolic = True
+                continue
+            if verb == "cp" and letter == "l":
+                hard_link = True
+                continue
             if verb in TARGET_OPTION_VERBS and letter == "t":
                 if rest:
                     targets.append(_glued_raw(raw, literal, cut))
@@ -2448,7 +2472,8 @@ def verb_offence(verb, words, command):
 
     unreadable = [raw for raw, literal in zip(words, literals)
                   if _unreadable_word(literal, command)]
-    if model == "every" or directory_mode:
+    if model == "every" or directory_mode or hard_link or (
+            verb == "ln" and not symbolic):
         judged = operands + targets
     elif model == "destination":
         # **A word whose value is not in the source can be an option**, and
@@ -2475,6 +2500,24 @@ def verb_offence(verb, words, command):
             judged = []
     elif in_place:
         judged = operands if script_given else operands[1:]
+        # **The backup is a second file written, and its name is built from
+        # the suffix.** `sed -i.json -e 1 package` backs `package` up as
+        # `package.json`, and GNU sed and Perl both replace a `*` in the
+        # suffix with the file's name — `-i'.claude/*'` writes the backup
+        # into the machinery. Raised by Copilot. A suffix is appended and
+        # judged; one carrying `*` or a separator is refused rather than
+        # modelled.
+        files = judged
+        for suffix in suffixes:
+            if any(char in suffix for char in "*/\\"):
+                return (
+                    f"`{verb} -i` is given the backup suffix `{suffix}`, which "
+                    "carries a `*` or a path separator, so the backup is "
+                    "written somewhere other than beside the file; refusing "
+                    "rather than modelling where (#26, "
+                    "docs/harness-boundaries.md)."
+                )
+            judged = judged + [word + shlex.quote(suffix) for word in files]
     else:
         judged = []
 
@@ -3392,6 +3435,70 @@ def evaluated_scripts(tokens):
                 yield " ".join(written)
 
 
+def split_string_payloads(tokens):
+    """Every string `env -S` / `--split-string` in `tokens` splits and runs.
+
+    **The payload is a command line held in one word**, the same shape as a
+    `bash -c` script: `env -S 'cp /tmp/a .claude/settings.json'` runs `cp`,
+    while every scan over words sees `env`, `-S` and one opaque string. Raised
+    by Copilot against #26's first round, where the verb scan claimed `env`
+    coverage it only had for the unsplit form — and the same string hid a
+    `git push` from the push grammar all along.
+
+    `-S` may be bundled after option letters that take no value (`-iS`), its
+    string glued or the next word, and GNU accepts `--s` for the long form.
+    `-u` and `-C` take a value, so an `S` after either is that value. The scan
+    stops at the first word that is neither an option nor an assignment,
+    because that word is the command env runs and its options are its own.
+    """
+    for run in command_runs(tokens):
+        if not run or program_name(run[0]) in DATA_ONLY_COMMANDS:
+            continue
+        for index, token in enumerate(run):
+            if program_name(token) != "env":
+                continue
+            argv = run[index + 1:]
+            position = 0
+            while position < len(argv):
+                element = argv[position]
+                position += 1
+                if element == "--":
+                    break
+                if element.startswith("--"):
+                    name, equals, value = element.partition("=")
+                    if len(name) > 2 and "--split-string".startswith(name):
+                        if equals:
+                            yield value
+                        elif position < len(argv):
+                            yield argv[position]
+                        break
+                    if not equals and name in ("--unset", "--chdir"):
+                        position += 1
+                    continue
+                if element.startswith("-") and len(element) > 1:
+                    letters = element[1:]
+                    for offset, letter in enumerate(letters):
+                        rest = letters[offset + 1:]
+                        if letter == "S":
+                            if rest:
+                                yield rest
+                            elif position < len(argv):
+                                yield argv[position]
+                            break
+                        if letter in "uC":
+                            if not rest:
+                                position += 1
+                            break
+                    else:
+                        continue
+                    if letter == "S":
+                        break
+                    continue
+                if ASSIGNMENT.match(element):
+                    continue
+                break
+
+
 # Commands whose arguments are text and never a command line.
 #
 # **An allow-list, and the direction is load-bearing.** A name missing from
@@ -4031,6 +4138,20 @@ def _offence(command, depth, judged):
         refusal = offence(script, depth + 1, judged)
         if refusal is not None:
             return f"inside a shell evaluator: {refusal}"
+
+    for payload in split_string_payloads(tokens):
+        # `env -S` undoes its own escapes and expands `${NAME}` before it
+        # splits, so a payload carrying either is not the argv it runs.
+        if "\\" in payload or "$" in payload:
+            return (
+                "`env -S` is handed a string carrying a backslash or a `$`, "
+                "which env rewrites before splitting it into the command it "
+                "runs; refusing rather than judging the text instead of that "
+                "argv (#26)."
+            )
+        refusal = offence(payload, depth + 1, judged)
+        if refusal is not None:
+            return f"inside `env -S`: {refusal}"
 
     refusal = review_helper_offence(tokens)
     if refusal is not None:

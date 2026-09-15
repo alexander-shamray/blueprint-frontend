@@ -8740,6 +8740,27 @@ class TheGitArgvGuard(unittest.TestCase):
             "cp <(echo hi) .claude/settings.json",
             "bash -c 'cp /tmp/a .claude/settings.json'",
             "cd .claude && cp /tmp/a settings.json",
+            # A hard link makes a protected source writable under an admitted
+            # name. Raised by Copilot.
+            "ln .claude/settings.json notes/alias",
+            "ln -f package.json notes/alias",
+            "ln /tmp/checkout/package.json",
+            "cp -l .claude/settings.json notes/alias",
+            "cp --link .claude/settings.json notes/alias",
+            # The `-i` backup is a second write, named by its suffix. Raised
+            # by Copilot.
+            "sed -i'.claude/*' -e s/a/b/ settings.json",
+            "sed -i.json -e s/a/b/ package",
+            "sed --in-place=.json -e s/a/b/ package",
+            "perl -pi'*.orig' -e 1 notes/x",
+            "perl -i.json -pe 1 package",
+            # `env -S` runs a command line held in one word, and the push
+            # grammar never saw it either. Raised by Copilot.
+            "env -S 'cp /tmp/a .claude/settings.json'",
+            "env -iS 'tee package.json'",
+            "env --split-string='rm .claude/hooks/run-guard.sh'",
+            "env -S'git push origin +HEAD:main'",
+            "env -S 'cp /tmp/a $HOME/x'",
         ):
             with self.subTest(command=command):
                 self.assertRefused(command, cwd=root)
@@ -8777,6 +8798,13 @@ class TheGitArgvGuard(unittest.TestCase):
             "mv notes/a notes/b",
             "touch notes/x",
             "ln -s /tmp/a notes/b",
+            "ln -s .claude/settings.json /tmp/alias",
+            "ln /tmp/a notes/b",
+            "cp -l /tmp/a notes/b",
+            "sed -i.bak -e s/a/b/ notes/x",
+            "perl -pi.orig -e 1 notes/x",
+            "env -S 'cp /tmp/a /tmp/b'",
+            "env -u HOME cp /tmp/a /tmp/b",
             "sed -n 1,5p .claude/settings.json",
             "sed s/a/b/ package.json",
             "dd if=package.json of=/tmp/x",

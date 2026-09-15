@@ -305,6 +305,16 @@ because its names arrive on stdin, and so is an operand the guard cannot read
 where it could be an option moving the destination. The suite drives every
 name on the list through its model, so a verb added without one fails.
 
+**Three shapes the first model missed, raised by Copilot on PR #30.** A hard
+link — `ln` without `-s`, and `cp -l` — makes a protected source writable
+under an admitted name, so its sources are judged too; a symbolic link needs
+nothing extra, because a write through it is judged where it resolves. The
+`-i` of `sed` and `perl` writes a backup named by its suffix, so each file is
+judged again with the suffix appended, and a suffix carrying `*` or a path
+separator is refused. And `env -S` runs a command line held in a single word,
+so that string is judged as a command in its own right, the way a `bash -c`
+script is. It had been hiding a `git push` from the push grammar as well.
+
 **What stands is the rest of the programs that write, and it is not
 closed.** An interpreter — `python -c`, `node -e`, `python <script>`, an `awk`
 or `sed` script using its own `w` — writes wherever its code says, and the code
