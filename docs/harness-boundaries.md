@@ -831,8 +831,9 @@ closed and is not. Both commands state a read-only boundary, and both used to
 close it with "no `git push` is granted either, so the branch cannot move" —
 which reads an *absence* as a control, the exact rule the sentence beside it
 had just retired. `.claude/settings.json` **allows** `Bash(git push origin:*)`
-and `Bash(git push -u origin:*)` globally, so a push of the current branch does
-not prompt at all; only force-pushes and pushes to `main` are denied. Naming
+and `Bash(git push -u origin:*)` globally, so under those rules alone a push of
+the current branch does not prompt at all — which `auto` mode made false, below;
+only force-pushes and pushes to `main` are denied. Naming
 `git push` in each sweep's `disallowed-tools` was the obvious fix and stayed
 **unverified** for a while: that key's `Bash(...)` form had never been
 measured here — the `Agent(...)` form is what was — and a nested `claude -p`
