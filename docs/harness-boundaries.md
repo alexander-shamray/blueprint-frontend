@@ -9,7 +9,7 @@ inert for every other kind of change, which is what earns it a file rather than
 a permanent seat in every session's context.
 
 **This file and the machinery it describes were ported from
-`alexander-shamray/dotnet-ddd-blueprint`**, where `.claude/` was built, and
+`alexander-shamray/blueprint-backend`**, where `.claude/` was built, and
 the arguments are kept verbatim for one reason: a summary of an argument is
 how a rule gets "corrected" back. Two consequences follow and both are
 load-bearing. **A bare `#NN` anywhere under `.claude/` or in this file is an

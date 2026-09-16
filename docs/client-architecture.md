@@ -9,7 +9,7 @@ odd, the oddity is downstream of a fact, and the fact is cited so a reader can
 check it at both ends.
 
 **What it was checked against.** The backend at
-`alexander-shamray/dotnet-ddd-blueprint`, branch `main`, commit `0d76d27` (the
+`alexander-shamray/blueprint-backend`, branch `main`, commit `0d76d27` (the
 merge of PR #201). Library behaviour was read out of this repository's own
 `node_modules`: `@ionic/angular@9.0.3`, `@angular/core@22.1.6`,
 `@angular/build@22.1.8`, `angular-oauth2-oidc@22.0.2`. Where a claim depends on

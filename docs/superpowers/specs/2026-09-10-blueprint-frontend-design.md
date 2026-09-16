@@ -1,13 +1,13 @@
 # Blueprint frontend — design
 
-**A reference client for `dotnet-ddd-blueprint`: one Angular codebase that runs
+**A reference client for `blueprint-backend`: one Angular codebase that runs
 as a web app, an Android app and an iOS app, and exercises every endpoint the
 backend exposes.**
 
 | | |
 |---|---|
 | **Status** | Approved design, 2026-09-10. Implementation plan follows. |
-| **Backend** | `alexander-shamray/dotnet-ddd-blueprint`, checked out beside this repository at `../blueprint-backend` |
+| **Backend** | `alexander-shamray/blueprint-backend`, checked out beside this repository at `../blueprint-backend` |
 | **Toolkit** | Angular 22.1, Ionic 9.0, Capacitor 8.5, TypeScript, Vitest, Playwright |
 | **Identity** | Keycloak realm `commerce`; PKCE code flow; `web-app` on the web, `mobile-app` on Android and iOS |
 | **Prerequisite** | Node 22.22 or newer (Angular 22's CLI floor). The workstation has Node 20 and must upgrade first |
@@ -310,7 +310,7 @@ No error text is authored on the client beyond the six generic banners for
 
 ## 9. Backend dependency: the `mobile-app` client
 
-One pull request against `dotnet-ddd-blueprint`, before the native strategy
+One pull request against `blueprint-backend`, before the native strategy
 in §4.2 is implemented:
 
 - `deploy/compose/keycloak/realm-export.json` gains a public client
