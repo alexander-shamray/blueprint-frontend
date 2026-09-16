@@ -1,6 +1,6 @@
 # blueprint-frontend
 
-The reference client for [`dotnet-ddd-blueprint`](https://github.com/alexander-shamray/dotnet-ddd-blueprint)
+The reference client for [`blueprint-backend`](https://github.com/alexander-shamray/blueprint-backend)
 — an Angular 22 / Ionic 9 / Capacitor application that consumes the platform
 rather than demonstrating a framework.
 
@@ -23,8 +23,8 @@ The client talks only to the gateway, and the gateway is in the backend
 repository. Start the platform first:
 
 ```bash
-git clone https://github.com/alexander-shamray/dotnet-ddd-blueprint.git
-cd dotnet-ddd-blueprint
+git clone https://github.com/alexander-shamray/blueprint-backend.git
+cd blueprint-backend
 docker compose -f deploy/compose/docker-compose.yml up -d --wait
 ```
 

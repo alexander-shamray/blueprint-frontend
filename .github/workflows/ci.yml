@@ -42,7 +42,7 @@ jobs:
       # mode is a checkout 404, which reads like a wrong repository name.
       - uses: actions/checkout@v4
         with:
-          repository: alexander-shamray/dotnet-ddd-blueprint
+          repository: alexander-shamray/blueprint-backend
           path: blueprint-backend
       - uses: actions/setup-node@v4
         with:

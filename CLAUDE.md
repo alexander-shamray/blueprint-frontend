@@ -19,7 +19,7 @@ anything — is owned elsewhere and cited from here by name, never restated.
 ## What this repo is
 
 `blueprint-frontend` is an Angular 22 + Ionic 9 client for the platform in
-`alexander-shamray/dotnet-ddd-blueprint`, shipped to the web and, through
+`alexander-shamray/blueprint-backend`, shipped to the web and, through
 Capacitor 8, to Android and iOS. It is a **client of a backend it does not
 own**: every port, every claim, every wire type here is downstream of a
 decision somebody else made, and `docs/client-architecture.md` cites both ends
