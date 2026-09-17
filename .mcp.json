@@ -2,8 +2,9 @@
   "mcpServers": {
     "codebase-index": {
       "type": "stdio",
-      "command": "codebase-index",
+      "command": "bash",
       "args": [
+        ".claude/skills/codebase-index/scripts/run-index",
         "mcp",
         "--root",
         "."

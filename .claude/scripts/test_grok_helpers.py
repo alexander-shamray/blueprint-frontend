@@ -9332,6 +9332,19 @@ class TestCodebaseIndexSkillGrants(unittest.TestCase):
         self.assertNotIn("Bash(codebase-index:*)", fm)
         self.assertNotIn("Bash(codebase-index *)", fm)
         self.assertNotIn("Bash(codebase-index search:*)", fm)
+        # run-index itself takes any subcommand, including graph --output, so a
+        # wrapper-wide grant is the same hole as Bash(codebase-index:*).
+        self.assertNotIn(
+            "Bash(bash .claude/skills/codebase-index/scripts/run-index:*)", fm)
+        self.assertNotIn(
+            "Bash(bash .claude/skills/codebase-index/scripts/run-index *)", fm)
+        self.assertNotIn("run-index graph:*", fm)
+        self.assertNotIn("run-index graph *", fm)
+        # Positive control: the per-subcommand grants must still be there, or
+        # the refusals above pass against a skill that grants nothing.
+        self.assertIn(
+            "Bash(bash .claude/skills/codebase-index/scripts/run-index search:*)",
+            fm)
 
     def test_editing_commands_deny_mcp_and_codeindexignore(self):
         seen = 0
@@ -9348,6 +9361,26 @@ class TestCodebaseIndexSkillGrants(unittest.TestCase):
                     self.assertIn(f"Edit({f})", fm)
                     self.assertIn(f"Edit(./{f})", fm)
         self.assertGreater(seen, 3)
+
+    def test_mcp_and_the_hook_example_go_through_run_index(self):
+        # Direct `codebase-index` skips the Python-module fallback and the
+        # auto-update disable that run-index always exports.
+        mcp = json.loads(
+            (SCRIPTS.parent.parent / ".mcp.json").read_text(encoding="utf-8"))
+        server = mcp["mcpServers"]["codebase-index"]
+        self.assertEqual("bash", server["command"])
+        self.assertEqual(
+            ".claude/skills/codebase-index/scripts/run-index",
+            server["args"][0])
+        self.assertEqual("mcp", server["args"][1])
+        example = json.loads(
+            (SCRIPTS.parent / "skills" / "codebase-index" / "examples"
+             / "hooks" / "settings.json").read_text(encoding="utf-8"))
+        command = example["hooks"]["PostToolUse"][0]["hooks"][0]["command"]
+        self.assertIn("run-index", command)
+        self.assertFalse(
+            command.lstrip().startswith("codebase-index"),
+            "hook example must not invoke the unpinned CLI directly")
 
 
 if __name__ == "__main__":
