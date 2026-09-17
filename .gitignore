@@ -53,6 +53,9 @@ Thumbs.db
 # Python — the hooks and their suite under .claude/ are scripts, not a package.
 __pycache__/
 
+# codebase-index cache (machine-local; do not commit)
+.claude/cache/codebase-index/
+
 # /review-branch's proof that it ran, which grok-review.sh requires before it
 # reads a missing suggestions.md as a clean pass. Ignored so that a standalone
 # review does not dirty the tree the same helper refuses to review over.
