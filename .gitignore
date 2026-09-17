@@ -56,7 +56,6 @@ __pycache__/
 # Index SQLite is machine-local. The skill, .mcp.json and .codeindexignore
 # are shared so Claude in this clone uses the same map.
 .claude/cache/codebase-index/
-.claude/skills/codebase-index/.skill_version
 
 # /review-branch's proof that it ran, which grok-review.sh requires before it
 # reads a missing suggestions.md as a clean pass. Ignored so that a standalone
