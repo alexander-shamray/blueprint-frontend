@@ -9408,6 +9408,24 @@ class TestCodebaseIndexSkillGrants(unittest.TestCase):
             command.lstrip().startswith("codebase-index"),
             "hook example must not invoke the unpinned CLI directly")
 
+    def test_every_executable_wrapper_disables_skill_auto_update(self):
+        # Routing through run-index is not the protection. The export is, and
+        # deleting it would leave the caller tests green. Raised by Copilot.
+        scripts = SCRIPTS.parent / "skills" / "codebase-index" / "scripts"
+
+        def uncommented(name):
+            text = (scripts / name).read_text(encoding="utf-8")
+            return "\n".join(
+                line for line in text.splitlines()
+                if not line.lstrip().startswith("#"))
+
+        for name in ("run-index", "cbx"):
+            with self.subTest(wrapper=name):
+                self.assertIn(
+                    "export CBX_NO_SKILL_AUTO_UPDATE=1", uncommented(name))
+        self.assertIn(
+            '$env:CBX_NO_SKILL_AUTO_UPDATE = "1"', uncommented("cbx.ps1"))
+
 
 if __name__ == "__main__":
     unittest.main()
