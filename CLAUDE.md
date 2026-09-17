@@ -16,7 +16,7 @@ anything — is owned elsewhere and cited from here by name, never restated.
 | [`docs/style-guide.md`](docs/style-guide.md) | The prose, TypeScript and Angular dialect, and which rules a linter enforces |
 | [`docs/testing.md`](docs/testing.md) | What a checkout needs that `package.json` and `ci.yml` cannot say: the Playwright prerequisites, the worktree install, the setup file |
 | [`.claude/skills/codebase-index/`](.claude/skills/codebase-index/) | Query the local index before reading whole files |
-| [`.mcp.json`](.mcp.json) | Local index as an MCP server (`--root .`) |
+| [`.mcp.json`](.mcp.json) | Local index as an MCP server (`--root .`). Install the CLI first: `py -3.12 -m pip install codebase-index` (or `python -m pip`); it is not a repo package |
 
 ## What this repo is
 

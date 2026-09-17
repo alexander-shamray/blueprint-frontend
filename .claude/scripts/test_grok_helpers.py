@@ -9318,5 +9318,30 @@ class TheHookWiringRunsOnMoreThanOneOperatingSystem(unittest.TestCase):
         self.assertEqual(0, out.returncode, out.stderr)
         self.assertIn("permissionDecision", out.stdout)
 
+class TestCodebaseIndexSkillGrants(unittest.TestCase):
+    """The skill's allowed-tools must not restore graph/cbx write grants."""
+
+    def test_skill_frontmatter_does_not_auto_approve_graph_or_cbx(self):
+        text = (SCRIPTS.parent / "skills" / "codebase-index" / "SKILL.md").read_text(
+            encoding="utf-8")
+        fm = text.split("---")[1]
+        self.assertNotIn("graph:*", fm)
+        self.assertNotIn("graph *", fm)
+        self.assertNotIn("cbx:*", fm)
+        self.assertNotIn("cbx *", fm)
+
+    def test_editing_commands_deny_mcp_and_codeindexignore(self):
+        names = (
+            "review-branch.md", "pr.md", "ship.md", "review-copilot.md",
+            "review-grok.md", "style-pass.md",
+        )
+        for name in names:
+            fm = (COMMANDS / name).read_text(encoding="utf-8").split("---")[1]
+            with self.subTest(command=name):
+                for f in (".mcp.json", ".codeindexignore"):
+                    self.assertIn(f"Edit({f})", fm)
+                    self.assertIn(f"Edit(./{f})", fm)
+
+
 if __name__ == "__main__":
     unittest.main()
