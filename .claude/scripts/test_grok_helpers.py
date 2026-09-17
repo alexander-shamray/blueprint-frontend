@@ -9331,16 +9331,20 @@ class TestCodebaseIndexSkillGrants(unittest.TestCase):
         self.assertNotIn("cbx *", fm)
 
     def test_editing_commands_deny_mcp_and_codeindexignore(self):
-        names = (
-            "review-branch.md", "pr.md", "ship.md", "review-copilot.md",
-            "review-grok.md", "style-pass.md",
-        )
-        for name in names:
-            fm = (COMMANDS / name).read_text(encoding="utf-8").split("---")[1]
-            with self.subTest(command=name):
+        seen = 0
+        for path in sorted(COMMANDS.glob("*.md")):
+            text = path.read_text(encoding="utf-8")
+            allowed = " ".join(
+                re.findall(r"^allowed-tools:\s*(.+)$", text, re.MULTILINE))
+            if not re.search(r"(^|,\s*)(Edit|Write)(\s*,|\s*$)", allowed):
+                continue
+            seen += 1
+            fm = text.split("---")[1]
+            with self.subTest(command=path.name):
                 for f in (".mcp.json", ".codeindexignore"):
                     self.assertIn(f"Edit({f})", fm)
                     self.assertIn(f"Edit(./{f})", fm)
+        self.assertGreater(seen, 3)
 
 
 if __name__ == "__main__":
