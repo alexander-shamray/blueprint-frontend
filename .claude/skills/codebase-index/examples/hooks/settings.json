@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .claude/skills/codebase-index/scripts/run-index update --quiet >/dev/null 2>&1 &",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "mcpServers": {
+    "codebase-index": {
+      "type": "stdio",
+      "command": "bash",
+      "args": [
+        ".claude/skills/codebase-index/scripts/run-index",
+        "mcp",
+        "--root",
+        "."
+      ],
+      "env": {
+        "CBX_NO_SKILL_AUTO_UPDATE": "1"
+      }
+    }
+  }
+}

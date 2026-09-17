@@ -1,0 +1,9 @@
+node_modules/
+dist/
+android/.gradle/
+android/app/build/
+android/build/
+ios/App/Pods/
+test-results/
+playwright-report/
+.claude/cache/

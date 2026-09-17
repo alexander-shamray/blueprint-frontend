@@ -9318,5 +9318,114 @@ class TheHookWiringRunsOnMoreThanOneOperatingSystem(unittest.TestCase):
         self.assertEqual(0, out.returncode, out.stderr)
         self.assertIn("permissionDecision", out.stdout)
 
+class TestCodebaseIndexSkillGrants(unittest.TestCase):
+    """The skill's allowed-tools must not restore graph/cbx write grants."""
+
+    def test_skill_frontmatter_does_not_auto_approve_graph_or_cbx(self):
+        text = (SCRIPTS.parent / "skills" / "codebase-index" / "SKILL.md").read_text(
+            encoding="utf-8")
+        fm = text.split("---")[1]
+        self.assertNotIn("graph:*", fm)
+        self.assertNotIn("graph *", fm)
+        self.assertNotIn("cbx:*", fm)
+        self.assertNotIn("cbx *", fm)
+        # Any Bash(codebase-index…) grant bypasses run-index, not only search.
+        self.assertNotIn("Bash(codebase-index", fm)
+        # run-index itself takes any subcommand, including graph --output, so a
+        # wrapper-wide grant is the same hole as Bash(codebase-index:*).
+        self.assertNotIn(
+            "Bash(bash .claude/skills/codebase-index/scripts/run-index:*)", fm)
+        self.assertNotIn(
+            "Bash(bash .claude/skills/codebase-index/scripts/run-index *)", fm)
+        self.assertNotIn("run-index graph:*", fm)
+        self.assertNotIn("run-index graph *", fm)
+        # Positive control: the per-subcommand grants must still be there, or
+        # the refusals above pass against a skill that grants nothing.
+        self.assertIn(
+            "Bash(bash .claude/skills/codebase-index/scripts/run-index search:*)",
+            fm)
+        # The intent table must not teach the unpinned CLI.
+        self.assertNotIn("| `codebase-index ", text)
+
+    def test_skill_markdown_does_not_teach_the_unpinned_cli(self):
+        # Agents load SKILL.md *and* the references. A gate on the intent
+        # table alone stays green while memory.md / response-contract.md still
+        # copy-paste `codebase-index verify` and bypass run-index. Raised by
+        # Copilot.
+        sub = (
+            r"(search|explain|architecture|symbol|refs|impact|diff-impact|"
+            r"path|describe|verify|stats|doctor|update|index|graph|mcp)\b"
+        )
+        taught = re.compile(rf"(?:^|[`\s])codebase-index\s+{sub}", re.M)
+        root = SCRIPTS.parent / "skills" / "codebase-index"
+        seen = 0
+        for path in sorted(root.rglob("*.md")):
+            seen += 1
+            text = path.read_text(encoding="utf-8")
+            with self.subTest(path=str(path.relative_to(root))):
+                self.assertIsNone(
+                    taught.search(text),
+                    f"{path.name} still teaches the unpinned CLI")
+        self.assertGreater(seen, 3, "found almost no skill markdown")
+        # Positive control: the wrapper is what the skill is supposed to teach.
+        skill = (root / "SKILL.md").read_text(encoding="utf-8")
+        self.assertIn(
+            "bash .claude/skills/codebase-index/scripts/run-index", skill)
+
+    def test_editing_commands_deny_mcp_and_codeindexignore(self):
+        seen = 0
+        for path in sorted(COMMANDS.glob("*.md")):
+            text = path.read_text(encoding="utf-8")
+            allowed = " ".join(
+                re.findall(r"^allowed-tools:\s*(.+)$", text, re.MULTILINE))
+            if not re.search(r"(^|,\s*)(Edit|Write)(\s*,|\s*$)", allowed):
+                continue
+            seen += 1
+            fm = text.split("---")[1]
+            with self.subTest(command=path.name):
+                for f in (".mcp.json", ".codeindexignore"):
+                    self.assertIn(f"Edit({f})", fm)
+                    self.assertIn(f"Edit(./{f})", fm)
+        self.assertGreater(seen, 3)
+
+    def test_mcp_and_the_hook_example_go_through_run_index(self):
+        # Direct `codebase-index` skips the Python-module fallback and the
+        # auto-update disable that run-index always exports.
+        mcp = json.loads(
+            (SCRIPTS.parent.parent / ".mcp.json").read_text(encoding="utf-8"))
+        server = mcp["mcpServers"]["codebase-index"]
+        self.assertEqual("bash", server["command"])
+        self.assertEqual(
+            ".claude/skills/codebase-index/scripts/run-index",
+            server["args"][0])
+        self.assertEqual("mcp", server["args"][1])
+        example = json.loads(
+            (SCRIPTS.parent / "skills" / "codebase-index" / "examples"
+             / "hooks" / "settings.json").read_text(encoding="utf-8"))
+        command = example["hooks"]["PostToolUse"][0]["hooks"][0]["command"]
+        self.assertIn("run-index", command)
+        self.assertFalse(
+            command.lstrip().startswith("codebase-index"),
+            "hook example must not invoke the unpinned CLI directly")
+
+    def test_every_executable_wrapper_disables_skill_auto_update(self):
+        # Routing through run-index is not the protection. The export is, and
+        # deleting it would leave the caller tests green. Raised by Copilot.
+        scripts = SCRIPTS.parent / "skills" / "codebase-index" / "scripts"
+
+        def uncommented(name):
+            text = (scripts / name).read_text(encoding="utf-8")
+            return "\n".join(
+                line for line in text.splitlines()
+                if not line.lstrip().startswith("#"))
+
+        for name in ("run-index", "cbx"):
+            with self.subTest(wrapper=name):
+                self.assertIn(
+                    "export CBX_NO_SKILL_AUTO_UPDATE=1", uncommented(name))
+        self.assertIn(
+            '$env:CBX_NO_SKILL_AUTO_UPDATE = "1"', uncommented("cbx.ps1"))
+
+
 if __name__ == "__main__":
     unittest.main()
