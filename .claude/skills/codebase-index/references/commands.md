@@ -5,8 +5,8 @@ Load this reference only when the intent table in `SKILL.md` is insufficient.
 ## Retrieval
 
 ```bash
-codebase-index search "<query>" --session <tag> --json
-codebase-index explain "<topic or flow>" --session <tag> --json
+bash .claude/skills/codebase-index/scripts/run-index search "<query>" --session <tag> --json
+bash .claude/skills/codebase-index/scripts/run-index explain "<topic or flow>" --session <tag> --json
 ```
 
 Useful search options:
@@ -27,12 +27,12 @@ it over repeatedly rewording a broad search.
 ## Code graph
 
 ```bash
-codebase-index architecture --json
-codebase-index refs "<symbol>" --json
-codebase-index impact "<file-or-symbol>" --direction up --depth 2 --json
-codebase-index diff-impact --base HEAD --direction up --depth 2 --json
-codebase-index path "<source>" "<target>" --json
-codebase-index describe "<file-or-symbol>" --json
+bash .claude/skills/codebase-index/scripts/run-index architecture --json
+bash .claude/skills/codebase-index/scripts/run-index refs "<symbol>" --json
+bash .claude/skills/codebase-index/scripts/run-index impact "<file-or-symbol>" --direction up --depth 2 --json
+bash .claude/skills/codebase-index/scripts/run-index diff-impact --base HEAD --direction up --depth 2 --json
+bash .claude/skills/codebase-index/scripts/run-index path "<source>" "<target>" --json
+bash .claude/skills/codebase-index/scripts/run-index describe "<file-or-symbol>" --json
 ```
 
 - `architecture` reads module analysis cached at index time.
@@ -46,7 +46,7 @@ codebase-index describe "<file-or-symbol>" --json
 Use `graph` only for a visualization intended for a person:
 
 ```bash
-codebase-index graph "<target>" --direction both --depth 2 --output graph.html
+bash .claude/skills/codebase-index/scripts/run-index graph "<target>" --direction both --depth 2 --output graph.html
 ```
 
 For headless work, use `--output`; do not use `--open`. Exports also support
@@ -55,8 +55,8 @@ For headless work, use `--output`; do not use `--open`. Exports also support
 ## Evidence
 
 ```bash
-codebase-index verify --session <tag> --json
-codebase-index verify "<path:start-end@hash>" ... --json
+bash .claude/skills/codebase-index/scripts/run-index verify --session <tag> --json
+bash .claude/skills/codebase-index/scripts/run-index verify "<path:start-end@hash>" ... --json
 ```
 
 - `verify` is read-only and needs no index: it checks evidence against the
@@ -67,10 +67,10 @@ codebase-index verify "<path:start-end@hash>" ... --json
 ## Index health
 
 ```bash
-codebase-index stats --json
-codebase-index doctor
-codebase-index update
-codebase-index index
+bash .claude/skills/codebase-index/scripts/run-index stats --json
+bash .claude/skills/codebase-index/scripts/run-index doctor
+bash .claude/skills/codebase-index/scripts/run-index update
+bash .claude/skills/codebase-index/scripts/run-index index
 ```
 
 Run `stats` and `doctor` when several unrelated queries have low confidence.
@@ -79,10 +79,10 @@ Low symbol counts or partial graph coverage can explain weak results.
 ## Query examples
 
 ```bash
-codebase-index search "auth token refresh" --session <tag> --json
-codebase-index search "AuthService class" --mode symbol --session <tag> --json
-codebase-index search "connection reset by peer" --mode fts --session <tag> --json
-codebase-index explain "checkout flow" --session <tag> --json
-codebase-index impact "User" --direction up --depth 2 --json
-codebase-index path "ApiController" "Database" --json
+bash .claude/skills/codebase-index/scripts/run-index search "auth token refresh" --session <tag> --json
+bash .claude/skills/codebase-index/scripts/run-index search "AuthService class" --mode symbol --session <tag> --json
+bash .claude/skills/codebase-index/scripts/run-index search "connection reset by peer" --mode fts --session <tag> --json
+bash .claude/skills/codebase-index/scripts/run-index explain "checkout flow" --session <tag> --json
+bash .claude/skills/codebase-index/scripts/run-index impact "User" --direction up --depth 2 --json
+bash .claude/skills/codebase-index/scripts/run-index path "ApiController" "Database" --json
 ```

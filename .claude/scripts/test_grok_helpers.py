@@ -9329,9 +9329,8 @@ class TestCodebaseIndexSkillGrants(unittest.TestCase):
         self.assertNotIn("graph *", fm)
         self.assertNotIn("cbx:*", fm)
         self.assertNotIn("cbx *", fm)
-        self.assertNotIn("Bash(codebase-index:*)", fm)
-        self.assertNotIn("Bash(codebase-index *)", fm)
-        self.assertNotIn("Bash(codebase-index search:*)", fm)
+        # Any Bash(codebase-index…) grant bypasses run-index, not only search.
+        self.assertNotIn("Bash(codebase-index", fm)
         # run-index itself takes any subcommand, including graph --output, so a
         # wrapper-wide grant is the same hole as Bash(codebase-index:*).
         self.assertNotIn(
@@ -9345,6 +9344,8 @@ class TestCodebaseIndexSkillGrants(unittest.TestCase):
         self.assertIn(
             "Bash(bash .claude/skills/codebase-index/scripts/run-index search:*)",
             fm)
+        # The intent table must not teach the unpinned CLI.
+        self.assertNotIn("| `codebase-index ", text)
 
     def test_editing_commands_deny_mcp_and_codeindexignore(self):
         seen = 0
