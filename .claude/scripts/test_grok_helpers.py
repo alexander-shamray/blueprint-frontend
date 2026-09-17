@@ -9329,6 +9329,9 @@ class TestCodebaseIndexSkillGrants(unittest.TestCase):
         self.assertNotIn("graph *", fm)
         self.assertNotIn("cbx:*", fm)
         self.assertNotIn("cbx *", fm)
+        self.assertNotIn("Bash(codebase-index:*)", fm)
+        self.assertNotIn("Bash(codebase-index *)", fm)
+        self.assertNotIn("Bash(codebase-index search:*)", fm)
 
     def test_editing_commands_deny_mcp_and_codeindexignore(self):
         seen = 0

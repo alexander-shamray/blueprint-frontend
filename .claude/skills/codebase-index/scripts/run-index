@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# Invoke the CLI with skill auto-update disabled so a newer unpinned
+# package cannot rewrite the tracked skill before search/refs/etc.
+set -euo pipefail
+export CBX_NO_SKILL_AUTO_UPDATE=1
+if command -v codebase-index >/dev/null 2>&1; then
+  exec codebase-index "$@"
+elif command -v py >/dev/null 2>&1 && py -3.12 -c "import codebase_index" >/dev/null 2>&1; then
+  exec py -3.12 -m codebase_index "$@"
+elif command -v python3 >/dev/null 2>&1 && python3 -c "import codebase_index" >/dev/null 2>&1; then
+  exec python3 -m codebase_index "$@"
+elif command -v python >/dev/null 2>&1 && python -c "import codebase_index" >/dev/null 2>&1; then
+  exec python -m codebase_index "$@"
+fi
+echo "run-index: codebase-index CLI not on PATH and no Python environment can import codebase_index" >&2
+exit 127
