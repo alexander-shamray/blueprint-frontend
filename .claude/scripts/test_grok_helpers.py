@@ -9347,6 +9347,31 @@ class TestCodebaseIndexSkillGrants(unittest.TestCase):
         # The intent table must not teach the unpinned CLI.
         self.assertNotIn("| `codebase-index ", text)
 
+    def test_skill_markdown_does_not_teach_the_unpinned_cli(self):
+        # Agents load SKILL.md *and* the references. A gate on the intent
+        # table alone stays green while memory.md / response-contract.md still
+        # copy-paste `codebase-index verify` and bypass run-index. Raised by
+        # Copilot.
+        sub = (
+            r"(search|explain|architecture|symbol|refs|impact|diff-impact|"
+            r"path|describe|verify|stats|doctor|update|index|graph|mcp)\b"
+        )
+        taught = re.compile(rf"(?:^|[`\s])codebase-index\s+{sub}", re.M)
+        root = SCRIPTS.parent / "skills" / "codebase-index"
+        seen = 0
+        for path in sorted(root.rglob("*.md")):
+            seen += 1
+            text = path.read_text(encoding="utf-8")
+            with self.subTest(path=str(path.relative_to(root))):
+                self.assertIsNone(
+                    taught.search(text),
+                    f"{path.name} still teaches the unpinned CLI")
+        self.assertGreater(seen, 3, "found almost no skill markdown")
+        # Positive control: the wrapper is what the skill is supposed to teach.
+        skill = (root / "SKILL.md").read_text(encoding="utf-8")
+        self.assertIn(
+            "bash .claude/skills/codebase-index/scripts/run-index", skill)
+
     def test_editing_commands_deny_mcp_and_codeindexignore(self):
         seen = 0
         for path in sorted(COMMANDS.glob("*.md")):
