@@ -1,4 +1,5 @@
 apply plugin: 'com.android.application'
+apply plugin: 'org.jetbrains.kotlin.android'
 
 android {
     namespace = "dev.ashamray.blueprint"
@@ -21,6 +22,15 @@ android {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
+    }
+}
+
+// JVM 21 matches the Java target capacitor.build.gradle sets, which `cap sync`
+// regenerates and so cannot carry this block. Kotlin refuses a JVM target that
+// differs from Java's, and would otherwise take whichever JDK runs Gradle.
+kotlin {
+    compilerOptions {
+        jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_21
     }
 }
 
