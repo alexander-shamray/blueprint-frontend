@@ -1459,6 +1459,17 @@ left a check-then-act a takeover could slip between.
 forged ones, the lock from a second handle and from a second process that
 dies holding it, and the detached child end to end against a stub wrapper.
 
+**A worker that crashes mid-refresh leaves the index stale until the next
+edit, and that is the residual rather than a gap to supervise.** The worker
+consumes a marker before its refresh, so a crash after that point leaves no
+request behind. Nothing is lost, though: `update` is incremental, so the
+next refresh re-indexes everything the crashed one missed, and the next
+edit starts one. A durable marker would not recover sooner, because only
+the next edit would ever act on it, and a process supervising a best-effort
+cache is out of proportion to it. The failure mode is the old hook's own,
+a refresh that failed, and the indexer run itself is bounded by the hook's
+`RUN_TIMEOUT`. Raised by Copilot, and answered here.
+
 **The example under the skill does not follow.** It ships alone, so it keeps
 the self-contained `cd "${CLAUDE_PROJECT_DIR}" && run-index update` form:
 anchored and denied, but refreshing the startup checkout. A copy that named
