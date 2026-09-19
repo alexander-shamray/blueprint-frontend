@@ -55,6 +55,7 @@ exits, crashed or not. The file itself is never removed, so no path operation
 can pull a lock out from under its holder.
 """
 
+import hashlib
 import json
 import os
 import shutil
@@ -249,12 +250,32 @@ def subcommand(root):
     return "update" if os.path.isfile(built) else "index"
 
 
-def lock_path(root):
-    return os.path.join(root, CACHE, "refresh.lock")
+def state_dir(owner):
+    """Where this hook keeps its own state: in the owner, never in the target.
+
+    **The tree being indexed must not choose where a trusted write lands.**
+    The lock and the marker used to sit under the target's own
+    `.claude/cache/`, and a branch can commit a symlink there — `makedirs`
+    and `open` follow it, and `Lock.write` truncates what it finds, so a
+    worktree could aim this hook's writes at any file it liked. Raised by
+    Copilot. The state now lives beside the owner's index, under a name
+    derived from the target, and the target is only ever read.
+    """
+    return os.path.join(owner, CACHE, "roots")
 
 
-def pending_path(root):
-    return os.path.join(root, CACHE, "refresh.pending")
+def state_path(owner, root, suffix):
+    key = hashlib.sha256(
+        os.path.normcase(os.path.realpath(root)).encode("utf-8", "replace")).hexdigest()
+    return os.path.join(state_dir(owner), f"{key[:32]}.{suffix}")
+
+
+def lock_path(owner, root):
+    return state_path(owner, root, "lock")
+
+
+def pending_path(owner, root):
+    return state_path(owner, root, "pending")
 
 
 class Lock:
@@ -267,8 +288,8 @@ class Lock:
     hold it from a test.
     """
 
-    def __init__(self, root):
-        self.path = lock_path(root)
+    def __init__(self, owner, root):
+        self.path = lock_path(owner, root)
         self.handle = None
 
     def acquire(self):
@@ -324,16 +345,16 @@ class Lock:
             self.handle = None
 
 
-def held(root):
+def held(owner, root):
     """Whether a worker holds the root's lock right now."""
-    probe = Lock(root)
+    probe = Lock(owner, root)
     if not probe.acquire():
         return True
     probe.release()
     return False
 
 
-def take_pending(root):
+def take_pending(owner, root):
     """Consume the root's pending marker; True when there was one.
 
     **Removing a marker an edit is still creating loses nothing, because the
@@ -352,7 +373,7 @@ def take_pending(root):
     which ends the worker and leaves the marker for the next edit to serve.
     """
     try:
-        os.remove(pending_path(root))
+        os.remove(pending_path(owner, root))
         return True
     except FileNotFoundError:
         return False
@@ -360,9 +381,9 @@ def take_pending(root):
         return None
 
 
-def mark_pending(root):
-    os.makedirs(os.path.dirname(pending_path(root)), exist_ok=True)
-    with open(pending_path(root), "a", encoding="ascii"):
+def mark_pending(owner, root):
+    os.makedirs(os.path.dirname(pending_path(owner, root)), exist_ok=True)
+    with open(pending_path(owner, root), "a", encoding="ascii"):
         pass
 
 
@@ -393,6 +414,15 @@ def running_indexer(lock):
     indexers write one SQLite cache. Raised by Copilot. So the worker records
     its child's pid in the lock file, and a worker that takes the lock and
     finds that child still running leaves the tree to it.
+
+    **The worker records its OWN pid first**, from the moment before the
+    child is started until the child's pid is known, because a worker killed
+    between the two would otherwise leave an indexer nobody could name.
+    Raised by Copilot. The window this cannot close is the instant between
+    the child existing and its pid being written — `Popen` returns a
+    started process, so the record is written next, but a kill landing
+    exactly there leaves an orphan with the dead worker's pid beside it.
+    Both records read the same way: a live pid means stand off.
     """
     try:
         recorded = lock.read().strip()
@@ -415,6 +445,9 @@ def refresh(owner, root, lock):
     if bash is None:
         return
     child = None
+    # Claimed before the child exists, so a worker killed while starting one
+    # is still a live pid to the next worker rather than a silent orphan.
+    lock.write(str(os.getpid()))
     try:
         child = subprocess.Popen(
             [bash, os.path.join(owner, WRAPPER), "--quiet", "--root", root,
@@ -427,6 +460,14 @@ def refresh(owner, root, lock):
         if child is not None:
             child.kill()
     finally:
+        # Reaped before the record is cleared: `kill` only asks, and a
+        # coalesced refresh must not start beside a process still exiting.
+        # Raised by Copilot.
+        if child is not None:
+            try:
+                child.wait(timeout=RUN_TIMEOUT)
+            except (OSError, subprocess.SubprocessError):
+                pass
         lock.write("")
 
 
@@ -438,13 +479,13 @@ def work(owner, root):
     that marked while it still held the lock saw it held and started nothing,
     so this look is what serves it.
     """
-    lock = Lock(root)
+    lock = Lock(owner, root)
     while lock.acquire():
         try:
             if running_indexer(lock) is not None:
                 return
             while True:
-                taken = take_pending(root)
+                taken = take_pending(owner, root)
                 if taken is None:
                     # A marker that would not go: stop, rather than take the
                     # lock again and meet it unchanged for ever.
@@ -454,7 +495,7 @@ def work(owner, root):
                 refresh(owner, root, lock)
         finally:
             lock.release()
-        if not os.path.exists(pending_path(root)):
+        if not os.path.exists(pending_path(owner, root)):
             return
 
 
@@ -484,8 +525,8 @@ def start(owner, root):
     both find the lock free both start one, and the second finds it held and
     exits, which costs a process and nothing else.
     """
-    mark_pending(root)
-    if not held(root):
+    mark_pending(owner, root)
+    if not held(owner, root):
         spawn([sys.executable, os.path.abspath(__file__), "--worker", root], owner)
 
 

@@ -1461,11 +1461,23 @@ left a check-then-act a takeover could slip between.
 forged ones, the lock from a second handle and from a second process that
 dies holding it, and the detached child end to end against a stub wrapper.
 
+**The lock and the marker live in the owner checkout, never in the tree
+being refreshed.** They used to sit under the target's own
+`.claude/cache/`, and a branch can commit a symlink there: `makedirs` and
+`open` follow it, and the lock's own write truncates what it finds, so the
+indexed tree chose where a trusted write landed. They are now named by a
+hash of the target's path under the owner's cache, and the target is only
+ever read.
+
 **The worker records its indexer's pid in the lock file**, because the lock
 is the worker's and not the child's: a worker killed mid-run leaves
 `run-index` behind, and the next edit would otherwise start a second one
 against the same cache. A worker that takes the lock and finds that child
-still running stands off and leaves the tree to it.
+still running stands off and leaves the tree to it. The worker claims the
+record with its own pid before starting the child and reaps the child
+before clearing it, so neither the gap before the child is named nor the
+one after a kill lets a second indexer in. The window that remains is the
+instant between the child existing and its pid being written.
 
 **A worker that crashes mid-refresh leaves the index stale until the next
 edit, and that is the residual rather than a gap to supervise.** The worker
