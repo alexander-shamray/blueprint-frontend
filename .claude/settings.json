@@ -100,7 +100,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "cd \"${CLAUDE_PROJECT_DIR}\" && bash .claude/skills/codebase-index/scripts/run-index update >/dev/null 2>&1 &",
+            "command": "sh \"${CLAUDE_PROJECT_DIR}/.claude/hooks/run-guard.sh\" index-refresh.py",
             "timeout": 5
           }
         ]

@@ -17,7 +17,7 @@ anything — is owned elsewhere and cited from here by name, never restated.
 | [`docs/style-guide.md`](docs/style-guide.md) | The prose, TypeScript and Angular dialect, and which rules a linter enforces |
 | [`docs/testing.md`](docs/testing.md) | What a checkout needs that `package.json` and `ci.yml` cannot say: the Playwright prerequisites, the worktree install, the setup file |
 | [`.claude/skills/codebase-index/`](.claude/skills/codebase-index/) | Query the local index before reading whole files |
-| [`.mcp.json`](.mcp.json) | Local index as an MCP server (`--root .`). Install the CLI first: `py -3.12 -m pip install codebase-index` (or `python -m pip install codebase-index`); it is not a repo package. MCP sets `CBX_NO_SKILL_AUTO_UPDATE=1` so the CLI cannot rewrite the tracked skill |
+| [`.mcp.json`](.mcp.json) | Local index as an MCP server (`--root .`, the startup checkout, even after `/branch`). Install the CLI first: `py -3.12 -m pip install codebase-index` (or `python -m pip install codebase-index`); it is not a repo package. MCP sets `CBX_NO_SKILL_AUTO_UPDATE=1` so the CLI cannot rewrite the tracked skill |
 
 ## What this repo is
 
@@ -209,11 +209,12 @@ rather than here. Three rules reach every session, so they stay:
 - **`.claude/settings.json` self-locks, not instantaneously** — a change to it
   lands complete and goes last, and a restore is verified by reading the file,
   never by trying what it forbids.
-- **Every guard hook uses `run-guard.sh`** — the two in `settings.json` and
+- **Every hook uses `run-guard.sh`** — the three in `settings.json` and
   the `review-grok-triager` profile's own — which locates a compatible Python
-  launcher before invoking the guard. The one hook that is not a guard, the
-  index refresh in `settings.json`, runs `run-index` from the project root
-  and guards nothing.
+  launcher before invoking the hook. The one that is not a guard, the index
+  refresh in `settings.json`, guards nothing and refreshes the worktree the
+  edit landed in, while the MCP server stays on the startup checkout
+  (`docs/harness-boundaries.md` says why).
 - **`python -m unittest discover -s .claude/scripts -p 'test_*.py'` is the
   harness's own suite** — it covers the deny lists, the frontmatter grants,
   the helper shapes and the hooks. It reads `git ls-files`, so a new tracked

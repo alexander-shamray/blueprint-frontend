@@ -9606,6 +9606,11 @@ class TestCodebaseIndexSkillGrants(unittest.TestCase):
              / "hooks" / "settings.json").read_text(encoding="utf-8"))
         command = example["hooks"]["PostToolUse"][0]["hooks"][0]["command"]
         self.assertIn("run-index", command)
+        # Production reaches run-index through index-refresh.py, which names
+        # the wrapper itself (alexander-shamray/blueprint-frontend#48).
+        hook = (SCRIPTS.parent / "hooks" / "index-refresh.py").read_text(
+            encoding="utf-8")
+        self.assertIn('"run-index"', hook)
         self.assertFalse(
             command.lstrip().startswith("codebase-index"),
             "hook example must not invoke the unpinned CLI directly")
@@ -9619,14 +9624,26 @@ class TestCodebaseIndexSkillGrants(unittest.TestCase):
         # The example is held to the same shape, because it is the one a
         # reader copies; Copilot's third round on the frontend pull request
         # that added this test found it still relative and
-        # undenied after production was fixed.
-        expected = (
-            'cd "${CLAUDE_PROJECT_DIR}" && '
-            "bash .claude/skills/codebase-index/scripts/run-index update "
-            ">/dev/null 2>&1 &")
+        # undenied after production was fixed. Production now runs a hook
+        # under `.claude/hooks/`, which picks the active worktree as the root
+        # and runs this checkout's wrapper against it
+        # (alexander-shamray/blueprint-frontend#48); `test_index_refresh.py`
+        # judges that choice. The example keeps the self-contained anchored
+        # form, because it ships alone under the skill and a copy of it would
+        # name a hook and a launcher the copier does not have — Copilot's
+        # second round on that pull request. It stays anchored and denied;
+        # only its root is the startup checkout's.
+        production = SCRIPTS.parent / "settings.json"
         example = (SCRIPTS.parent / "skills" / "codebase-index" / "examples"
                    / "hooks" / "settings.json")
-        for path in (SCRIPTS.parent / "settings.json", example):
+        commands = {
+            production: ('sh "${CLAUDE_PROJECT_DIR}/.claude/hooks/run-guard.sh" '
+                         "index-refresh.py"),
+            example: ('cd "${CLAUDE_PROJECT_DIR}" && '
+                      "bash .claude/skills/codebase-index/scripts/run-index update "
+                      ">/dev/null 2>&1 &"),
+        }
+        for path, expected in commands.items():
             with self.subTest(settings=path.name, parent=path.parent.name):
                 settings = json.loads(path.read_text(encoding="utf-8"))
                 entries = settings["hooks"]["PostToolUse"]
@@ -9643,8 +9660,14 @@ class TestCodebaseIndexSkillGrants(unittest.TestCase):
                 self.assertEqual(
                     expected, matched[0]["hooks"][0]["command"])
                 deny = settings["permissions"]["deny"]
+                # The hook runs `.claude/hooks/run-guard.sh` and
+                # `index-refresh.py`, so a settings file that wires it and
+                # leaves that tree editable lets a session rewrite what the
+                # next edit executes. The example was missing it; raised by
+                # Copilot on the frontend pull request for #48.
                 for prefix in ("", "./"):
                     self.assertIn(f"Edit({prefix}.claude/skills/**)", deny)
+                    self.assertIn(f"Edit({prefix}.claude/hooks/**)", deny)
 
     def test_every_executable_wrapper_disables_skill_auto_update(self):
         # Routing through run-index is not the protection. The export is, and
