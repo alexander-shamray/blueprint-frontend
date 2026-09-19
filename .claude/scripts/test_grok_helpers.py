@@ -4894,6 +4894,15 @@ class CommandsEnforceTheEditingBoundariesTheyState(unittest.TestCase):
     # A hard-coded list of the five would have gone stale on the sixth.
     PUBLISHING = ("pr.md", "ship.md")
 
+    # **A frontmatter deny holds for the rest of the user turn, not for the
+    # command that states it**, so a command /ship runs BEFORE it pushes
+    # cannot deny push without refusing /ship's own. These three neither
+    # grant nor deny it: their bodies say who pushes and what, and the hook
+    # and `.claude/settings.json` still refuse `main`, force and delete.
+    # `docs/harness-boundaries.md` owns the rule; an exemption is named here
+    # so that adding one is a visible decision.
+    CHAINED_BEFORE_A_PUSH = ("branch.md", "commit.md", "review-copilot.md")
+
     # The machinery a command that APPLIES findings has no business in. Held
     # here rather than per-command because the point is the surface: a new
     # command that grants an editing tool is judged against this set, not
@@ -4975,6 +4984,8 @@ class CommandsEnforceTheEditingBoundariesTheyState(unittest.TestCase):
                 self.assertFalse(
                     grants_push,
                     "only the publishing commands may grant push")
+                if path.name in self.CHAINED_BEFORE_A_PUSH:
+                    continue
                 # `Bash` on its own removes the tool, which covers push and
                 # everything else; /review-grok is admitted by this branch.
                 covered = (
@@ -4985,6 +4996,147 @@ class CommandsEnforceTheEditingBoundariesTheyState(unittest.TestCase):
                     covered,
                     f"{path.name} neither grants nor denies push, so the global "
                     "settings allow reaches it")
+
+    def test_nothing_ship_chains_before_a_push_denies_it(self):
+        # Restoring the deny reads as hardening and breaks /ship silently,
+        # because the refusal lands on a later command than the one that
+        # carries it.
+        ship = (COMMANDS / "ship.md").read_text(encoding="utf-8")
+        for name in self.CHAINED_BEFORE_A_PUSH:
+            text = (COMMANDS / name).read_text(encoding="utf-8")
+            denied = " ".join(
+                re.findall(r"^disallowed-tools:\s*(.+)$", text, re.MULTILINE))
+            with self.subTest(command=name):
+                # An exemption nobody needs is one that quietly widens: the
+                # command has to be one ship.md really names.
+                self.assertIn(f"`/{name.removesuffix('.md')}`", ship)
+                self.assertNotIn("Bash(git push", denied)
+                self.assertIsNone(
+                    re.search(r"(^|,\s*)Bash(\s*,|\s*$)", denied))
+                # With the deny gone, the body's own word on the push is the
+                # guard the comment above relies on, so it is asserted.
+                self.assertRegex(text, r"`/pr`[^\n]*push|push[^\n]*`/pr`")
+
+    def test_the_triage_that_denies_bash_runs_apart_from_the_push(self):
+        # /review-grok cannot join CHAINED_BEFORE_A_PUSH: run inline, its bare
+        # `Bash` deny would refuse /ship's push, so it runs in an agent. This
+        # pins that text only — the deny in the frontmatter and the agent in
+        # the dispatch; the agent path's boundary is the profile, pinned by
+        # the cases below, and neither pins runtime behaviour.
+        text = (COMMANDS / "review-grok.md").read_text(encoding="utf-8")
+        denied = " ".join(
+            re.findall(r"^disallowed-tools:\s*(.+)$", text, re.MULTILINE))
+        self.assertIsNotNone(
+            re.search(r"(^|,\s*)Bash(\s*,|\s*$)", denied))
+        ship = (COMMANDS / "ship.md").read_text(encoding="utf-8")
+        self.assertIn("to run `/review-grok` with", ship)
+
+    # The built-in types whose tool list is `*` or reaches a shell, an editor
+    # or the network. None can be excluded by an allow, because
+    # `allowed-tools` auto-approves rather than whitelists, so a command that
+    # grants an exact type denies these by name.
+    BROAD_AGENT_TYPES = ("general-purpose", "claude", "Explore", "Plan",
+                         "claude-code-guide", "statusline-setup")
+    # A repository profile a command must leave admitted although it does not
+    # grant it: the one its granted agent spawns. /ship's deny list reaches
+    # the triager, and the triager's whole job starts with the adjudicator.
+    SPAWNED_BY_A_GRANTED_AGENT = {"ship.md": {"review-adjudicator"}}
+
+    @staticmethod
+    def frontmatter_list(text, key):
+        return [item.strip() for line in
+                re.findall(rf"^{key}:\s*(.+)$", text, re.MULTILINE)
+                for item in line.split(",") if item.strip()]
+
+    def test_the_triage_runs_under_a_profile_that_holds_no_shell(self):
+        # The profile reads review-grok.md rather than loading it, so the
+        # command's frontmatter is not in play on /ship's path and the
+        # triage's no-shell boundary there is this profile's own `tools:`
+        # allowlist. `Skill` is refused beside `Bash` because loading the
+        # command is the path measured, in a general-purpose agent, to drop
+        # its deny.
+        profile = (SCRIPTS.parent / "agents" / "review-grok-triager.md"
+                   ).read_text(encoding="utf-8")
+        self.assertRegex(profile, r"(?m)^name:\s*review-grok-triager\s*$")
+        self.assertEqual(
+            {"Read", "Grep", "Glob", "Edit", "Write", "Agent"},
+            set(self.frontmatter_list(profile, "tools")))
+        self.assertNotRegex(profile, r"(?m)^skills:")
+        self.assertIn(".claude/commands/review-grok.md", profile)
+
+    def test_ship_grants_the_triager_by_exact_type_and_nothing_broader(self):
+        ship = (COMMANDS / "ship.md").read_text(encoding="utf-8")
+        allowed = self.frontmatter_list(ship, "allowed-tools")
+        self.assertIn("Agent(review-grok-triager)", allowed)
+        self.assertEqual(
+            ["Agent(review-grok-triager)"],
+            [t for t in allowed if t == "Agent" or t.startswith("Agent(")])
+        self.assertIn("spawn a **`review-grok-triager`** agent", ship)
+
+    def test_ship_carries_every_edit_deny_the_triage_states(self):
+        # A profile's `disallowedTools` cannot scope a path — an entry with a
+        # specifier removes the whole tool — so on the agent path the trees
+        # /review-grok refuses are refused by /ship's deny list, which reaches
+        # the agents /ship spawns. Every path deny the command states has to
+        # be there, or the agent path is wider than the inline one.
+        ship = set(self.frontmatter_list(
+            (COMMANDS / "ship.md").read_text(encoding="utf-8"),
+            "disallowed-tools"))
+        triage = [t for t in self.frontmatter_list(
+            (COMMANDS / "review-grok.md").read_text(encoding="utf-8"),
+            "disallowed-tools") if t.startswith("Edit(")]
+        self.assertTrue(triage, "review-grok.md states no path deny at all")
+        for rule in triage:
+            with self.subTest(rule=rule):
+                self.assertIn(rule, ship)
+
+    def test_every_exact_agent_grant_denies_every_other_type(self):
+        # The subject is what the gate looks at, not what it found: the
+        # repository's profiles are read from `.claude/agents/` each run, so
+        # a profile added tomorrow fails every command that grants a type and
+        # does not name it — the line review-grok.md says admits a new agent
+        # "until this line names it". A profile is dispatched by its
+        # frontmatter `name`, not its filename, so that is what is read.
+        profiles = set()
+        for path in sorted((SCRIPTS.parent / "agents").glob("*.md")):
+            names = re.findall(r"^name:\s*(\S+)\s*$",
+                               path.read_text(encoding="utf-8").split(
+                                   "\n---", 1)[0], re.MULTILINE)
+            with self.subTest(profile=path.name):
+                self.assertEqual(1, len(names), "exactly one `name:`")
+            profiles.update(names)
+        self.assertIn("review-grok-triager", profiles)
+        self.assertIn("review-adjudicator", profiles)
+        granting = 0
+        for path in sorted(COMMANDS.glob("*.md")):
+            text = path.read_text(encoding="utf-8")
+            granted = {m for t in self.frontmatter_list(text, "allowed-tools")
+                       for m in re.findall(r"^Agent\((.+)\)$", t)}
+            if not granted:
+                continue
+            granting += 1
+            denied = set(self.frontmatter_list(text, "disallowed-tools"))
+            exempt = granted | self.SPAWNED_BY_A_GRANTED_AGENT.get(
+                path.name, set())
+            for name in sorted((profiles | set(self.BROAD_AGENT_TYPES))
+                               - exempt):
+                with self.subTest(command=path.name, agent=name):
+                    self.assertIn(f"Agent({name})", denied)
+        # The two sweeps, the triage and /ship: fewer means the grant pattern
+        # stopped matching, and the loop above passed over nothing.
+        self.assertGreaterEqual(granting, 4)
+
+    def test_ship_pushes_a_copilot_fix_before_its_marker(self):
+        # review-copilot.md pushes a committed fix before posting `done`, so
+        # the marker names a commit on the remote, and ship.md step 6 must
+        # push at the same point or the chain posts `done` for a local-only
+        # commit. Pinned together, because each file alone reads correctly.
+        ship = (COMMANDS / "ship.md").read_text(encoding="utf-8")
+        copilot = (COMMANDS / "review-copilot.md").read_text(encoding="utf-8")
+        self.assertRegex(
+            ship, r"push the\s+branch by name, and only then let it post its"
+                  r"\s+markers")
+        self.assertRegex(copilot, r"before posting `done`")
 
     def test_the_settings_really_do_auto_approve_push(self):
         # The positive control. If the global allow were ever removed, the case
@@ -5347,7 +5499,7 @@ class TheGitArgvGuard(unittest.TestCase):
     built-in, so it reaches commands no allow or deny rule is consulted for.
     """
 
-    def judge(self, command, tool="Bash", cwd=None):
+    def judge(self, command, tool="Bash", cwd=None, timeout=None):
         """The hook's verdict on one command: None to allow, or the reason."""
         event = {"tool_name": tool, "tool_input": {"command": command}}
         if cwd is not None:
@@ -5355,6 +5507,7 @@ class TheGitArgvGuard(unittest.TestCase):
         result = subprocess.run(
             [sys.executable, str(HOOK)],
             input=json.dumps(event), capture_output=True, text=True,
+            timeout=timeout,
         )
         self.assertEqual(0, result.returncode, result.stderr)
         if not result.stdout.strip():
@@ -8320,12 +8473,61 @@ class TheGitArgvGuard(unittest.TestCase):
         # ended the scan on a missing closer; this now does too. Found by an
         # adversarial audit.
         #
-        # Asserted as a verdict rather than as a duration, because a timing
-        # assertion on CI is a flake — `judge` fails the test if the hook exits
-        # non-zero, and the case cannot return at all if the scan is quadratic.
-        self.judge("${" * 20000)
-        self.judge('git commit -m "' + "${" * 5000)
+        # `SCAN_BUDGET` refuses the long runs before any matcher reads them;
+        # this one stays under it, so the brace scan itself still decides.
         self.assertRefused("${" * 500 + "; git push origin +HEAD:main")
+
+    def budget(self, name):
+        found = re.findall(rf"^{name} = ([\d_]+)$",
+                           HOOK.read_text(encoding="utf-8"), re.MULTILINE)
+        self.assertEqual(1, len(found), f"{name} is declared once")
+        return int(found[0].replace("_", ""))
+
+    def test_a_scan_past_the_budget_is_refused_in_time(self):
+        # Every opener `_closing_brace` and `_closing_paren` match, by count
+        # and by length, and length alone: the hook's timeout admits whatever
+        # it cuts off. The subprocess timeout is the bound, well inside the
+        # hook's own, so a regression fails here rather than running out the
+        # CI job.
+        length = self.budget("LENGTH_BUDGET")
+        cases = [("long", "git status # " + "a" * length),
+                 ("long", "(" + "a" * length)]
+        for opener in ("${", "$(", "$((", "x("):
+            cases += [(opener, opener * 20000),
+                      (opener, opener * 20000 + "; git push origin +HEAD:main"),
+                      (opener, 'git commit -m "' + opener * 5000),
+                      (opener, opener * 1000 + "a" * 10000)]
+        for label, command in cases:
+            with self.subTest(label=label, length=len(command)):
+                reason = self.judge(command, timeout=30)
+                self.assertIsNotNone(reason, "admitted")
+                self.assertIn("time limit", reason)
+
+    def test_a_command_under_the_budget_is_judged_on_its_merits(self):
+        # The control: the budgets refuse by size and by nothing else.
+        command = "git log --oneline -1 # " + "(" * 1000
+        self.assertLessEqual(1000 * len(command), self.budget("SCAN_BUDGET"))
+        self.assertIsNone(self.judge(command, timeout=30))
+
+    def test_the_worst_command_inside_the_budget_is_judged_in_time(self):
+        # The invariant the budgets exist for: a command just inside both still
+        # finishes before the hook's timeout, so its verdict is the scanners'
+        # own. The two corners of the admitted region are many openers in a
+        # short command and few in one at the length cap; the brackets are
+        # live shell text, so `_closing_brace` and `_closing_paren` read them.
+        scan = self.budget("SCAN_BUDGET")
+        length = self.budget("LENGTH_BUDGET")
+        for opener in ("${", "$(", "$((", "x("):
+            per = opener.count("(") + opener.count("${")
+            for openers in (scan // length, 1000):
+                count = openers // per
+                size = min(length, scan // (count * per))
+                command = opener * count + "a" * (size - len(opener) * count)
+                with self.subTest(opener=opener, openers=count * per):
+                    self.assertLessEqual(len(command), length)
+                    self.assertLessEqual(count * per * len(command), scan)
+                    reason = self.judge(command, timeout=30)
+                    self.assertNotIn("time limit", reason or "")
 
     def test_an_expanding_heredoc_body_removes_its_continuations(self):
         # **A body whose delimiter is unquoted expands, and removes
@@ -9287,7 +9489,7 @@ class TheHookWiringRunsOnMoreThanOneOperatingSystem(unittest.TestCase):
         self.assertEqual(4, len(execs), execs)
 
     def test_the_launcher_takes_a_closed_set_of_hook_names(self):
-        # `settings.json` is the only caller and it names one of two files; a
+        # The hook wirings name only the files the launcher admits; a
         # launcher taking any path would be a way to run an arbitrary script
         # through the hook wiring.
         for bad in ("../scripts/npm-checks.sh", "/etc/passwd", "",
@@ -9474,6 +9676,260 @@ class TestCodebaseIndexSkillGrants(unittest.TestCase):
                     "export CBX_NO_SKILL_AUTO_UPDATE=1", uncommented(name))
         self.assertIn(
             '$env:CBX_NO_SKILL_AUTO_UPDATE = "1"', uncommented("cbx.ps1"))
+
+
+class TheTriagerDispatchesOnlyTheAdjudicator(unittest.TestCase):
+    """`review-grok-triager` holds `Agent`, and the type list is ignored.
+
+    `/ship` grants the triager and so cannot deny it, so no deny list stops
+    the triager spawning another editing triager. The profile's own
+    `PreToolUse` hook is the rule; these cases run it through the launcher,
+    exactly as the harness does, and pin the wiring that makes it the
+    profile's rather than the session's.
+    """
+
+    LAUNCHER = SCRIPTS.parent / "hooks" / "run-guard.sh"
+    PROFILE = SCRIPTS.parent / "agents" / "review-grok-triager.md"
+
+    def run_guard(self, event):
+        payload = event if isinstance(event, str) else json.dumps(event)
+        return subprocess.run(
+            [BASH, str(self.LAUNCHER), "guard-triager-dispatch.py"],
+            input=payload, capture_output=True, text=True)
+
+    def dispatch(self, subagent_type, tool="Agent"):
+        tool_input = {"description": "d", "prompt": "p"}
+        if subagent_type is not None:
+            tool_input["subagent_type"] = subagent_type
+        return self.run_guard({"tool_name": tool, "tool_input": tool_input})
+
+    def test_the_adjudicator_passes(self):
+        # The positive control: without it every refusal below passes against
+        # a guard that refuses everything, and the triage could never start.
+        for tool in ("Agent", "Task"):
+            with self.subTest(tool=tool):
+                out = self.dispatch("review-adjudicator", tool)
+                self.assertEqual(0, out.returncode, out.stderr)
+                self.assertEqual("", out.stdout)
+
+    def test_every_other_dispatch_is_refused(self):
+        # The triager itself is the case /ship's deny list cannot reach; a
+        # missing type is the harness's default of general-purpose.
+        for wanted in ("review-grok-triager", "general-purpose", "claude",
+                       "Review-Adjudicator", "review-adjudicator ", "", None):
+            for tool in ("Agent", "Task"):
+                with self.subTest(subagent_type=wanted, tool=tool):
+                    out = self.dispatch(wanted, tool)
+                    self.assertEqual(0, out.returncode, out.stderr)
+                    decision = json.loads(out.stdout)["hookSpecificOutput"]
+                    self.assertEqual("deny", decision["permissionDecision"])
+
+    def test_an_unreadable_event_blocks(self):
+        # Fail closed: exit 2 is the only code that blocks a PreToolUse call.
+        for event in ("not json", "[]", "\"Agent\""):
+            with self.subTest(event=event):
+                self.assertEqual(2, self.run_guard(event).returncode)
+
+    def test_other_tools_are_not_judged(self):
+        out = self.run_guard({"tool_name": "Edit",
+                              "tool_input": {"file_path": "docs/x.md"}})
+        self.assertEqual(0, out.returncode, out.stderr)
+        self.assertEqual("", out.stdout)
+
+    def test_the_profile_wires_the_guard_on_its_dispatches(self):
+        # The subject is the wiring, not the guard: a hook that exists and is
+        # not registered on the profile refuses nothing.
+        text = self.PROFILE.read_text(encoding="utf-8")
+        front = text.split("\n---", 1)[0]
+        self.assertRegex(front, r"(?m)^hooks:\s*$")
+        self.assertRegex(front, r"(?m)^\s+PreToolUse:\s*$")
+        self.assertRegex(front, r'matcher:\s*"Agent\|Task"')
+        self.assertIn('run-guard.sh\\" guard-triager-dispatch.py', front)
+        self.assertIn("${CLAUDE_PROJECT_DIR}", front)
+        # And not session-wide, where it would refuse /ship's own dispatch.
+        settings = SETTINGS.read_text(encoding="utf-8")
+        self.assertNotIn("guard-triager-dispatch", settings)
+
+
+class TheTriagerEditsNothingShipDenies(unittest.TestCase):
+    """`/ship`'s `Edit(...)` denies bind the triager in every turn.
+
+    The frontmatter list lasts only the turn `/ship` was loaded in, so the
+    profile's own `PreToolUse` hook is the boundary; these cases run it
+    through the launcher, as the harness does, and read the patterns from
+    `ship.md` rather than from a copy, so the subject is the list the guard
+    reads and a path added there is covered here with no edit to this class.
+    """
+
+    LAUNCHER = SCRIPTS.parent / "hooks" / "run-guard.sh"
+    GUARD = SCRIPTS.parent / "hooks" / "guard-triager-edit.py"
+    PROFILE = SCRIPTS.parent / "agents" / "review-grok-triager.md"
+    SHIP = SCRIPTS.parent / "commands" / "ship.md"
+    ROOT = SCRIPTS.parent.parent
+
+    def run_guard(self, event):
+        payload = event if isinstance(event, str) else json.dumps(event)
+        return subprocess.run(
+            [BASH, str(self.LAUNCHER), "guard-triager-edit.py"],
+            input=payload, capture_output=True, text=True)
+
+    def edit(self, path, tool="Edit", cwd=None):
+        key = "notebook_path" if tool == "NotebookEdit" else "file_path"
+        return self.run_guard({
+            "tool_name": tool,
+            "tool_input": {key: path},
+            "cwd": str(cwd or self.ROOT),
+        })
+
+    def assert_refused(self, out):
+        self.assertEqual(0, out.returncode, out.stderr)
+        decision = json.loads(out.stdout)["hookSpecificOutput"]
+        self.assertEqual("deny", decision["permissionDecision"])
+
+    def assert_admitted(self, out):
+        self.assertEqual(0, out.returncode, out.stderr)
+        self.assertEqual("", out.stdout)
+
+    def ship_denies(self):
+        front = self.SHIP.read_text(encoding="utf-8").split("\n---", 1)[0]
+        line = next(entry for entry in front.splitlines()
+                    if entry.startswith("disallowed-tools:"))
+        return sorted({glob[2:] if glob.startswith("./") else glob
+                       for glob in re.findall(r"Edit\(([^)]*)\)", line)})
+
+    @staticmethod
+    def instance(glob):
+        # One concrete path each glob must refuse: `**/` becomes a directory,
+        # any other wildcard a name, so a nested pattern is tested nested.
+        return (glob.replace("**/", "nested/dir/").replace("**", "inner/x")
+                .replace("*", "x").replace("?", "x"))
+
+    def test_the_list_it_reads_holds_the_two_trees_measured(self):
+        # The subject test for the source: the trees the triager must never
+        # write have to be in the list the guard reads, or every case below
+        # passes against the wrong file.
+        denies = self.ship_denies()
+        self.assertIn(".github/**", denies)
+        self.assertIn("README.md", denies)
+        self.assertIn(".claude/**", denies)
+
+    def test_ordinary_edits_pass(self):
+        # The positive control: a guard refusing everything passes every
+        # refusal below, and the triage could fix nothing.
+        for path in ("docs/harness-boundaries.md", "src/main.ts",
+                     "src/app/x.spec.ts",
+                     str(self.ROOT / "docs" / "testing.md")):
+            for tool in ("Edit", "Write", "MultiEdit"):
+                with self.subTest(path=path, tool=tool):
+                    self.assert_admitted(self.edit(path, tool))
+
+    def test_every_ship_deny_is_refused(self):
+        denies = self.ship_denies()
+        self.assertTrue(denies)
+        for glob in denies:
+            path = self.instance(glob)
+            for spelled in (path, "./" + path, path.upper(),
+                            str(self.ROOT / path)):
+                with self.subTest(glob=glob, spelled=spelled):
+                    self.assert_refused(self.edit(spelled))
+
+    def test_every_edit_tool_is_judged(self):
+        for tool in ("Edit", "Write", "MultiEdit", "NotebookEdit"):
+            with self.subTest(tool=tool):
+                self.assert_refused(self.edit("README.md", tool))
+
+    def test_spellings_windows_folds_are_refused(self):
+        for spelled in ("README.md.", "README.md ", "README.md:stream",
+                        "README.md.:stream", ".github. :s/workflows/x.yml",
+                        ".github./workflows/x.yml", "docs/../README.md"):
+            with self.subTest(spelled=spelled):
+                self.assert_refused(self.edit(spelled))
+
+    def test_a_target_in_no_checkout_is_refused(self):
+        with tempfile.TemporaryDirectory() as outside:
+            self.assert_refused(self.edit(os.path.join(outside, "x.md")))
+
+    def test_another_checkout_is_refused(self):
+        # The root is the checkout holding cwd, not the one holding the
+        # target: an ordinary path in a sibling checkout is still refused.
+        with tempfile.TemporaryDirectory() as other:
+            os.makedirs(os.path.join(other, ".git"))
+            for spelled in (os.path.join(other, "src", "x.py"),
+                            os.path.join(other, "docs", "x.md")):
+                with self.subTest(spelled=spelled):
+                    self.assert_refused(self.edit(spelled))
+            # The positive control: the same path from inside that checkout
+            # passes, so the refusal above is the anchor and nothing else.
+            self.assert_admitted(self.edit(
+                os.path.join(other, "docs", "x.md"), cwd=other))
+
+    def test_a_cwd_in_no_checkout_refuses_everything(self):
+        with tempfile.TemporaryDirectory() as outside:
+            self.assert_refused(self.edit(str(self.ROOT / "docs" / "x.md"),
+                                          cwd=outside))
+
+    def test_an_unreadable_event_blocks(self):
+        for event in ("not json", "[]", "\"Edit\"",
+                      json.dumps({"tool_name": "Edit", "tool_input": {}}),
+                      json.dumps({"tool_name": "Write", "tool_input": "x"})):
+            with self.subTest(event=event):
+                self.assertEqual(2, self.run_guard(event).returncode)
+
+    def test_a_ship_md_without_edit_denies_blocks(self):
+        # Fail closed on the source: a guard that finds no rules and admits
+        # everything is no boundary.
+        spec = importlib.util.spec_from_file_location("guard_triager_edit",
+                                                      self.GUARD)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        with tempfile.TemporaryDirectory() as tmp:
+            for body in ("no frontmatter\n", "---\nname: x\n---\n",
+                         "---\ndisallowed-tools: Agent(claude)\n---\n"):
+                ship = os.path.join(tmp, "ship.md")
+                with open(ship, "w", encoding="utf-8") as handle:
+                    handle.write(body)
+                with self.subTest(body=body), \
+                        mock.patch.object(module, "SHIP", ship):
+                    self.assertIsNone(module.patterns())
+            with mock.patch.object(module, "SHIP",
+                                   os.path.join(tmp, "missing.md")):
+                self.assertIsNone(module.patterns())
+            # Undecodable bytes are a missing list, not a crash: a crash
+            # exits 1, which does not block.
+            ship = os.path.join(tmp, "binary.md")
+            with open(ship, "wb") as handle:
+                handle.write(b"---\ndisallowed-tools: Edit(\xff\xfe)\n---\n")
+            with mock.patch.object(module, "SHIP", ship):
+                self.assertIsNone(module.patterns())
+
+    def test_a_crash_blocks(self):
+        spec = importlib.util.spec_from_file_location("guard_triager_edit",
+                                                      self.GUARD)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        with mock.patch.object(module, "main",
+                               side_effect=RuntimeError("boom")):
+            self.assertEqual(2, module.run())
+        self.assertIn("sys.exit(run())",
+                      self.GUARD.read_text(encoding="utf-8"))
+
+    def test_other_tools_are_not_judged(self):
+        for tool in ("Read", "Grep", "Agent"):
+            with self.subTest(tool=tool):
+                self.assert_admitted(self.run_guard({
+                    "tool_name": tool,
+                    "tool_input": {"file_path": "README.md"}}))
+
+    def test_the_profile_wires_the_guard_on_its_edits(self):
+        # The subject is the wiring: a guard not registered on the profile
+        # refuses nothing, and one registered session-wide would refuse the
+        # session's own edits to the trees /ship's commits carry.
+        front = self.PROFILE.read_text(encoding="utf-8").split("\n---", 1)[0]
+        self.assertRegex(front, r'matcher:\s*"Edit\|Write\|MultiEdit\|'
+                                r'NotebookEdit"')
+        self.assertIn('run-guard.sh\\" guard-triager-edit.py', front)
+        settings = SETTINGS.read_text(encoding="utf-8")
+        self.assertNotIn("guard-triager-edit", settings)
 
 
 if __name__ == "__main__":

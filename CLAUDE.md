@@ -168,9 +168,11 @@ These stay here because they have to be true before anyone opens the guide:
   (with the issues each closes) and open issues with no PR. Update it the
   moment this session opens, merges or closes a PR, or files, closes or
   reopens an issue. Only the main checkout's copy counts, never one in a
-  worktree — and from a sibling worktree `guard-edit-target.py` refuses
-  that write today, so there the update goes in the report as owed rather
-  than into a copy nobody reads (#45). When in doubt, rebuild it from
+  worktree. `guard-edit-target.py` admits that one file from a sibling
+  worktree (#45), but a session moved there with `EnterWorktree` is refused
+  by Claude Code's own isolation, which no file here controls — so there the
+  update goes in the report as owed rather than into a copy nobody reads.
+  When in doubt, rebuild it from
   `gh pr list --limit 1000 --json number,title,url,closingIssuesReferences`
   and `gh issue list --limit 1000 --json number,title,url,labels`, because
   the default of 30 truncates silently; severity is the `high`, `medium` or
@@ -207,10 +209,11 @@ rather than here. Three rules reach every session, so they stay:
 - **`.claude/settings.json` self-locks, not instantaneously** — a change to it
   lands complete and goes last, and a restore is verified by reading the file,
   never by trying what it forbids.
-- **All three hooks use `run-guard.sh`**, which locates a compatible
-  Python launcher before invoking the hook. Two are guards; the third, the
-  index refresh, guards nothing and refreshes the worktree the edit landed
-  in, while the MCP server stays on the startup checkout
+- **Every hook uses `run-guard.sh`** — the three in `settings.json` and
+  the `review-grok-triager` profile's own — which locates a compatible Python
+  launcher before invoking the hook. The one that is not a guard, the index
+  refresh in `settings.json`, guards nothing and refreshes the worktree the
+  edit landed in, while the MCP server stays on the startup checkout
   (`docs/harness-boundaries.md` says why).
 - **`python -m unittest discover -s .claude/scripts -p 'test_*.py'` is the
   harness's own suite** — it covers the deny lists, the frontmatter grants,
