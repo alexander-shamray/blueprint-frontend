@@ -918,6 +918,87 @@ class WhatThisGuardIsNotTheSubjectOf(GuardCase):
         os.makedirs(os.path.join(other, ".claude"), exist_ok=True)
         self.assertRefused(os.path.join(other, ".claude", "settings.json"))
 
+    def test_the_main_checkouts_task_list_is_admitted_from_a_worktree(self):
+        """`CLAUDE.md` keeps `TODO.md` at the main checkout's root and has a
+        session update it from wherever it stands, which after `/branch` is a
+        sibling worktree. The main checkout is not an anchor there, so the
+        write fell to the out-of-tree allow-list and was refused
+        (blueprint-frontend#45).
+
+        Asked of the predicate and of `offence` with the allow-list stubbed to
+        refuse, because this fixture sits under the temp root, where the
+        allow-list would admit the file as scratch regardless.
+        """
+        worktree = os.path.join(self.outside, "linked-worktree")
+        os.makedirs(os.path.join(worktree, "docs"), exist_ok=True)
+        admin = os.path.join(self.root, ".git", "worktrees", "linked")
+        os.makedirs(admin, exist_ok=True)
+        self.write(os.path.join(worktree, ".git"), "gitdir: " + admin + "\n")
+        self.write(os.path.join(admin, "gitdir"),
+                   os.path.join(worktree, ".git") + "\n")
+        task_list = os.path.join(self.root, "TODO.md")
+
+        module = self.guard_module()
+        checkouts = [(worktree, os.path.realpath(worktree),
+                      module.traits_of(worktree))]
+
+        def admits(target):
+            lexical = os.path.normpath(os.path.abspath(target))
+            return module.main_checkout_task_list(
+                lexical, os.path.realpath(target), checkouts) is not None
+
+        # **No `commondir`, no main checkout**: the admin directory is what
+        # names the repository, and a guess from its location is not asked.
+        self.assertFalse(admits(task_list))
+        self.write(os.path.join(admin, "commondir"), "../..\n")
+        self.assertTrue(admits(task_list))
+        self.write(task_list, "- none\n")
+        self.assertTrue(admits(task_list))
+
+        # **One file, not the checkout.**
+        for parts in (("docs", "chapter.md"), ("docs", "TODO.md"),
+                      (".claude", "scripts", "helper.sh"), ("TODO.md.bak",)):
+            with self.subTest(parts=parts):
+                self.assertFalse(admits(os.path.join(self.root, *parts)))
+        # Nor the worktree's own copy, which nobody reads.
+        self.assertFalse(admits(os.path.join(worktree, "TODO.md")))
+
+        # **A backlink that disagrees is not a worktree of this repository.**
+        self.write(os.path.join(admin, "gitdir"),
+                   os.path.join(self.outside, "elsewhere", ".git") + "\n")
+        self.assertFalse(admits(task_list))
+        self.write(os.path.join(admin, "gitdir"),
+                   os.path.join(worktree, ".git") + "\n")
+
+        # **A `TODO.md` that is a link is judged by where it lands.**
+        os.remove(task_list)
+        for linker in linkers():
+            with self.subTest(linker=linker):
+                if linker == "symlink":
+                    os.symlink(os.path.join(self.outside, "loot.txt"), task_list)
+                else:
+                    JUNCTIONS(self.outside, task_list)
+                try:
+                    self.assertFalse(admits(task_list))
+                finally:
+                    if os.path.isdir(task_list):
+                        os.rmdir(task_list)
+                    else:
+                        os.remove(task_list)
+
+        # **And the wiring**: `offence` reaches the predicate before the
+        # allow-list, and only for that one file.
+        refused = "refused by the allow-list"
+        with mock.patch.object(module, "outside_offence", return_value=refused), \
+                mock.patch.dict(os.environ, {"CLAUDE_PROJECT_DIR": worktree}):
+            def verdict(target):
+                return module.offence({
+                    "cwd": worktree, "tool_name": "Write",
+                    "tool_input": {"file_path": target}})
+            self.assertIsNone(verdict(task_list))
+            self.assertEqual(
+                refused, verdict(os.path.join(self.root, "docs", "chapter.md")))
+
     def test_the_harness_state_root_is_admitted(self):
         # The second of the two roots the docstring names. Judged rather than
         # written: a `Write` target need not exist, and this suite has no

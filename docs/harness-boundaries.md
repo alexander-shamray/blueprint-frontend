@@ -1249,6 +1249,17 @@ is judged against the protected inventory relative to that checkout. **What is
 left**: the rest of the temp root is admitted rather than the session's own
 subdirectory within it, because no environment variable names the scratchpad
 and deriving it would be a guess the hook cannot check.
+
+**One file outside every checkout is admitted by name: the main checkout's
+`TODO.md` (blueprint-frontend#45).** `CLAUDE.md` has a session update that
+task list from a sibling worktree, where the main checkout is not an anchor
+and the write fell to the allow-list above. The hook finds the main checkout
+from the worktree's own `.git` file, trusted only once git's backlink agrees,
+and admits that one path when its spelling and its resolution are both it — a
+`TODO.md` that is a link is refused. The file is gitignored, so nothing any
+commit, review or build reads can change through it; the residual is that a
+session in a worktree can rewrite the user's task list, which is the write the
+rule asks for.
 **The sweeps' item 5 (#75) closed by the same shape** — a second read-only
 dispatch returns a verdict, the parent opens nothing in `$work`, and the issue
 helper leaves `gh issue create` with no free parameter — so

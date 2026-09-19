@@ -512,6 +512,22 @@ def linked_worktree(path, checkouts):
     root = checkout_root(path)
     if root is None:
         return None
+    gitdir = verified_gitdir(root)
+    if gitdir is None:
+        return None
+    for spelled_root, real_root, traits in checkouts:
+        for base in (spelled_root, real_root):
+            if under(gitdir, os.path.join(base, ".git"), traits):
+                return root
+    return None
+
+
+def verified_gitdir(root):
+    """The admin directory `root`'s `.git` file names, once git's backlink agrees.
+
+    `None` for a main checkout, whose `.git` is a directory, and for any
+    `.git` file the admin directory does not point back at.
+    """
     marker = os.path.join(root, ".git")
     if not os.path.isfile(marker):
         return None
@@ -537,10 +553,67 @@ def linked_worktree(path, checkouts):
     if os.path.normcase(os.path.realpath(backlink)) != os.path.normcase(
             os.path.realpath(marker)):
         return None
-    for spelled_root, real_root, traits in checkouts:
-        for base in (spelled_root, real_root):
-            if under(gitdir, os.path.join(base, ".git"), traits):
-                return root
+    return gitdir
+
+
+# **The one file outside every anchor that this guard admits by name.**
+# `CLAUDE.md` keeps the user's task list at the MAIN checkout's root, gitignored,
+# and tells a session to update it the moment a PR or an issue changes — which,
+# since `/branch` moves every session into a sibling worktree, is almost always
+# from one. The main checkout is not an anchor there, so the write fell to
+# `outside_offence` and was refused, and the rule and the guard disagreed
+# (blueprint-frontend#45).
+TASK_LIST = "TODO.md"
+
+
+def main_checkout_of(root):
+    """The main checkout `root` is a linked worktree of, or `None`.
+
+    The mirror of `linked_worktree`, read the same way and trusted the same
+    way: the `.git` file is only a claim until git's backlink agrees, and the
+    admin directory's `commondir` then names the repository's own `.git`, whose
+    parent is the main checkout. That `.git` must be a directory, which is what
+    makes the parent a main checkout rather than another worktree.
+    """
+    gitdir = verified_gitdir(root)
+    if gitdir is None:
+        return None
+    try:
+        with open(os.path.join(gitdir, "commondir"), encoding="utf-8") as handle:
+            common = handle.read().strip()
+    except OSError:
+        return None
+    common = os.path.realpath(os.path.join(gitdir, common))
+    if os.path.basename(common) != ".git" or not os.path.isdir(common):
+        return None
+    return os.path.dirname(common)
+
+
+def main_checkout_task_list(lexical, resolved, checkouts):
+    """The main checkout whose `TODO.md` this target is, or `None`.
+
+    **One file, not the checkout.** Admitting the main checkout whole would
+    hand a session in a worktree every file on `main`'s working tree, which no
+    permission rule here names from where the session stands. The task list is
+    gitignored, so a write to it changes nothing any commit, review or build
+    reads — that is the whole argument for admitting it, and it holds for no
+    other path. The spelling and the resolution must both be that file, so a
+    `TODO.md` that is itself a link is judged by where it lands and refused.
+
+    **The spelled parent is compared resolved**, because `main_checkout_of`
+    can only offer the resolved main checkout: `commondir` is read through
+    `realpath`, and on macOS the same checkout is spelled `/var/...` and
+    resolves to `/private/var/...`.
+    """
+    for spelled_root, _, _ in checkouts:
+        main = main_checkout_of(spelled_root)
+        if main is None:
+            continue
+        traits = traits_of(main)
+        if (same(os.path.basename(lexical), TASK_LIST, traits)
+                and same(os.path.realpath(os.path.dirname(lexical)), main, traits)
+                and same(resolved, os.path.join(main, TASK_LIST), traits)):
+            return main
     return None
 
 
@@ -844,6 +917,12 @@ def offence(event):
         # shell profile, an SSH key or a credential as readily as a scratch
         # file. `outside_offence` names the two roots the exception was written
         # for and refuses the rest.
+        #
+        # The main checkout's task list is asked first, because it is the one
+        # path outside every anchor that `CLAUDE.md` tells a worktree session
+        # to write (blueprint-frontend#45).
+        if main_checkout_task_list(lexical, resolved, checkouts) is not None:
+            return None
         return outside_offence(spelled, lexical, resolved)
 
     # Reached when every anchor containing the target agreed. A target outside
