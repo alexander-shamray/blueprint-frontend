@@ -60,6 +60,7 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 
 if os.name == "nt":
     import msvcrt
@@ -76,6 +77,10 @@ CACHE = os.path.join(".claude", "cache", "codebase-index")
 # A refresh that has not finished by now is killed, so a worker never hangs.
 RUN_TIMEOUT = 300
 
+# Every git call one event makes shares this many seconds, well inside the
+# five `settings.json` gives the hook.
+GIT_BUDGET = 3
+
 # `git` must answer about the directory it is pointed at and nothing else.
 GIT_ENV_OVERRIDES = ("GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE")
 
@@ -89,13 +94,23 @@ def same(a, b):
     return os.path.normcase(os.path.realpath(a)) == os.path.normcase(os.path.realpath(b))
 
 
-def git_paths(directory):
-    """`(toplevel, common_dir)` for the checkout holding `directory`, or None."""
+def git_paths(directory, deadline):
+    """`(toplevel, common_dir)` for the checkout holding `directory`, or None.
+
+    `deadline` is a `time.monotonic()` instant shared by every git call one
+    event makes, so the calls between them stay inside the hook's own
+    timeout. Two calls each allowed three seconds could outlast the five
+    `settings.json` gives the hook, which would be killed before it spawned
+    anything. Raised by Copilot.
+    """
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        return None
     env = {k: v for k, v in os.environ.items() if k not in GIT_ENV_OVERRIDES}
     try:
         out = subprocess.run(
             ["git", "-C", directory, "rev-parse", "--show-toplevel", "--git-common-dir"],
-            capture_output=True, text=True, timeout=3, env=env, check=False,
+            capture_output=True, text=True, timeout=remaining, env=env, check=False,
         )
     except (OSError, subprocess.SubprocessError):
         return None
@@ -107,7 +122,7 @@ def git_paths(directory):
     return toplevel, os.path.join(directory, common)
 
 
-def registered(toplevel, owner_toplevel):
+def registered(toplevel, owner_toplevel, owner_common):
     """Whether `toplevel` is a checkout git itself made of this repository.
 
     **The common directory is a claim the checkout makes about itself.** A
@@ -124,6 +139,14 @@ def registered(toplevel, owner_toplevel):
     `.git` linked to a registered worktree's `.git` file read that file's
     admin directory, whose backlink named that same file, and passed. Raised
     by Copilot. A link or junction at `.git` is refused before either branch.
+
+    **And the admin directory must be one of this repository's.** A backlink
+    proves only that the admin directory agrees with the marker, and an
+    attacker who writes the marker can write the admin directory too: a
+    `gitdir` pointing back and a `commondir` naming this repository, anywhere
+    on disk. Raised by Copilot. `guard-edit-target.py` requires the admin
+    directory beneath the owner's `.git`, and so does this: git keeps every
+    worktree's under `<common>/worktrees/`, and nowhere else.
     """
     marker = os.path.join(toplevel, ".git")
     if os.path.islink(marker) or os.path.isjunction(marker):
@@ -140,6 +163,10 @@ def registered(toplevel, owner_toplevel):
     if not text.startswith("gitdir:"):
         return False
     gitdir = os.path.join(toplevel, text.split(":", 1)[1].strip())
+    worktrees = os.path.normcase(os.path.realpath(os.path.join(owner_common, "worktrees")))
+    admin = os.path.normcase(os.path.realpath(gitdir))
+    if os.path.dirname(admin) != worktrees:
+        return False
     try:
         with open(os.path.join(gitdir, "gitdir"), encoding="utf-8") as handle:
             backlink = handle.read().strip()
@@ -148,20 +175,33 @@ def registered(toplevel, owner_toplevel):
     return same(backlink, marker)
 
 
+def swept(toplevel):
+    """Whether `toplevel` is a sweep's checkout, whatever case spells it.
+
+    Folded, because the filesystems this runs on mostly fold case: on Windows
+    and macOS `SECSWEEP-x` is the same directory name as `secsweep-x`, and a
+    case-sensitive comparison let the one through that the other refused.
+    Raised by Copilot.
+    """
+    return os.path.basename(os.path.normpath(toplevel)).casefold().startswith(
+        SWEEP_PREFIX)
+
+
 def target_root(cwd, owner):
     """The root to refresh for an edit made from `cwd`, or None to refresh nothing."""
     if not isinstance(cwd, str) or not cwd or not os.path.isdir(cwd):
         return None
-    target = git_paths(cwd)
-    mine = git_paths(owner)
+    deadline = time.monotonic() + GIT_BUDGET
+    target = git_paths(cwd, deadline)
+    mine = git_paths(owner, deadline)
     if target is None or mine is None:
         return None
     toplevel, common = target
     if not same(common, mine[1]):
         return None
-    if not registered(toplevel, mine[0]):
+    if not registered(toplevel, mine[0], mine[1]):
         return None
-    if os.path.basename(os.path.normpath(toplevel)).startswith(SWEEP_PREFIX):
+    if swept(toplevel):
         return None
     return os.path.normpath(toplevel)
 
@@ -241,7 +281,17 @@ def held(root):
 
 
 def take_pending(root):
-    """Consume the root's pending marker; True when there was one."""
+    """Consume the root's pending marker; True when there was one.
+
+    **Removing a marker an edit is still creating loses nothing, because the
+    marker never carries the edit.** The hook runs after the edit is on disk,
+    and the worker removes a marker only as the first step of a refresh. So
+    whoever unlinks it — even out from under an edit whose `open` has not yet
+    closed — goes on to refresh a tree that already holds that edit. On
+    Windows the unlink of an open file fails instead, and the marker survives
+    for the next look. Raised by Copilot as a lost edit; it is a lost marker,
+    which the refresh after it makes redundant.
+    """
     try:
         os.remove(pending_path(root))
         return True

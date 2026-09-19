@@ -60,6 +60,7 @@ class TheRootFollowsTheActiveWorktree(unittest.TestCase):
         git("worktree", "add", "-q", "-b", "feature", self.sibling, cwd=self.main)
         self.sweep = os.path.join(self.base, "secsweep-abc123")
         git("worktree", "add", "-q", "--detach", self.sweep, cwd=self.main)
+        self.common = os.path.join(self.main, ".git")
 
     def test_an_edit_in_a_sibling_worktree_refreshes_that_worktree(self):
         root = self.hook.target_root(self.sibling, self.main)
@@ -76,6 +77,32 @@ class TheRootFollowsTheActiveWorktree(unittest.TestCase):
 
     def test_a_sweep_checkout_is_refused(self):
         self.assertIsNone(self.hook.target_root(self.sweep, self.main))
+
+    def test_a_sweep_checkout_is_refused_in_any_case(self):
+        # Copilot, round 4: on a case-folding filesystem `SECSWEEP-x` is the
+        # same name as `secsweep-x`, and a case-sensitive prefix let it by.
+        upper = os.path.join(self.base, "SECSWEEP-XYZ789")
+        git("worktree", "add", "-q", "--detach", upper, cwd=self.main)
+        self.assertIsNone(self.hook.target_root(upper, self.main))
+        self.assertTrue(self.hook.swept(os.path.join(self.base, "SecSweep-abc")))
+        self.assertFalse(self.hook.swept(self.sibling))
+
+    def test_the_git_calls_share_one_deadline(self):
+        # Copilot, round 4: two calls each allowed three seconds could outlast
+        # the hook's five, which would be killed before it spawned anything.
+        # A deadline already spent refuses before running git at all.
+        with mock.patch.object(self.hook.subprocess, "run") as run:
+            self.assertIsNone(
+                self.hook.git_paths(self.sibling, self.hook.time.monotonic() - 1))
+        run.assert_not_called()
+        self.assertLess(self.hook.GIT_BUDGET, 5)
+        settings = json.loads(SETTINGS.read_text(encoding="utf-8"))
+        timeouts = [
+            h.get("timeout") for entry in settings["hooks"]["PostToolUse"]
+            for h in entry.get("hooks", []) if "index-refresh.py" in h.get("command", "")]
+        self.assertTrue(timeouts)
+        for timeout in timeouts:
+            self.assertLess(self.hook.GIT_BUDGET, timeout)
 
     def test_another_repository_is_refused(self):
         other = os.path.join(self.base, "other")
@@ -182,8 +209,31 @@ class TheRootFollowsTheActiveWorktree(unittest.TestCase):
                  os.path.join(self.main, ".git")],
                 check=True, capture_output=True)
         self.assertIsNone(self.hook.target_root(linked, self.main))
-        self.assertFalse(self.hook.registered(linked, self.main))
-        self.assertTrue(self.hook.registered(self.main, self.main))
+        self.assertFalse(self.hook.registered(linked, self.main, self.common))
+        self.assertTrue(self.hook.registered(self.main, self.main, self.common))
+
+    def test_an_admin_directory_outside_the_repository_is_refused(self):
+        # Copilot, round 4: the backlink proves only that the admin directory
+        # agrees with the marker, and whoever forged the marker can forge the
+        # admin directory too — a `gitdir` pointing back and a `commondir`
+        # naming this repository. Git itself then reports this repository's
+        # common directory, so only containment under `<common>/worktrees/`
+        # refuses it.
+        forged = os.path.join(self.base, "forged-admin")
+        admin = os.path.join(self.base, "elsewhere", "worktrees", "forged")
+        os.makedirs(forged)
+        os.makedirs(admin)
+        Path(forged, ".git").write_text(f"gitdir: {admin}\n", encoding="utf-8")
+        Path(admin, "gitdir").write_text(
+            os.path.join(forged, ".git") + "\n", encoding="utf-8")
+        Path(admin, "commondir").write_text(self.common + "\n", encoding="utf-8")
+        Path(admin, "HEAD").write_text("ref: refs/heads/feature\n", encoding="utf-8")
+        # The forgery is good enough to fool git: this is the premise.
+        owner_common = self.hook.git_paths(self.main, self.hook.time.monotonic() + 5)[1]
+        seen = self.hook.git_paths(forged, self.hook.time.monotonic() + 5)
+        self.assertIsNotNone(seen)
+        self.assertTrue(self.hook.same(seen[1], owner_common))
+        self.assertIsNone(self.hook.target_root(forged, self.main))
 
     def test_a_git_file_reached_through_a_link_is_refused(self):
         # Copilot, round 3: `isfile`, `open` and `realpath` all follow a link,
@@ -216,9 +266,9 @@ class TheRootFollowsTheActiveWorktree(unittest.TestCase):
                         self.hook.os.path, "realpath",
                         side_effect=lambda p, *a, **k: realpath(
                             target if is_marker(p) else p, *a, **k)):
-                self.assertFalse(self.hook.registered(forged, self.main))
+                self.assertFalse(self.hook.registered(forged, self.main, self.common))
             return
-        self.assertFalse(self.hook.registered(forged, self.main))
+        self.assertFalse(self.hook.registered(forged, self.main, self.common))
         self.assertIsNone(self.hook.target_root(forged, self.main))
 
 
@@ -326,6 +376,34 @@ class OneWorkerPerRootAndNoEditDropped(unittest.TestCase):
             child.stdout.close()
         self.assertFalse(self.hook.held(self.root))
 
+    def test_every_marker_the_worker_removes_is_followed_by_a_refresh(self):
+        # Copilot, round 4, suppressed: a worker unlinking a marker an edit
+        # still has open was read as a lost edit. The marker never carries
+        # the edit — the hook runs after the edit is on disk — so what makes
+        # that safe is this invariant: a marker is only ever consumed as the
+        # first step of a refresh.
+        events = []
+        take = self.hook.take_pending
+
+        def recording_take(root):
+            taken = take(root)
+            events.append(("take", taken))
+            return taken
+
+        def refresh(owner, root):
+            events.append(("refresh",))
+            if events.count(("refresh",)) == 1:
+                self.hook.mark_pending(root)
+
+        self.hook.mark_pending(self.root)
+        with mock.patch.object(self.hook, "take_pending", side_effect=recording_take), \
+                mock.patch.object(self.hook, "refresh", side_effect=refresh):
+            self.hook.work(self.root, self.root)
+        for i, event in enumerate(events):
+            if event == ("take", True):
+                self.assertEqual(("refresh",), events[i + 1], events)
+        self.assertEqual(2, events.count(("refresh",)))
+
     def test_the_lock_file_is_never_removed(self):
         # A lock removed by path can be pulled from under its holder; one held
         # on a handle and left in place cannot.
@@ -336,14 +414,15 @@ class OneWorkerPerRootAndNoEditDropped(unittest.TestCase):
 
 
 class TheDetachedWorkerReallyRuns(unittest.TestCase):
-    """Copilot, round 2: every case above replaces `spawn` or `refresh`.
+    """Copilot, rounds 2 and 4: every case above replaces `spawn` or `refresh`.
 
     So a regression in the detached launch — its argv, its creation flags, the
     worker's own entry point — would leave the index silently stale with this
     suite green, because the hook discards every stream and always exits 0.
-    This case builds a throwaway owner checkout holding a copy of the hook and
-    a stub wrapper that records its arguments, feeds the hook a real event, and
-    waits for the detached worker to call the wrapper and let go of the lock.
+    This case builds a throwaway owner checkout holding copies of the hook and
+    its launcher and a stub wrapper that records its arguments, runs the exact
+    command `settings.json` registers against a real event, and waits for the
+    detached worker to call the wrapper and let go of the lock.
     """
 
     def test_an_event_reaches_the_wrapper_through_the_detached_worker(self):
@@ -362,6 +441,11 @@ class TheDetachedWorkerReallyRuns(unittest.TestCase):
         hooks = Path(owner, ".claude", "hooks")
         hooks.mkdir(parents=True)
         shutil.copyfile(HOOK, hooks / "index-refresh.py")
+        # The launcher too, because the event goes in through the command
+        # `settings.json` registers and not through the module: interpreter
+        # choice, the launcher's allow-list and its stdin forwarding are all
+        # on the path. Copilot, round 4.
+        shutil.copyfile(HOOK.parent / "run-guard.sh", hooks / "run-guard.sh")
         scripts = Path(owner, ".claude", "skills", "codebase-index", "scripts")
         scripts.mkdir(parents=True)
         # The wrapper runs with the owner as its working directory, so the
@@ -374,10 +458,17 @@ class TheDetachedWorkerReallyRuns(unittest.TestCase):
             "printf '%s\\n' \"$@\" > wrapper-ran\n",
             encoding="utf-8", newline="\n")
 
+        settings = json.loads(SETTINGS.read_text(encoding="utf-8"))
+        [command] = [
+            h["command"] for entry in settings["hooks"]["PostToolUse"]
+            for h in entry.get("hooks", []) if "index-refresh.py" in h.get("command", "")]
+        sh = shutil.which("sh")
+        if sh is None:
+            self.fail("sh is required: the registered command starts with it")
         event = json.dumps({"cwd": sibling, "hook_event_name": "PostToolUse"})
         done = subprocess.run(
-            [sys.executable, str(hooks / "index-refresh.py")],
-            input=event, text=True, capture_output=True, timeout=30)
+            [sh, "-c", command], input=event, text=True, capture_output=True,
+            timeout=30, env={**os.environ, "CLAUDE_PROJECT_DIR": owner})
         self.assertEqual(0, done.returncode, done.stderr)
 
         hook = load()
