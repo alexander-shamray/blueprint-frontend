@@ -1296,8 +1296,8 @@ and both callers at once, so it stands; what is lost is attribution.
 **The index-refresh hook is the first that runs code a session could edit,
 and it arrived without the controls the guards have
 (alexander-shamray/blueprint-frontend#44 — this repository's, not the
-backend's).** A `PostToolUse` entry on `Edit|Write|MultiEdit|NotebookEdit` backgrounds
-`run-index update` after every edit, so the index stops going stale
+backend's).** A `PostToolUse` entry on `Edit|Write|MultiEdit|NotebookEdit`
+backgrounds `run-index update` after every edit, so the index stops going stale
 mid-session. It first landed on the branch lacking two things the
 `PreToolUse` guards have; both were written here as residuals, raised again
 by Copilot as mandatory, and closed by a human's edit before the merge,
