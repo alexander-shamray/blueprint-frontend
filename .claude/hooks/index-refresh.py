@@ -132,7 +132,7 @@ def registered(toplevel, owner_toplevel, owner_common):
     be indexed by this checkout's tooling. Raised by Copilot. So a `.git`
     file must be one its admin directory points back at — the backlink
     `guard-edit-target.py`'s `verified_gitdir` requires for the same reason —
-    and a `.git` directory is only ever the owner's own checkout.
+    and a `.git` directory is only ever the repository's main checkout.
 
     **And the marker must be a real entry, not a link to one.** `isfile`,
     `open` and `realpath` all follow a link, so a forged directory whose
@@ -152,7 +152,12 @@ def registered(toplevel, owner_toplevel, owner_common):
     if os.path.islink(marker) or os.path.isjunction(marker):
         return False
     if os.path.isdir(marker):
-        return same(toplevel, owner_toplevel)
+        # The repository's main checkout: its `.git` IS the common directory.
+        # Compared with that rather than with the owner's checkout, because a
+        # session started inside a linked worktree owns the hook from there,
+        # and the main checkout is still this repository's. Raised by Copilot.
+        # A link to it was refused above, so only the real directory matches.
+        return same(marker, owner_common)
     if not os.path.isfile(marker):
         return False
     try:

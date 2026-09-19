@@ -1436,8 +1436,10 @@ through `run-guard.sh`, which splits the two things the anchor had fused:
   passed as `--root` — accepted only when its `git rev-parse --git-common-dir`
   is this repository's **and git made it**: a `.git` file must be one its
   admin directory points back at, from under this repository's
-  `<common>/worktrees/`; a `.git` directory is only ever the owner's own
-  checkout; and a `.git` that is a link or junction is refused, because a
+  `<common>/worktrees/`; a `.git` directory is only ever the repository's
+  main checkout, whose `.git` is the common directory itself, even when the
+  session started in a linked worktree; and a `.git` that is a link or
+  junction is refused, because a
   forged `.git` reports the same common directory. A directory starting
   `secsweep-`, in any case, is refused by name, because a
   sweep's tree is prompt-injection input and indexing it reads that tree's

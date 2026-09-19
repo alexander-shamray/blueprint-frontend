@@ -78,6 +78,16 @@ class TheRootFollowsTheActiveWorktree(unittest.TestCase):
     def test_a_sweep_checkout_is_refused(self):
         self.assertIsNone(self.hook.target_root(self.sweep, self.main))
 
+    def test_a_session_started_in_a_worktree_still_refreshes_the_main_checkout(self):
+        # Copilot, round 6: with the hook owned by a linked worktree, the main
+        # checkout's `.git` directory was compared with the owner's checkout
+        # and refused, so its edits refreshed nothing.
+        root = self.hook.target_root(self.main, self.sibling)
+        self.assertIsNotNone(root)
+        self.assertEqual(real(self.main), real(root))
+        # And from there, the other linked worktree too.
+        self.assertEqual(real(self.sibling), real(self.hook.target_root(self.sibling, self.sibling)))
+
     def test_a_sweep_checkout_is_refused_in_any_case(self):
         # Copilot, round 4: on a case-folding filesystem `SECSWEEP-x` is the
         # same name as `secsweep-x`, and a case-sensitive prefix let it by.
