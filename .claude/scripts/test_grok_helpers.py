@@ -9651,13 +9651,14 @@ class TestCodebaseIndexSkillGrants(unittest.TestCase):
                 self.assertEqual(
                     expected, matched[0]["hooks"][0]["command"])
                 deny = settings["permissions"]["deny"]
+                # The hook runs `.claude/hooks/run-guard.sh` and
+                # `index-refresh.py`, so a settings file that wires it and
+                # leaves that tree editable lets a session rewrite what the
+                # next edit executes. The example was missing it; raised by
+                # Copilot on the frontend pull request for #48.
                 for prefix in ("", "./"):
                     self.assertIn(f"Edit({prefix}.claude/skills/**)", deny)
-        production = json.loads(
-            (SCRIPTS.parent / "settings.json").read_text(encoding="utf-8"))
-        for prefix in ("", "./"):
-            self.assertIn(f"Edit({prefix}.claude/hooks/**)",
-                          production["permissions"]["deny"])
+                    self.assertIn(f"Edit({prefix}.claude/hooks/**)", deny)
 
     def test_every_executable_wrapper_disables_skill_auto_update(self):
         # Routing through run-index is not the protection. The export is, and
