@@ -1309,9 +1309,9 @@ because `settings.json` is edit-denied to the session that found them:
   whatever directory the session stood in. From a subdirectory that failed
   silently; from another checkout — a sweep's throwaway worktree, whose tree
   this file calls prompt-injection input — it ran **that** tree's
-  `run-index`, with no prompt, on the next edit. The command now opens with
-  `cd "${CLAUDE_PROJECT_DIR}"`, which anchors both the wrapper and the tree
-  `update` indexes.
+  `run-index`, with no prompt, on the next edit. The command then opened with
+  `cd "${CLAUDE_PROJECT_DIR}"`, which anchored both the wrapper and the tree
+  `update` indexes — the second half is what #48, below, undid.
 - **Its target was not edit-denied.** `.claude/skills/**` was on neither the
   deny list nor `guard-edit-target.py`'s refusal for the repository's own
   tree — a probe `Edit` of the wrapper exited 0 with no verdict. Before this
@@ -1330,15 +1330,34 @@ test here can show is the hook firing: the command is asynchronous and
 discards its output, so a failure is invisible when it happens, and CI runs
 the suite rather than the harness.
 
-**The anchor refreshes the checkout the session started in, and after
-`/branch` that is not the one being edited.** `/branch` moves the session into
+**The anchor refreshed the checkout the session started in, and after
+`/branch` that is not the one being edited
+(alexander-shamray/blueprint-frontend#48).** `/branch` moves the session into
 a sibling worktree, the event's `cwd` then differs from `CLAUDE_PROJECT_DIR`
-(`guard-edit-target.py`'s `anchors` says so), and the refresh indexes a tree
-the edit never touched — so the worktree's own index still goes stale. This
-was raised in review and deliberately not fixed here: the MCP server has the
-same limit, since `.mcp.json` roots it at the startup directory, so the index
-the model actually queries is the startup checkout's either way. Making both
-follow the active worktree means choosing a root from the event's `cwd`, and
-that choice has to refuse a sweep's `secsweep-` checkout — a trusted script
-under `.claude/hooks/` and its own test, not a one-line change.
-alexander-shamray/blueprint-frontend#48 carries it.
+(`guard-edit-target.py`'s `anchors` says so), and the refresh indexed a tree
+the edit never touched. The entry now runs `.claude/hooks/index-refresh.py`
+through `run-guard.sh`, which splits the two things the anchor had fused:
+
+- **The wrapper still comes from `CLAUDE_PROJECT_DIR`**, where
+  `.claude/hooks/**` and `.claude/skills/**` are edit-denied, so no tree the
+  session stands in chooses the code that runs.
+- **The root comes from the event's `cwd`**, walked up to its checkout and
+  passed as `--root` — accepted only when its `git rev-parse --git-common-dir`
+  is this repository's, and refused by name when the directory starts
+  `secsweep-`, because a sweep's tree is prompt-injection input and indexing
+  it reads that tree's `.codeindexignore`. Anything else refreshes nothing.
+
+**A fresh worktree has no index, and `update` there does nothing**, so the
+hook builds one (`index`) on the first edit and updates it afterwards; a full
+build of this repository measured about five seconds, detached.
+`test_index_refresh.py` judges the choice against real linked worktrees.
+
+**The MCP server does not follow, and that is the decision rather than a
+residual left over.** `.mcp.json` starts it once, with `--root .`, in the
+directory the session launched from, and nothing restarts it when `/branch`
+moves the session — so after `/branch`, **MCP queries read the startup
+checkout's index**, which is `main` as the fork left it. The skill's own
+route, `bash .claude/skills/codebase-index/scripts/run-index <subcommand>`,
+resolves its root from the working directory and so reads the worktree's
+index, which the hook now keeps fresh. Inside a worktree, query through the
+skill; a session launched *in* the worktree gets an MCP server rooted there.
