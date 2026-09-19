@@ -9412,9 +9412,11 @@ class TestCodebaseIndexSkillGrants(unittest.TestCase):
         # The example above is never read by Claude Code; this is the entry
         # that runs. Anchored on the project root, because a relative command
         # runs whichever checkout the session stands in, and paired with the
-        # deny that stops a session rewriting the wrapper it executes (#44).
+        # deny that stops a session rewriting the wrapper it executes
+        # (alexander-shamray/blueprint-frontend#44, not a backend issue).
         # The example is held to the same shape, because it is the one a
-        # reader copies; round 3 of PR #47 found it still relative and
+        # reader copies; Copilot's third round on the frontend pull request
+        # that added this test found it still relative and
         # undenied after production was fixed.
         expected = (
             'cd "${CLAUDE_PROJECT_DIR}" && '

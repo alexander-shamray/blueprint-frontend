@@ -1294,8 +1294,9 @@ and having it deleted. Renaming the prefix would have to move in both helpers
 and both callers at once, so it stands; what is lost is attribution.
 
 **The index-refresh hook is the first that runs code a session could edit,
-and it arrived without the controls the guards have (#44).** A `PostToolUse`
-entry on `Edit|Write|MultiEdit|NotebookEdit` backgrounds
+and it arrived without the controls the guards have
+(alexander-shamray/blueprint-frontend#44 — this repository's, not the
+backend's).** A `PostToolUse` entry on `Edit|Write|MultiEdit|NotebookEdit` backgrounds
 `run-index update` after every edit, so the index stops going stale
 mid-session. It first landed on the branch lacking two things the
 `PreToolUse` guards have; both were written here as residuals, raised again
@@ -1339,5 +1340,5 @@ same limit, since `.mcp.json` roots it at the startup directory, so the index
 the model actually queries is the startup checkout's either way. Making both
 follow the active worktree means choosing a root from the event's `cwd`, and
 that choice has to refuse a sweep's `secsweep-` checkout — a trusted script
-under `.claude/hooks/` and its own test, not a one-line change. #48 carries
-it.
+under `.claude/hooks/` and its own test, not a one-line change.
+alexander-shamray/blueprint-frontend#48 carries it.
