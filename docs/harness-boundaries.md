@@ -1440,8 +1440,13 @@ through `run-guard.sh`, which splits the two things the anchor had fused:
 
 **A fresh worktree has no index, and `update` there does nothing**, so the
 hook builds one (`index`) on the first edit and updates it afterwards; a full
-build of this repository measured about five seconds, detached.
-`test_index_refresh.py` judges the choice against real linked worktrees.
+build of this repository measured about five seconds, detached. **One
+worker runs per root**: the hook takes a lock file beside the index before
+it spawns anything, and an edit that finds the lock held leaves a marker
+that earns one more `update` when the run finishes. A detached refresh per
+edit raced two full builds against one SQLite cache inside those five
+seconds. `test_index_refresh.py` judges the root against real linked
+worktrees and the lock against the interleavings that lose an edit.
 
 **The MCP server does not follow, and that is the decision rather than a
 residual left over.** `.mcp.json` starts it once, with `--root .`, in the

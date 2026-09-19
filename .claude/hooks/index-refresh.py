@@ -32,6 +32,18 @@ rather than a broken edit. `&` in the hook command is not available here: a
 backgrounded job in a non-interactive shell gets `/dev/null` for stdin, and the
 event arrives on stdin. So this file reads the event, decides, starts the
 refresh as a detached process with every stream closed, and returns at once.
+
+**One worker per root, and edits made while it runs are coalesced, not
+dropped.** A detached refresh per edit raced: two edits inside the first
+build's five seconds both saw no index and both ran `index`, and later edits
+ran overlapping `update`s against one SQLite cache. Raised by Copilot. So the
+hook takes a lock file beside the index before it spawns anything; an edit that
+finds the lock held leaves a `pending` marker instead, and the worker runs one
+more `update` for every marker it finds when a run finishes. The worker removes
+the lock and then looks for a marker once more, and the hook looks for the lock
+once more after leaving one, so an edit that lands between the two checks is
+still refreshed. A lock older than any refresh could take is a crashed worker's
+and is taken over.
 """
 
 import json
@@ -39,11 +51,18 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 
 # The prefix both sweeps give their throwaway worktrees.
 SWEEP_PREFIX = "secsweep-"
 
 WRAPPER = os.path.join(".claude", "skills", "codebase-index", "scripts", "run-index")
+
+CACHE = os.path.join(".claude", "cache", "codebase-index")
+
+# A refresh is killed after this long, so a lock older than it is abandoned.
+RUN_TIMEOUT = 300
+STALE_AFTER = RUN_TIMEOUT + 60
 
 # `git` must answer about the directory it is pointed at and nothing else.
 GIT_ENV_OVERRIDES = ("GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE")
@@ -102,8 +121,88 @@ def subcommand(root):
     took about five seconds and eight megabytes when measured, and it runs
     detached, so the first edit in a worktree pays for it once.
     """
-    built = os.path.join(root, ".claude", "cache", "codebase-index", "index.sqlite")
+    built = os.path.join(root, CACHE, "index.sqlite")
     return "update" if os.path.isfile(built) else "index"
+
+
+def lock_path(root):
+    return os.path.join(root, CACHE, "refresh.lock")
+
+
+def pending_path(root):
+    return os.path.join(root, CACHE, "refresh.pending")
+
+
+def acquire(root):
+    """Take the root's refresh lock; True when this caller now holds it."""
+    lock = lock_path(root)
+    os.makedirs(os.path.dirname(lock), exist_ok=True)
+    for _ in range(2):
+        try:
+            fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            try:
+                if time.time() - os.path.getmtime(lock) < STALE_AFTER:
+                    return False
+                os.remove(lock)
+            except OSError:
+                return False
+            continue
+        os.write(fd, str(os.getpid()).encode("ascii"))
+        os.close(fd)
+        return True
+    return False
+
+
+def release(root):
+    try:
+        os.remove(lock_path(root))
+    except OSError:
+        pass
+
+
+def take_pending(root):
+    """Consume the root's pending marker; True when there was one."""
+    try:
+        os.remove(pending_path(root))
+        return True
+    except OSError:
+        return False
+
+
+def mark_pending(root):
+    with open(pending_path(root), "a", encoding="ascii"):
+        pass
+
+
+def refresh(owner, root):
+    """Run the owner's wrapper against `root` once, synchronously."""
+    bash = shutil.which("bash")
+    if bash is None:
+        return
+    try:
+        subprocess.run(
+            [bash, os.path.join(owner, WRAPPER), "--quiet", "--root", root,
+             subcommand(root)],
+            cwd=owner, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL, timeout=RUN_TIMEOUT, check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        pass
+
+
+def work(owner, root):
+    """The worker: refresh until no edit is left waiting, then let go."""
+    while True:
+        take_pending(root)
+        refresh(owner, root)
+        if take_pending(root):
+            continue
+        release(root)
+        # An edit that found the lock held just before it was released left a
+        # marker this loop has not seen; take the lock back and serve it.
+        if not take_pending(root) or not acquire(root):
+            return
 
 
 def spawn(argv, cwd):
@@ -123,21 +222,44 @@ def spawn(argv, cwd):
     subprocess.Popen(argv, **kwargs)
 
 
-def main():
+def start(owner, root):
+    """Hand `root` to a worker: a new one if the lock is free, else a marker."""
+    if acquire(root):
+        try:
+            spawn([sys.executable, os.path.abspath(__file__), "--worker", root], owner)
+        except OSError:
+            release(root)
+        return
+    mark_pending(root)
+    # The worker may have released between the failed acquire and the marker.
+    if acquire(root):
+        try:
+            spawn([sys.executable, os.path.abspath(__file__), "--worker", root], owner)
+        except OSError:
+            release(root)
+
+
+def main(argv=None):
+    argv = sys.argv[1:] if argv is None else argv
+    owner = home()
+    if argv[:1] == ["--worker"]:
+        # Spawned by `start`, which already holds the lock. The root is judged
+        # again rather than trusted, so the worker entry point widens nothing.
+        root = target_root(argv[1], owner) if len(argv) == 2 else None
+        if root is not None:
+            work(owner, root)
+        return 0
     try:
         event = json.load(sys.stdin)
     except (ValueError, UnicodeDecodeError):
         return 0
     if not isinstance(event, dict):
         return 0
-    owner = home()
     root = target_root(event.get("cwd"), owner)
-    bash = shutil.which("bash")
-    if root is None or bash is None:
+    if root is None or shutil.which("bash") is None:
         return 0
     try:
-        spawn([bash, os.path.join(owner, WRAPPER), "--quiet", "--root", root,
-               subcommand(root)], owner)
+        start(owner, root)
     except OSError:
         pass
     return 0
