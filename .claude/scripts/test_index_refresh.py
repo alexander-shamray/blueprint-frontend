@@ -78,6 +78,22 @@ class TheRootFollowsTheActiveWorktree(unittest.TestCase):
     def test_a_sweep_checkout_is_refused(self):
         self.assertIsNone(self.hook.target_root(self.sweep, self.main))
 
+    def test_paths_are_compared_by_identity_not_spelling(self):
+        # Copilot, round 7: `normcase` folds case on Windows only, so on a
+        # case-insensitive macOS or Linux mount one path spelled two ways
+        # failed the comparisons. Whether the filesystem folds case is its own
+        # answer, so the expectation is read from it rather than assumed: the
+        # case variant must be the same entry exactly when it exists at all.
+        common = os.path.realpath(self.common)
+        variant = os.path.join(os.path.dirname(common), ".GIT")
+        folds = os.path.exists(variant)
+        self.assertEqual(folds, self.hook.same(common, variant))
+        # And through the admin-directory containment, which compared strings.
+        self.assertEqual(folds, self.hook.registered(self.sibling, self.main, variant))
+        self.assertTrue(self.hook.registered(self.sibling, self.main, common))
+        # A path that does not exist is the same as nothing.
+        self.assertFalse(self.hook.same(os.path.join(self.base, "absent"), common))
+
     def test_a_session_started_in_a_worktree_still_refreshes_the_main_checkout(self):
         # Copilot, round 6: with the hook owned by a linked worktree, the main
         # checkout's `.git` directory was compared with the owner's checkout
@@ -271,11 +287,19 @@ class TheRootFollowsTheActiveWorktree(unittest.TestCase):
                 return (os.path.normcase(os.path.abspath(path))
                         == os.path.normcase(os.path.abspath(marker)))
 
+            identity = self.hook.same
+
+            def through_link(p):
+                return target if is_marker(p) else p
+
+            # A link is the entry it points at to `realpath` and to identity.
             with mock.patch.object(self.hook.os.path, "islink", side_effect=is_marker), \
                     mock.patch.object(
                         self.hook.os.path, "realpath",
-                        side_effect=lambda p, *a, **k: realpath(
-                            target if is_marker(p) else p, *a, **k)):
+                        side_effect=lambda p, *a, **k: realpath(through_link(p), *a, **k)), \
+                    mock.patch.object(
+                        self.hook, "same",
+                        side_effect=lambda a, b: identity(through_link(a), through_link(b))):
                 self.assertFalse(self.hook.registered(forged, self.main, self.common))
             return
         self.assertFalse(self.hook.registered(forged, self.main, self.common))

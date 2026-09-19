@@ -91,7 +91,18 @@ def home():
 
 
 def same(a, b):
-    return os.path.normcase(os.path.realpath(a)) == os.path.normcase(os.path.realpath(b))
+    """Whether `a` and `b` are one existing filesystem entry.
+
+    By identity rather than by spelling. `normcase` folds case on Windows
+    only, so on a case-insensitive macOS or Linux mount git could spell one
+    path two ways and a real worktree failed every comparison here. Raised by
+    Copilot. A path that cannot be examined is not the same as anything, so
+    every check this feeds fails closed.
+    """
+    try:
+        return os.path.samefile(a, b)
+    except (OSError, ValueError):
+        return False
 
 
 def git_paths(directory, deadline):
@@ -168,9 +179,8 @@ def registered(toplevel, owner_toplevel, owner_common):
     if not text.startswith("gitdir:"):
         return False
     gitdir = os.path.join(toplevel, text.split(":", 1)[1].strip())
-    worktrees = os.path.normcase(os.path.realpath(os.path.join(owner_common, "worktrees")))
-    admin = os.path.normcase(os.path.realpath(gitdir))
-    if os.path.dirname(admin) != worktrees:
+    admin = os.path.realpath(gitdir)
+    if not same(os.path.dirname(admin), os.path.join(owner_common, "worktrees")):
         return False
     try:
         with open(os.path.join(gitdir, "gitdir"), encoding="utf-8") as handle:
