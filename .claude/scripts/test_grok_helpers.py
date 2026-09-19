@@ -9403,7 +9403,12 @@ class TestCodebaseIndexSkillGrants(unittest.TestCase):
             (SCRIPTS.parent / "skills" / "codebase-index" / "examples"
              / "hooks" / "settings.json").read_text(encoding="utf-8"))
         command = example["hooks"]["PostToolUse"][0]["hooks"][0]["command"]
-        self.assertIn("run-index", command)
+        # The hook reaches run-index through index-refresh.py, which names the
+        # wrapper itself (alexander-shamray/blueprint-frontend#48).
+        self.assertIn("index-refresh.py", command)
+        hook = (SCRIPTS.parent / "hooks" / "index-refresh.py").read_text(
+            encoding="utf-8")
+        self.assertIn('"run-index"', hook)
         self.assertFalse(
             command.lstrip().startswith("codebase-index"),
             "hook example must not invoke the unpinned CLI directly")
@@ -9417,11 +9422,14 @@ class TestCodebaseIndexSkillGrants(unittest.TestCase):
         # The example is held to the same shape, because it is the one a
         # reader copies; Copilot's third round on the frontend pull request
         # that added this test found it still relative and
-        # undenied after production was fixed.
+        # undenied after production was fixed. The anchor now runs a hook
+        # under `.claude/hooks/`, which picks the active worktree as the root
+        # and runs this checkout's wrapper against it
+        # (alexander-shamray/blueprint-frontend#48); `test_index_refresh.py`
+        # judges that choice.
         expected = (
-            'cd "${CLAUDE_PROJECT_DIR}" && '
-            "bash .claude/skills/codebase-index/scripts/run-index update "
-            ">/dev/null 2>&1 &")
+            'sh "${CLAUDE_PROJECT_DIR}/.claude/hooks/run-guard.sh" '
+            "index-refresh.py")
         example = (SCRIPTS.parent / "skills" / "codebase-index" / "examples"
                    / "hooks" / "settings.json")
         for path in (SCRIPTS.parent / "settings.json", example):
@@ -9443,6 +9451,11 @@ class TestCodebaseIndexSkillGrants(unittest.TestCase):
                 deny = settings["permissions"]["deny"]
                 for prefix in ("", "./"):
                     self.assertIn(f"Edit({prefix}.claude/skills/**)", deny)
+        production = json.loads(
+            (SCRIPTS.parent / "settings.json").read_text(encoding="utf-8"))
+        for prefix in ("", "./"):
+            self.assertIn(f"Edit({prefix}.claude/hooks/**)",
+                          production["permissions"]["deny"])
 
     def test_every_executable_wrapper_disables_skill_auto_update(self):
         # Routing through run-index is not the protection. The export is, and

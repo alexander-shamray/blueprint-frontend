@@ -23,20 +23,20 @@
 # one replaces this shell.
 #
 # **A closed set of hook names, like every helper in `.claude/scripts/`.**
-# `settings.json` is the only caller and it names one of two files; a launcher
+# `settings.json` is the only caller and it names one of three files; a launcher
 # taking any path would be a way to run an arbitrary script through the hook
 # wiring, which is the shape the fixed-endpoint rule exists to refuse.
 set -eu
 
 [ "$#" -eq 1 ] ||
-  { echo "usage: run-guard.sh <guard-git-argv.py|guard-edit-target.py>" >&2; exit 2; }
+  { echo "usage: run-guard.sh <guard-git-argv.py|guard-edit-target.py|index-refresh.py>" >&2; exit 2; }
 
 case "$1" in
-  guard-git-argv.py|guard-edit-target.py) ;;
+  guard-git-argv.py|guard-edit-target.py|index-refresh.py) ;;
   *) echo "run-guard.sh: not a hook this launcher runs: $1" >&2; exit 2 ;;
 esac
 
-# Resolved from this file rather than taken from the caller: the two hooks sit
+# Resolved from this file rather than taken from the caller: the hooks sit
 # beside it, so the launcher and the module it runs cannot come from different
 # checkouts. `CDPATH=` because a `CDPATH` set in the environment makes `cd`
 # print the directory it chose and land somewhere else.
