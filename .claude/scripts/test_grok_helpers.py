@@ -9434,6 +9434,8 @@ class TestCodebaseIndexSkillGrants(unittest.TestCase):
                 self.assertEqual(
                     {"Edit", "Write", "MultiEdit", "NotebookEdit"},
                     set(matched[0]["matcher"].split("|")))
+                # A hook of any other type is text Claude Code never runs.
+                self.assertEqual("command", matched[0]["hooks"][0]["type"])
                 self.assertEqual(
                     expected, matched[0]["hooks"][0]["command"])
                 deny = settings["permissions"]["deny"]
