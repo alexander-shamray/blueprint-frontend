@@ -8,7 +8,7 @@ anything — is owned elsewhere and cited from here by name, never restated.
 
 | | |
 |---|---|
-| `TODO.md` (gitignored, local) | Open PRs and issues, for the user; every task change edits it |
+| `TODO.md` (gitignored, local) | Open PRs and issues, for the user; every task change edits it, or is reported as owed from a worktree |
 | [`docs/change-locality.md`](docs/change-locality.md) | The operating contract: the trust order, the one rule, the change classes and their touch sets |
 | [`docs/client-architecture.md`](docs/client-architecture.md) | Why this client is shaped the way it is — §1–§15, one argument each; §12 is where the spec turned out wrong |
 | [`docs/superpowers/specs/2026-09-10-blueprint-frontend-design.md`](docs/superpowers/specs/2026-09-10-blueprint-frontend-design.md) | The design spec, §1–§11 — outranked by §12 above wherever the two disagree |
