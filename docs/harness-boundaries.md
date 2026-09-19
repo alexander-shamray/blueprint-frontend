@@ -1250,14 +1250,17 @@ left**: the rest of the temp root is admitted rather than the session's own
 subdirectory within it, because no environment variable names the scratchpad
 and deriving it would be a guess the hook cannot check.
 
-**One file outside every checkout is admitted by name: the main checkout's
-`TODO.md` (blueprint-frontend#45).** `CLAUDE.md` has a session update that
+**One file outside every anchor is admitted by name: the main checkout's
+`TODO.md` (blueprint-frontend#45).** `CLAUDE.md` tells a session to update the
 task list from a sibling worktree, where the main checkout is not an anchor
 and the write fell to the allow-list above. The hook finds the main checkout
 from the worktree's own `.git` file, trusted only once git's backlink agrees,
-and admits that one path when its spelling and its resolution are both it — a
-`TODO.md` that is a link is refused. The file is gitignored, so nothing any
-commit, review or build reads can change through it; the residual is that a
+and only when that `.git` is the repository the guard itself belongs to: the
+event's `cwd` and `CLAUDE_PROJECT_DIR` are anchors too, and one standing in
+another repository's worktree would otherwise name that repository's task
+list. It admits that one path when its spelling and its resolution are both
+it — a `TODO.md` that is a link is refused. The file is gitignored, so nothing
+any commit, review or build reads can change through it; the residual is that a
 session in a worktree can rewrite the user's task list, which is the write the
 rule asks for. **The guard is not the only layer, and it is the only one this
 repository owns**: a session moved into the worktree with `EnterWorktree` is

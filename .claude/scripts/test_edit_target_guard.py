@@ -927,30 +927,37 @@ class WhatThisGuardIsNotTheSubjectOf(GuardCase):
 
         Asked of the predicate and of `offence` with the allow-list stubbed to
         refuse, because this fixture sits under the temp root, where the
-        allow-list would admit the file as scratch regardless.
+        allow-list would admit the file as scratch regardless. The guard's own
+        checkout is stubbed to the fixture's worktree, because the admission
+        is bound to the guard's repository and this suite's checkout is not
+        the fixture's.
         """
-        worktree = os.path.join(self.outside, "linked-worktree")
-        os.makedirs(os.path.join(worktree, "docs"), exist_ok=True)
-        admin = os.path.join(self.root, ".git", "worktrees", "linked")
-        os.makedirs(admin, exist_ok=True)
-        self.write(os.path.join(worktree, ".git"), "gitdir: " + admin + "\n")
-        self.write(os.path.join(admin, "gitdir"),
-                   os.path.join(worktree, ".git") + "\n")
+        worktree = self.linked_worktree_of(self.root, "linked")
         task_list = os.path.join(self.root, "TODO.md")
 
         module = self.guard_module()
         checkouts = [(worktree, os.path.realpath(worktree),
                       module.traits_of(worktree))]
 
-        def admits(target):
+        def admits(target, among=checkouts):
             lexical = os.path.normpath(os.path.abspath(target))
             return module.main_checkout_task_list(
-                lexical, os.path.realpath(target), checkouts) is not None
+                lexical, os.path.realpath(target), among) is not None
+
+        # **Bound to the guard's own repository.** Unstubbed, the guard
+        # belongs to this suite's checkout, which is not the fixture's.
+        self.assertFalse(admits(task_list))
+        owner = mock.patch.object(module, "guard_checkout", return_value=worktree)
+        owner.start()
+        self.addCleanup(owner.stop)
 
         # **No `commondir`, no main checkout**: the admin directory is what
         # names the repository, and a guess from its location is not asked.
+        commondir = os.path.join(self.root, ".git", "worktrees", "linked",
+                                 "commondir")
+        os.remove(commondir)
         self.assertFalse(admits(task_list))
-        self.write(os.path.join(admin, "commondir"), "../..\n")
+        self.write(commondir, "../..\n")
         self.assertTrue(admits(task_list))
         self.write(task_list, "- none\n")
         self.assertTrue(admits(task_list))
@@ -963,7 +970,20 @@ class WhatThisGuardIsNotTheSubjectOf(GuardCase):
         # Nor the worktree's own copy, which nobody reads.
         self.assertFalse(admits(os.path.join(worktree, "TODO.md")))
 
+        # **Another repository's task list is not this guard's to admit**,
+        # even when an anchor stands in one of its genuine worktrees — `cwd`
+        # and `CLAUDE_PROJECT_DIR` are anchors too, and an extra anchor may
+        # only narrow. Raised by Copilot.
+        other = os.path.join(self.outside, "other-repo")
+        os.makedirs(os.path.join(other, ".git"), exist_ok=True)
+        stranger = self.linked_worktree_of(other, "stranger")
+        both = checkouts + [(stranger, os.path.realpath(stranger),
+                             module.traits_of(stranger))]
+        self.assertFalse(admits(os.path.join(other, "TODO.md"), both))
+        self.assertTrue(admits(task_list, both))
+
         # **A backlink that disagrees is not a worktree of this repository.**
+        admin = os.path.join(self.root, ".git", "worktrees", "linked")
         self.write(os.path.join(admin, "gitdir"),
                    os.path.join(self.outside, "elsewhere", ".git") + "\n")
         self.assertFalse(admits(task_list))
@@ -991,13 +1011,32 @@ class WhatThisGuardIsNotTheSubjectOf(GuardCase):
         refused = "refused by the allow-list"
         with mock.patch.object(module, "outside_offence", return_value=refused), \
                 mock.patch.dict(os.environ, {"CLAUDE_PROJECT_DIR": worktree}):
-            def verdict(target):
+            def verdict(target, cwd=worktree):
                 return module.offence({
-                    "cwd": worktree, "tool_name": "Write",
+                    "cwd": cwd, "tool_name": "Write",
                     "tool_input": {"file_path": target}})
             self.assertIsNone(verdict(task_list))
             self.assertEqual(
                 refused, verdict(os.path.join(self.root, "docs", "chapter.md")))
+            self.assertEqual(
+                refused, verdict(os.path.join(other, "TODO.md"), cwd=stranger))
+
+    def linked_worktree_of(self, repository, name):
+        """A linked worktree of `repository`, in the shape git leaves on disk.
+
+        Built by hand for the reason the sibling case gives: the guard reads a
+        `.git` file, the backlink in the admin directory and its `commondir`,
+        and nothing else.
+        """
+        worktree = os.path.join(self.outside, f"{name}-worktree")
+        os.makedirs(os.path.join(worktree, "docs"), exist_ok=True)
+        admin = os.path.join(repository, ".git", "worktrees", name)
+        os.makedirs(admin, exist_ok=True)
+        self.write(os.path.join(worktree, ".git"), "gitdir: " + admin + "\n")
+        self.write(os.path.join(admin, "gitdir"),
+                   os.path.join(worktree, ".git") + "\n")
+        self.write(os.path.join(admin, "commondir"), "../..\n")
+        return worktree
 
     def test_the_harness_state_root_is_admitted(self):
         # The second of the two roots the docstring names. Judged rather than

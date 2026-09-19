@@ -566,15 +566,18 @@ def verified_gitdir(root):
 TASK_LIST = "TODO.md"
 
 
-def main_checkout_of(root):
-    """The main checkout `root` is a linked worktree of, or `None`.
+def common_git_dir(root):
+    """`root`'s repository `.git` directory, resolved, or `None`.
 
-    The mirror of `linked_worktree`, read the same way and trusted the same
-    way: the `.git` file is only a claim until git's backlink agrees, and the
-    admin directory's `commondir` then names the repository's own `.git`, whose
-    parent is the main checkout. That `.git` must be a directory, which is what
-    makes the parent a main checkout rather than another worktree.
+    A main checkout's is its own `.git`. A linked worktree's is named by its
+    admin directory's `commondir`, read only once git's backlink agrees — the
+    `.git` file is a claim until then — and it must be a directory called
+    `.git`, which is what makes its parent a main checkout rather than another
+    worktree.
     """
+    marker = os.path.join(root, ".git")
+    if os.path.isdir(marker):
+        return os.path.realpath(marker)
     gitdir = verified_gitdir(root)
     if gitdir is None:
         return None
@@ -586,7 +589,25 @@ def main_checkout_of(root):
     common = os.path.realpath(os.path.join(gitdir, common))
     if os.path.basename(common) != ".git" or not os.path.isdir(common):
         return None
-    return os.path.dirname(common)
+    return common
+
+
+def main_checkout_of(root):
+    """The main checkout `root` is a linked worktree of, or `None`.
+
+    The mirror of `linked_worktree`, read the same way and trusted the same
+    way. `None` for a main checkout, which is its own.
+    """
+    if verified_gitdir(root) is None:
+        return None
+    common = common_git_dir(root)
+    return None if common is None else os.path.dirname(common)
+
+
+def guard_checkout():
+    """The checkout this guard file belongs to."""
+    return os.path.dirname(os.path.dirname(os.path.dirname(
+        os.path.abspath(__file__))))
 
 
 def main_checkout_task_list(lexical, resolved, checkouts):
@@ -604,12 +625,25 @@ def main_checkout_task_list(lexical, resolved, checkouts):
     can only offer the resolved main checkout: `commondir` is read through
     `realpath`, and on macOS the same checkout is spelled `/var/...` and
     resolves to `/private/var/...`.
+
+    **Only this guard's own repository, and the first form asked any anchor.**
+    `checkouts` holds the event's `cwd` and `CLAUDE_PROJECT_DIR` beside the
+    guard's own tree, so a session standing in a linked worktree of some
+    other repository had THAT repository's `TODO.md` admitted — an extra
+    anchor widening the guard, which `anchors` rests its trust on never
+    happening. The main checkout must share the guard checkout's `.git`.
+    Raised by Copilot.
     """
+    owner = common_git_dir(guard_checkout())
+    if owner is None:
+        return None
     for spelled_root, _, _ in checkouts:
         main = main_checkout_of(spelled_root)
         if main is None:
             continue
         traits = traits_of(main)
+        if not same(os.path.join(main, ".git"), owner, traits):
+            continue
         if (same(os.path.basename(lexical), TASK_LIST, traits)
                 and same(os.path.realpath(os.path.dirname(lexical)), main, traits)
                 and same(resolved, os.path.join(main, TASK_LIST), traits)):
@@ -668,8 +702,7 @@ def anchors(event):
     what makes an environment-supplied `CLAUDE_PROJECT_DIR` safe to trust here:
     a wrong one cannot excuse a traversal that this file's own tree refuses.
     """
-    here = os.path.dirname(os.path.dirname(os.path.dirname(
-        os.path.abspath(__file__))))
+    here = guard_checkout()
     cwd = event.get("cwd")
     roots = [
         os.environ.get("CLAUDE_PROJECT_DIR"),
