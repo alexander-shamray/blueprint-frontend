@@ -167,10 +167,14 @@ These stay here because they have to be true before anyone opens the guide:
   local, never committed.** It is for the user, and it lists open PRs
   (with the issues each closes) and open issues with no PR. Update it the
   moment this session opens, merges or closes a PR, or files, closes or
-  reopens an issue. From a sibling worktree, edit the main checkout's copy,
-  not one in the worktree. When in doubt, rebuild it from
-  `gh pr list --limit 1000` and `gh issue list --limit 1000`, because the
-  default of 30 truncates silently.
+  reopens an issue. Only the main checkout's copy counts, never one in a
+  worktree — and from a sibling worktree `guard-edit-target.py` refuses
+  that write today, so there the update goes in the report as owed rather
+  than into a copy nobody reads (#45). When in doubt, rebuild it from
+  `gh pr list --limit 1000 --json number,title,url,closingIssuesReferences`
+  and `gh issue list --limit 1000 --json number,title,url,labels`, because
+  the default of 30 truncates silently; severity is the `high`, `medium` or
+  `low` label.
 - **A `#NN` inside `.claude/` or `docs/harness-boundaries.md` is an issue in
   the backend repository**, where that machinery was built. It is not an issue
   here.
