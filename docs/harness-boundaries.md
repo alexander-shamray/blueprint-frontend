@@ -1259,7 +1259,13 @@ and admits that one path when its spelling and its resolution are both it — a
 `TODO.md` that is a link is refused. The file is gitignored, so nothing any
 commit, review or build reads can change through it; the residual is that a
 session in a worktree can rewrite the user's task list, which is the write the
-rule asks for.
+rule asks for. **The guard is not the only layer, and it is the only one this
+repository owns**: a session moved into the worktree with `EnterWorktree` is
+refused the same write by Claude Code's own isolation — *"Edit the worktree
+copy of this file instead of the shared-checkout path"*, measured on the PR
+that added this paragraph — so for `/branch`'s sessions the update is still
+reported as owed.
+
 **The sweeps' item 5 (#75) closed by the same shape** — a second read-only
 dispatch returns a verdict, the parent opens nothing in `$work`, and the issue
 helper leaves `gh issue create` with no free parameter — so

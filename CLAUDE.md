@@ -8,7 +8,7 @@ anything — is owned elsewhere and cited from here by name, never restated.
 
 | | |
 |---|---|
-| `TODO.md` (gitignored, local) | Open PRs and issues, for the user; every task change edits it |
+| `TODO.md` (gitignored, local) | Open PRs and issues, for the user; every task change edits it, or is reported as owed from a worktree |
 | [`docs/change-locality.md`](docs/change-locality.md) | The operating contract: the trust order, the one rule, the change classes and their touch sets |
 | [`docs/client-architecture.md`](docs/client-architecture.md) | Why this client is shaped the way it is — §1–§15, one argument each; §12 is where the spec turned out wrong |
 | [`docs/superpowers/specs/2026-09-10-blueprint-frontend-design.md`](docs/superpowers/specs/2026-09-10-blueprint-frontend-design.md) | The design spec, §1–§11 — outranked by §12 above wherever the two disagree |
@@ -168,9 +168,11 @@ These stay here because they have to be true before anyone opens the guide:
   (with the issues each closes) and open issues with no PR. Update it the
   moment this session opens, merges or closes a PR, or files, closes or
   reopens an issue. Only the main checkout's copy counts, never one in a
-  worktree: from a sibling worktree, write the main checkout's copy by its
-  absolute path, which `guard-edit-target.py` admits for that one file
-  (#45). When in doubt, rebuild it from
+  worktree. `guard-edit-target.py` admits that one file from a sibling
+  worktree (#45), but a session moved there with `EnterWorktree` is refused
+  by Claude Code's own isolation, which no file here controls — so there the
+  update goes in the report as owed rather than into a copy nobody reads.
+  When in doubt, rebuild it from
   `gh pr list --limit 1000 --json number,title,url,closingIssuesReferences`
   and `gh issue list --limit 1000 --json number,title,url,labels`, because
   the default of 30 truncates silently; severity is the `high`, `medium` or
