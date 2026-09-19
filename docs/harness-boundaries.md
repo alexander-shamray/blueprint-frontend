@@ -875,6 +875,77 @@ so the measurement above still decides the sweeps' case: a push the global
 allow may or may not admit is one they refuse either way. That is documented
 precedence, not a second measurement under `auto`.
 
+**A frontmatter deny holds for the rest of the user turn, not for the command
+that states it, and that is a cause the paragraph above did not have
+(blueprint-admin#17).** Measured there: `/ship` ran `/commit` and then pushed
+in the same turn, and the push came back "has been denied" in under a second
+with no hook reason, every time, while the identical push after a new user
+message ran — and a classifier refusal is slower and names itself. So
+`Bash(git push:*)` on `/branch`, `/commit` or `/review-copilot` refused
+`/ship`'s own push a step later. **A command `/ship` runs before it pushes
+never denies push. Do not put it back.** It reads as hardening and is not:
+`/branch` and `/commit` leave the push to `/pr`, `/review-copilot` pushes only
+an already-committed review fix, by name, and the git-argv hook and
+`settings.json` refuse `main`, force and delete whoever asks.
+`CHAINED_BEFORE_A_PUSH` in `test_grok_helpers.py` names the three and fails if
+one denies push again. A terminal, read-only command — the two sweeps — keeps
+its deny, because nothing pushes after it. Whether the three refusals above
+were this rather than the classifier was not re-examined, so the user-level
+remedy stands beside this one, not replaced by it.
+
+**`/review-grok` is the one chained command that cannot follow that rule, so
+`/ship` step 5 runs it inside an `Agent` instead.** Run inline, its bare `Bash`
+deny is its boundary — it reads an untrusted review holding `Edit` — and under
+the same turn-wide lifetime it would also refuse every command step 5 runs
+after it: the checks, `/commit` and the push. The deny stays and the triage
+moves. **On the one agent type measured, the agent keeps the deny off the push
+by discarding it, so the agent alone is not the boundary**
+(blueprint-admin#19): `/review-grok` loaded through the Skill tool in the main
+session removed `Bash` until the next user message — background notifications
+did not end it — while the same load inside a `general-purpose` agent left
+`Bash` working there, and the parent's `Bash` in the same turn was unaffected.
+On that path the push is safe and the triage would read an untrusted review
+holding a shell.
+
+**So the triage runs under a profile of its own, and `/ship` says what a
+profile cannot.** Step 5 grants exactly `Agent(review-grok-triager)`, whose
+`tools:` — an allowlist — holds no `Bash` and no `Skill`; it reads
+`review-grok.md` rather than loading it, so the skill load measured above never
+happens there. Two rules cannot live in `tools:`. A type list inside a
+subagent's `Agent` grant is ignored, so the profile's own `PreToolUse` hook,
+`guard-triager-dispatch.py`, admits `review-adjudicator` and refuses every
+other dispatch — the triager itself included, which `/ship` grants and so
+cannot deny. And a path in a profile's `disallowedTools` removes the whole
+tool, so every `Edit(...)` `/review-grok` states is in `/ship`'s own
+`disallowed-tools`, beside the broad agent types; that list reaches the agents
+a command spawns, in the turn it was loaded in.
+`CommandsEnforceTheEditingBoundariesTheyState` pins the profile, the grant and
+both deny lists, and reads `.claude/agents/` on every run, so a new profile
+fails each exact grant that does not deny it;
+`TheTriagerDispatchesOnlyTheAdjudicator` runs the hook through the launcher and
+pins its wiring on the profile.
+
+**The trees held only in the turn `/ship` was loaded in, so they moved onto
+the profile too (blueprint-admin#27).** Measured there: spawned in that turn,
+the triager was refused an `Edit` to `.github/**` and `README.md` while a
+`docs/**` control passed; spawned one user message later, without `/ship`
+re-invoked, it wrote into `.github/` and edited `README.md`. Step 5 spawns the
+triager async, so every round after the first starts in such a turn. The
+profile carries a second `PreToolUse` hook, `guard-triager-edit.py`, on
+`Edit|Write|MultiEdit|NotebookEdit`: it reads `/ship`'s `Edit(...)` denies
+from `ship.md` on every call — one list, no copy — and refuses a target under
+any of them, matched without regard to case, and any target outside the
+checkout its event's `cwd` stands in. `TheTriagerEditsNothingShipDenies` runs
+it through the launcher against every pattern that list holds.
+
+**None of the profile's runtime behaviour was measured in this repository.**
+The tool allowlist and the dispatch hook were probed in blueprint-admin
+(blueprint-admin#23), on the same harness and the same files; that the edit
+hook fires on `Edit` in a turn after `/ship`'s was not probed anywhere and
+rests on the mechanism the dispatch hook was measured under. The measurement
+owed before Grok is re-enabled here: spawn the triager in a turn after the one
+`/ship` was loaded in, have it edit `README.md`, and see the hook refuse it.
+
 The sixth **was** the `--output` deny itself — the inventory's one entry that
 is a *deny* rather than an allow, listed because a deny over a command string
 is defeated by shell quoting. **#30 closed it, and not by improving the rule.**
