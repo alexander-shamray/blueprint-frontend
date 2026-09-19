@@ -34,6 +34,8 @@
       "Edit(./.claude/agents/**)",
       "Edit(.claude/hooks/**)",
       "Edit(./.claude/hooks/**)",
+      "Edit(.claude/skills/**)",
+      "Edit(./.claude/skills/**)",
       "Edit(.claude/settings.json)",
       "Edit(./.claude/settings.json)",
       "Edit(.claude/settings.local.json)",
@@ -98,7 +100,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash .claude/skills/codebase-index/scripts/run-index update >/dev/null 2>&1 &",
+            "command": "cd \"${CLAUDE_PROJECT_DIR}\" && bash .claude/skills/codebase-index/scripts/run-index update >/dev/null 2>&1 &",
             "timeout": 5
           }
         ]

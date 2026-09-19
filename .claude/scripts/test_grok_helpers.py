@@ -9408,6 +9408,30 @@ class TestCodebaseIndexSkillGrants(unittest.TestCase):
             command.lstrip().startswith("codebase-index"),
             "hook example must not invoke the unpinned CLI directly")
 
+    def test_the_project_refreshes_the_index_after_every_edit(self):
+        # The example above is never read by Claude Code; this is the entry
+        # that runs. Anchored on the project root, because a relative command
+        # runs whichever checkout the session stands in, and paired with the
+        # deny that stops a session rewriting the wrapper it executes (#44).
+        settings = json.loads(
+            (SCRIPTS.parent / "settings.json").read_text(encoding="utf-8"))
+        entries = settings["hooks"]["PostToolUse"]
+        matched = [
+            e for e in entries if "Edit" in e.get("matcher", "").split("|")]
+        self.assertTrue(matched, "no PostToolUse hook refreshes the index")
+        tools = matched[0]["matcher"].split("|")
+        for tool in ("Edit", "Write", "MultiEdit", "NotebookEdit"):
+            with self.subTest(tool=tool):
+                self.assertIn(tool, tools)
+        command = matched[0]["hooks"][0]["command"]
+        self.assertIn("run-index update", command)
+        self.assertIn("${CLAUDE_PROJECT_DIR}", command)
+        self.assertNotIn("--quiet", command)
+        deny = settings["permissions"]["deny"]
+        for prefix in ("", "./"):
+            with self.subTest(prefix=prefix):
+                self.assertIn(f"Edit({prefix}.claude/skills/**)", deny)
+
     def test_every_executable_wrapper_disables_skill_auto_update(self):
         # Routing through run-index is not the protection. The export is, and
         # deleting it would leave the caller tests green. Raised by Copilot.
