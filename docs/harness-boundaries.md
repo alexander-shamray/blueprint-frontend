@@ -1328,3 +1328,16 @@ the only thing the suite read before, and Claude Code never reads it. What no
 test here can show is the hook firing: the command is asynchronous and
 discards its output, so a failure is invisible when it happens, and CI runs
 the suite rather than the harness.
+
+**The anchor refreshes the checkout the session started in, and after
+`/branch` that is not the one being edited.** `/branch` moves the session into
+a sibling worktree, the event's `cwd` then differs from `CLAUDE_PROJECT_DIR`
+(`guard-edit-target.py`'s `anchors` says so), and the refresh indexes a tree
+the edit never touched — so the worktree's own index still goes stale. This
+was raised in review and deliberately not fixed here: the MCP server has the
+same limit, since `.mcp.json` roots it at the startup directory, so the index
+the model actually queries is the startup checkout's either way. Making both
+follow the active worktree means choosing a root from the event's `cwd`, and
+that choice has to refuse a sweep's `secsweep-` checkout — a trusted script
+under `.claude/hooks/` and its own test, not a one-line change. #48 carries
+it.
