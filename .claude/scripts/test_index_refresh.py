@@ -107,7 +107,8 @@ class TheRootFollowsTheActiveWorktree(unittest.TestCase):
         self.assertEqual(real(self.main), real(cwd))
         self.assertEqual("--worker", argv[2])
         self.assertEqual(real(self.sibling), real(argv[3]))
-        self.assertTrue(os.path.isfile(self.hook.lock_path(argv[3])))
+        self.assertEqual(4, len(argv))
+        self.assertTrue(os.path.isfile(self.hook.pending_path(argv[3])))
 
     def test_the_refresh_runs_the_owners_wrapper_against_the_worktree(self):
         with mock.patch.object(self.hook.subprocess, "run") as run:
@@ -142,10 +143,9 @@ class TheRootFollowsTheActiveWorktree(unittest.TestCase):
                 spawn.assert_not_called()
 
     def test_the_worker_entry_point_judges_its_root_again(self):
-        token = "0" * 32
-        for argv in (["--worker", self.sweep, token],
-                     ["--worker", self.sibling, "not-a-token"],
-                     ["--worker", self.sibling]):
+        for argv in (["--worker", self.sweep],
+                     ["--worker", self.sibling, "extra"],
+                     ["--worker"]):
             with self.subTest(argv=argv), \
                     mock.patch.object(self.hook, "home", return_value=self.main), \
                     mock.patch.object(self.hook, "work") as work:
@@ -185,13 +185,51 @@ class TheRootFollowsTheActiveWorktree(unittest.TestCase):
         self.assertFalse(self.hook.registered(linked, self.main))
         self.assertTrue(self.hook.registered(self.main, self.main))
 
+    def test_a_git_file_reached_through_a_link_is_refused(self):
+        # Copilot, round 3: `isfile`, `open` and `realpath` all follow a link,
+        # so a `.git` linking to a registered worktree's own `.git` file read
+        # that worktree's admin directory, whose backlink named the same file.
+        # A file link needs a privilege Windows may not grant. Where it is
+        # refused, the link is emulated as the hook would see one: `islink`
+        # reports it, and `realpath` resolves it to the worktree's own `.git`
+        # file. A copy alone would be refused by the backlink whether or not
+        # links are, and prove nothing.
+        forged = os.path.join(self.base, "forged-link")
+        os.mkdir(forged)
+        marker = os.path.join(forged, ".git")
+        target = os.path.join(self.sibling, ".git")
+        try:
+            os.symlink(target, marker)
+        except (OSError, NotImplementedError):
+            if os.name != "nt":
+                raise
+            shutil.copyfile(target, marker)
+            realpath = os.path.realpath
+
+            def is_marker(path):
+                # Not `real()`: that calls the `realpath` patched below.
+                return (os.path.normcase(os.path.abspath(path))
+                        == os.path.normcase(os.path.abspath(marker)))
+
+            with mock.patch.object(self.hook.os.path, "islink", side_effect=is_marker), \
+                    mock.patch.object(
+                        self.hook.os.path, "realpath",
+                        side_effect=lambda p, *a, **k: realpath(
+                            target if is_marker(p) else p, *a, **k)):
+                self.assertFalse(self.hook.registered(forged, self.main))
+            return
+        self.assertFalse(self.hook.registered(forged, self.main))
+        self.assertIsNone(self.hook.target_root(forged, self.main))
+
 
 class OneWorkerPerRootAndNoEditDropped(unittest.TestCase):
-    """Copilot, round 1: the index check and the detached launch raced.
+    """Copilot, rounds 1 to 3: one worker per root, and no edit dropped.
 
-    Two edits inside the first build both chose `index`, and later edits ran
-    overlapping `update`s against one cache. These cases drive the lock and
-    the pending marker directly, with the refresh itself replaced.
+    Round 1 found refreshes racing. Rounds 2 and 3 found the lock file that
+    fixed it needing an age, then a token, then a check-then-act a takeover
+    could slip between. The lock is the operating system's now, so these
+    cases hold it the way a worker does: from another handle in this process,
+    and from another process that then dies.
     """
 
     def setUp(self):
@@ -199,18 +237,32 @@ class OneWorkerPerRootAndNoEditDropped(unittest.TestCase):
         self.root = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, self.root, ignore_errors=True)
 
+    def hold(self):
+        lock = self.hook.Lock(self.root)
+        self.assertTrue(lock.acquire())
+        self.addCleanup(lock.release)
+        return lock
+
     def test_an_edit_during_a_run_leaves_a_marker_and_starts_nothing(self):
-        self.assertTrue(self.hook.acquire(self.root))
+        self.hold()
         with mock.patch.object(self.hook, "spawn") as spawn:
             self.hook.start(self.root, self.root)
         spawn.assert_not_called()
         self.assertTrue(os.path.isfile(self.hook.pending_path(self.root)))
 
-    def test_a_free_lock_is_taken_before_the_worker_starts(self):
+    def test_an_edit_with_no_worker_marks_and_starts_one(self):
         with mock.patch.object(self.hook, "spawn") as spawn:
             self.hook.start(self.root, self.root)
         spawn.assert_called_once()
-        self.assertFalse(self.hook.acquire(self.root))
+        self.assertTrue(os.path.isfile(self.hook.pending_path(self.root)))
+        self.assertFalse(self.hook.held(self.root))
+
+    def test_a_second_worker_finds_the_lock_held_and_runs_nothing(self):
+        self.hold()
+        self.hook.mark_pending(self.root)
+        with mock.patch.object(self.hook, "refresh") as refresh:
+            self.hook.work(self.root, self.root)
+        refresh.assert_not_called()
 
     def test_edits_during_a_run_earn_exactly_one_more_run(self):
         runs = []
@@ -222,82 +274,65 @@ class OneWorkerPerRootAndNoEditDropped(unittest.TestCase):
                 for _ in range(3):
                     self.hook.start(owner, root)
 
-        token = self.hook.acquire(self.root)
-        self.assertIsNotNone(token)
+        self.hook.mark_pending(self.root)
         with mock.patch.object(self.hook, "refresh", side_effect=refresh), \
                 mock.patch.object(self.hook, "spawn") as spawn:
-            self.hook.work(self.root, self.root, token)
+            self.hook.work(self.root, self.root)
         self.assertEqual(2, len(runs))
         spawn.assert_not_called()
-        self.assertFalse(os.path.exists(self.hook.lock_path(self.root)))
+        self.assertFalse(self.hook.held(self.root))
         self.assertFalse(os.path.exists(self.hook.pending_path(self.root)))
 
     def test_a_marker_left_as_the_lock_is_released_is_still_served(self):
-        # The window the second check closes: an edit that found the lock
-        # held, but wrote its marker only after the worker's last look.
+        # The window the look after letting go closes: an edit that found the
+        # lock held, but marked only after the worker's last look inside it.
         runs = []
-        real_release = self.hook.release
+        real_release = self.hook.Lock.release
 
-        def release(root, token):
-            real_release(root, token)
+        def release(lock):
+            real_release(lock)
             if len(runs) == 1:
-                self.hook.mark_pending(root)
+                self.hook.mark_pending(self.root)
 
-        token = self.hook.acquire(self.root)
+        self.hook.mark_pending(self.root)
         with mock.patch.object(self.hook, "refresh",
                                side_effect=lambda o, r: runs.append(r)), \
-                mock.patch.object(self.hook, "release", side_effect=release):
-            self.hook.work(self.root, self.root, token)
+                mock.patch.object(self.hook.Lock, "release", release):
+            self.hook.work(self.root, self.root)
         self.assertEqual(2, len(runs))
-        self.assertFalse(os.path.exists(self.hook.lock_path(self.root)))
+        self.assertFalse(self.hook.held(self.root))
 
-    def test_a_crashed_workers_lock_is_taken_over(self):
-        self.assertIsNotNone(self.hook.acquire(self.root))
-        old = time.time() - self.hook.STALE_AFTER - 5
-        os.utime(self.hook.lock_path(self.root), (old, old))
-        self.assertIsNotNone(self.hook.acquire(self.root))
+    def test_a_worker_that_dies_holding_the_lock_releases_it(self):
+        # The case the lock file needed an age for. A second process takes the
+        # lock, reports it, and is killed without releasing anything.
+        child = subprocess.Popen(
+            [sys.executable, "-c",
+             "import importlib.util, sys\n"
+             "spec = importlib.util.spec_from_file_location('h', sys.argv[1])\n"
+             "h = importlib.util.module_from_spec(spec)\n"
+             "spec.loader.exec_module(h)\n"
+             "lock = h.Lock(sys.argv[2])\n"
+             "print('held' if lock.acquire() else 'refused', flush=True)\n"
+             "sys.stdin.read()\n",
+             str(HOOK), self.root],
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+        try:
+            self.assertEqual("held", child.stdout.readline().strip())
+            self.assertTrue(self.hook.held(self.root))
+        finally:
+            child.kill()
+            child.wait(timeout=30)
+            child.stdin.close()
+            child.stdout.close()
+        self.assertFalse(self.hook.held(self.root))
 
-    def test_a_live_lock_is_not_taken_over(self):
-        self.assertIsNotNone(self.hook.acquire(self.root))
-        self.assertIsNone(self.hook.acquire(self.root))
-
-    def test_a_worker_outliving_the_stale_age_keeps_its_lock(self):
-        # Copilot, round 2: the lock's age ran from creation, so a worker
-        # serving coalesced runs looked abandoned mid-run. Each run here ages
-        # the lock past STALE_AFTER first; the renewal before the next run
-        # must keep a second worker out.
-        token = self.hook.acquire(self.root)
-        taken = []
-
-        def refresh(owner, root):
-            if taken:
-                # The second run: a takeover attempted now must fail, which it
-                # does only if the worker renewed the lock the first run aged.
-                taken.append(self.hook.acquire(root))
-                return
-            # The first run ends long: the lock is older than STALE_AFTER.
-            old = time.time() - self.hook.STALE_AFTER - 5
-            os.utime(self.hook.lock_path(root), (old, old))
-            self.hook.mark_pending(root)
-            taken.append("edit")
-
-        with mock.patch.object(self.hook, "refresh", side_effect=refresh):
-            self.hook.work(self.root, self.root, token)
-        self.assertEqual(["edit", None], taken)
-        self.assertFalse(os.path.exists(self.hook.lock_path(self.root)))
-
-    def test_a_worker_never_removes_a_lock_it_no_longer_holds(self):
-        token = self.hook.acquire(self.root)
-        old = time.time() - self.hook.STALE_AFTER - 5
-        os.utime(self.hook.lock_path(self.root), (old, old))
-        replacement = self.hook.acquire(self.root)
-        self.assertIsNotNone(replacement)
-        self.hook.release(self.root, token)
-        self.assertTrue(self.hook.holds(self.root, replacement))
-        # And the displaced worker stops rather than running beside it.
-        with mock.patch.object(self.hook, "refresh") as refresh:
-            self.hook.work(self.root, self.root, token)
-        refresh.assert_not_called()
+    def test_the_lock_file_is_never_removed(self):
+        # A lock removed by path can be pulled from under its holder; one held
+        # on a handle and left in place cannot.
+        self.hook.mark_pending(self.root)
+        with mock.patch.object(self.hook, "refresh"):
+            self.hook.work(self.root, self.root)
+        self.assertTrue(os.path.isfile(self.hook.lock_path(self.root)))
 
 
 class TheDetachedWorkerReallyRuns(unittest.TestCase):
@@ -329,10 +364,14 @@ class TheDetachedWorkerReallyRuns(unittest.TestCase):
         shutil.copyfile(HOOK, hooks / "index-refresh.py")
         scripts = Path(owner, ".claude", "skills", "codebase-index", "scripts")
         scripts.mkdir(parents=True)
-        record = Path(base, "wrapper-ran")
+        # The wrapper runs with the owner as its working directory, so the
+        # record is a fixed relative name and no path is quoted into shell
+        # text: a temp directory holding an apostrophe broke that. Raised by
+        # Copilot.
+        record = Path(owner, "wrapper-ran")
         scripts.joinpath("run-index").write_text(
             "#!/usr/bin/env bash\n"
-            f"printf '%s\\n' \"$@\" > '{record.as_posix()}'\n",
+            "printf '%s\\n' \"$@\" > wrapper-ran\n",
             encoding="utf-8", newline="\n")
 
         event = json.dumps({"cwd": sibling, "hook_event_name": "PostToolUse"})
@@ -341,16 +380,17 @@ class TheDetachedWorkerReallyRuns(unittest.TestCase):
             input=event, text=True, capture_output=True, timeout=30)
         self.assertEqual(0, done.returncode, done.stderr)
 
-        lock = Path(sibling, ".claude", "cache", "codebase-index", "refresh.lock")
+        hook = load()
         deadline = time.time() + 60
-        while time.time() < deadline and (not record.exists() or lock.exists()):
+        while time.time() < deadline and (not record.exists() or hook.held(sibling)):
             time.sleep(0.5)
         self.assertTrue(record.exists(), "the detached worker never ran the wrapper")
         args = record.read_text(encoding="utf-8").split("\n")
         self.assertEqual(["--quiet", "--root"], args[:2])
         self.assertEqual(real(sibling), real(args[2]))
         self.assertEqual("index", args[3])
-        self.assertFalse(lock.exists(), "the worker finished without releasing")
+        self.assertFalse(hook.held(sibling), "the worker finished without releasing")
+        self.assertFalse(os.path.exists(hook.pending_path(sibling)))
 
 
 class TheRefreshIsWiredThroughTheLauncher(unittest.TestCase):

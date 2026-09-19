@@ -36,25 +36,35 @@ refresh as a detached process with every stream closed, and returns at once.
 **One worker per root, and edits made while it runs are coalesced, not
 dropped.** A detached refresh per edit raced: two edits inside the first
 build's five seconds both saw no index and both ran `index`, and later edits
-ran overlapping `update`s against one SQLite cache. Raised by Copilot. So the
-hook takes a lock file beside the index before it spawns anything; an edit that
-finds the lock held leaves a `pending` marker instead, and the worker runs one
-more `update` for every marker it finds when a run finishes. The worker removes
-the lock and then looks for a marker once more, and the hook looks for the lock
-once more after leaving one, so an edit that lands between the two checks is
-still refreshed. The worker renews the lock before every run, so a lock older
-than any one run could take is a crashed worker's and is taken over; its token
-keeps a worker from removing a lock it no longer holds.
+ran overlapping `update`s against one SQLite cache. Raised by Copilot. Every
+edit leaves a `pending` marker beside the index, and a worker holding the
+root's lock runs one more refresh for as long as it finds one; an edit that
+finds the lock held starts nothing, because the worker will see its marker.
+The edit marks before it looks at the lock, and the worker looks for a marker
+once more after it lets go, so the edit landing between those two steps is
+still served by one side or the other.
+
+**The lock is the operating system's, held for the worker's lifetime.** It
+began as a lock *file* whose existence was the lock, which needed an age to
+tell a crashed worker from a live one — and then a token, a renewal, and a
+check-then-act on every renewal and removal that a takeover could still slip
+between. Raised by Copilot across two rounds. An advisory lock on an open
+handle (`flock` on POSIX, `msvcrt.locking` on Windows) has none of that: the
+kernel grants it to one process, and releases it the moment that process
+exits, crashed or not. The file itself is never removed, so no path operation
+can pull a lock out from under its holder.
 """
 
 import json
 import os
-import re
 import shutil
 import subprocess
 import sys
-import time
-import uuid
+
+if os.name == "nt":
+    import msvcrt
+else:
+    import fcntl
 
 # The prefix both sweeps give their throwaway worktrees.
 SWEEP_PREFIX = "secsweep-"
@@ -63,9 +73,8 @@ WRAPPER = os.path.join(".claude", "skills", "codebase-index", "scripts", "run-in
 
 CACHE = os.path.join(".claude", "cache", "codebase-index")
 
-# A refresh is killed after this long, so a lock older than it is abandoned.
+# A refresh that has not finished by now is killed, so a worker never hangs.
 RUN_TIMEOUT = 300
-STALE_AFTER = RUN_TIMEOUT + 60
 
 # `git` must answer about the directory it is pointed at and nothing else.
 GIT_ENV_OVERRIDES = ("GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE")
@@ -109,8 +118,16 @@ def registered(toplevel, owner_toplevel):
     file must be one its admin directory points back at — the backlink
     `guard-edit-target.py`'s `verified_gitdir` requires for the same reason —
     and a `.git` directory is only ever the owner's own checkout.
+
+    **And the marker must be a real entry, not a link to one.** `isfile`,
+    `open` and `realpath` all follow a link, so a forged directory whose
+    `.git` linked to a registered worktree's `.git` file read that file's
+    admin directory, whose backlink named that same file, and passed. Raised
+    by Copilot. A link or junction at `.git` is refused before either branch.
     """
     marker = os.path.join(toplevel, ".git")
+    if os.path.islink(marker) or os.path.isjunction(marker):
+        return False
     if os.path.isdir(marker):
         return same(toplevel, owner_toplevel)
     if not os.path.isfile(marker):
@@ -171,62 +188,56 @@ def pending_path(root):
     return os.path.join(root, CACHE, "refresh.pending")
 
 
-def acquire(root):
-    """Take the root's refresh lock: the holder's token, or None when it is held.
+class Lock:
+    """The root's refresh lock: an OS advisory lock on an open handle.
 
-    **The lock carries a token, and only its holder renews or removes it.**
-    Its age used to be measured from creation alone, so a worker serving
-    several coalesced refreshes looked abandoned after the first ran long, a
-    second worker took the lock over, and the first then deleted the
-    replacement's lock on its way out. Raised by Copilot. The worker now
-    renews the lock before every refresh, so a live lock is never older than
-    one run, and `release` removes only a lock whose token is its own.
+    Held from `acquire` until `release` or the process's exit, whichever is
+    first, and by one process at a time. Windows locks a byte range per
+    handle, POSIX `flock` locks per open file, and in both a second handle in
+    the same process is refused like any other, which is what lets the suite
+    hold it from a test.
     """
-    lock = lock_path(root)
-    os.makedirs(os.path.dirname(lock), exist_ok=True)
-    for _ in range(2):
+
+    def __init__(self, root):
+        self.path = lock_path(root)
+        self.handle = None
+
+    def acquire(self):
+        os.makedirs(os.path.dirname(self.path), exist_ok=True)
+        handle = open(self.path, "a+b")
         try:
-            fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-        except FileExistsError:
-            try:
-                if time.time() - os.path.getmtime(lock) < STALE_AFTER:
-                    return None
-                os.remove(lock)
-            except OSError:
-                return None
-            continue
-        token = uuid.uuid4().hex
-        os.write(fd, token.encode("ascii"))
-        os.close(fd)
-        return token
-    return None
-
-
-def holds(root, token):
-    try:
-        with open(lock_path(root), encoding="ascii") as handle:
-            return handle.read().strip() == token
-    except (OSError, UnicodeDecodeError):
-        return False
-
-
-def renew(root, token):
-    """Refresh the lock's age before a run; False when this worker lost it."""
-    if not holds(root, token):
-        return False
-    try:
-        os.utime(lock_path(root))
-    except OSError:
-        return False
-    return True
-
-
-def release(root, token):
-    if holds(root, token):
-        try:
-            os.remove(lock_path(root))
+            if os.name == "nt":
+                handle.seek(0)
+                msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
         except OSError:
-            pass
+            handle.close()
+            return False
+        self.handle = handle
+        return True
+
+    def release(self):
+        if self.handle is None:
+            return
+        try:
+            if os.name == "nt":
+                self.handle.seek(0)
+                msvcrt.locking(self.handle.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                fcntl.flock(self.handle.fileno(), fcntl.LOCK_UN)
+        finally:
+            self.handle.close()
+            self.handle = None
+
+
+def held(root):
+    """Whether a worker holds the root's lock right now."""
+    probe = Lock(root)
+    if not probe.acquire():
+        return True
+    probe.release()
+    return False
 
 
 def take_pending(root):
@@ -239,6 +250,7 @@ def take_pending(root):
 
 
 def mark_pending(root):
+    os.makedirs(os.path.dirname(pending_path(root)), exist_ok=True)
     with open(pending_path(root), "a", encoding="ascii"):
         pass
 
@@ -259,22 +271,22 @@ def refresh(owner, root):
         pass
 
 
-def work(owner, root, token):
-    """The worker: refresh until no edit is left waiting, then let go."""
-    while True:
-        if not renew(root, token):
-            return
-        take_pending(root)
-        refresh(owner, root)
-        if take_pending(root):
-            continue
-        release(root, token)
-        # An edit that found the lock held just before it was released left a
-        # marker this loop has not seen; take the lock back and serve it.
-        if not take_pending(root):
-            return
-        token = acquire(root)
-        if token is None:
+def work(owner, root):
+    """The worker: refresh while an edit is waiting, then let go.
+
+    A second worker for the same root finds the lock held and returns at
+    once. After letting go the worker looks for a marker once more: an edit
+    that marked while it still held the lock saw it held and started nothing,
+    so this look is what serves it.
+    """
+    lock = Lock(root)
+    while lock.acquire():
+        try:
+            while take_pending(root):
+                refresh(owner, root)
+        finally:
+            lock.release()
+        if not os.path.exists(pending_path(root)):
             return
 
 
@@ -295,38 +307,29 @@ def spawn(argv, cwd):
     subprocess.Popen(argv, **kwargs)
 
 
-def launch(owner, root, token):
-    try:
-        spawn([sys.executable, os.path.abspath(__file__), "--worker", root, token], owner)
-    except OSError:
-        release(root, token)
-
-
 def start(owner, root):
-    """Hand `root` to a worker: a new one if the lock is free, else a marker."""
-    token = acquire(root)
-    if token is not None:
-        launch(owner, root, token)
-        return
+    """Record the edit, then start a worker unless one is already running.
+
+    The marker comes first. A worker that is running will see it before it
+    lets go, or on its look after letting go; a worker that has already let
+    go is not holding the lock, so this edit starts a new one. Two edits that
+    both find the lock free both start one, and the second finds it held and
+    exits, which costs a process and nothing else.
+    """
     mark_pending(root)
-    # The worker may have released between the failed acquire and the marker.
-    token = acquire(root)
-    if token is not None:
-        launch(owner, root, token)
+    if not held(root):
+        spawn([sys.executable, os.path.abspath(__file__), "--worker", root], owner)
 
 
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
     owner = home()
     if argv[:1] == ["--worker"]:
-        # Spawned by `start`, which already holds the lock. The root is judged
-        # again rather than trusted, so the worker entry point widens nothing,
-        # and a token of any other shape is not one `acquire` wrote.
-        if len(argv) != 3 or not re.fullmatch(r"[0-9a-f]{32}", argv[2]):
-            return 0
-        root = target_root(argv[1], owner)
+        # Spawned by `start`. The root is judged again rather than trusted, so
+        # the worker entry point widens nothing.
+        root = target_root(argv[1], owner) if len(argv) == 2 else None
         if root is not None:
-            work(owner, root, argv[2])
+            work(owner, root)
         return 0
     try:
         event = json.load(sys.stdin)

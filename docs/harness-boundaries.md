@@ -1435,24 +1435,27 @@ through `run-guard.sh`, which splits the two things the anchor had fused:
 - **The root comes from the event's `cwd`**, walked up to its checkout and
   passed as `--root` — accepted only when its `git rev-parse --git-common-dir`
   is this repository's **and git made it**: a `.git` file must be one its
-  admin directory points back at, and a `.git` directory is only ever the
-  owner's own checkout, because a forged `.git` reports the same common
-  directory. A directory starting `secsweep-` is refused by name, because a
+  admin directory points back at, a `.git` directory is only ever the
+  owner's own checkout, and a `.git` that is a link or junction is refused,
+  because a forged `.git` reports the same common directory. A directory starting `secsweep-` is refused by name, because a
   sweep's tree is prompt-injection input and indexing it reads that tree's
   `.codeindexignore`. Anything else refreshes nothing.
 
 **A fresh worktree has no index, and `update` there does nothing**, so the
 hook builds one (`index`) on the first edit and updates it afterwards; a full
 build of this repository measured about five seconds, detached. **One
-worker runs per root**: the hook takes a lock file beside the index before
-it spawns anything, and an edit that finds the lock held leaves a marker
-that earns one more `update` when the run finishes. A detached refresh per
-edit raced two full builds against one SQLite cache inside those five
-seconds. The worker renews the lock before each run and removes only a lock
-carrying its own token. `test_index_refresh.py` judges the root against real
-linked worktrees and forged ones, the lock against the interleavings that
-lose an edit or admit a second worker, and the detached child end to end
-against a stub wrapper.
+worker runs per root**: every edit leaves a marker beside the index, and the
+worker holding the root's lock refreshes for as long as it finds one, so
+edits made during a run cost one more `update` between them. A detached
+refresh per edit raced two full builds against one SQLite cache inside
+those five seconds. The lock is an OS advisory lock held on an open handle
+(`flock`, `msvcrt.locking`) for the worker's lifetime and released by the
+kernel when the worker exits, crashed or not. A lock *file* whose existence
+was the lock needed an age, then a token, then a renewal, and each still
+left a check-then-act a takeover could slip between.
+`test_index_refresh.py` judges the root against real linked worktrees and
+forged ones, the lock from a second handle and from a second process that
+dies holding it, and the detached child end to end against a stub wrapper.
 
 **The example under the skill does not follow.** It ships alone, so it keeps
 the self-contained `cd "${CLAUDE_PROJECT_DIR}" && run-index update` form:
