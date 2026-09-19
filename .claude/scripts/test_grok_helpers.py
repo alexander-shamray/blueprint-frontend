@@ -9408,6 +9408,42 @@ class TestCodebaseIndexSkillGrants(unittest.TestCase):
             command.lstrip().startswith("codebase-index"),
             "hook example must not invoke the unpinned CLI directly")
 
+    def test_the_project_refreshes_the_index_after_every_edit(self):
+        # The example above is never read by Claude Code; this is the entry
+        # that runs. Anchored on the project root, because a relative command
+        # runs whichever checkout the session stands in, and paired with the
+        # deny that stops a session rewriting the wrapper it executes
+        # (alexander-shamray/blueprint-frontend#44, not a backend issue).
+        # The example is held to the same shape, because it is the one a
+        # reader copies; Copilot's third round on the frontend pull request
+        # that added this test found it still relative and
+        # undenied after production was fixed.
+        expected = (
+            'cd "${CLAUDE_PROJECT_DIR}" && '
+            "bash .claude/skills/codebase-index/scripts/run-index update "
+            ">/dev/null 2>&1 &")
+        example = (SCRIPTS.parent / "skills" / "codebase-index" / "examples"
+                   / "hooks" / "settings.json")
+        for path in (SCRIPTS.parent / "settings.json", example):
+            with self.subTest(settings=path.name, parent=path.parent.name):
+                settings = json.loads(path.read_text(encoding="utf-8"))
+                entries = settings["hooks"]["PostToolUse"]
+                matched = [
+                    e for e in entries
+                    if "Edit" in e.get("matcher", "").split("|")]
+                self.assertTrue(
+                    matched, "no PostToolUse hook refreshes the index")
+                self.assertEqual(
+                    {"Edit", "Write", "MultiEdit", "NotebookEdit"},
+                    set(matched[0]["matcher"].split("|")))
+                # A hook of any other type is text Claude Code never runs.
+                self.assertEqual("command", matched[0]["hooks"][0]["type"])
+                self.assertEqual(
+                    expected, matched[0]["hooks"][0]["command"])
+                deny = settings["permissions"]["deny"]
+                for prefix in ("", "./"):
+                    self.assertIn(f"Edit({prefix}.claude/skills/**)", deny)
+
     def test_every_executable_wrapper_disables_skill_auto_update(self):
         # Routing through run-index is not the protection. The export is, and
         # deleting it would leave the caller tests green. Raised by Copilot.

@@ -207,8 +207,9 @@ rather than here. Three rules reach every session, so they stay:
 - **`.claude/settings.json` self-locks, not instantaneously** — a change to it
   lands complete and goes last, and a restore is verified by reading the file,
   never by trying what it forbids.
-- **The two hooks use `run-guard.sh`**, which locates a compatible Python
-  launcher before invoking the guard.
+- **The two guard hooks use `run-guard.sh`**, which locates a compatible
+  Python launcher before invoking the guard. The third, the index refresh,
+  runs `run-index` from the project root and guards nothing.
 - **`python -m unittest discover -s .claude/scripts -p 'test_*.py'` is the
   harness's own suite** — it covers the deny lists, the frontmatter grants,
   the helper shapes and the hooks. It reads `git ls-files`, so a new tracked

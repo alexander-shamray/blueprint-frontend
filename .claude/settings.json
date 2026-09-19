@@ -34,6 +34,8 @@
       "Edit(./.claude/agents/**)",
       "Edit(.claude/hooks/**)",
       "Edit(./.claude/hooks/**)",
+      "Edit(.claude/skills/**)",
+      "Edit(./.claude/skills/**)",
       "Edit(.claude/settings.json)",
       "Edit(./.claude/settings.json)",
       "Edit(.claude/settings.local.json)",
@@ -88,6 +90,18 @@
             "type": "command",
             "command": "sh \"${CLAUDE_PROJECT_DIR}/.claude/hooks/run-guard.sh\" guard-edit-target.py",
             "statusMessage": "checking edit target"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd \"${CLAUDE_PROJECT_DIR}\" && bash .claude/skills/codebase-index/scripts/run-index update >/dev/null 2>&1 &",
+            "timeout": 5
           }
         ]
       }
