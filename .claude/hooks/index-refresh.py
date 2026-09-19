@@ -42,16 +42,19 @@ finds the lock held leaves a `pending` marker instead, and the worker runs one
 more `update` for every marker it finds when a run finishes. The worker removes
 the lock and then looks for a marker once more, and the hook looks for the lock
 once more after leaving one, so an edit that lands between the two checks is
-still refreshed. A lock older than any refresh could take is a crashed worker's
-and is taken over.
+still refreshed. The worker renews the lock before every run, so a lock older
+than any one run could take is a crashed worker's and is taken over; its token
+keeps a worker from removing a lock it no longer holds.
 """
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
 import time
+import uuid
 
 # The prefix both sweeps give their throwaway worktrees.
 SWEEP_PREFIX = "secsweep-"
@@ -95,6 +98,39 @@ def git_paths(directory):
     return toplevel, os.path.join(directory, common)
 
 
+def registered(toplevel, owner_toplevel):
+    """Whether `toplevel` is a checkout git itself made of this repository.
+
+    **The common directory is a claim the checkout makes about itself.** A
+    directory holding a `.git` file that names `<repo>/.git/worktrees/x`, or a
+    `.git` that is a junction to `<repo>/.git`, reports this repository's
+    common directory without git ever having created it, and its files would
+    be indexed by this checkout's tooling. Raised by Copilot. So a `.git`
+    file must be one its admin directory points back at — the backlink
+    `guard-edit-target.py`'s `verified_gitdir` requires for the same reason —
+    and a `.git` directory is only ever the owner's own checkout.
+    """
+    marker = os.path.join(toplevel, ".git")
+    if os.path.isdir(marker):
+        return same(toplevel, owner_toplevel)
+    if not os.path.isfile(marker):
+        return False
+    try:
+        with open(marker, encoding="utf-8") as handle:
+            text = handle.read().strip()
+    except OSError:
+        return False
+    if not text.startswith("gitdir:"):
+        return False
+    gitdir = os.path.join(toplevel, text.split(":", 1)[1].strip())
+    try:
+        with open(os.path.join(gitdir, "gitdir"), encoding="utf-8") as handle:
+            backlink = handle.read().strip()
+    except OSError:
+        return False
+    return same(backlink, marker)
+
+
 def target_root(cwd, owner):
     """The root to refresh for an edit made from `cwd`, or None to refresh nothing."""
     if not isinstance(cwd, str) or not cwd or not os.path.isdir(cwd):
@@ -105,6 +141,8 @@ def target_root(cwd, owner):
         return None
     toplevel, common = target
     if not same(common, mine[1]):
+        return None
+    if not registered(toplevel, mine[0]):
         return None
     if os.path.basename(os.path.normpath(toplevel)).startswith(SWEEP_PREFIX):
         return None
@@ -134,7 +172,16 @@ def pending_path(root):
 
 
 def acquire(root):
-    """Take the root's refresh lock; True when this caller now holds it."""
+    """Take the root's refresh lock: the holder's token, or None when it is held.
+
+    **The lock carries a token, and only its holder renews or removes it.**
+    Its age used to be measured from creation alone, so a worker serving
+    several coalesced refreshes looked abandoned after the first ran long, a
+    second worker took the lock over, and the first then deleted the
+    replacement's lock on its way out. Raised by Copilot. The worker now
+    renews the lock before every refresh, so a live lock is never older than
+    one run, and `release` removes only a lock whose token is its own.
+    """
     lock = lock_path(root)
     os.makedirs(os.path.dirname(lock), exist_ok=True)
     for _ in range(2):
@@ -143,22 +190,43 @@ def acquire(root):
         except FileExistsError:
             try:
                 if time.time() - os.path.getmtime(lock) < STALE_AFTER:
-                    return False
+                    return None
                 os.remove(lock)
             except OSError:
-                return False
+                return None
             continue
-        os.write(fd, str(os.getpid()).encode("ascii"))
+        token = uuid.uuid4().hex
+        os.write(fd, token.encode("ascii"))
         os.close(fd)
-        return True
-    return False
+        return token
+    return None
 
 
-def release(root):
+def holds(root, token):
     try:
-        os.remove(lock_path(root))
+        with open(lock_path(root), encoding="ascii") as handle:
+            return handle.read().strip() == token
+    except (OSError, UnicodeDecodeError):
+        return False
+
+
+def renew(root, token):
+    """Refresh the lock's age before a run; False when this worker lost it."""
+    if not holds(root, token):
+        return False
+    try:
+        os.utime(lock_path(root))
     except OSError:
-        pass
+        return False
+    return True
+
+
+def release(root, token):
+    if holds(root, token):
+        try:
+            os.remove(lock_path(root))
+        except OSError:
+            pass
 
 
 def take_pending(root):
@@ -191,17 +259,22 @@ def refresh(owner, root):
         pass
 
 
-def work(owner, root):
+def work(owner, root, token):
     """The worker: refresh until no edit is left waiting, then let go."""
     while True:
+        if not renew(root, token):
+            return
         take_pending(root)
         refresh(owner, root)
         if take_pending(root):
             continue
-        release(root)
+        release(root, token)
         # An edit that found the lock held just before it was released left a
         # marker this loop has not seen; take the lock back and serve it.
-        if not take_pending(root) or not acquire(root):
+        if not take_pending(root):
+            return
+        token = acquire(root)
+        if token is None:
             return
 
 
@@ -222,21 +295,24 @@ def spawn(argv, cwd):
     subprocess.Popen(argv, **kwargs)
 
 
+def launch(owner, root, token):
+    try:
+        spawn([sys.executable, os.path.abspath(__file__), "--worker", root, token], owner)
+    except OSError:
+        release(root, token)
+
+
 def start(owner, root):
     """Hand `root` to a worker: a new one if the lock is free, else a marker."""
-    if acquire(root):
-        try:
-            spawn([sys.executable, os.path.abspath(__file__), "--worker", root], owner)
-        except OSError:
-            release(root)
+    token = acquire(root)
+    if token is not None:
+        launch(owner, root, token)
         return
     mark_pending(root)
     # The worker may have released between the failed acquire and the marker.
-    if acquire(root):
-        try:
-            spawn([sys.executable, os.path.abspath(__file__), "--worker", root], owner)
-        except OSError:
-            release(root)
+    token = acquire(root)
+    if token is not None:
+        launch(owner, root, token)
 
 
 def main(argv=None):
@@ -244,10 +320,13 @@ def main(argv=None):
     owner = home()
     if argv[:1] == ["--worker"]:
         # Spawned by `start`, which already holds the lock. The root is judged
-        # again rather than trusted, so the worker entry point widens nothing.
-        root = target_root(argv[1], owner) if len(argv) == 2 else None
+        # again rather than trusted, so the worker entry point widens nothing,
+        # and a token of any other shape is not one `acquire` wrote.
+        if len(argv) != 3 or not re.fullmatch(r"[0-9a-f]{32}", argv[2]):
+            return 0
+        root = target_root(argv[1], owner)
         if root is not None:
-            work(owner, root)
+            work(owner, root, argv[2])
         return 0
     try:
         event = json.load(sys.stdin)

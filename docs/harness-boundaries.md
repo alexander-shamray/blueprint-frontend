@@ -1434,9 +1434,12 @@ through `run-guard.sh`, which splits the two things the anchor had fused:
   session stands in chooses the code that runs.
 - **The root comes from the event's `cwd`**, walked up to its checkout and
   passed as `--root` — accepted only when its `git rev-parse --git-common-dir`
-  is this repository's, and refused by name when the directory starts
-  `secsweep-`, because a sweep's tree is prompt-injection input and indexing
-  it reads that tree's `.codeindexignore`. Anything else refreshes nothing.
+  is this repository's **and git made it**: a `.git` file must be one its
+  admin directory points back at, and a `.git` directory is only ever the
+  owner's own checkout, because a forged `.git` reports the same common
+  directory. A directory starting `secsweep-` is refused by name, because a
+  sweep's tree is prompt-injection input and indexing it reads that tree's
+  `.codeindexignore`. Anything else refreshes nothing.
 
 **A fresh worktree has no index, and `update` there does nothing**, so the
 hook builds one (`index`) on the first edit and updates it afterwards; a full
@@ -1445,8 +1448,17 @@ worker runs per root**: the hook takes a lock file beside the index before
 it spawns anything, and an edit that finds the lock held leaves a marker
 that earns one more `update` when the run finishes. A detached refresh per
 edit raced two full builds against one SQLite cache inside those five
-seconds. `test_index_refresh.py` judges the root against real linked
-worktrees and the lock against the interleavings that lose an edit.
+seconds. The worker renews the lock before each run and removes only a lock
+carrying its own token. `test_index_refresh.py` judges the root against real
+linked worktrees and forged ones, the lock against the interleavings that
+lose an edit or admit a second worker, and the detached child end to end
+against a stub wrapper.
+
+**The example under the skill does not follow.** It ships alone, so it keeps
+the self-contained `cd "${CLAUDE_PROJECT_DIR}" && run-index update` form:
+anchored and denied, but refreshing the startup checkout. A copy that named
+`run-guard.sh` and `index-refresh.py` would fail on every edit in a project
+without them.
 
 **The MCP server does not follow, and that is the decision rather than a
 residual left over.** `.mcp.json` starts it once, with `--root .`, in the
