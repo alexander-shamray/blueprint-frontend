@@ -875,6 +875,24 @@ so the measurement above still decides the sweeps' case: a push the global
 allow may or may not admit is one they refuse either way. That is documented
 precedence, not a second measurement under `auto`.
 
+**A frontmatter deny holds for the rest of the user turn, not for the command
+that states it, and that is a cause the paragraph above did not have
+(blueprint-admin#17).** Measured there: `/ship` ran `/commit` and then pushed
+in the same turn, and the push came back "has been denied" in under a second
+with no hook reason, every time, while the identical push after a new user
+message ran — and a classifier refusal is slower and names itself. So
+`Bash(git push:*)` on `/branch`, `/commit` or `/review-copilot` refused
+`/ship`'s own push a step later. **A command `/ship` runs before it pushes
+never denies push. Do not put it back.** It reads as hardening and is not:
+`/branch` and `/commit` leave the push to `/pr`, `/review-copilot` pushes only
+an already-committed review fix, by name, and the git-argv hook and
+`settings.json` refuse `main`, force and delete whoever asks.
+`CHAINED_BEFORE_A_PUSH` in `test_grok_helpers.py` names the three and fails if
+one denies push again. A terminal, read-only command — the two sweeps — keeps
+its deny, because nothing pushes after it. Whether the three refusals above
+were this rather than the classifier was not re-examined, so the user-level
+remedy stands beside this one, not replaced by it.
+
 The sixth **was** the `--output` deny itself — the inventory's one entry that
 is a *deny* rather than an allow, listed because a deny over a command string
 is defeated by shell quoting. **#30 closed it, and not by improving the rule.**
