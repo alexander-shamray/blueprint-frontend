@@ -66,3 +66,7 @@ __pycache__/
 # publishes no other path, and removed by that helper once the PR is open.
 /pr-body.md
 /pr-title.txt
+
+# The user's local task list, kept current by Claude (CLAUDE.md, Working in
+# this repo). Local by design: it changes too often to go through a PR.
+/TODO.md
