@@ -207,7 +207,8 @@ rather than here. Three rules reach every session, so they stay:
 - **`.claude/settings.json` self-locks, not instantaneously** — a change to it
   lands complete and goes last, and a restore is verified by reading the file,
   never by trying what it forbids.
-- **The two hooks use `run-guard.sh`**, which locates a compatible Python
+- **Every hook uses `run-guard.sh`** — the two in `settings.json` and the
+  `review-grok-triager` profile's own — which locates a compatible Python
   launcher before invoking the guard.
 - **`python -m unittest discover -s .claude/scripts -p 'test_*.py'` is the
   harness's own suite** — it covers the deny lists, the frontmatter grants,
