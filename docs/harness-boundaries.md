@@ -1438,8 +1438,8 @@ through `run-guard.sh`, which splits the two things the anchor had fused:
   admin directory points back at, from under this repository's
   `<common>/worktrees/`; a `.git` directory is only ever the repository's
   main checkout, whose `.git` is the common directory itself, even when the
-  session started in a linked worktree; and a `.git` that is a link or
-  junction is refused, because a
+  session started in a linked worktree; and a `.git` that is a link, a
+  junction or a hard link to another name is refused, because a
   forged `.git` reports the same common directory. A directory starting
   `secsweep-`, in any case, is refused by name, because a
   sweep's tree is prompt-injection input and indexing it reads that tree's
@@ -1460,6 +1460,12 @@ left a check-then-act a takeover could slip between.
 `test_index_refresh.py` judges the root against real linked worktrees and
 forged ones, the lock from a second handle and from a second process that
 dies holding it, and the detached child end to end against a stub wrapper.
+
+**The worker records its indexer's pid in the lock file**, because the lock
+is the worker's and not the child's: a worker killed mid-run leaves
+`run-index` behind, and the next edit would otherwise start a second one
+against the same cache. A worker that takes the lock and finds that child
+still running stands off and leaves the tree to it.
 
 **A worker that crashes mid-refresh leaves the index stale until the next
 edit, and that is the residual rather than a gap to supervise.** The worker

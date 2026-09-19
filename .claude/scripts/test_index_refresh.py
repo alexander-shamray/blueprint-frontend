@@ -19,6 +19,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from pathlib import Path
@@ -164,10 +165,15 @@ class TheRootFollowsTheActiveWorktree(unittest.TestCase):
         self.assertTrue(os.path.isfile(self.hook.pending_path(argv[3])))
 
     def test_the_refresh_runs_the_owners_wrapper_against_the_worktree(self):
-        with mock.patch.object(self.hook.subprocess, "run") as run:
-            self.hook.refresh(self.main, self.sibling)
-        argv = run.call_args.args[0]
-        self.assertEqual(real(self.main), real(run.call_args.kwargs["cwd"]))
+        lock = mock.Mock()
+        with mock.patch.object(self.hook.subprocess, "Popen") as popen:
+            popen.return_value.pid = 4242
+            self.hook.refresh(self.main, self.sibling, lock)
+        argv = popen.call_args.args[0]
+        self.assertEqual(real(self.main), real(popen.call_args.kwargs["cwd"]))
+        # The child's pid goes in the lock while it runs and out afterwards,
+        # so a later worker can tell an orphaned indexer from a finished one.
+        self.assertEqual([mock.call("4242"), mock.call("")], lock.write.call_args_list)
         self.assertEqual(
             real(os.path.join(self.main, ".claude", "skills", "codebase-index",
                               "scripts", "run-index")),
@@ -261,6 +267,30 @@ class TheRootFollowsTheActiveWorktree(unittest.TestCase):
         self.assertTrue(self.hook.same(seen[1], owner_common))
         self.assertIsNone(self.hook.target_root(forged, self.main))
 
+    def test_a_hard_linked_git_file_is_refused(self):
+        # Copilot, round 8: a hard link is neither a symlink nor a junction,
+        # and it is the same inode, so it inherits the worktree's backlink and
+        # passes every identity comparison. Git never makes a second name for
+        # a `.git` file, so a marker with more than one link is somebody's.
+        forged = os.path.join(self.base, "forged-hardlink")
+        os.mkdir(forged)
+        marker = os.path.join(forged, ".git")
+        try:
+            os.link(os.path.join(self.sibling, ".git"), marker)
+        except (OSError, NotImplementedError, AttributeError) as error:
+            self.fail(f"a hard link is the premise of this case: {error}")
+        self.assertGreater(os.stat(marker).st_nlink, 1)
+        self.assertFalse(self.hook.registered(forged, self.main, self.common))
+        self.assertIsNone(self.hook.target_root(forged, self.main))
+        # The cost, stated rather than discovered: a link raises the count on
+        # both names, so the real worktree is refused too while it exists.
+        # Somebody who can write beside the repository can stop a worktree
+        # being refreshed; they still cannot have their own tree indexed.
+        self.assertIsNone(self.hook.target_root(self.sibling, self.main))
+        os.remove(marker)
+        self.assertEqual(1, os.stat(os.path.join(self.sibling, ".git")).st_nlink)
+        self.assertIsNotNone(self.hook.target_root(self.sibling, self.main))
+
     def test_a_git_file_reached_through_a_link_is_refused(self):
         # Copilot, round 3: `isfile`, `open` and `realpath` all follow a link,
         # so a `.git` linking to a registered worktree's own `.git` file read
@@ -351,7 +381,7 @@ class OneWorkerPerRootAndNoEditDropped(unittest.TestCase):
     def test_edits_during_a_run_earn_exactly_one_more_run(self):
         runs = []
 
-        def refresh(owner, root):
+        def refresh(owner, root, lock):
             runs.append(root)
             if len(runs) == 1:
                 # Three edits arrive while the first run is going.
@@ -380,7 +410,7 @@ class OneWorkerPerRootAndNoEditDropped(unittest.TestCase):
 
         self.hook.mark_pending(self.root)
         with mock.patch.object(self.hook, "refresh",
-                               side_effect=lambda o, r: runs.append(r)), \
+                               side_effect=lambda o, r, lock: runs.append(r)), \
                 mock.patch.object(self.hook.Lock, "release", release):
             self.hook.work(self.root, self.root)
         self.assertEqual(2, len(runs))
@@ -424,7 +454,7 @@ class OneWorkerPerRootAndNoEditDropped(unittest.TestCase):
             events.append(("take", taken))
             return taken
 
-        def refresh(owner, root):
+        def refresh(owner, root, lock):
             events.append(("refresh",))
             if events.count(("refresh",)) == 1:
                 self.hook.mark_pending(root)
@@ -437,6 +467,74 @@ class OneWorkerPerRootAndNoEditDropped(unittest.TestCase):
             if event == ("take", True):
                 self.assertEqual(("refresh",), events[i + 1], events)
         self.assertEqual(2, events.count(("refresh",)))
+
+    def test_a_marker_that_will_not_go_ends_the_worker(self):
+        # Copilot, round 8: a failed removal reported as an absent marker
+        # ended the inner loop, and the outer loop took the lock again and
+        # met the same marker, for ever. A marker that will not go ends the
+        # worker and waits for the next edit.
+        self.hook.mark_pending(self.root)
+        with mock.patch.object(self.hook.os, "remove",
+                               side_effect=PermissionError(13, "in use")), \
+                mock.patch.object(self.hook, "refresh") as refresh:
+            # In a thread with a deadline: the defect does not fail this
+            # case, it never finishes it, and a suite that hangs reports
+            # nothing at all.
+            worker = threading.Thread(
+                target=self.hook.work, args=(self.root, self.root), daemon=True)
+            worker.start()
+            worker.join(30)
+        self.assertFalse(worker.is_alive(), "the worker is spinning on the marker")
+        refresh.assert_not_called()
+        self.assertTrue(os.path.exists(self.hook.pending_path(self.root)))
+        self.assertFalse(self.hook.held(self.root))
+
+    def test_a_failed_removal_is_not_an_absent_marker(self):
+        self.assertIs(False, self.hook.take_pending(self.root))
+        self.hook.mark_pending(self.root)
+        with mock.patch.object(self.hook.os, "remove",
+                               side_effect=PermissionError(13, "in use")):
+            self.assertIsNone(self.hook.take_pending(self.root))
+        self.assertIs(True, self.hook.take_pending(self.root))
+
+    def test_an_indexer_left_running_by_a_killed_worker_keeps_the_tree(self):
+        # Copilot, round 8: the lock is the worker's, not the indexer's, so a
+        # worker killed mid-run left `run-index` behind and the next edit
+        # started a second one against the same cache. The lock records the
+        # child's pid, and a worker that finds it still running stands off.
+        child = subprocess.Popen([sys.executable, "-c", "import sys; sys.stdin.read()"],
+                                 stdin=subprocess.PIPE)
+
+        def stop():
+            # Kill before waiting: a failing assertion must not leave the
+            # suite waiting on a child nothing has told to stop.
+            child.kill()
+            child.wait(timeout=30)
+            child.stdin.close()
+
+        self.addCleanup(stop)
+        lock = self.hook.Lock(self.root)
+        self.assertTrue(lock.acquire())
+        lock.write(str(child.pid))
+        lock.release()
+
+        self.hook.mark_pending(self.root)
+        with mock.patch.object(self.hook, "refresh") as refresh:
+            self.hook.work(self.root, self.root)
+        refresh.assert_not_called()
+        self.assertTrue(os.path.exists(self.hook.pending_path(self.root)))
+
+        stop()
+        with mock.patch.object(self.hook, "refresh") as refresh:
+            self.hook.work(self.root, self.root)
+        refresh.assert_called_once()
+
+    def test_a_process_is_alive_only_while_it_runs(self):
+        self.assertTrue(self.hook.alive(os.getpid()))
+        child = subprocess.Popen([sys.executable, "-c", "pass"])
+        child.wait(timeout=30)
+        self.assertFalse(self.hook.alive(child.pid))
+        self.assertFalse(self.hook.alive(0))
 
     def test_the_lock_file_is_never_removed(self):
         # A lock removed by path can be pulled from under its holder; one held

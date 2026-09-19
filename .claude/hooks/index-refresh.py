@@ -178,6 +178,20 @@ def registered(toplevel, owner_toplevel, owner_common):
         return False
     if not text.startswith("gitdir:"):
         return False
+    # **One name, or it is somebody's second name for a real worktree's
+    # marker.** A hard link is neither a link nor a junction, and it shares
+    # the inode identity every comparison below rests on, so a forged
+    # checkout could hard-link its `.git` to a registered one's and inherit
+    # its backlink whole. Git never makes a second name for a `.git` file.
+    # Raised by Copilot. The cost is that the link raises the count on BOTH
+    # names, so the real worktree stops being refreshed while the forgery
+    # exists: a denial of refresh by somebody who can already write beside
+    # the repository, rather than a tree of theirs being indexed.
+    try:
+        if os.stat(marker).st_nlink > 1:
+            return False
+    except OSError:
+        return False
     gitdir = os.path.join(toplevel, text.split(":", 1)[1].strip())
     admin = os.path.realpath(gitdir)
     if not same(os.path.dirname(admin), os.path.join(owner_common, "worktrees")):
@@ -272,6 +286,30 @@ class Lock:
         self.handle = handle
         return True
 
+    def read(self):
+        """What the holder last wrote in the lock file."""
+        if self.handle is None:
+            with open(self.path, "rb") as handle:
+                return handle.read().decode("ascii", "replace")
+        self.handle.seek(0)
+        return self.handle.read().decode("ascii", "replace")
+
+    def write(self, text):
+        """Record something in the lock file; only the holder may.
+
+        Written through the held handle, so the record and the lock live and
+        die together: a worker that never took the lock cannot leave one.
+        """
+        if self.handle is None:
+            return
+        try:
+            self.handle.seek(0)
+            self.handle.truncate()
+            self.handle.write(text.encode("ascii"))
+            self.handle.flush()
+        except OSError:
+            pass
+
     def release(self):
         if self.handle is None:
             return
@@ -306,12 +344,20 @@ def take_pending(root):
     Windows the unlink of an open file fails instead, and the marker survives
     for the next look. Raised by Copilot as a lost edit; it is a lost marker,
     which the refresh after it makes redundant.
+
+    **A removal that fails is not an absent marker**, and reporting it as one
+    spun the worker: the inner loop ended, the marker was still there, and the
+    outer loop took the lock again and retried with nothing changed, for ever.
+    Raised by Copilot. `None` says the marker is there and could not be taken,
+    which ends the worker and leaves the marker for the next edit to serve.
     """
     try:
         os.remove(pending_path(root))
         return True
-    except OSError:
+    except FileNotFoundError:
         return False
+    except OSError:
+        return None
 
 
 def mark_pending(root):
@@ -320,20 +366,68 @@ def mark_pending(root):
         pass
 
 
-def refresh(owner, root):
+def alive(pid):
+    """Whether a process with this id is running."""
+    if pid <= 0:
+        return False
+    if os.name == "nt":
+        out = subprocess.run(
+            ["tasklist", "/FI", f"PID eq {pid}", "/NH"],
+            capture_output=True, text=True, timeout=10, check=False)
+        return str(pid) in out.stdout
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def running_indexer(lock):
+    """The pid the lock records, when that indexer is still running.
+
+    **A worker's lock says nothing about the indexer it started.** The lock
+    is the worker's, and a worker killed mid-run leaves `run-index` behind:
+    the kernel frees the lock, the next edit starts a second worker, and two
+    indexers write one SQLite cache. Raised by Copilot. So the worker records
+    its child's pid in the lock file, and a worker that takes the lock and
+    finds that child still running leaves the tree to it.
+    """
+    try:
+        recorded = lock.read().strip()
+    except OSError:
+        return None
+    if not recorded.isdigit():
+        return None
+    pid = int(recorded)
+    try:
+        return pid if alive(pid) else None
+    except (OSError, subprocess.SubprocessError):
+        # Unknown is treated as running: one skipped refresh, never two
+        # indexers. The next edit asks again.
+        return pid
+
+
+def refresh(owner, root, lock):
     """Run the owner's wrapper against `root` once, synchronously."""
     bash = shutil.which("bash")
     if bash is None:
         return
+    child = None
     try:
-        subprocess.run(
+        child = subprocess.Popen(
             [bash, os.path.join(owner, WRAPPER), "--quiet", "--root", root,
              subcommand(root)],
             cwd=owner, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL, timeout=RUN_TIMEOUT, check=False,
-        )
+            stderr=subprocess.DEVNULL)
+        lock.write(str(child.pid))
+        child.wait(timeout=RUN_TIMEOUT)
     except (OSError, subprocess.SubprocessError):
-        pass
+        if child is not None:
+            child.kill()
+    finally:
+        lock.write("")
 
 
 def work(owner, root):
@@ -347,8 +441,17 @@ def work(owner, root):
     lock = Lock(root)
     while lock.acquire():
         try:
-            while take_pending(root):
-                refresh(owner, root)
+            if running_indexer(lock) is not None:
+                return
+            while True:
+                taken = take_pending(root)
+                if taken is None:
+                    # A marker that would not go: stop, rather than take the
+                    # lock again and meet it unchanged for ever.
+                    return
+                if not taken:
+                    break
+                refresh(owner, root, lock)
         finally:
             lock.release()
         if not os.path.exists(pending_path(root)):
