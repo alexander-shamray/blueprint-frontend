@@ -1292,3 +1292,32 @@ that is not `secsweep-` plus six characters under the canonical temp root —
 the shape check that stops a poisoned finding from naming a sibling PR worktree
 and having it deleted. Renaming the prefix would have to move in both helpers
 and both callers at once, so it stands; what is lost is attribution.
+
+**The index-refresh hook is the first that runs code the session can edit,
+and it arrived without the controls the guards have (#44).** A `PostToolUse`
+entry on `Edit|Write|MultiEdit|NotebookEdit` backgrounds
+`run-index update` after every edit, so the index stops going stale
+mid-session. Two things it does not share with the `PreToolUse` guards, stated
+here because `settings.json` is edit-denied to the session that found them and
+the fix is therefore a human's:
+
+- **Its path is relative.** The guards are spelt
+  `"${CLAUDE_PROJECT_DIR}/.claude/hooks/run-guard.sh"`; this one is
+  `bash .claude/skills/codebase-index/scripts/run-index`, which resolves
+  against whatever directory the session is standing in. From a subdirectory
+  it fails silently, which costs a stale index. From another checkout — a
+  sweep's throwaway worktree, whose tree this file calls prompt-injection
+  input — it runs **that** tree's `run-index`, with no prompt, on the next
+  edit. Anchoring it on `${CLAUDE_PROJECT_DIR}` closes the second case.
+- **Its target is not edit-denied.** `.claude/skills/**` is on neither the
+  deny list nor `guard-edit-target.py`'s refusal for the repository's own
+  tree — a probe `Edit` of the wrapper exited 0 with no verdict. Before this
+  hook, an edited `run-index` ran when a `Bash` call or the next session's MCP
+  start reached it; now the next edit in the same session runs it, and no
+  permission rule is consulted for a hook. `Edit(.claude/skills/**)` beside
+  the other control directories closes it, at the cost of the skill no
+  longer being editable by a session at all.
+
+The command is asynchronous and discards its output, so neither failure is
+visible when it happens; that is deliberate for the refresh and is exactly why
+the residual is written down rather than left to show itself.
