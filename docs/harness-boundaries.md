@@ -1293,31 +1293,38 @@ the shape check that stops a poisoned finding from naming a sibling PR worktree
 and having it deleted. Renaming the prefix would have to move in both helpers
 and both callers at once, so it stands; what is lost is attribution.
 
-**The index-refresh hook is the first that runs code the session can edit,
+**The index-refresh hook is the first that runs code a session could edit,
 and it arrived without the controls the guards have (#44).** A `PostToolUse`
 entry on `Edit|Write|MultiEdit|NotebookEdit` backgrounds
 `run-index update` after every edit, so the index stops going stale
-mid-session. Two things it does not share with the `PreToolUse` guards, stated
-here because `settings.json` is edit-denied to the session that found them and
-the fix is therefore a human's:
+mid-session. It first landed on the branch lacking two things the
+`PreToolUse` guards have; both were written here as residuals, raised again
+by Copilot as mandatory, and closed by a human's edit before the merge,
+because `settings.json` is edit-denied to the session that found them:
 
-- **Its path is relative.** The guards are spelt
-  `"${CLAUDE_PROJECT_DIR}/.claude/hooks/run-guard.sh"`; this one is
-  `bash .claude/skills/codebase-index/scripts/run-index`, which resolves
-  against whatever directory the session is standing in. From a subdirectory
-  it fails silently, which costs a stale index. From another checkout — a
-  sweep's throwaway worktree, whose tree this file calls prompt-injection
-  input — it runs **that** tree's `run-index`, with no prompt, on the next
-  edit. Anchoring it on `${CLAUDE_PROJECT_DIR}` closes the second case.
-- **Its target is not edit-denied.** `.claude/skills/**` is on neither the
+- **Its path was relative.** The guards are spelt
+  `"${CLAUDE_PROJECT_DIR}/.claude/hooks/run-guard.sh"`; the refresh was
+  `bash .claude/skills/codebase-index/scripts/run-index`, resolved against
+  whatever directory the session stood in. From a subdirectory that failed
+  silently; from another checkout — a sweep's throwaway worktree, whose tree
+  this file calls prompt-injection input — it ran **that** tree's
+  `run-index`, with no prompt, on the next edit. The command now opens with
+  `cd "${CLAUDE_PROJECT_DIR}"`, which anchors both the wrapper and the tree
+  `update` indexes.
+- **Its target was not edit-denied.** `.claude/skills/**` was on neither the
   deny list nor `guard-edit-target.py`'s refusal for the repository's own
   tree — a probe `Edit` of the wrapper exited 0 with no verdict. Before this
-  hook, an edited `run-index` ran when a `Bash` call or the next session's MCP
-  start reached it; now the next edit in the same session runs it, and no
-  permission rule is consulted for a hook. `Edit(.claude/skills/**)` beside
-  the other control directories closes it, at the cost of the skill no
-  longer being editable by a session at all.
+  hook an edited `run-index` ran when a `Bash` call or the next session's MCP
+  start reached it; with the hook, the next edit in the same session would
+  have run it, and no permission rule is consulted for a hook. Both
+  `Edit(.claude/skills/**)` spellings now sit beside the other control
+  directories. **The cost is that no session can edit the skill at all**,
+  including the one that would have refreshed it; that is a human's edit now,
+  like every other file a hook or a grant executes.
 
-The command is asynchronous and discards its output, so neither failure is
-visible when it happens; that is deliberate for the refresh and is exactly why
-the residual is written down rather than left to show itself.
+`test_the_project_refreshes_the_index_after_every_edit` asserts the entry, its
+matcher, the anchor and the deny together — the example under the skill was
+the only thing the suite read before, and Claude Code never reads it. What no
+test here can show is the hook firing: the command is asynchronous and
+discards its output, so a failure is invisible when it happens, and CI runs
+the suite rather than the harness.
