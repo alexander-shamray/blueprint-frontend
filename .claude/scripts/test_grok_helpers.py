@@ -115,14 +115,6 @@ What is under test, and which issue each half closes:
         the original range read and the `git cherry` that first replaced it —
         answering wrongly where the identity read answers.
 
-**This inventory is a third copy of a list `ci.yml` and `docs/testing.md` also
-keep, and it went stale exactly as a redundant copy does** — it ended at #57
-while the classes closing five more sat in this file. Reconcile it with those
-two, or the next reader of the suite gets the shortest version. It was a fourth
-copy until the extraction folded `CLAUDE.md`'s commands section into
-`docs/testing.md`; removing a copy is the only fix for this shape that does not
-itself need maintaining.
-
 Two rules the suite is written to, both of them this repository's:
 
   *The engine under test is the engine that ships.* Every pattern assertion
