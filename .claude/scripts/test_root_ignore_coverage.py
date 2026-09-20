@@ -29,6 +29,14 @@ owes gitignore.** The last rule that matches decides, so `.remember/` followed
 by `!.remember/` is not coverage at all — and a matcher collapsing the rules
 into a set would call it coverage, which is this gate failing open on the one
 edit most likely to undo it. Raised by Copilot, round 1.
+
+**Where this reads git, it reads git rather than remembering it.** Leading
+whitespace being part of a pattern, trailing whitespace not being, a negation
+under an excluded parent re-including nothing, and a later positive rule
+re-excluding a negated name are each measured with `git check-ignore` in this
+repository, and the case that pins each one says so. Copilot raised all four
+in round 2, and every one turned out to fail open — the parser said covered,
+or the scanner said not-a-blanket, where git said otherwise.
 """
 
 import shutil
@@ -58,11 +66,19 @@ GLOB = frozenset("*?[")
 
 
 def significant(path):
-    """An ignore file's rules, without its blank lines and its comments."""
+    """An ignore file's rules, without its blank lines and its comments.
+
+    **Only trailing whitespace goes, because only trailing whitespace is
+    git's to drop.** Measured here with `git check-ignore`: `z.txt ` ignores
+    `z.txt`, and ` x.txt` does *not* ignore `x.txt` — the leading space is
+    part of the pattern. A `.strip()` normalised an indented rule into an
+    effective one, so a root file whose rule excluded nothing read as
+    coverage. Raised by Copilot, round 2.
+    """
     return [
-        line.strip()
+        line.rstrip()
         for line in path.read_text(encoding="utf-8").splitlines()
-        if line.strip() and not line.strip().startswith("#")
+        if line.rstrip() and not line.rstrip().startswith("#")
     ]
 
 
@@ -147,8 +163,26 @@ def blanket(directory):
     """Does this directory hold a nested `.gitignore` that takes all of it?
 
     Order again: the last matching rule wins, so a negation *before* the `*`
-    is overridden by it and only one *after* it re-admits anything. `!keep-me`
-    then `*` is a blanket ignore; `*` then `!keep-me` is not.
+    is overridden by it and only one *after* it can re-admit anything.
+
+    **Biased towards yes, and the asymmetry is the point.** A false yes costs
+    a red gate demanding a root rule that was not needed. A false no means a
+    self-ignoring directory is never reported, so the gate never asks about it
+    at all — which is the fail-open this file exists to prevent. So `*` is a
+    blanket unless a negation after the last one is *demonstrably* effective.
+
+    Two ways a negation after `*` does nothing, both measured against git with
+    `check-ignore` in this repository rather than reasoned about:
+
+    - **It names a path below the top level.** `*` has already excluded the
+      parent directory, and git cannot re-include a file whose parent is
+      excluded, so `*` then `!child/file` leaves `child/file` matched by `*`.
+    - **A later positive rule re-excludes the same name.** `*`, `!keep`,
+      `keep` leaves `keep` matched by the third rule. A later positive *glob*
+      is unreadable here and is assumed to re-exclude, which is the same bias.
+
+    Raised by Copilot, round 2. The first version asked only whether any
+    negation followed the last `*`, and both shapes above answered yes.
 
     **`.gitignore` alone, of the four names above.** Git is the only reader
     that honours an ignore file at depth; a nested `.codeindexignore` is read
@@ -162,7 +196,18 @@ def blanket(directory):
     if "*" not in rules:
         return False
     last_star = max(index for index, rule in enumerate(rules) if rule == "*")
-    return not any(rule.startswith("!") for rule in rules[last_star + 1:])
+    after = rules[last_star + 1:]
+    for index, rule in enumerate(after):
+        if not rule.startswith("!"):
+            continue
+        body = rule[1:].strip("/")
+        if not body or "/" in body:
+            continue
+        later = [one for one in after[index + 1:] if not one.startswith("!")]
+        if any(one.strip("/") == body or GLOB & set(one) for one in later):
+            continue
+        return False
+    return True
 
 
 def self_ignoring(root, rules):
@@ -258,6 +303,33 @@ class TheScannerSeesTheShape(unittest.TestCase):
         self.write(".git/modules/thing/.gitignore", "*\n")
         self.assertEqual([], self_ignoring(self.root, []))
 
+    def test_a_negation_below_the_top_level_re_includes_nothing(self):
+        # Measured: `git check-ignore -v` reports `child/file` matched by the
+        # `*` on line 1, because git cannot re-include a file whose parent
+        # directory is excluded. So this directory IS ignored whole, and the
+        # first version of `blanket` reported it as not a blanket — a
+        # self-ignoring directory the gate would then never ask about.
+        self.write("state/.gitignore", "*\n!child/file\n")
+        self.write("state/child/file", "x\n")
+        self.assertEqual(["state"], self_ignoring(self.root, []))
+
+    def test_a_later_positive_rule_re_excludes_a_negated_name(self):
+        # Measured: `keep` is matched by line 3, not by the `!keep` on line 2.
+        self.write("state/.gitignore", "*\n!keep\nkeep\n")
+        self.assertEqual(["state"], self_ignoring(self.root, []))
+
+    def test_an_unreadable_later_positive_is_assumed_to_re_exclude(self):
+        # The bias stated in `blanket`: a glob cannot be evaluated here, and
+        # guessing it ineffective is the direction that loses the directory.
+        self.write("state/.gitignore", "*\n!keep\nk*\n")
+        self.assertEqual(["state"], self_ignoring(self.root, []))
+
+    def test_an_effective_negation_is_still_honoured(self):
+        # The control for all three above — measured as NOT ignored, so this
+        # directory is genuinely not a blanket and must not be reported.
+        self.write("state/.gitignore", "*\n!keep\n")
+        self.assertEqual([], self_ignoring(self.root, []))
+
 
 class TheMatcherReadsTheSpellingsGitAccepts(unittest.TestCase):
 
@@ -288,6 +360,44 @@ class TheMatcherReadsTheSpellingsGitAccepts(unittest.TestCase):
         # Failing closed, per `covered`'s docstring: the fix for a directory
         # this reports is a plain rule, never a cleverer matcher here.
         self.assertFalse(covered(".remember", parse([".rem*/"])))
+
+
+class WhitespaceIsReadTheWayGitReadsIt(unittest.TestCase):
+    """Copilot, round 2: `.strip()` made an indented rule effective.
+
+    Both halves measured with `git check-ignore` in this repository: a
+    trailing space is git's to drop, and a leading one is part of the
+    pattern. Stripping both turned ` .remember/` — which excludes nothing —
+    into coverage.
+    """
+
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, str(self.root), ignore_errors=True)
+
+    def root_ignore(self, text):
+        (self.root / ".gitignore").write_text(text, encoding="utf-8",
+                                              newline="\n")
+        return root_rules(self.root)
+
+    def test_a_leading_space_makes_the_rule_a_different_pattern(self):
+        self.assertFalse(covered(".remember", self.root_ignore(" .remember/\n")))
+
+    def test_a_trailing_space_is_dropped(self):
+        self.assertTrue(covered(".remember", self.root_ignore(".remember/   \n")))
+
+    def test_a_whitespace_only_line_is_blank(self):
+        rules = self.root_ignore("   \n.remember/\n")
+        self.assertEqual([(False, ".remember/")], rules)
+
+    def test_an_indented_negation_undoes_nothing(self):
+        # The case that decides whether keeping leading whitespace is safe in
+        # both directions, and the one an lstrip would get wrong the other
+        # way round. Measured: with `keep` then `  !keep`, `git check-ignore`
+        # reports `keep` matched by line 1 — the indented negation does
+        # nothing, so coverage survives it.
+        rules = self.root_ignore(".remember/\n  !.remember/\n")
+        self.assertTrue(covered(".remember", rules))
 
 
 class TheMatcherReadsTheRulesInOrder(unittest.TestCase):
