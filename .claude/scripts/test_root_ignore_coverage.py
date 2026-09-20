@@ -152,6 +152,41 @@ def deciders(root, relatives):
     return decided
 
 
+def hidden_whole(root, directory):
+    """The non-root ignore file hiding *every* entry of `directory`, or `None`.
+
+    One visible entry is enough to say the tools agree about this directory:
+    git can see it, so it is not hidden, whatever the rule does to the rest.
+    That is what a sentinel could not establish — a rule matching one name
+    says nothing about the others, and both `zz-*` and `*[!zzz]` match some
+    names and not others.
+
+    An empty directory returns `None`. There is nothing in it for the index to
+    read, so there is no disagreement to report.
+
+    Entries hidden by the root file are counted as hidden, because they are —
+    but they cannot raise the finding on their own, and a directory whose
+    every entry the root file hides is one the indexer skips too.
+    """
+    base = Path(root, directory)
+    try:
+        names = sorted(entry.name for entry in base.iterdir()
+                       if entry.name != ".git")
+    except OSError:
+        return None
+    if not names:
+        return None
+    decided = deciders(root, [f"{directory}/{name}" for name in names])
+    sources = set()
+    for name in names:
+        source = decided.get(f"{directory}/{name}")
+        if source is None:
+            return None
+        sources.add(source)
+    beyond_root = sorted(sources - {ROOT_IGNORE})
+    return beyond_root[0] if beyond_root else None
+
+
 def hidden_from_git_only(root):
     """`(directory, source)` for every directory git hides that the index reads.
 
@@ -159,15 +194,23 @@ def hidden_from_git_only(root):
     same one.** Whether the *directory* is hidden decides pruning: only a root
     rule covering the directory itself means the indexer agrees and everything
     beneath is covered by construction, which is what keeps `node_modules/`
-    out of the walk. Whether the *probe inside it* is hidden decides the
-    finding, because a directory's own `.gitignore` cannot hide the directory
-    — it hides its contents.
+    out of the walk. Whether *everything in it* is hidden decides the finding,
+    because a directory's own `.gitignore` cannot hide the directory — it
+    hides the contents.
 
-    Pruning on the probe alone was wrong, and quietly: a root rule can match
-    the probe's name without covering the directory at all — `zz-*` matches it
+    Pruning on a sentinel was wrong, and quietly: a root rule can match the
+    sentinel's name without covering the directory at all — `zz-*` matches it
     at any depth — so the walk skipped a directory the indexer reads and never
-    reached the nested file below it. A root-decided probe over an uncovered
-    directory now means *keep walking*. Raised by Copilot, round 7.
+    reached the nested file below it (Copilot, round 7).
+
+    **Raising the finding from a sentinel was wrong in the other direction**,
+    and one round later: a *nested* `zz-*` matches it too, and reports a
+    directory whose `visible.txt` git can see perfectly well. One name cannot
+    establish what a rule does to every other name, which is the same
+    enumeration mistake as `BLANKET_PATTERNS` wearing different clothes. The
+    finding is decided from the directory's real entries now — every one of
+    them hidden, by something other than the root file — so no spelling has to
+    be recognised at all (Copilot, round 8).
     """
     findings = []
 
@@ -185,7 +228,6 @@ def hidden_from_git_only(root):
         if not children:
             return
         own = deciders(root, children)
-        inside = deciders(root, [f"{child}/{PROBE}" for child in children])
         for child in children:
             covering = own.get(child)
             if covering == ROOT_IGNORE:
@@ -195,8 +237,8 @@ def hidden_from_git_only(root):
                 # which is a parent's `.gitignore` or an excludes file.
                 findings.append((child, covering))
                 continue
-            hiding = inside.get(f"{child}/{PROBE}")
-            if hiding is not None and hiding != ROOT_IGNORE:
+            hiding = hidden_whole(root, child)
+            if hiding is not None:
                 findings.append((child, hiding))
                 continue
             walk(child)
@@ -292,9 +334,10 @@ class TheGateSeesEveryWayGitCanHideADirectory(unittest.TestCase):
 
     def test_every_blanket_spelling_is_caught(self):
         # `?*` is blueprint-frontend#53's PR round 5, and the reason this file
-        # stopped keeping a set of these. The rest were rounds 4 and earlier,
-        # or found while measuring that one.
-        for spelling in ("*", "/*", "**", "/**", "?*", "*?", "?**", "*[!zzz]"):
+        # stopped keeping a set of these. Nothing recognises them now — each
+        # directory holds two ordinary files and the question is whether git
+        # can see either.
+        for spelling in ("*", "/*", "**", "/**", "?*", "*?", "?**"):
             with self.subTest(spelling=spelling):
                 root = Path(tempfile.mkdtemp())
                 self.addCleanup(shutil.rmtree, str(root), ignore_errors=True)
@@ -304,8 +347,37 @@ class TheGateSeesEveryWayGitCanHideADirectory(unittest.TestCase):
                 state.mkdir()
                 (state / ".gitignore").write_text(spelling + "\n",
                                                   encoding="utf-8", newline="\n")
+                for name in ("top.txt", "endsz"):
+                    (state / name).write_text("x\n", encoding="utf-8",
+                                              newline="\n")
                 self.assertEqual([("state", "state/.gitignore")],
                                  hidden_from_git_only(root))
+
+    def test_a_rule_that_only_looks_universal_is_not_a_finding(self):
+        # `*[!zzz]` was in the blanket set at round 4, on a measurement that
+        # used `top.txt` and `sub/deep.txt` — neither ending in `z`. It leaves
+        # a name ending in `z` visible, so the directory is not hidden and the
+        # tools do not disagree about it. Measured; Copilot, round 8. The
+        # entry is gone and the case is what stops it coming back.
+        self.write("state/.gitignore", "*[!zzz]\n")
+        self.write("state/top.txt", "x\n")
+        self.write("state/endsz", "x\n")
+        self.assertEqual([], hidden_from_git_only(self.root))
+
+    def test_a_nested_rule_matching_the_sentinel_alone_is_not_a_finding(self):
+        # Copilot, round 8, and the other direction of round 7's defect: a
+        # nested `zz-*` matches the sentinel's name and nothing else, so
+        # `visible.txt` is plainly still visible. Deciding from one name
+        # reported this directory; deciding from its entries does not.
+        self.write("state/.gitignore", "zz-*\n")
+        self.write("state/visible.txt", "x\n")
+        self.write(f"state/{PROBE}", "x\n")
+        self.assertEqual([], hidden_from_git_only(self.root))
+
+    def test_an_empty_directory_is_not_a_finding(self):
+        # Nothing in it for the index to read, so nothing to disagree about.
+        (self.root / "state").mkdir()
+        self.assertEqual([], hidden_from_git_only(self.root))
 
     def test_a_root_rule_is_not_a_finding(self):
         self.write(".gitignore", "state/\n")
