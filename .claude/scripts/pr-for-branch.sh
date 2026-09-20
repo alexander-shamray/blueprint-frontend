@@ -147,12 +147,20 @@ if [ "$state" = MERGED ]; then
   #
   # The drop does not need to know which incarnation this is. It needs to
   # know whether the branch still stands where its pull request landed —
-  # which is what step 0 calls finished, asked here in the same terms. A
-  # tip that has moved is work this row cannot speak for, whichever
-  # incarnation made it. A merge-commit landing is unaffected either way,
-  # because its `mergeCommit` is a commit the untouched branch does not
-  # carry, so the #24 answer stands for everything landed before the
-  # method moved. Raised by Copilot.
+  # which is what step 0 calls finished, asked here in the same terms.
+  #
+  # **Both conditions are required, and the second is the conservative
+  # stop.** A tip that has moved is not enough: it must also CARRY the
+  # landing commit. A branch with commits made after the landing that
+  # does not carry it keeps its row, and step 0 then reads the moved tip
+  # as not finished and stays put — work held where somebody can find it.
+  # Dropping on a moved tip alone would swallow that stop and send the
+  # run to `/pr` to open a second pull request over the first.
+  #
+  # A merge-commit landing is unaffected either way, because its
+  # `mergeCommit` is a commit the untouched branch does not carry, so the
+  # #24 answer stands for everything landed before the method moved.
+  # Raised by Copilot.
   if [ -n "$merge_oid" ] && [ -n "$tip" ] && [ "$tip" != "$head_oid" ] &&
      git merge-base --is-ancestor "$merge_oid" "$tip" 2>/dev/null; then
     newest='[]'

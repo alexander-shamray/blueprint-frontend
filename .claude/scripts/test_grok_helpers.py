@@ -10285,9 +10285,15 @@ class LandingByRebaseMovedTheReadsThatAssumedAMergeCommit(unittest.TestCase):
         # changed is that the row now names the other half. Raised by Copilot.
         ship = self.ship()
         row = next(line for line in ship.splitlines()
-                   if "already merged" in line and "pr-state.sh" in line)
+                   if "already merged" in line
+                   and "pr-for-branch.sh" in line)
         self.assertIn("headRefOid", row)
-        self.assertIn("pr-for-branch.sh", row)
+        # **And not the other helper.** The resume section argues that
+        # `pr-state.sh` cannot answer this table, because it exits
+        # non-zero for a branch with no pull request — the commonest
+        # state step 1 produces. Naming it here is the contradiction
+        # that put the wrong classifier in this row once already.
+        self.assertNotIn("pr-state.sh", row)
 
     def test_neither_content_read_can_see_work_done_after_the_merge(self):
         """The review finding on blueprint-admin#34, driven rather than taken.
