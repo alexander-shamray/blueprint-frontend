@@ -59,10 +59,11 @@ __pycache__/
 
 # Session state, already ignored by a nested `.gitignore` holding `*` — but
 # git reads those at any depth and the code index reads only the root files
-# its config names, so without these two lines it indexed them: 647 of 987
-# files, two thirds of the index, including session logs carrying PR comments
-# and sweep reads that came back ranked beside code (#53). blueprint-backend
-# and blueprint-admin list .remember/ at their roots for the same reason.
+# its config names, so without these two lines it indexed both trees whole,
+# session logs included: text from PR comments, reviews and sweeps came back
+# ranked beside code as repository evidence. #53 owns the measurement, which
+# moves with the checkout; `.claude/scripts/test_root_ignore_coverage.py` is
+# the gate. blueprint-backend and blueprint-admin list .remember/ the same way.
 .remember/
 .superpowers/
 

@@ -5,10 +5,11 @@ one of them.** Git honours a `.gitignore` at any depth, so a directory holding
 one that says `*` vanishes from `git status` and from `git ls-files` — which is
 why `.remember/` and `.superpowers/sdd/` have looked correctly excluded in this
 repository since they arrived. The indexer reads only the root ignore files its
-config names, so the same nested file is invisible to it: #53 measured 647 of
-987 indexed files as session state, two thirds of the index, with session logs
-carrying PR comments and sweep reads coming back ranked beside code as
-`recommended_reads`.
+config names, so the same nested file is invisible to it and both trees were
+indexed whole — session logs included, which is how text from PR comments,
+reviews and sweeps came back ranked beside code as `recommended_reads`. #53
+owns the measurement, and it moves with the checkout, so it is cited here
+rather than copied.
 
 Neither tool can see that the other disagrees, which is what makes this a shape
 to gate rather than a fix to make once. The root rules added for #53 close the
@@ -22,6 +23,12 @@ over an empty listing on the machine where this suite actually gates, and would
 go on passing if the scanner stopped working entirely. Its subject is therefore
 what the gate is looking at, built in a temp tree: `CLAUDE.md`'s rule about
 gates, applied to this one.
+
+**Order is read, not discarded, and that is the whole of what the matcher
+owes gitignore.** The last rule that matches decides, so `.remember/` followed
+by `!.remember/` is not coverage at all — and a matcher collapsing the rules
+into a set would call it coverage, which is this gate failing open on the one
+edit most likely to undo it. Raised by Copilot, round 1.
 """
 
 import shutil
@@ -33,16 +40,21 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent.parent
 
 # The ignore files `codebase-index` reads AT THE ROOT, from the `ignore_files`
-# list in its config. That config lives under `.claude/cache/`, which is
-# gitignored and absent from a CI checkout, so the names cannot be read from it
-# here — this is a citation of the indexer's default rather than a second owner
-# of it, and a name added upstream wants adding here too.
+# list in its config, in that list's order. That config lives under
+# `.claude/cache/`, which is gitignored and absent from a CI checkout, so the
+# names cannot be read from it here — this is a citation of the indexer's
+# default rather than a second owner of it, and a name added upstream wants
+# adding here too.
 ROOT_IGNORE_NAMES = (
     ".gitignore",
     ".cursorignore",
     ".claudeignore",
     ".codeindexignore",
 )
+
+# The characters that make a pattern a glob. `decides` declines to guess about
+# any pattern carrying one.
+GLOB = frozenset("*?[")
 
 
 def significant(path):
@@ -54,45 +66,89 @@ def significant(path):
     ]
 
 
+def parse(lines):
+    """Ordered `(negated, pattern)` pairs from ignore-file lines.
+
+    A list rather than a set, because gitignore's semantics *are* the order:
+    the last rule that matches a path decides it. `\\!` as an escape for a
+    literal leading `!` is not handled and no ignore file here uses one.
+    """
+    return [
+        (line.startswith("!"), line[1:] if line.startswith("!") else line)
+        for line in lines
+    ]
+
+
 def root_rules(root):
-    """Every rule in every root ignore file that exists under `root`."""
-    rules = set()
+    """Every rule in every root ignore file that exists, in order."""
+    rules = []
     for name in ROOT_IGNORE_NAMES:
         path = Path(root, name)
         if path.is_file():
-            rules.update(significant(path))
+            rules.extend(parse(significant(path)))
     return rules
 
 
+def decides(pattern, relative):
+    """Whether `pattern` decides `relative`, as one of three answers.
+
+    `True` — it names the directory or an ancestor of it. `False` — it names
+    neither. `None` — it carries glob metacharacters, and this matcher will
+    not guess; `covered` takes that as the reason to fail closed.
+
+    A pattern holding a slash anywhere but its end is anchored to the root, as
+    git anchors it; one without is a component match at any depth, which is
+    what makes `__pycache__/` cover `src/__pycache__`.
+    """
+    if GLOB & set(pattern):
+        return None
+    body = pattern.strip("/")
+    if not body:
+        return False
+    anchored = pattern.startswith("/") or "/" in body
+    parts = [part for part in relative.split("/") if part]
+    if not anchored:
+        return body in parts
+    return body in {"/".join(parts[:depth]) for depth in range(1, len(parts) + 1)}
+
+
 def covered(relative, rules):
-    """Is this directory taken whole by a root rule?
+    """Is this directory taken whole by the root rules, read in order?
 
-    `relative` is posix-spelled and relative to the checkout root, and a rule
-    covers it when it names the directory or any ancestor of it in one of the
-    four plain spellings git accepts for a directory prefix.
+    `relative` is posix-spelled and relative to the checkout root. The last
+    rule that matches it or an ancestor decides, exactly as git decides, so a
+    negation placed after a positive rule uncovers the directory and one
+    placed before it does not.
 
-    **Only plain prefixes are recognised, and that is the decision rather than
-    the limitation.** A glob that happens to cover the directory reads as
-    uncovered here, so the gate fails closed and the fix is to add the plain
-    rule `blueprint-backend` and `blueprint-admin` already use. Teaching this
+    **Only plain patterns are read, and that is the decision rather than the
+    limitation.** A positive glob that happens to cover the directory reads as
+    no coverage, and a negative one is taken at its word — both directions
+    leave the gate red, and the answer is to add the plain rule
+    `blueprint-backend` and `blueprint-admin` already use. Teaching this
     matcher the rest of gitignore would put a second, worse copy of git's
     semantics in a test file, which is the copy that goes stale.
     """
-    parts = [part for part in relative.split("/") if part]
-    for depth in range(1, len(parts) + 1):
-        prefix = "/".join(parts[:depth])
-        for spelling in (prefix, prefix + "/", "/" + prefix, "/" + prefix + "/"):
-            if spelling in rules:
-                return True
-    return False
+    verdict = False
+    for negated, pattern in rules:
+        answer = decides(pattern, relative)
+        if answer is None:
+            # A glob. Positive, it cannot establish coverage; negative, it
+            # might destroy it, and an unreadable negation is not a reason to
+            # assume the best.
+            if negated:
+                verdict = False
+            continue
+        if answer:
+            verdict = not negated
+    return verdict
 
 
 def blanket(directory):
     """Does this directory hold a nested `.gitignore` that takes all of it?
 
-    `*` with no negation. A file that excepts something (`!keep-me`) leaves
-    part of the directory visible to git, so the two tools do not disagree
-    about it and it is not this file's subject.
+    Order again: the last matching rule wins, so a negation *before* the `*`
+    is overridden by it and only one *after* it re-admits anything. `!keep-me`
+    then `*` is a blanket ignore; `*` then `!keep-me` is not.
 
     **`.gitignore` alone, of the four names above.** Git is the only reader
     that honours an ignore file at depth; a nested `.codeindexignore` is read
@@ -103,7 +159,10 @@ def blanket(directory):
     if not path.is_file():
         return False
     rules = significant(path)
-    return "*" in rules and not any(rule.startswith("!") for rule in rules)
+    if "*" not in rules:
+        return False
+    last_star = max(index for index, rule in enumerate(rules) if rule == "*")
+    return not any(rule.startswith("!") for rule in rules[last_star + 1:])
 
 
 def self_ignoring(root, rules):
@@ -150,25 +209,34 @@ class TheScannerSeesTheShape(unittest.TestCase):
 
     def test_a_blanket_nested_ignore_is_found(self):
         self.write("state/.gitignore", "*\n")
-        self.assertEqual(["state"], self_ignoring(self.root, set()))
+        self.assertEqual(["state"], self_ignoring(self.root, []))
 
     def test_it_is_found_below_the_top_level(self):
         # `.superpowers/sdd/` is this shape: the blanket file sits one level
         # down, and the directory above it holds nothing else at all.
         self.write("tools/sdd/.gitignore", "*\n")
-        self.assertEqual(["tools/sdd"], self_ignoring(self.root, set()))
+        self.assertEqual(["tools/sdd"], self_ignoring(self.root, []))
 
     def test_an_ordinary_nested_ignore_is_not_a_blanket(self):
         self.write("src/.gitignore", "build/\n*.log\n")
-        self.assertEqual([], self_ignoring(self.root, set()))
+        self.assertEqual([], self_ignoring(self.root, []))
 
-    def test_a_negation_leaves_the_directory_visible_to_git(self):
+    def test_a_negation_after_the_star_leaves_the_directory_visible(self):
         self.write("state/.gitignore", "*\n!keep-me\n")
-        self.assertEqual([], self_ignoring(self.root, set()))
+        self.assertEqual([], self_ignoring(self.root, []))
+
+    def test_a_negation_before_the_star_is_overridden_by_it(self):
+        # The mirror of the case above, and the one the first version of this
+        # file got wrong: it refused any file holding a `!` at all, so a
+        # directory that really is ignored whole went unreported. Copilot's
+        # round-1 finding is about the root matcher; this is the same defect
+        # in the nested one.
+        self.write("state/.gitignore", "!keep-me\n*\n")
+        self.assertEqual(["state"], self_ignoring(self.root, []))
 
     def test_comments_and_blanks_are_not_rules(self):
         self.write("state/.gitignore", "\n# everything\n*\n\n")
-        self.assertEqual(["state"], self_ignoring(self.root, set()))
+        self.assertEqual(["state"], self_ignoring(self.root, []))
 
     def test_a_covered_directory_is_still_reported(self):
         # Reported, because the assertion below needs a subject to pass ON —
@@ -177,18 +245,18 @@ class TheScannerSeesTheShape(unittest.TestCase):
         # it is covered by construction.
         self.write("state/.gitignore", "*\n")
         self.write("state/inner/.gitignore", "*\n")
-        self.assertEqual(["state"], self_ignoring(self.root, {"state/"}))
+        self.assertEqual(["state"], self_ignoring(self.root, parse(["state/"])))
 
     def test_a_covered_tree_is_not_walked(self):
         self.write("vendor/pkg/.gitignore", "*\n")
-        self.assertEqual([], self_ignoring(self.root, {"vendor/"}))
+        self.assertEqual([], self_ignoring(self.root, parse(["vendor/"])))
         # And the same tree with nothing covering it, so the case above is
         # about the rule rather than about the scanner failing to look.
-        self.assertEqual(["vendor/pkg"], self_ignoring(self.root, set()))
+        self.assertEqual(["vendor/pkg"], self_ignoring(self.root, []))
 
     def test_the_git_directory_is_never_walked(self):
         self.write(".git/modules/thing/.gitignore", "*\n")
-        self.assertEqual([], self_ignoring(self.root, set()))
+        self.assertEqual([], self_ignoring(self.root, []))
 
 
 class TheMatcherReadsTheSpellingsGitAccepts(unittest.TestCase):
@@ -196,21 +264,71 @@ class TheMatcherReadsTheSpellingsGitAccepts(unittest.TestCase):
     def test_each_plain_directory_spelling_covers(self):
         for rule in (".remember", ".remember/", "/.remember", "/.remember/"):
             with self.subTest(rule=rule):
-                self.assertTrue(covered(".remember", {rule}))
+                self.assertTrue(covered(".remember", parse([rule])))
 
     def test_an_ancestor_covers_what_sits_under_it(self):
-        self.assertTrue(covered(".superpowers/sdd", {".superpowers/"}))
+        self.assertTrue(covered(".superpowers/sdd", parse([".superpowers/"])))
 
     def test_a_descendant_does_not_cover_its_parent(self):
-        self.assertFalse(covered(".superpowers", {".superpowers/sdd/"}))
+        self.assertFalse(covered(".superpowers", parse([".superpowers/sdd/"])))
 
     def test_an_unrelated_rule_does_not_cover(self):
-        self.assertFalse(covered(".remember", {"node_modules/", "/dist"}))
+        self.assertFalse(covered(".remember", parse(["node_modules/", "/dist"])))
 
-    def test_a_glob_reads_as_uncovered(self):
+    def test_a_pattern_without_a_slash_matches_at_any_depth(self):
+        # `__pycache__/` is the live example, and a rooted-only matcher would
+        # have missed every one below the top level.
+        self.assertTrue(covered("src/app/__pycache__", parse(["__pycache__/"])))
+
+    def test_a_rooted_pattern_matches_only_at_the_root(self):
+        self.assertTrue(covered("dist", parse(["/dist"])))
+        self.assertFalse(covered("src/dist", parse(["/dist"])))
+
+    def test_a_positive_glob_establishes_no_coverage(self):
         # Failing closed, per `covered`'s docstring: the fix for a directory
         # this reports is a plain rule, never a cleverer matcher here.
-        self.assertFalse(covered(".remember", {".rem*/"}))
+        self.assertFalse(covered(".remember", parse([".rem*/"])))
+
+
+class TheMatcherReadsTheRulesInOrder(unittest.TestCase):
+    """Copilot, round 1: a set of rules cannot see a negation undo a rule.
+
+    The finding was that `root_rules` collapsed the files into a set, so
+    `covered` knew only that a positive rule had appeared somewhere — and
+    `!.remember/` written after `.remember/` would leave the index reading the
+    tree while this gate stayed green. That is the one direction a regression
+    gate must not fail in, so order is now carried and read.
+    """
+
+    def test_a_later_negation_uncovers(self):
+        self.assertFalse(covered(".remember", parse([".remember/", "!.remember/"])))
+
+    def test_an_earlier_negation_is_overridden(self):
+        self.assertTrue(covered(".remember", parse(["!.remember/", ".remember/"])))
+
+    def test_a_negation_of_an_ancestor_uncovers(self):
+        rules = parse([".superpowers/", "!.superpowers/"])
+        self.assertFalse(covered(".superpowers/sdd", rules))
+
+    def test_a_glob_negation_is_taken_at_its_word(self):
+        # Unreadable, so it is assumed to bite: the gate goes red and the
+        # answer is a plain rule. The opposite reading is the fail-open.
+        self.assertFalse(covered(".remember", parse([".remember/", "!.rem*/"])))
+
+    def test_a_positive_rule_after_a_glob_negation_covers_again(self):
+        rules = parse([".remember/", "!.rem*/", ".remember/"])
+        self.assertTrue(covered(".remember", rules))
+
+    def test_negations_aimed_elsewhere_do_not_uncover(self):
+        # The live shape: the root file negates four paths under `.vscode/`,
+        # and none of them has anything to say about session state.
+        rules = parse([
+            ".vscode/*",
+            "!.vscode/settings.json",
+            "!.vscode/tasks.json",
+            ".remember/",
+        ])
+        self.assertTrue(covered(".remember", rules))
 
 
 class EveryBlanketIgnoreIsCoveredAtTheRoot(unittest.TestCase):
@@ -222,7 +340,7 @@ class EveryBlanketIgnoreIsCoveredAtTheRoot(unittest.TestCase):
         # any session state is.
         rules = root_rules(ROOT)
         self.assertGreater(len(rules), 10)
-        self.assertIn("__pycache__/", rules)
+        self.assertIn((False, "__pycache__/"), rules)
 
     def test_nothing_hides_from_git_and_not_from_the_index(self):
         rules = root_rules(ROOT)
