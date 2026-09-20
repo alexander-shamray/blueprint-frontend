@@ -1496,6 +1496,16 @@ before clearing it, so neither the gap before the child is named nor the
 one after a kill lets a second indexer in. The window that remains is the
 instant between the child existing and its pid being written.
 
+**A record left by a killed worker names a pid the system may reuse**, and
+that is the second residual. The record is cleared on every ordinary path,
+so only a killed worker leaves one; until the number is reused, a stale
+record names a dead process and costs nothing, and once it is reused the
+refresh stands off from a stranger and the worktree stays stale until that
+process exits. Telling the two apart needs each process's start time, which
+neither `os` nor `tasklist` offers without a new dependency — more than a
+best-effort cache refresh earns, and the same judgement as the window
+below. Raised by Copilot, and answered here.
+
 **A worker that crashes mid-refresh leaves the index stale until the next
 edit, and that is the residual rather than a gap to supervise.** The worker
 consumes a marker before its refresh, so a crash after that point leaves no
