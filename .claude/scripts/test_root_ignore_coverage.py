@@ -32,10 +32,16 @@ to that list — any glob matching every possible name belongs to it. A set of
 blanket spellings cannot be completed by enumeration, so a gate resting on one
 cannot be made correct by adding the spelling somebody just found.
 
-So nothing here parses an ignore file. `git check-ignore -v` names the file
-and line that decided a path, and that is both halves of the question at once:
+So nothing here parses an ignore file. `git check-ignore` names the file and
+line that decided a path, and that is both halves of the question at once:
 whether git hides the directory, and whether the rule that hides it is one the
 indexer can see.
+
+Delegating is not the same as trusting one call to mean what it looks like.
+The verbose form reports a *negation* as a decision, for a path it does not
+ignore, so `deciders` asks twice — the plain form for whether a path is
+ignored at all, the verbose one only about the paths that survived it. That
+is argued where it happens.
 
 ## The probe does the discriminating
 
@@ -91,25 +97,54 @@ ROOT_IGNORE = ".gitignore"
 PROBE = "zz-root-ignore-coverage-probe"
 
 
-def deciders(root, relatives):
-    """`{path: deciding ignore file}` for the paths git ignores, from one call.
+def _check_ignore(root, flags, relatives):
+    """Run `git check-ignore` over `relatives` and return its raw stdout.
 
-    Paths git does not ignore are absent rather than present with `None`, so
-    a caller asking about many directories reads the answer by membership.
-    `-z` is what makes that safe: a path or an ignore file holding a newline
-    would otherwise split a record in two.
+    `-z` is what makes the output safe to split: a path or an ignore file
+    holding a newline would otherwise break a record in two.
     """
-    if not relatives:
-        return {}
     done = subprocess.run(
-        ["git", "-c", "core.excludesFile=", "check-ignore", "-v", "-z", "--stdin"],
+        ["git", "-c", "core.excludesFile=", "check-ignore", *flags,
+         "-z", "--stdin"],
         cwd=str(root), input="\0".join(relatives),
         capture_output=True, text=True,
     )
     # 1 is "nothing matched", which is an answer. Anything else is not.
     if done.returncode not in (0, 1):
         raise AssertionError(f"git check-ignore failed: {done.stderr}")
-    fields = done.stdout.split("\0")
+    return done.stdout
+
+
+def deciders(root, relatives):
+    """`{path: deciding ignore file}` for the paths git ignores.
+
+    Paths git does not ignore are absent rather than present with `None`, so
+    a caller asking about many directories reads the answer by membership.
+
+    **Two calls, and neither of them reads a pattern.** `check-ignore -v`
+    emits a record when the deciding rule is a *negation*, for a path it does
+    not ignore — measured: with `*` then `!keep`, the verbose form reports
+    `.gitignore:2:!keep` and exits 0 while the plain form prints nothing and
+    exits 1. One verbose call therefore recorded un-ignored paths as decided,
+    and that went wrong in both directions at once: a root negation matching
+    the probe read as coverage and the walk skipped the subtree beneath it,
+    and a nested one read as a finding that was not there. Raised by Copilot,
+    round 6.
+
+    So the plain call settles *whether* git ignores each path, which is git's
+    own answer rather than this file's reading of one, and the verbose call is
+    asked only about the paths that survived it — where every record is a
+    positive decision by construction. Dropping verbose records whose pattern
+    starts with `!` would also work, and would put pattern reading back into a
+    file whose whole design is not doing that.
+    """
+    if not relatives:
+        return {}
+    ignored = [path for path in _check_ignore(root, [], relatives).split("\0")
+               if path]
+    if not ignored:
+        return {}
+    fields = _check_ignore(root, ["-v"], ignored).split("\0")
     decided = {}
     for index in range(0, len(fields) - 3, 4):
         source, _line, _pattern, path = fields[index:index + 4]
@@ -201,6 +236,20 @@ class GitIsReallyBeingAsked(unittest.TestCase):
 
     def test_an_empty_request_asks_nothing(self):
         self.assertEqual({}, deciders(self.root, []))
+
+    def test_a_path_a_negation_re_admits_is_not_decided(self):
+        # Measured: the verbose form reports `.gitignore:2:!keep` for `keep`
+        # and exits 0, while the plain form prints nothing and exits 1. The
+        # path is not ignored, so nothing decided it.
+        self.write(".gitignore", "*\n!keep\n")
+        self.assertEqual({}, deciders(self.root, ["keep"]))
+
+    def test_a_negation_does_not_hide_what_it_re_admits_beside(self):
+        # The positive half of the case above: `other` really is ignored, so
+        # dropping the negation must not drop it too.
+        self.write(".gitignore", "*\n!keep\n")
+        self.assertEqual({"other": ".gitignore"},
+                         deciders(self.root, ["keep", "other"]))
 
 
 class TheGateSeesEveryWayGitCanHideADirectory(unittest.TestCase):
@@ -295,6 +344,17 @@ class TheGateSeesEveryWayGitCanHideADirectory(unittest.TestCase):
         self.write(".gitignore", " state/\n")
         self.write("state/.gitignore", "*\n")
         self.assertEqual([("state", "state/.gitignore")],
+                         hidden_from_git_only(self.root))
+
+    def test_a_negated_probe_does_not_hide_the_subtree_under_it(self):
+        # Copilot round 6 at the level that matters. A root rule hides
+        # everything and then re-admits `state` and its contents, so the
+        # probe inside `state` is decided by a NEGATION. Reading the record
+        # `-v` emits for that as coverage made the walk skip `state`, and the
+        # nested file below it was never reached.
+        self.write(".gitignore", "*\n!state\n!state/**\n")
+        self.write("state/inner/.gitignore", "*\n")
+        self.assertEqual([("state/inner", "state/inner/.gitignore")],
                          hidden_from_git_only(self.root))
 
     def test_the_git_directory_is_never_walked(self):
