@@ -82,6 +82,22 @@ RUN_TIMEOUT = 300
 # five `settings.json` gives the hook.
 GIT_BUDGET = 3
 
+_DEADLINE = None
+
+
+def deadline():
+    """The instant every git call in this process must finish by.
+
+    One budget for the whole event, not one per caller: validation used a
+    three-second deadline and then the state directory started another, which
+    together could outlast the five seconds `settings.json` allows the hook,
+    killing it before anything was scheduled. Raised by Copilot.
+    """
+    global _DEADLINE
+    if _DEADLINE is None:
+        _DEADLINE = time.monotonic() + GIT_BUDGET
+    return _DEADLINE
+
 # `git` must answer about the directory it is pointed at and nothing else.
 GIT_ENV_OVERRIDES = ("GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE")
 
@@ -229,9 +245,8 @@ def target_root(cwd, owner):
     """The root to refresh for an edit made from `cwd`, or None to refresh nothing."""
     if not isinstance(cwd, str) or not cwd or not os.path.isdir(cwd):
         return None
-    deadline = time.monotonic() + GIT_BUDGET
-    target = git_paths(cwd, deadline)
-    mine = git_paths(owner, deadline)
+    target = git_paths(cwd, deadline())
+    mine = git_paths(owner, deadline())
     if target is None or mine is None:
         return None
     toplevel, common = target
@@ -309,7 +324,7 @@ def state_dir(owner):
     """
     if owner in _STATE_DIRS:
         return _STATE_DIRS[owner]
-    paths = git_paths(owner, time.monotonic() + GIT_BUDGET)
+    paths = git_paths(owner, deadline())
     resolved = None
     if paths is not None:
         candidate = os.path.join(paths[1], "index-refresh")
@@ -319,12 +334,27 @@ def state_dir(owner):
     return resolved
 
 
+def identity(path):
+    """A name for the entry `path` opens, stable across its spellings.
+
+    The filesystem's own answer — device and inode — because `normcase`
+    folds case on Windows only, so on a case-insensitive macOS or Linux
+    volume two spellings of one worktree hashed to two different locks, and
+    two indexers could run against one cache. Raised by Copilot. Where the
+    entry cannot be examined, the resolved spelling is all there is.
+    """
+    try:
+        info = os.stat(path)
+        return f"{info.st_dev}:{info.st_ino}"
+    except OSError:
+        return os.path.normcase(os.path.realpath(path))
+
+
 def state_path(owner, root, suffix):
     directory = state_dir(owner)
     if directory is None:
         return None
-    key = hashlib.sha256(
-        os.path.normcase(os.path.realpath(root)).encode("utf-8", "replace")).hexdigest()
+    key = hashlib.sha256(identity(root).encode("utf-8", "replace")).hexdigest()
     return os.path.join(directory, f"{key[:32]}.{suffix}")
 
 

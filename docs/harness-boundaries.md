@@ -1445,6 +1445,11 @@ through `run-guard.sh`, which splits the two things the anchor had fused:
   sweep's tree is prompt-injection input and indexing it reads that tree's
   `.codeindexignore`. Anything else refreshes nothing.
 
+**Every git call one event makes shares one deadline**, because the hook
+is synchronous and `settings.json` gives it five seconds: validation and
+the state directory each taking their own three-second budget could
+together outlast that and be killed before anything was scheduled.
+
 **A fresh worktree has no index, and `update` there does nothing**, so the
 hook builds one (`index`) on the first edit and updates it afterwards; a full
 build of this repository measured about five seconds, detached. **One
@@ -1462,7 +1467,10 @@ forged ones, the lock from a second handle and from a second process that
 dies holding it, and the detached child end to end against a stub wrapper.
 
 **The lock and the marker live in the repository's git directory**, at
-`<common>/index-refresh/`, named by a hash of the target's real path. They
+`<common>/index-refresh/`, named by a hash of the target's filesystem
+identity — its device and inode, not a spelling, so two spellings of one
+worktree on a case-insensitive volume cannot take two locks and run two
+indexers. They
 sat first under the target's `.claude/cache/` and then under the owner's,
 and a branch can force-track a symlink at either: `makedirs` and `open`
 follow it, and the lock's own write truncates what it finds. The git

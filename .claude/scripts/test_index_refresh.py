@@ -89,6 +89,18 @@ class TheRootFollowsTheActiveWorktree(unittest.TestCase):
         variant = os.path.join(os.path.dirname(common), ".GIT")
         folds = os.path.exists(variant)
         self.assertEqual(folds, self.hook.same(common, variant))
+        # And through the state key, which hashed a spelling: two spellings
+        # of one worktree chose two locks, and two indexers could run.
+        # Copilot, round 11.
+        spelled = os.path.join(os.path.dirname(self.sibling),
+                               os.path.basename(self.sibling).upper())
+        if os.path.exists(spelled):
+            self.assertEqual(self.hook.lock_path(self.main, self.sibling),
+                             self.hook.lock_path(self.main, spelled))
+        self.assertEqual(self.hook.identity(self.sibling),
+                         self.hook.identity(self.sibling + os.sep))
+        self.assertNotEqual(self.hook.identity(self.sibling),
+                            self.hook.identity(self.main))
         # And through the admin-directory containment, which compared strings.
         self.assertEqual(folds, self.hook.registered(self.sibling, self.main, variant))
         self.assertTrue(self.hook.registered(self.sibling, self.main, common))
@@ -189,6 +201,32 @@ class TheRootFollowsTheActiveWorktree(unittest.TestCase):
         self.assertIsNone(self.hook.target_root(upper, self.main))
         self.assertTrue(self.hook.swept(os.path.join(self.base, "SecSweep-abc")))
         self.assertFalse(self.hook.swept(self.sibling))
+
+    def test_one_event_spends_one_git_budget(self):
+        # Copilot, round 11: validation took a three-second budget and the
+        # state directory then started another, which together could outlast
+        # the five seconds the hook is given and be killed before anything
+        # was scheduled. Every git call in the process shares one deadline.
+        self.hook._DEADLINE = None
+        self.hook._STATE_DIRS.clear()
+        deadlines = []
+        real_git_paths = self.hook.git_paths
+
+        def recording(directory, when):
+            deadlines.append(when)
+            return real_git_paths(directory, when)
+
+        event = json.dumps({"cwd": self.sibling, "hook_event_name": "PostToolUse"})
+        with mock.patch.object(self.hook, "home", return_value=self.main), \
+                mock.patch.object(self.hook, "git_paths", side_effect=recording), \
+                mock.patch.object(self.hook, "spawn"), \
+                mock.patch("sys.stdin", io.StringIO(event)):
+            self.assertEqual(0, self.hook.main([]))
+        self.assertGreater(len(deadlines), 2, "validation and the state dir both ask")
+        self.assertEqual({deadlines[0]}, set(deadlines))
+        self.assertLess(self.hook.GIT_BUDGET, 5)
+        self.hook._DEADLINE = None
+        self.hook._STATE_DIRS.clear()
 
     def test_the_git_calls_share_one_deadline(self):
         # Copilot, round 4: two calls each allowed three seconds could outlast
