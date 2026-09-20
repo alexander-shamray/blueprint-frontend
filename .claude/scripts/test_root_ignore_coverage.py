@@ -7,14 +7,22 @@ why `.remember/` and `.superpowers/sdd/` have looked correctly excluded in this
 repository since they arrived. The indexer reads only the root ignore files its
 config names, so the same nested file is invisible to it and both trees were
 indexed whole — session logs included, which is how text from PR comments,
-reviews and sweeps came back ranked beside code as `recommended_reads`. #53
-owns the measurement, and it moves with the checkout, so it is cited here
-rather than copied.
+reviews and sweeps came back ranked beside code as `recommended_reads`.
+blueprint-frontend#53 owns the measurement, and it moves with the checkout,
+so it is cited here rather than copied.
+
+**Every issue number in this file names the frontend repository and says so.**
+`CLAUDE.md` reads a bare `#NN` under `.claude/` as an issue in the *backend*,
+where this machinery was built, so an unqualified `#53` here points a reader
+at the wrong tracker. `blueprint-frontend#45` is the spelling already used in
+`guard-edit-target.py` and `test_edit_target_guard.py`. Raised by Copilot,
+round 3.
 
 Neither tool can see that the other disagrees, which is what makes this a shape
-to gate rather than a fix to make once. The root rules added for #53 close the
-two directories that exist today; the cases here assert the *rule*, so the next
-tool that drops a self-ignoring directory into the checkout cannot reopen it.
+to gate rather than a fix to make once. The root rules added for that issue
+close the two directories that exist today; the cases here assert the *rule*,
+so the next tool that drops a self-ignoring directory into the checkout cannot
+reopen it.
 
 **`TheScannerSeesTheShape` is the load-bearing class and the live scan is
 not.** A fresh CI checkout holds neither `.remember/` nor `.superpowers/` —
@@ -461,12 +469,13 @@ class EveryBlanketIgnoreIsCoveredAtTheRoot(unittest.TestCase):
         self.assertEqual(
             [], uncovered,
             "each of these holds a .gitignore of `*`, so git ignores it and "
-            "the code index does not. Add it to the root .gitignore (#53).",
+            "the code index does not. Add it to the root .gitignore "
+            "(blueprint-frontend#53).",
         )
 
 
 class TheSessionStateTreesAreIgnoredAtTheRoot(unittest.TestCase):
-    """#53's own regression lock, and the half that holds on a CI checkout.
+    """The regression lock for blueprint-frontend#53, and the CI-side half.
 
     The class above cannot assert this. `.remember/` and `.superpowers/` are
     local session state, so a checkout without them scans clean whether or not
