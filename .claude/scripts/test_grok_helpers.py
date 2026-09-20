@@ -10109,8 +10109,16 @@ class LandingByRebaseMovedTheReadsThatAssumedAMergeCommit(unittest.TestCase):
         # MERGED row as finished — the teardown of live work this predicate
         # exists to refuse, behind a green gate.
         block = self._finished_predicate_block()
+        # **"equal to that" is a limb, and the load-bearing one.** Without
+        # it the other four can all be present while the block says merely
+        # that a MERGED row and a tip exist — which reads every merged row
+        # as finished and tears down branches holding later work, with the
+        # suite green. The classifier is prose, so the equality is pinned
+        # as wording; an executable predicate would be stronger still.
+        # Raised by Copilot.
         for limb in ("git status --short", "git rev-parse HEAD",
-                     "pr-for-branch.sh", "MERGED", "headRefOid"):
+                     "pr-for-branch.sh", "MERGED", "headRefOid",
+                     "equal to that"):
             with self.subTest(limb=limb):
                 self.assertIn(limb, block)
 
@@ -10130,10 +10138,26 @@ class LandingByRebaseMovedTheReadsThatAssumedAMergeCommit(unittest.TestCase):
         # wrongly in its own direction — the range read cannot see a rebase
         # merge, `git cherry` cannot see a duplicate patch or a merge commit.
         # A second copy left in another block is the one a reader trusts.
+        # **The range read is banned from the FINISHED PREDICATE, not from
+        # the file.** Step 0 asks a second, unrelated question on `main` —
+        # does this checkout carry commits `origin/main` does not — and
+        # that read is still the right one for it. Banning it everywhere
+        # removed the only guard against a local `main` running ahead and
+        # made restoring it a test failure. Raised by Copilot.
+        self.assertNotIn("git log origin/main..HEAD",
+                         self._finished_predicate_block())
+        # `git cherry` stays banned everywhere: it was only ever proposed
+        # as a finished predicate, and it answers that question wrongly in
+        # the stranding direction.
         for block in blocks:
             with self.subTest(block=block.splitlines()[:1]):
-                self.assertNotIn("git log origin/main..HEAD", block)
                 self.assertNotIn("git cherry", block)
+        # And the ahead-of-origin read must still be SOMEWHERE, or the stop
+        # table's `main` row is prose with no command behind it.
+        self.assertTrue(
+            any("git log origin/main..HEAD" in block for block in blocks),
+            "step 0 must still read whether `main` is ahead of "
+            "`origin/main`")
         # The helper has to hand that oid over, or the comparison has one side.
         self.assertIn("headRefOid", self._helper())
 
@@ -10148,6 +10172,16 @@ class LandingByRebaseMovedTheReadsThatAssumedAMergeCommit(unittest.TestCase):
         helper = self._helper()
         self.assertIn(
             "jq '[ .[] | {number, state, url, headRefOid} ]'", helper)
+        # **The REQUEST is pinned too, and that is the half a projection
+        # test cannot see.** The `gh` stub returns fixture JSON without
+        # checking which fields were asked for, so dropping `headRefOid`
+        # from the real `--json` list would leave every case green while
+        # the helper emitted `null` and step 0 stopped recognising a
+        # landed branch. Raised by Copilot.
+        requested = next(
+            line for line in helper.splitlines()
+            if "--json" in line and "headRepository" in line)
+        self.assertIn("headRefOid", requested)
 
     def test_no_command_still_argues_for_the_merge_commit_shape(self):
         # The claim this issue retired, in the words both files used to carry.

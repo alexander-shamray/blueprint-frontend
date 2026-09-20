@@ -569,9 +569,23 @@ same argument as never calling a branch clean because asking failed.
    ```bash
    git worktree prune                      # registrations whose directories are gone
    git worktree list                       # what is actually still there
+   git log origin/main..HEAD               # on `main`: empty, or this checkout
+                                           # carries commits origin/main does not
    git pull --ff-only                      # ONLY on a clean main that is not
                                            # ahead of origin/main — see below
    ```
+
+   **That range read is the one the finished predicate gave up, and it is
+   still right here because the question is a different one.** Up there it
+   asked whether a branch had landed, which a rebase merge makes
+   unanswerable by ancestry; here it asks whether this checkout holds
+   commits `origin/main` does not, and no landing method changes that. The
+   first fix for that issue removed the read from both sites at once,
+   leaving the stop table's `main` row and the pull's own comment arguing
+   for a guard with no command behind it — the ahead case would have gone
+   unread, step 1 would have forked from `origin/main`, and the local
+   commits would have sat outside the PR with nothing saying so. Raised by
+   Copilot.
 
    **Both Stay rows leave the session off `main`**, and one of them leaves it
    outside the main checkout entirely. Prune and list are safe from anywhere in
