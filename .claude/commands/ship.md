@@ -129,7 +129,7 @@ that reaches a merge — so the rows below say what is owed *between* them:
 | On a branch, tree clean and pushed | `/pr`, then the review loops |
 | On a branch with an open PR | The review loops (steps 5–6) — step 5 reported skipped while Grok is disabled, then Copilot — and, if the tree is dirty, checks, `/commit` **scoped to the implementation paths** and a push first, so the reviewers read what the PR will actually carry. Never unscoped while `suggestions.md` is on disk: that file is Grok's working state, and the unscoped form sweeps untracked files into the commit |
 | On a branch whose PR was **closed unmerged** | **Stop.** Somebody decided this branch does not land, and the open-PR read cannot see that: with no open PR the *clean and pushed* row would send the run to `/pr`, which refuses only an **open** one — so the chain would open a replacement and merge it, overriding a deliberate closure with no human in the loop. Report the closed PR and its number |
-   | On a branch whose PR is **already merged** | **Step 0 alone, and then the run is over.** `pr-state.sh` reporting `MERGED` is what classifies **this row** — it is not step 0's finished predicate, which resolves its own row through `pr-for-branch.sh` and additionally requires the local tip to still equal that row's `headRefOid`. A merged row alone is a pull request that landed, never a workspace that is finished with. The classification comes before the review loops rather than after them — re-requesting a review on a merged PR spends a round of somebody's budget on a branch nobody can change. With nothing left in the workspace, step 0's teardown is a complete one (switch, pull, remove, prune); with a dirty tree, or commits made after the merge moving the tip off that `headRefOid`, the branch is **not** finished, step 0 stays put and tears nothing down, and the run still ends here. Either way step 7 has nothing left to do: there is no PR to merge |
+   | On a branch whose PR is **already merged** | **Step 0 alone, and then the run is over.** `pr-state.sh` reporting `MERGED` is what classifies **this row** — it is not step 0's finished predicate, which resolves its own row through `pr-for-branch.sh` and additionally requires the local tip to still equal that row's `headRefOid`. A merged row alone is a pull request that landed, never a workspace that is finished with. The classification comes before the review loops rather than after them — re-requesting a review on a merged PR spends a round of somebody's budget on a branch nobody can change. With nothing left in the workspace, step 0's teardown is a complete one (switch, pull, remove, prune); with a dirty tree, or commits made after the merge moving the tip off that `headRefOid`, the branch is **not** finished, step 0 stays put and tears nothing down. **Where those commits took the landing commit into the branch's own history — a branch recreated from `main`, or one brought up to date by merging it — `pr-for-branch.sh` drops the row instead, and the run reads this branch as having no pull request and carries on to `/pr`.** That is the reuse answer working as intended for a recreated branch and a known wrong answer for an updated one; the helper cannot tell them apart, and this row is narrower than it looks for that reason, and the run still ends here. Either way step 7 has nothing left to do: there is no PR to merge |
 
 **Step 0's teardown targets a worktree that is already finished; step 7's
 targets the one this run just merged. Exactly one of them owns any given
@@ -390,37 +390,33 @@ same argument as never calling a branch clean because asking failed.
                                                    # unmerged pull request.
    ```
 
-   **The tip against the head the pull request merged, rather than any
-   comparison of content (blueprint-frontend#52, and the review of the same
-   change in blueprint-admin#34).** This read asked `git log
-   origin/main..HEAD` for years, which a rebase merge breaks outright: the
-   replay gives the branch's commits new shas, so that range is never empty
-   afterwards and no landed branch could ever be finished — every worktree
-   kept for ever, silently. The first fix swapped in `git cherry`, which
-   compares by patch-id and does answer for a rebase merge; a reviewer then
-   showed it answers the wrong question, and driving it confirmed both
-   halves. A post-PR commit cherry-picked from `main` produces **no `+`
-   line** while sitting in `main..HEAD` as a real commit, and `git cherry`
-   **omits merge commits** by construction. Either hides work done after the
-   merge, and step 0 removes the only worktree holding it.
-
-   **So the question is identity, not content: is this still the commit the
+   **The question is identity, not content: is this still the commit the
    pull request landed?** `pr-for-branch.sh` publishes the row's
-   `headRefOid`, and finished means `git rev-parse HEAD` equals it. Anything
-   committed since moves the tip, whatever its patch looks like and whether or
-   not it is a merge — there is no shape of post-PR work that survives this
-   read, which is what neither content comparison could say.
+   `headRefOid`, and finished means `git rev-parse HEAD` equals it.
+   Anything committed since moves the tip, whatever its patch looks like
+   and whether or not it is a merge — there is no shape of post-landing
+   work that survives this read.
 
-   **It is also method-agnostic, and that is the deeper reason it is the right
-   read rather than the safer one.** Merge, squash or rebase, the head a pull
-   request merged is the head it merged; this predicate would not have needed
-   touching for that issue at all, and will not need touching if the method
-   moves again. Verified against merged PR #54, whose `headRefOid` still reads
-   `752f262` — that branch's last commit, long after the branch landed.
+   **No comparison of content can stand here, and the two obvious ones
+   fail in the same direction.** A range read over `origin/main..HEAD`
+   cannot see a rebase landing at all: the replay gives the branch's
+   commits new shas, so the range is never empty and no landed branch is
+   ever finished — every worktree kept, silently. A patch-id comparison
+   does answer for a rebase landing and then answers the wrong question:
+   `git cherry` reports a commit whose patch `main` already carries as
+   `-`, and omits merge commits outright, so a resolution recorded only
+   in one is invisible to it. Both hide work done after the landing, and
+   step 0's response to finished is to remove the only worktree holding
+   it.
 
-   **The two content reads are gone rather than kept as a second limb.** Two
-   predicates for one question is the shape this repository keeps recording
-   its failures in, and the weaker one is always the one a reader trusts.
+   **Identity is also method-agnostic, which is why it is the right read
+   rather than the safer one.** Merge, squash or rebase, the head a pull
+   request merged is the head it merged, so the landing method never
+   reaches this predicate.
+
+   **One read, never two.** Two predicates for one question is the shape
+   this repository keeps recording its failures in, and the weaker one is
+   always the one a reader trusts.
 
    **Every read exits 0 whatever it finds, and that is deliberate.**
    `pr-state.sh` on a branch with no PR exits non-zero, and
@@ -575,17 +571,14 @@ same argument as never calling a branch clean because asking failed.
                                            # ahead of origin/main — see below
    ```
 
-   **That range read is the one the finished predicate gave up, and it is
-   still right here because the question is a different one.** Up there it
-   asked whether a branch had landed, which a rebase merge makes
-   unanswerable by ancestry; here it asks whether this checkout holds
-   commits `origin/main` does not, and no landing method changes that. The
-   first fix for that issue removed the read from both sites at once,
-   leaving the stop table's `main` row and the pull's own comment arguing
-   for a guard with no command behind it — the ahead case would have gone
-   unread, step 1 would have forked from `origin/main`, and the local
-   commits would have sat outside the PR with nothing saying so. Raised by
-   Copilot.
+   **That range read is not the finished predicate, and the difference is
+   the question.** The predicate asks whether a branch has landed, which
+   ancestry cannot answer once a rebase has replayed its commits; this
+   asks whether the checkout holds commits `origin/main` does not, which
+   no landing method changes. Without it the stop table's `main` row and
+   the pull's own comment argue for a guard with no command behind them:
+   the ahead case goes unread, step 1 forks from `origin/main`, and the
+   local commits sit outside the pull request with nothing saying so.
 
    **Both Stay rows leave the session off `main`**, and one of them leaves it
    outside the main checkout entirely. Prune and list are safe from anywhere in
@@ -1585,10 +1578,9 @@ same argument as never calling a branch clean because asking failed.
    stale-artefact trap step 6's `commit` oid exists for. Wait for the run on
    the pushed head rather than reading whichever finished last.
 
-   Then land it by rebase, which is this repository's shape since
-   blueprint-frontend#52 — the branch's commits are replayed onto `main`, each
-   one of them a commit `/commit` wrote, and no `Merge pull request #n from …`
-   is created:
+   Then land it by rebase, which is this repository's shape — the branch's
+   commits are replayed onto `main`, each one of them a commit `/commit`
+   wrote, and no `Merge pull request #n from …` is created:
 
    ```bash
    bash .claude/scripts/gh-pr-merge.sh <n> <oid>
@@ -1636,9 +1628,9 @@ same argument as never calling a branch clean because asking failed.
    one and reject the next, and `/pr` writes its body from them — and rebase
    is the method that puts every one of them on `main` under its own subject,
    where squashing discards the thing two earlier steps spent their effort
-   producing. `--merge` keeps them too and was this repository's shape until
-   blueprint-frontend#52; which of the two lands is the owner's choice and not
-   this step's, and it is made in `gh-pr-merge.sh` rather than here.
+   producing. `--merge` keeps them too; which of the two lands is the
+   owner's choice and not this step's, and it is made in `gh-pr-merge.sh`
+   rather than here.
 
    **The merge is `gh`'s, not a push.** `.claude/settings.json` denies every
    push to `main` and that deny is untouched: the branch is merged on the
@@ -1676,13 +1668,12 @@ same argument as never calling a branch clean because asking failed.
    between a pull that silently did nothing and a report that says the merge
    arrived.
 
-   **Under a rebase merge the oid is the last replayed commit rather than a
-   merge commit, and the check is unchanged by that
-   (blueprint-frontend#52).** GitHub reports it as `mergeCommit` either way,
-   it is on `main` either way, and containment is what this asks either way —
-   the branch's own commits are not in `main` and are not what is being asked
-   about. What moves is the report's wording: name the commit the branch
-   landed as, rather than calling it a merge commit that was never created.
+   **Under a rebase landing that oid is the last replayed commit rather
+   than a merge commit, and the check does not care.** GitHub reports it as
+   `mergeCommit` either way, it is on `main` either way, and containment is
+   what this asks either way — the branch's own commits are not in `main`
+   and are not what is being asked about. The report names the commit the
+   branch landed as, rather than a merge commit that was never created.
 
    **Verify first.** Removing the worktree is the one step in this chain that
    destroys something, and doing it on an assumed merge is how an unmerged
@@ -1746,8 +1737,8 @@ took decisions and lists none of them has not reported — it has hidden. A run
 that took none says so in one line.
 
 **Then the merge and the workspace.** Whether the PR landed and the oid it
-landed as — under a rebase merge the last replayed commit, not a merge commit
-(blueprint-frontend#52) —
+landed as — under a rebase landing the last replayed commit, not a merge
+commit —
 the literal `gh-pr-merge.sh` and `git-worktree-remove.sh` lines that ran,
 arguments and all — those two used to be raw grants admitting a flag this file
 forbids, and the report was the only place the forbidding was checkable; the

@@ -4319,14 +4319,20 @@ class AFeedHelperReturnsTheWholeAnswer(unittest.TestCase):
         self.assertEqual(0, result.returncode, result.stderr)
         self.assertEqual([], json.loads(result.stdout))
 
-    def test_a_landing_that_preserved_the_tip_keeps_its_row(self):
-        # **The no-op replay.** When the branch is already based on current
-        # `main`, the rebase has nothing to move and the landed commit can be
-        # the branch's own head. `mergeCommit` then equals `headRefOid` and
-        # equals the local tip, so the ancestor test is trivially true and the
-        # row was dropped — leaving `/ship` step 0 with no pull request for a
-        # branch that had just landed, and a worktree nothing would ever tear
-        # down. Raised by Copilot.
+    def test_a_fast_forward_landing_keeps_its_row(self):
+        # **A landing that left the branch head where it was.** The landed
+        # commit is then the tip itself, `mergeCommit` equals `headRefOid`
+        # and equals the local tip, the ancestor test is trivially true,
+        # and the row was dropped — leaving `/ship` step 0 with no pull
+        # request for a branch that had just landed, and a worktree
+        # nothing would ever tear down.
+        #
+        # **This is a fast-forward history, not `gh pr merge --rebase`.**
+        # That path recreates the commits with its own committer data and
+        # new shas, so it does not produce this shape; the fixture drives
+        # `merge --ff-only` and the case is defensive against a history
+        # the helper may meet, rather than one this chain creates. Raised
+        # by Copilot.
         repo = Path(tempfile.mkdtemp(prefix="prlist-noop-"))
         self.addCleanup(shutil.rmtree, str(repo), ignore_errors=True)
 

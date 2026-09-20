@@ -127,8 +127,12 @@ if [ "$state" = MERGED ]; then
   head_oid=$(jq -r '.[0].headRefOid // ""' <<<"$newest")
   tip=$(git rev-parse --verify --quiet "refs/heads/$branch" || true)
   # **The row survives only while the tip IS the head that landed.**
-  # Where the branch was already based on current `main`, the replay has
-  # nothing to move and the landed commit can be the branch's own head.
+  # A landing can leave the branch head unchanged — a fast-forward,
+  # whoever performed it — and the landed commit is then the tip itself.
+  # `gh pr merge --rebase` is not that case: it recreates the commits
+  # with its own committer data and new shas, so this is a defensive
+  # answer for a history the helper may meet rather than one this chain
+  # produces.
   # `mergeCommit` is then the local tip, the ancestor test is trivially
   # true, and the row was dropped — so step 0 saw no pull request for a
   # branch that had just landed and nothing was ever torn down.
