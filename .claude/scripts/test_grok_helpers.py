@@ -101,6 +101,16 @@ What is under test, and which issue each half closes:
         holds no copy of any deny list), and a checkout reached through a link
         (admitted, or every edit in a worktree under a linked temp root would
         be refused).
+  frontend#52
+        pull requests land by rebase now, so every "has this landed" read
+        that asked about ANCESTRY of the branch's own commits answers no for
+        ever — and step 0's finished predicate was exactly that read, failing
+        silently by keeping every worktree. Its replacement asks whether the
+        local tip is still the head the pull request merged, which is the only
+        form of the question no post-PR commit can slip past: the cases drive
+        a real rebase-merged repository and show both content comparisons —
+        the original range read and the `git cherry` that first replaced it —
+        answering wrongly where the identity read answers.
 
 **This inventory is a third copy of a list `ci.yml` and `docs/testing.md` also
 keep, and it went stale exactly as a redundant copy does** — it ended at #57
@@ -3426,13 +3436,13 @@ class OnlyThisCheckoutsPullRequestsSurvive(unittest.TestCase):
     OWNER = "acme/widgets"
 
     ROWS = """[
-      {"number": 1, "state": "OPEN", "url": "u1",
+      {"number": 1, "state": "OPEN", "url": "u1", "headRefOid": "aa1",
        "headRepository": {"nameWithOwner": "acme/widgets"}, "baseRefName": "main"},
-      {"number": 2, "state": "OPEN", "url": "u2",
+      {"number": 2, "state": "OPEN", "url": "u2", "headRefOid": "bb2",
        "headRepository": {"nameWithOwner": "mallory/widgets"}, "baseRefName": "main"},
-      {"number": 3, "state": "MERGED", "url": "u3",
+      {"number": 3, "state": "MERGED", "url": "u3", "headRefOid": "cc3",
        "headRepository": null, "baseRefName": "main"},
-      {"number": 4, "state": "CLOSED", "url": "u4",
+      {"number": 4, "state": "CLOSED", "url": "u4", "headRefOid": "dd4",
        "headRepository": {"nameWithOwner": "acme/widgets-fork"}, "baseRefName": "main"}
     ]"""
 
@@ -3487,8 +3497,15 @@ class OnlyThisCheckoutsPullRequestsSurvive(unittest.TestCase):
         self.assertNotIn(4, [row["number"] for row in got])
 
     def test_the_shape_is_unchanged_for_callers(self):
+        # **`headRefOid` joined the set for blueprint-frontend#52 and nothing
+        # else has.** This case is the reason that addition could not be made
+        # quietly: /ship step 0 compares the local tip with the head the pull
+        # request merged, so the oid had to reach a caller, and every other
+        # field staying put is what says the projection was widened by
+        # exactly one.
         got = json.loads(self.run_helper().stdout)
-        self.assertEqual({"number", "state", "url"}, set(got[0]))
+        self.assertEqual({"number", "state", "url", "headRefOid"},
+                         set(got[0]))
 
     def test_an_unresolvable_owner_stops_the_helper(self):
         result = self.run_helper(owner="")
@@ -3670,9 +3687,15 @@ class NoCommandHoldsAPrefixGrantThatAdmitsAForbiddenFlag(unittest.TestCase):
 
     def test_the_helpers_spell_the_flags_they_replaced(self):
         merge = self._code("gh-pr-merge.sh")
-        self.assertIn('gh pr merge --merge --repo "$repo" '
+        self.assertIn('gh pr merge --rebase --repo "$repo" '
                       '--match-head-commit "$oid" "$pr"', merge)
         self.assertNotIn("--admin", merge)
+        # blueprint-frontend#52 moved the method, and the flag it moved from
+        # must not survive beside it: `gh` refuses two of `--merge`,
+        # `--squash` and `--rebase` together, so a stray `--merge` is a broken
+        # endpoint at the last step of the chain rather than a merge of the
+        # wrong shape.
+        self.assertNotIn("--merge", merge)
         # `--match-head-commit` is a required ARGUMENT, not an optional flag:
         # ship.md calls it the only guard in step 7 that fails closed and then
         # relied on prose to make it present.
@@ -4174,6 +4197,11 @@ class AFeedHelperReturnsTheWholeAnswer(unittest.TestCase):
             "number": number, "state": state,
             "url": f"https://example.invalid/{number}",
             "headRepository": {"nameWithOwner": repo}, "baseRefName": "main",
+            # Published for blueprint-frontend#52, so the fixture carries it:
+            # `/ship` step 0 compares this with the local tip, and a row
+            # without it would put a `null` on one side of that comparison.
+            # Cases that need a specific head override it after the spread.
+            "headRefOid": f"{number:040x}",
         }
 
     def test_a_merged_pr_behind_the_reused_branch_is_not_its_pr(self):
@@ -4237,6 +4265,60 @@ class AFeedHelperReturnsTheWholeAnswer(unittest.TestCase):
         result = self._pr_list_stub([open_row], cwd=str(repo))
         self.assertEqual([4], [r["number"] for r in json.loads(result.stdout)])
 
+    def test_the_reuse_drop_still_answers_after_a_rebase_merge(self):
+        # blueprint-frontend#52: the drop keys on the MERGE COMMIT being an
+        # ancestor of the local tip, and a rebase merge reports its last
+        # replayed commit as `mergeCommit`. That commit is on `main`, so a
+        # branch recreated from `main` carries it and the original branch —
+        # whose own shas were left behind by the replay — does not. The helper
+        # is therefore unchanged by that issue, and this case is what
+        # establishes it rather than assuming it.
+        repo = Path(tempfile.mkdtemp(prefix="prlist-rebase-"))
+        self.addCleanup(shutil.rmtree, str(repo), ignore_errors=True)
+
+        def git(*args):
+            return subprocess.run(
+                ["git", "-C", str(repo), "-c", "user.email=t@example.com",
+                 "-c", "user.name=t", *args],
+                check=True, capture_output=True, text=True).stdout.strip()
+
+        git("init", "-q", "-b", "main")
+        git("commit", "-q", "--allow-empty", "-m", "root")
+        git("switch", "-q", "-c", "feat/reused")
+        git("commit", "-q", "--allow-empty", "-m", "the work that landed")
+        old_head = git("rev-parse", "HEAD")
+        # GitHub's rebase merge: the branch's commits replayed onto `main`,
+        # with new shas, and the local branch left on the old ones.
+        git("switch", "-q", "main")
+        git("commit", "-q", "--allow-empty", "-m", "an unrelated PR lands first")
+        git("switch", "-q", "-c", "landing", old_head)
+        git("rebase", "-q", "--onto", "main", "main", "landing")
+        git("switch", "-q", "main")
+        git("merge", "-q", "--ff-only", "landing")
+        git("branch", "-q", "-D", "landing")
+        landed = git("rev-parse", "HEAD")
+        self.assertNotEqual(old_head, landed, "the replay must change the sha")
+        row = {**self._row(7, "MERGED"), "headRefOid": old_head,
+               "mergeCommit": {"oid": landed}}
+
+        # The ORIGINAL branch still holds the pre-rebase shas and does not
+        # carry the landed commit, so the row is its PR and `/ship` step 0 can
+        # read it as delivered.
+        git("switch", "-q", "feat/reused")
+        result = self._pr_list_stub([row], cwd=str(repo))
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual([7], [r["number"] for r in json.loads(result.stdout)])
+
+        # A branch RECREATED from the updated `main` carries it, so the row is
+        # a previous incarnation and is dropped — the #24/reuse answer, intact.
+        git("switch", "-q", "main")
+        git("branch", "-q", "-D", "feat/reused")
+        git("switch", "-q", "-c", "feat/reused")
+        git("commit", "-q", "--allow-empty", "-m", "new work, same name")
+        result = self._pr_list_stub([row], cwd=str(repo))
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual([], json.loads(result.stdout))
+
     def test_the_newest_row_wins_over_an_older_merged_one(self):
         # **#24, and it is the worst answer this chain can produce.** `--head`
         # matches a branch NAME, so a name reused after a merge leaves an older
@@ -4251,7 +4333,8 @@ class AFeedHelperReturnsTheWholeAnswer(unittest.TestCase):
                                      self._row(9, "OPEN")])
         self.assertEqual(0, result.returncode, result.stderr)
         self.assertEqual([{"number": 9, "state": "OPEN",
-                           "url": "https://example.invalid/9"}],
+                           "url": "https://example.invalid/9",
+                           "headRefOid": f"{9:040x}"}],
                          json.loads(result.stdout))
 
     def test_a_newer_pr_into_another_base_does_not_mask_the_main_pr(self):
@@ -9940,6 +10023,317 @@ class TheTriagerEditsNothingShipDenies(unittest.TestCase):
         self.assertIn('run-guard.sh\\" guard-triager-edit.py', front)
         settings = SETTINGS.read_text(encoding="utf-8")
         self.assertNotIn("guard-triager-edit", settings)
+
+
+class LandingByRebaseMovedTheReadsThatAssumedAMergeCommit(unittest.TestCase):
+    """blueprint-frontend#52 — the method moved, so step 0's predicate had to.
+
+    A rebase merge replays the branch's commits onto `main` with new shas, so
+    the branch's own commits are never ancestors of `main`. `/ship` step 0's
+    predicate read `git log origin/main..HEAD` and called the branch finished
+    when it was empty — which, after a rebase merge, it never is. Nothing
+    fails: no worktree is ever classified finished, the teardown never runs,
+    and the directories accumulate until somebody notices. The issue calls
+    that out as the risk in making this change carelessly.
+
+    **The predicate that replaced it is an identity rather than a comparison
+    of content**, and that is the contract these cases pin: a branch is
+    finished when `git rev-parse HEAD` still equals the `headRefOid` of its
+    MERGED row. No landing method moves that oid, and no commit made after the
+    merge satisfies it — which is what neither `git log origin/main..HEAD` nor
+    the `git cherry` that briefly replaced it could say.
+
+    **So the subject here is what the gate LOOKS AT**, which is the rule
+    `CLAUDE.md` states is the only defence against a gate that quietly stops
+    covering the newest surface. The structural cases assert that `ship.md`
+    spells all three limbs of that identity in one block, and neither content
+    comparison in any block; the driven cases build real rebase-merged
+    repositories and show both comparisons missing work the identity read
+    sees.
+    """
+
+    SHIP = COMMANDS / "ship.md"
+
+    def ship(self):
+        return self.SHIP.read_text(encoding="utf-8")
+
+    def test_the_merge_helper_lands_by_rebase(self):
+        code = NEWLINE.join(
+            line for line
+            in (SCRIPTS / "gh-pr-merge.sh").read_text(
+                encoding="utf-8").splitlines()
+            if not line.lstrip().startswith("#"))
+        self.assertIn("gh pr merge --rebase", code)
+        # The positive control for the negative below: the method is spelled
+        # once, in the invocation, so its absence would be a helper that picks
+        # whatever the repository's default is.
+        self.assertEqual(1, code.count("--rebase"))
+        self.assertNotIn("--merge", code)
+        self.assertNotIn("--squash", code)
+
+    @staticmethod
+    def _fenced(text):
+        # The command blocks alone. The prose NAMES the read it replaced —
+        # this repository argues its changes where it makes them — so a
+        # whole-file search reads the explanation as the defect, which is the
+        # mistake `_code` records one class over. What has to be gone is the
+        # READ, and the reads are the fences.
+        blocks, inside, current = [], False, []
+        for line in text.splitlines():
+            if line.strip().startswith("```"):
+                if inside:
+                    blocks.append(NEWLINE.join(current))
+                    current = []
+                inside = not inside
+                continue
+            if inside:
+                current.append(line)
+        return blocks
+
+    def _finished_predicate_block(self):
+        # **The block step 0's predicate is actually spelled in, selected by
+        # its own content.** Anchoring on a position would make this case a
+        # record of where the file was rather than of what it says.
+        blocks = [block for block in self._fenced(self.ship())
+                  if "git status --short" in block
+                  and "pr-for-branch.sh" in block]
+        self.assertEqual(
+            1, len(blocks),
+            "expected exactly one block reading the tree and resolving the PR")
+        return blocks[0]
+
+    def test_the_finished_predicate_is_spelled_whole(self):
+        # **The limbs have to appear TOGETHER, in the block that is the
+        # contract.** Asserting that each read exists somewhere in the file
+        # leaves a regression that performs both reads and then treats every
+        # MERGED row as finished — the teardown of live work this predicate
+        # exists to refuse, behind a green gate.
+        block = self._finished_predicate_block()
+        for limb in ("git status --short", "git rev-parse HEAD",
+                     "pr-for-branch.sh", "MERGED", "headRefOid"):
+            with self.subTest(limb=limb):
+                self.assertIn(limb, block)
+
+    def test_step_zero_compares_the_tip_with_the_merged_head(self):
+        ship = self.ship()
+        blocks = self._fenced(ship)
+        # The positive control: a fence parser that found nothing would pass
+        # the loop below in silence, which is this repository's most-repeated
+        # failure arriving in the case written to catch it.
+        self.assertGreater(len(blocks), 5, "found almost no command blocks")
+        self.assertTrue(
+            any("git rev-parse HEAD" in block for block in blocks),
+            "step 0's finished predicate must READ the tip, not merely "
+            "discuss it")
+        # **Both content reads are gone from every block, not just step 0's.**
+        # Each was a predicate for the same question and each answered it
+        # wrongly in its own direction — the range read cannot see a rebase
+        # merge, `git cherry` cannot see a duplicate patch or a merge commit.
+        # A second copy left in another block is the one a reader trusts.
+        for block in blocks:
+            with self.subTest(block=block.splitlines()[:1]):
+                self.assertNotIn("git log origin/main..HEAD", block)
+                self.assertNotIn("git cherry", block)
+        # The helper has to hand that oid over, or the comparison has one side.
+        self.assertIn("headRefOid", self._helper())
+
+    def _helper(self):
+        return (SCRIPTS / "pr-for-branch.sh").read_text(encoding="utf-8")
+
+    def test_the_helper_publishes_the_head_it_already_fetched(self):
+        # The field was requested from `gh pr list` and dropped before stdout,
+        # so this is a projection change and not a new API read — asserted
+        # over the jq that prints, because "it is in the --json list" was
+        # already true while step 0 could not see it.
+        helper = self._helper()
+        self.assertIn(
+            "jq '[ .[] | {number, state, url, headRefOid} ]'", helper)
+
+    def test_no_command_still_argues_for_the_merge_commit_shape(self):
+        # The claim this issue retired, in the words both files used to carry.
+        # A rule stated in the command and argued in the helper moves in both,
+        # and this is the case that says so.
+        for path in sorted(COMMANDS.glob("*.md")):
+            with self.subTest(command=path.name):
+                self.assertNotIn("git log --merges",
+                                 path.read_text(encoding="utf-8"))
+
+    def test_neither_content_read_can_see_work_done_after_the_merge(self):
+        """The review finding on blueprint-admin#34, driven rather than taken.
+
+        `git cherry` was the first replacement for the range read, and it does
+        answer for a rebase merge. It answers the wrong question: it compares
+        PATCHES, so a commit made after the merge whose patch `main` already
+        carries is reported `-`, and a merge commit is omitted outright. Both
+        leave a branch reading finished while holding work, and step 0's
+        response to finished is to remove the only worktree holding it.
+
+        The identity read has no such shape, because every commit moves the
+        tip whatever its content.
+        """
+        repo = Path(tempfile.mkdtemp(prefix="post-merge-work-"))
+        self.addCleanup(shutil.rmtree, str(repo), ignore_errors=True)
+
+        def git(*args):
+            return subprocess.run(
+                ["git", "-C", str(repo), "-c", "user.email=t@example.com",
+                 "-c", "user.name=t", *args],
+                check=True, capture_output=True, text=True).stdout.strip()
+
+        def write(name, text):
+            (repo / name).write_text(text, encoding="utf-8")
+            git("add", name)
+
+        git("init", "-q", "-b", "main")
+        write("root.txt", "root" + NEWLINE)
+        git("commit", "-q", "-m", "root")
+        git("switch", "-q", "-c", "feat/x")
+        write("a.txt", "a" + NEWLINE)
+        git("commit", "-q", "-m", "add a")
+        merged_head = git("rev-parse", "HEAD")
+
+        # **`main` has to move before the replay, or there is no replay.**
+        # `git rebase --onto main main` with `main` still at the branch point
+        # reproduces the identical sha, and the range read then answers
+        # correctly for the wrong reason — a rebase merge that did not rebase.
+        git("switch", "-q", "main")
+        write("z.txt", "z" + NEWLINE)
+        git("commit", "-q", "-m", "an unrelated PR lands first")
+
+        # The rebase merge, which is what makes the range read useless here.
+        git("switch", "-q", "-c", "landing", merged_head)
+        git("rebase", "-q", "--onto", "main", "main", "landing")
+        git("switch", "-q", "main")
+        git("merge", "-q", "--ff-only", "landing")
+        git("branch", "-q", "-D", "landing")
+        git("switch", "-q", "feat/x")
+
+        def plus(branch):
+            return [line for line in git("cherry", "main", branch).splitlines()
+                    if line.startswith("+")]
+
+        # Baseline: nothing since the merge. The range read is the defect the
+        # issue opened with — it still sees the pre-rebase commit.
+        self.assertEqual([], plus("feat/x"))
+        self.assertEqual(merged_head, git("rev-parse", "HEAD"))
+        self.assertNotEqual(
+            "", git("log", "--oneline", "main..feat/x"),
+            "the range read is expected to still see the pre-rebase commit")
+
+        # **A post-PR commit whose patch `main` already carries.** Somebody
+        # cherry-picks a commit off `main` onto the branch: a real commit, in
+        # `main..HEAD`, and `git cherry` says nothing about it.
+        git("switch", "-q", "main")
+        write("s.txt", "shared" + NEWLINE)
+        git("commit", "-q", "-m", "a change main already has")
+        shared = git("rev-parse", "HEAD")
+        git("switch", "-q", "feat/x")
+        git("cherry-pick", shared)
+        self.assertEqual(
+            [], plus("feat/x"),
+            "the finding: a duplicate-patch commit is invisible to git cherry")
+        # The identity read sees it, which is the whole of the fix.
+        self.assertNotEqual(merged_head, git("rev-parse", "HEAD"))
+
+        # **A merge commit, which `git cherry` omits by construction.** Its
+        # own content — a conflict resolution recorded nowhere else — cannot
+        # appear in that output at all.
+        git("switch", "-q", "-c", "feat/y", merged_head)
+        git("switch", "-q", "-c", "side", merged_head)
+        write("a.txt", "side" + NEWLINE)
+        git("commit", "-q", "-m", "side edits a")
+        git("switch", "-q", "feat/y")
+        write("a.txt", "mine" + NEWLINE)
+        git("commit", "-q", "-m", "mine edits a")
+        subprocess.run(
+            ["git", "-C", str(repo), "-c", "user.email=t@example.com",
+             "-c", "user.name=t", "merge", "--no-ff", "-m", "resolved by hand",
+             "side"], capture_output=True, text=True)
+        write("a.txt", "resolved, recorded only in the merge" + NEWLINE)
+        git("commit", "-q", "--no-edit")
+        tip = git("rev-parse", "HEAD")
+        self.assertEqual(
+            tip, git("rev-list", "--merges", "-1", "HEAD"),
+            "the tip must be a merge for this half to mean anything")
+        self.assertNotIn(
+            tip, NEWLINE.join(plus("feat/y")),
+            "the finding: git cherry omits merge commits, so the resolution "
+            "recorded only in this one is invisible to it")
+        self.assertNotEqual(merged_head, tip)
+
+    def test_a_rebase_merged_branch_is_finished_under_the_new_read_only(self):
+        repo = Path(tempfile.mkdtemp(prefix="rebase-finished-"))
+        self.addCleanup(shutil.rmtree, str(repo), ignore_errors=True)
+
+        def git(*args):
+            return subprocess.run(
+                ["git", "-C", str(repo), "-c", "user.email=t@example.com",
+                 "-c", "user.name=t", *args],
+                check=True, capture_output=True, text=True).stdout.strip()
+
+        def write(name, text):
+            (repo / name).write_text(text, encoding="utf-8")
+            git("add", name)
+
+        git("init", "-q", "-b", "main")
+        git("commit", "-q", "--allow-empty", "-m", "root")
+        git("switch", "-q", "-c", "feat/landed")
+        write("a.txt", "a" + NEWLINE)
+        git("commit", "-q", "-m", "add a")
+        write("b.txt", "b" + NEWLINE)
+        git("commit", "-q", "-m", "add b")
+        old_tip = git("rev-parse", "HEAD")
+
+        # Another pull request lands first, so the replay is onto a `main` that
+        # has moved — the case a tree comparison would get wrong.
+        git("switch", "-q", "main")
+        write("z.txt", "z" + NEWLINE)
+        git("commit", "-q", "-m", "an unrelated PR lands first")
+        git("switch", "-q", "-c", "landing", old_tip)
+        git("rebase", "-q", "--onto", "main", "main", "landing")
+        git("switch", "-q", "main")
+        git("merge", "-q", "--ff-only", "landing")
+        git("branch", "-q", "-D", "landing")
+        git("switch", "-q", "feat/landed")
+
+        # The negative control, and the defect: the old read still reports the
+        # branch's two commits, so it can never call a rebase-merged branch
+        # finished.
+        self.assertEqual(
+            2, len(git("log", "--oneline", "main..feat/landed").splitlines()),
+            "the ancestry read is expected to still see the pre-rebase "
+            "commits")
+
+        # **And the read step 0 actually makes now.** The tip either is the
+        # head the pull request merged or it is not, and that holds across
+        # every landing method for the same reason.
+        self.assertEqual(old_tip, git("rev-parse", "HEAD"))
+
+        # Work that genuinely has not landed moves the tip away from it, which
+        # is what stops the identity read from being vacuously true.
+        git("switch", "-q", "-c", "feat/unlanded", "main")
+        write("q.txt", "q" + NEWLINE)
+        git("commit", "-q", "-m", "not landed")
+        self.assertNotEqual(old_tip, git("rev-parse", "HEAD"))
+
+        # An UNUSED branch — forked and never committed to — is not the merged
+        # head either, and step 0's conjunction is what keeps it from reading
+        # as finished: there is no MERGED row for it.
+        git("switch", "-q", "-c", "feat/unused", "main")
+        self.assertNotEqual(old_tip, git("rev-parse", "HEAD"))
+
+        # And a branch landed by MERGE COMMIT, which is every pull request
+        # this repository landed before the method moved: its head is still
+        # the head its PR merged, so the same read answers for both histories.
+        git("switch", "-q", "-c", "feat/merged", "main")
+        write("m.txt", "m" + NEWLINE)
+        git("commit", "-q", "-m", "landed by merge commit")
+        merged_by_commit = git("rev-parse", "HEAD")
+        git("switch", "-q", "main")
+        git("merge", "-q", "--no-ff", "-m", "Merge pull request #1",
+            "feat/merged")
+        git("switch", "-q", "feat/merged")
+        self.assertEqual(merged_by_commit, git("rev-parse", "HEAD"))
 
 
 if __name__ == "__main__":
