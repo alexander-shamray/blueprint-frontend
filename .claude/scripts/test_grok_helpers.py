@@ -4319,6 +4319,65 @@ class AFeedHelperReturnsTheWholeAnswer(unittest.TestCase):
         self.assertEqual(0, result.returncode, result.stderr)
         self.assertEqual([], json.loads(result.stdout))
 
+    def test_a_landing_that_preserved_the_tip_keeps_its_row(self):
+        # **The no-op replay.** When the branch is already based on current
+        # `main`, the rebase has nothing to move and the landed commit can be
+        # the branch's own head. `mergeCommit` then equals `headRefOid` and
+        # equals the local tip, so the ancestor test is trivially true and the
+        # row was dropped — leaving `/ship` step 0 with no pull request for a
+        # branch that had just landed, and a worktree nothing would ever tear
+        # down. Raised by Copilot.
+        repo = Path(tempfile.mkdtemp(prefix="prlist-noop-"))
+        self.addCleanup(shutil.rmtree, str(repo), ignore_errors=True)
+
+        def git(*args):
+            return subprocess.run(
+                ["git", "-C", str(repo), "-c", "user.email=t@example.com",
+                 "-c", "user.name=t", *args],
+                check=True, capture_output=True, text=True).stdout.strip()
+
+        git("init", "-q", "-b", "main")
+        git("commit", "-q", "--allow-empty", "-m", "root")
+        # **The name is the one `_pr_list_stub` passes the helper.** Called
+        # anything else, `refs/heads/feat/reused` does not resolve, `tip`
+        # comes back empty, and the drop is skipped for THAT reason — so the
+        # row survives and the positive case below passes without the guard
+        # ever being reached. Caught by the control failing while the
+        # assertion it was controlling passed.
+        git("switch", "-q", "-c", "feat/reused")
+        git("commit", "-q", "--allow-empty", "-m", "the work that landed")
+        tip = git("rev-parse", "HEAD")
+        # `main` never moved, so the replay is a fast-forward and the landed
+        # commit IS the branch head.
+        git("switch", "-q", "main")
+        git("merge", "-q", "--ff-only", "feat/reused")
+        self.assertEqual(tip, git("rev-parse", "HEAD"),
+                         "this fixture is only meaningful if the sha survived")
+        git("switch", "-q", "feat/reused")
+        self.assertEqual(
+            tip, git("rev-parse", "refs/heads/feat/reused"),
+            "the helper resolves this ref by name; if it does not exist the "
+            "drop is skipped for the wrong reason and this case is vacuous")
+
+        row = {**self._row(11, "MERGED"), "headRefOid": tip,
+               "mergeCommit": {"oid": tip}}
+        result = self._pr_list_stub([row], cwd=str(repo))
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual(
+            [11], [r["number"] for r in json.loads(result.stdout)],
+            "a branch that still IS its merged head must keep its row")
+
+        # The control: the same history with a DIFFERENT landed commit is a
+        # recreation, and still loses its row. This is what says the guard
+        # narrowed the drop rather than removing it.
+        git("commit", "-q", "--allow-empty", "-m", "a later landing")
+        landed = git("rev-parse", "HEAD")
+        recreated = {**self._row(12, "MERGED"), "headRefOid": tip,
+                     "mergeCommit": {"oid": landed}}
+        result = self._pr_list_stub([recreated], cwd=str(repo))
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual([], json.loads(result.stdout))
+
     def test_the_newest_row_wins_over_an_older_merged_one(self):
         # **#24, and it is the worst answer this chain can produce.** `--head`
         # matches a branch NAME, so a name reused after a merge leaves an older
@@ -10286,27 +10345,40 @@ class LandingByRebaseMovedTheReadsThatAssumedAMergeCommit(unittest.TestCase):
         # **A merge commit, which `git cherry` omits by construction.** Its
         # own content — a conflict resolution recorded nowhere else — cannot
         # appear in that output at all.
-        git("switch", "-q", "-c", "feat/y", merged_head)
+        # **Both parents must carry patches `main` already has, or this
+        # half proves nothing.** The first version made them fresh, so
+        # they produced `+` lines of their own and a predicate checking
+        # for any `+` would have kept the workspace — it demonstrated the
+        # omission without reproducing the danger. Raised by Copilot.
+        git("switch", "-q", "main")
+        write("p.txt", "p" + NEWLINE)
+        git("commit", "-q", "-m", "p, which main carries")
+        p = git("rev-parse", "HEAD")
+        write("q.txt", "q" + NEWLINE)
+        git("commit", "-q", "-m", "q, which main carries")
+        q = git("rev-parse", "HEAD")
+
         git("switch", "-q", "-c", "side", merged_head)
-        write("a.txt", "side" + NEWLINE)
-        git("commit", "-q", "-m", "side edits a")
-        git("switch", "-q", "feat/y")
-        write("a.txt", "mine" + NEWLINE)
-        git("commit", "-q", "-m", "mine edits a")
-        subprocess.run(
-            ["git", "-C", str(repo), "-c", "user.email=t@example.com",
-             "-c", "user.name=t", "merge", "--no-ff", "-m", "resolved by hand",
-             "side"], capture_output=True, text=True)
-        write("a.txt", "resolved, recorded only in the merge" + NEWLINE)
-        git("commit", "-q", "--no-edit")
+        git("cherry-pick", q)
+        git("switch", "-q", "-c", "feat/y", merged_head)
+        git("cherry-pick", p)
+        git("merge", "-q", "--no-ff", "-m", "resolved by hand", "side")
+        # The content that exists in neither parent and in no commit
+        # `main` carries: a resolution recorded only in the merge.
+        write("evil.txt", "recorded only in the merge" + NEWLINE)
+        git("commit", "-q", "--amend", "--no-edit")
         tip = git("rev-parse", "HEAD")
         self.assertEqual(
             tip, git("rev-list", "--merges", "-1", "HEAD"),
             "the tip must be a merge for this half to mean anything")
-        self.assertNotIn(
-            tip, NEWLINE.join(plus("feat/y")),
-            "the finding: git cherry omits merge commits, so the resolution "
-            "recorded only in this one is invisible to it")
+        self.assertEqual(
+            [], plus("feat/y"),
+            "the finding: every parent patch is already upstream and the "
+            "merge itself is omitted, so git cherry reports NOTHING while "
+            "the branch holds work recorded only in that merge")
+        self.assertTrue(
+            (repo / "evil.txt").exists(),
+            "the work git cherry cannot see has to actually be there")
         self.assertNotEqual(merged_head, tip)
 
     def test_a_rebase_merged_branch_is_finished_under_the_new_read_only(self):
