@@ -397,6 +397,14 @@ same argument as never calling a branch clean because asking failed.
    and whether or not it is a merge — there is no shape of post-landing
    work that survives this read.
 
+   **A checkout *behind* that head is kept as well, and that is the cost
+   of one read.** A clean HEAD that is an ancestor of `headRefOid` holds
+   nothing the landing lacked, so keeping it is wrong — the safe way: a
+   directory nobody removes, named in the report. Admitting it needs the
+   landed head's object in this checkout, which a deleted remote branch
+   no longer serves, and a second predicate beside the first; step 5's
+   fast-forward is what keeps the state rare instead.
+
    **No comparison of content can stand here, and the two obvious ones
    fail in opposite directions.** A range read over `origin/main..HEAD`
    cannot see a rebase landing at all: the replay gives the branch's
