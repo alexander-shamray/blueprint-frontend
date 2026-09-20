@@ -4367,10 +4367,28 @@ class AFeedHelperReturnsTheWholeAnswer(unittest.TestCase):
             [11], [r["number"] for r in json.loads(result.stdout)],
             "a branch that still IS its merged head must keep its row")
 
-        # The control: the same history with a DIFFERENT landed commit is a
-        # recreation, and still loses its row. This is what says the guard
-        # narrowed the drop rather than removing it.
-        git("commit", "-q", "--allow-empty", "-m", "a later landing")
+        # **The branch RECREATED from that same `main`, which is the case
+        # the first exclusion got wrong.** After a fast-forward landing
+        # the original and the recreation hold the same history, so no
+        # comparison of oids separates them — and keeping the row for one
+        # kept it for the other, leaving `/ship` to read a stale `MERGED`
+        # row and end the run instead of opening a pull request for the
+        # new work. The tip having moved off the landed head is what
+        # decides it. Raised by Copilot.
+        git("switch", "-q", "main")
+        git("branch", "-q", "-D", "feat/reused")
+        git("switch", "-q", "-c", "feat/reused")
+        git("commit", "-q", "--allow-empty", "-m", "new work, same name")
+        result = self._pr_list_stub([row], cwd=str(repo))
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual(
+            [], json.loads(result.stdout),
+            "a tip that has moved off the landed head cannot be spoken "
+            "for by that row, whichever incarnation moved it")
+
+        # The control on the ordinary shape: a different landed commit,
+        # ancestor of the tip, still drops. This is what says the
+        # exclusion narrowed the drop rather than removing it.
         landed = git("rev-parse", "HEAD")
         recreated = {**self._row(12, "MERGED"), "headRefOid": tip,
                      "mergeCommit": {"oid": landed}}
