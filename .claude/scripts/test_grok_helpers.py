@@ -10,18 +10,21 @@ the .github/**-gate suites are already written to. One subject is the
 exception and is marked as such: the label helper's confinement never shipped
 wrong, and its cases keep a closed grant closed rather than catching anything.
 
-**No count opens this list, in this file or in the two that mirror it.**
-`.github/workflows/ci.yml` and `docs/testing.md` enumerate the same subjects,
-and the numeral that used to lead all of them said four, then five, then six,
-and was stale again inside the pull request that added the last of them. A
-figure restated in several places goes stale in all of them at once; the
-enumerations are what a reader compares.
+**No count opens this list.** The numeral that used to lead it said four,
+then five, then six, and was stale again inside the pull request that added
+the last of them. A figure restated goes stale wherever it is restated; the
+enumeration is what a reader compares.
 
-**`CLAUDE.md` was a holder of this list and no longer is.** The extraction
-folded its commands section into `docs/testing.md`, which carries the
-issue-by-issue subjects alone now — measured, `CLAUDE.md` contains none of
-them. One fewer copy to drift, and one fewer file to send a reader to for a
-list that is not there.
+**The list has one home, and it is this file.** These paragraphs were ported
+from the repository this harness came from, where `.github/workflows/ci.yml`
+and `docs/testing.md` carry the same subjects and the three copies drift
+against each other. Neither carries them here, and a reader sent to either
+finds nothing: `ci.yml` runs the suite, `docs/testing.md` says what a
+checkout needs in order to run it, and the issue numbers each happens to
+mention belong to its own argument rather than to this list. An entry added
+here therefore syncs nothing elsewhere — the arrangement the one-owner rule
+asks for, arrived at by what the port left out rather than by design, and
+stated here so that nobody goes looking for mirrors to update.
 
 **The regression negatives are paired with positive controls, and those are not
 decoration.** A negative that passes because a pattern matches *nothing* is
