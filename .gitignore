@@ -57,6 +57,15 @@ __pycache__/
 # are shared so Claude in this clone uses the same map.
 .claude/cache/codebase-index/
 
+# Session state, already ignored by a nested `.gitignore` holding `*` — but
+# git reads those at any depth and the code index reads only the root files
+# its config names, so without these two lines it indexed them: 647 of 987
+# files, two thirds of the index, including session logs carrying PR comments
+# and sweep reads that came back ranked beside code (#53). blueprint-backend
+# and blueprint-admin list .remember/ at their roots for the same reason.
+.remember/
+.superpowers/
+
 # /review-branch's proof that it ran, which grok-review.sh requires before it
 # reads a missing suggestions.md as a clean pass. Ignored so that a standalone
 # review does not dirty the tree the same helper refuses to review over.
