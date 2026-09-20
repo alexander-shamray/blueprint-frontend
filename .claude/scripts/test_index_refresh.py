@@ -105,30 +105,37 @@ class TheRootFollowsTheActiveWorktree(unittest.TestCase):
         # And from there, the other linked worktree too.
         self.assertEqual(real(self.sibling), real(self.hook.target_root(self.sibling, self.sibling)))
 
-    def test_the_hooks_state_never_lands_inside_the_tree_it_indexes(self):
-        # Copilot, round 9: the lock and the marker used to sit under the
-        # target's own `.claude/cache/`, which a branch can commit as a
-        # symlink. `makedirs` and `open` follow it and `Lock.write` truncates
-        # what it finds, so the target chose where a trusted write landed.
-        cache = os.path.join(self.sibling, ".claude", "cache")
-        os.makedirs(os.path.dirname(cache))
-        aimed = os.path.join(self.base, "aimed-at")
-        os.mkdir(aimed)
+    def link(self, source, target):
+        """A directory link, by whichever primitive this platform grants."""
         try:
-            os.symlink(aimed, cache, target_is_directory=True)
+            os.symlink(target, source, target_is_directory=True)
         except (OSError, NotImplementedError):
             if os.name != "nt":
                 raise
-            subprocess.run(["cmd", "/c", "mklink", "/J", cache, aimed],
+            subprocess.run(["cmd", "/c", "mklink", "/J", source, target],
                            check=True, capture_output=True)
 
-        for path in (self.hook.lock_path(self.main, self.sibling),
-                     self.hook.pending_path(self.main, self.sibling)):
-            with self.subTest(path=path):
-                self.assertTrue(real(path).startswith(real(self.main)))
-                self.assertFalse(real(path).startswith(real(self.sibling)))
+    def test_the_hooks_state_lives_where_no_branch_can_redirect_it(self):
+        # Copilot, rounds 9 and 10: the lock and marker sat first under the
+        # target's `.claude/cache/` and then under the owner's, and a branch
+        # can force-track a symlink at either — `makedirs` follows it and the
+        # lock's write truncates what it finds. They now live in the git
+        # directory, which holds no tracked file at all.
+        aimed = os.path.join(self.base, "aimed-at")
+        os.mkdir(aimed)
+        for owner in (self.main, self.sibling):
+            with self.subTest(owner=owner):
+                self.hook._STATE_DIRS.clear()
+                cache = os.path.join(owner, ".claude", "cache")
+                if not os.path.isdir(os.path.dirname(cache)):
+                    os.makedirs(os.path.dirname(cache))
+                    self.link(cache, aimed)
+                path = self.hook.lock_path(owner, self.sibling)
+                self.assertIsNotNone(path)
                 self.assertFalse(real(path).startswith(real(aimed)))
+                self.assertIn("index-refresh", path)
 
+        self.hook._STATE_DIRS.clear()
         self.hook.mark_pending(self.main, self.sibling)
         lock = self.hook.Lock(self.main, self.sibling)
         self.assertTrue(lock.acquire())
@@ -138,6 +145,41 @@ class TheRootFollowsTheActiveWorktree(unittest.TestCase):
         # Two roots keep two locks: the name is derived from the target.
         self.assertNotEqual(self.hook.lock_path(self.main, self.sibling),
                             self.hook.lock_path(self.main, self.main))
+
+    def test_a_linked_path_into_the_state_directory_refreshes_nothing(self):
+        # And if the git directory itself cannot be reached without passing
+        # through a link, there is no safe place to keep the state, so the
+        # refresh does not happen rather than happening through it.
+        self.hook._STATE_DIRS.clear()
+        with mock.patch.object(self.hook, "unlinked", return_value=False):
+            self.assertIsNone(self.hook.state_dir(self.main))
+            self.assertIsNone(self.hook.lock_path(self.main, self.sibling))
+            with mock.patch.object(self.hook, "spawn") as spawn:
+                self.hook.start(self.main, self.sibling)
+            spawn.assert_not_called()
+        self.hook._STATE_DIRS.clear()
+
+    def test_a_target_whose_cache_path_is_redirected_is_refused(self):
+        # Copilot, round 10: the indexer writes into the tree it indexes, so
+        # a branch that force-tracks `.claude/cache` as a link has the
+        # trusted wrapper write through it. Moving the hook's own state did
+        # not cover that; refusing the target does.
+        aimed = os.path.join(self.base, "aimed-at-cache")
+        os.mkdir(aimed)
+        cache = os.path.join(self.sibling, ".claude", "cache")
+        os.makedirs(os.path.dirname(cache))
+        self.link(cache, aimed)
+        self.assertIsNone(self.hook.target_root(self.sibling, self.main))
+        # The unredirected worktree beside it is still refreshed.
+        self.assertIsNotNone(self.hook.target_root(self.main, self.main))
+
+    def test_a_sweep_worktree_reached_through_an_alias_is_refused(self):
+        # Copilot, round 10: through a link, git reports the alias, whose
+        # name carries no reserved prefix while the directory it opens does.
+        alias = os.path.join(self.base, "ordinary-name")
+        self.link(alias, self.sweep)
+        self.assertTrue(self.hook.swept(alias))
+        self.assertIsNone(self.hook.target_root(alias, self.main))
 
     def test_a_sweep_checkout_is_refused_in_any_case(self):
         # Copilot, round 4: on a case-folding filesystem `SECSWEEP-x` is the
@@ -386,6 +428,9 @@ class OneWorkerPerRootAndNoEditDropped(unittest.TestCase):
         self.hook = load()
         self.root = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, self.root, ignore_errors=True)
+        # A real repository, because the state now lives in its git
+        # directory: no repository, no refresh at all.
+        git("init", "-q", cwd=self.root)
 
     def hold(self):
         lock = self.hook.Lock(self.root, self.root)

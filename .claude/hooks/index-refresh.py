@@ -212,9 +212,17 @@ def swept(toplevel):
     and macOS `SECSWEEP-x` is the same directory name as `secsweep-x`, and a
     case-sensitive comparison let the one through that the other refused.
     Raised by Copilot.
+
+    **Both the spelling git reported and what it resolves to**, because an
+    event reaching a sweep's worktree through a symlink or junction is
+    reported under the alias, whose name carries no prefix while the
+    directory it opens does. Raised by Copilot.
     """
-    return os.path.basename(os.path.normpath(toplevel)).casefold().startswith(
-        SWEEP_PREFIX)
+    for spelling in (toplevel, os.path.realpath(toplevel)):
+        if os.path.basename(os.path.normpath(spelling)).casefold().startswith(
+                SWEEP_PREFIX):
+            return True
+    return False
 
 
 def target_root(cwd, owner):
@@ -233,6 +241,14 @@ def target_root(cwd, owner):
         return None
     if swept(toplevel):
         return None
+    if not unlinked(os.path.join(toplevel, CACHE), toplevel):
+        # **The indexer writes into the tree it indexes**, at
+        # `<root>/.claude/cache/codebase-index`, and a branch can force-track
+        # any component of that path as a link. The hook's own state moved
+        # out of reach, but the wrapper's writes would still follow it, so a
+        # target whose cache path is redirected is not refreshed at all.
+        # Raised by Copilot.
+        return None
     return os.path.normpath(toplevel)
 
 
@@ -250,24 +266,66 @@ def subcommand(root):
     return "update" if os.path.isfile(built) else "index"
 
 
+def unlinked(path, base):
+    """Whether every component of `path` below `base` is a real directory.
+
+    Checked without following anything: `islink` and `isjunction` answer for
+    the component itself, so a link anywhere under `base` is refused rather
+    than walked through.
+    """
+    if os.path.islink(base) or os.path.isjunction(base):
+        return False
+    current = base
+    for part in os.path.relpath(path, base).split(os.sep):
+        if part in ("", "."):
+            continue
+        if part == "..":
+            return False
+        current = os.path.join(current, part)
+        if os.path.islink(current) or os.path.isjunction(current):
+            return False
+    return True
+
+
+_STATE_DIRS = {}
+
+
 def state_dir(owner):
-    """Where this hook keeps its own state: in the owner, never in the target.
+    """Where this hook keeps its own state: never in a tree a branch controls.
 
     **The tree being indexed must not choose where a trusted write lands.**
-    The lock and the marker used to sit under the target's own
+    The lock and the marker first sat under the target's own
     `.claude/cache/`, and a branch can commit a symlink there — `makedirs`
-    and `open` follow it, and `Lock.write` truncates what it finds, so a
-    worktree could aim this hook's writes at any file it liked. Raised by
-    Copilot. The state now lives beside the owner's index, under a name
-    derived from the target, and the target is only ever read.
+    and `open` follow it, and `Lock.write` truncates what it finds. Moving
+    them to the owner's cache was not enough: the owner is a checkout too,
+    `.claude/cache` is edit-denied nowhere, and the owner can even BE the
+    target. Raised by Copilot twice.
+
+    So the state lives in the repository's git directory — `<common>/
+    index-refresh/` — which no branch can write, because git tracks nothing
+    there. A checkout whose git directory cannot be found, or whose path
+    into it passes through a link, gets no refresh at all rather than one
+    through somebody's redirection.
     """
-    return os.path.join(owner, CACHE, "roots")
+    if owner in _STATE_DIRS:
+        return _STATE_DIRS[owner]
+    paths = git_paths(owner, time.monotonic() + GIT_BUDGET)
+    resolved = None
+    if paths is not None:
+        candidate = os.path.join(paths[1], "index-refresh")
+        if unlinked(candidate, paths[1]):
+            resolved = candidate
+    _STATE_DIRS[owner] = resolved
+    return resolved
 
 
 def state_path(owner, root, suffix):
+    directory = state_dir(owner)
+    if directory is None:
+        return None
     key = hashlib.sha256(
         os.path.normcase(os.path.realpath(root)).encode("utf-8", "replace")).hexdigest()
-    return os.path.join(state_dir(owner), f"{key[:32]}.{suffix}")
+    return os.path.join(directory, f"{key[:32]}.{suffix}")
 
 
 def lock_path(owner, root):
@@ -479,6 +537,8 @@ def work(owner, root):
     that marked while it still held the lock saw it held and started nothing,
     so this look is what serves it.
     """
+    if state_dir(owner) is None:
+        return
     lock = Lock(owner, root)
     while lock.acquire():
         try:
@@ -525,6 +585,8 @@ def start(owner, root):
     both find the lock free both start one, and the second finds it held and
     exits, which costs a process and nothing else.
     """
+    if state_dir(owner) is None:
+        return
     mark_pending(owner, root)
     if not held(owner, root):
         spawn([sys.executable, os.path.abspath(__file__), "--worker", root], owner)

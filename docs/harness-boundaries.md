@@ -1461,13 +1461,22 @@ left a check-then-act a takeover could slip between.
 forged ones, the lock from a second handle and from a second process that
 dies holding it, and the detached child end to end against a stub wrapper.
 
-**The lock and the marker live in the owner checkout, never in the tree
-being refreshed.** They used to sit under the target's own
-`.claude/cache/`, and a branch can commit a symlink there: `makedirs` and
-`open` follow it, and the lock's own write truncates what it finds, so the
-indexed tree chose where a trusted write landed. They are now named by a
-hash of the target's path under the owner's cache, and the target is only
-ever read.
+**The lock and the marker live in the repository's git directory**, at
+`<common>/index-refresh/`, named by a hash of the target's real path. They
+sat first under the target's `.claude/cache/` and then under the owner's,
+and a branch can force-track a symlink at either: `makedirs` and `open`
+follow it, and the lock's own write truncates what it finds. The git
+directory holds no tracked file, so no branch can aim anything there. A
+checkout whose git directory cannot be found, or is reached through a
+link, gets no refresh rather than one through somebody's redirection.
+
+**A target whose own cache path is redirected is refused too**, because the
+indexer writes into the tree it indexes: `.claude/cache/codebase-index`
+under the root. Every component below the root is checked without being
+followed, and a link anywhere along it means no refresh. A sweep's
+worktree reached through an alias is refused on the same principle — the
+reserved prefix is read from the resolved path as well as the reported
+one.
 
 **The worker records its indexer's pid in the lock file**, because the lock
 is the worker's and not the child's: a worker killed mid-run leaves
