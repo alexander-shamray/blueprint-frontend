@@ -1400,9 +1400,9 @@ because `settings.json` is edit-denied to the session that found them:
   whatever directory the session stood in. From a subdirectory that failed
   silently; from another checkout — a sweep's throwaway worktree, whose tree
   this file calls prompt-injection input — it ran **that** tree's
-  `run-index`, with no prompt, on the next edit. The command now opens with
-  `cd "${CLAUDE_PROJECT_DIR}"`, which anchors both the wrapper and the tree
-  `update` indexes.
+  `run-index`, with no prompt, on the next edit. The command then opened with
+  `cd "${CLAUDE_PROJECT_DIR}"`, which anchored both the wrapper and the tree
+  `update` indexes — the second half is what #48, below, undid.
 - **Its target was not edit-denied.** `.claude/skills/**` was on neither the
   deny list nor `guard-edit-target.py`'s refusal for the repository's own
   tree — a probe `Edit` of the wrapper exited 0 with no verdict. Before this
@@ -1421,15 +1421,114 @@ test here can show is the hook firing: the command is asynchronous and
 discards its output, so a failure is invisible when it happens, and CI runs
 the suite rather than the harness.
 
-**The anchor refreshes the checkout the session started in, and after
-`/branch` that is not the one being edited.** `/branch` moves the session into
+**The anchor refreshed the checkout the session started in, and after
+`/branch` that is not the one being edited
+(alexander-shamray/blueprint-frontend#48).** `/branch` moves the session into
 a sibling worktree, the event's `cwd` then differs from `CLAUDE_PROJECT_DIR`
-(`guard-edit-target.py`'s `anchors` says so), and the refresh indexes a tree
-the edit never touched — so the worktree's own index still goes stale. This
-was raised in review and deliberately not fixed here: the MCP server has the
-same limit, since `.mcp.json` roots it at the startup directory, so the index
-the model actually queries is the startup checkout's either way. Making both
-follow the active worktree means choosing a root from the event's `cwd`, and
-that choice has to refuse a sweep's `secsweep-` checkout — a trusted script
-under `.claude/hooks/` and its own test, not a one-line change.
-alexander-shamray/blueprint-frontend#48 carries it.
+(`guard-edit-target.py`'s `anchors` says so), and the refresh indexed a tree
+the edit never touched. The entry now runs `.claude/hooks/index-refresh.py`
+through `run-guard.sh`, which splits the two things the anchor had fused:
+
+- **The wrapper still comes from `CLAUDE_PROJECT_DIR`**, where
+  `.claude/hooks/**` and `.claude/skills/**` are edit-denied, so no tree the
+  session stands in chooses the code that runs.
+- **The root comes from the event's `cwd`**, walked up to its checkout and
+  passed as `--root` — accepted only when its `git rev-parse --git-common-dir`
+  is this repository's **and git made it**: a `.git` file must be one its
+  admin directory points back at, from under this repository's
+  `<common>/worktrees/`; a `.git` directory is only ever the repository's
+  main checkout, whose `.git` is the common directory itself, even when the
+  session started in a linked worktree; and a `.git` that is a link, a
+  junction or a hard link to another name is refused, because a
+  forged `.git` reports the same common directory. A directory starting
+  `secsweep-`, in any case, is refused by name, because a
+  sweep's tree is prompt-injection input and indexing it reads that tree's
+  `.codeindexignore`. Anything else refreshes nothing.
+
+**Every git call one event makes shares one deadline**, because the hook
+is synchronous and `settings.json` gives it five seconds: validation and
+the state directory each taking their own three-second budget could
+together outlast that and be killed before anything was scheduled.
+
+**A fresh worktree has no index, and `update` there does nothing**, so the
+hook builds one (`index`) on the first edit and updates it afterwards; a full
+build of this repository measured about five seconds, detached. **One
+worker runs per root**: every edit leaves a marker beside the index, and the
+worker holding the root's lock refreshes for as long as it finds one, so
+edits made during a run cost one more `update` between them. A detached
+refresh per edit raced two full builds against one SQLite cache inside
+those five seconds. The lock is an OS advisory lock held on an open handle
+(`flock`, `msvcrt.locking`) for the worker's lifetime and released by the
+kernel when the worker exits, crashed or not. A lock *file* whose existence
+was the lock needed an age, then a token, then a renewal, and each still
+left a check-then-act a takeover could slip between.
+`test_index_refresh.py` judges the root against real linked worktrees and
+forged ones, the lock from a second handle and from a second process that
+dies holding it, and the detached child end to end against a stub wrapper.
+
+**The lock and the marker live in the repository's git directory**, at
+`<common>/index-refresh/`, named by a hash of the target's filesystem
+identity — its device and inode, not a spelling, so two spellings of one
+worktree on a case-insensitive volume cannot take two locks and run two
+indexers. They
+sat first under the target's `.claude/cache/` and then under the owner's,
+and a branch can force-track a symlink at either: `makedirs` and `open`
+follow it, and the lock's own write truncates what it finds. The git
+directory holds no tracked file, so no branch can aim anything there. A
+checkout whose git directory cannot be found, or is reached through a
+link, gets no refresh rather than one through somebody's redirection.
+
+**A target whose own cache path is redirected is refused too**, because the
+indexer writes into the tree it indexes: `.claude/cache/codebase-index`
+under the root. Every component below the root is checked without being
+followed, and a link anywhere along it means no refresh. A sweep's
+worktree reached through an alias is refused on the same principle — the
+reserved prefix is read from the resolved path as well as the reported
+one.
+
+**The worker records its indexer's pid in the lock file**, because the lock
+is the worker's and not the child's: a worker killed mid-run leaves
+`run-index` behind, and the next edit would otherwise start a second one
+against the same cache. A worker that takes the lock and finds that child
+still running stands off and leaves the tree to it. The worker claims the
+record with its own pid before starting the child and reaps the child
+before clearing it, so neither the gap before the child is named nor the
+one after a kill lets a second indexer in. The window that remains is the
+instant between the child existing and its pid being written.
+
+**A record left by a killed worker names a pid the system may reuse**, and
+that is the second residual. The record is cleared on every ordinary path,
+so only a killed worker leaves one; until the number is reused, a stale
+record names a dead process and costs nothing, and once it is reused the
+refresh stands off from a stranger and the worktree stays stale until that
+process exits. Telling the two apart needs each process's start time, which
+neither `os` nor `tasklist` offers without a new dependency — more than a
+best-effort cache refresh earns, and the same judgement as the window
+below. Raised by Copilot, and answered here.
+
+**A worker that crashes mid-refresh leaves the index stale until the next
+edit, and that is the residual rather than a gap to supervise.** The worker
+consumes a marker before its refresh, so a crash after that point leaves no
+request behind. Nothing is lost, though: `update` is incremental, so the
+next refresh re-indexes everything the crashed one missed, and the next
+edit starts one. A durable marker would not recover sooner, because only
+the next edit would ever act on it, and a process supervising a best-effort
+cache is out of proportion to it. The failure mode is the old hook's own,
+a refresh that failed, and the indexer run itself is bounded by the hook's
+`RUN_TIMEOUT`. Raised by Copilot, and answered here.
+
+**The example under the skill does not follow.** It ships alone, so it keeps
+the self-contained `cd "${CLAUDE_PROJECT_DIR}" && run-index update` form:
+anchored and denied, but refreshing the startup checkout. A copy that named
+`run-guard.sh` and `index-refresh.py` would fail on every edit in a project
+without them.
+
+**The MCP server does not follow, and that is the decision rather than a
+residual left over.** `.mcp.json` starts it once, with `--root .`, in the
+directory the session launched from, and nothing restarts it when `/branch`
+moves the session — so after `/branch`, **MCP queries read the startup
+checkout's index**, which is `main` as the fork left it. The skill's own
+route, `bash .claude/skills/codebase-index/scripts/run-index <subcommand>`,
+resolves its root from the working directory and so reads the worktree's
+index, which the hook now keeps fresh. Inside a worktree, query through the
+skill; a session launched *in* the worktree gets an MCP server rooted there.

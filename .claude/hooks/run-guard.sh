@@ -30,14 +30,14 @@
 set -eu
 
 [ "$#" -eq 1 ] ||
-  { echo "usage: run-guard.sh <guard-git-argv.py|guard-edit-target.py|guard-triager-dispatch.py|guard-triager-edit.py>" >&2; exit 2; }
+  { echo "usage: run-guard.sh <guard-git-argv.py|guard-edit-target.py|guard-triager-dispatch.py|guard-triager-edit.py|index-refresh.py>" >&2; exit 2; }
 
 case "$1" in
-  guard-git-argv.py|guard-edit-target.py|guard-triager-dispatch.py|guard-triager-edit.py) ;;
+  guard-git-argv.py|guard-edit-target.py|guard-triager-dispatch.py|guard-triager-edit.py|index-refresh.py) ;;
   *) echo "run-guard.sh: not a hook this launcher runs: $1" >&2; exit 2 ;;
 esac
 
-# Resolved from this file rather than taken from the caller: every guard it
+# Resolved from this file rather than taken from the caller: every hook it
 # runs sits beside it, so the launcher and the module it runs cannot come from
 # different checkouts. `CDPATH=` because a `CDPATH` set in the environment makes `cd`
 # print the directory it chose and land somewhere else.
