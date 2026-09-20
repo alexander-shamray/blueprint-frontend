@@ -155,11 +155,19 @@ def deciders(root, relatives):
 def hidden_from_git_only(root):
     """`(directory, source)` for every directory git hides that the index reads.
 
-    A directory whose probe no rule matches is descended into, because
-    something below it may still disagree. One a root rule hides is left
-    alone: the indexer agrees about it, and everything beneath it is covered
-    by construction — which is also what keeps `node_modules/` out of the
-    walk rather than dominating it.
+    **Each directory is asked about twice, and the two questions are not the
+    same one.** Whether the *directory* is hidden decides pruning: only a root
+    rule covering the directory itself means the indexer agrees and everything
+    beneath is covered by construction, which is what keeps `node_modules/`
+    out of the walk. Whether the *probe inside it* is hidden decides the
+    finding, because a directory's own `.gitignore` cannot hide the directory
+    — it hides its contents.
+
+    Pruning on the probe alone was wrong, and quietly: a root rule can match
+    the probe's name without covering the directory at all — `zz-*` matches it
+    at any depth — so the walk skipped a directory the indexer reads and never
+    reached the nested file below it. A root-decided probe over an uncovered
+    directory now means *keep walking*. Raised by Copilot, round 7.
     """
     findings = []
 
@@ -174,13 +182,24 @@ def hidden_from_git_only(root):
             for entry in entries
             if entry.name != ".git" and not entry.is_symlink() and entry.is_dir()
         ]
-        decided = deciders(root, [f"{child}/{PROBE}" for child in children])
+        if not children:
+            return
+        own = deciders(root, children)
+        inside = deciders(root, [f"{child}/{PROBE}" for child in children])
         for child in children:
-            source = decided.get(f"{child}/{PROBE}")
-            if source is None:
-                walk(child)
-            elif source != ROOT_IGNORE:
-                findings.append((child, source))
+            covering = own.get(child)
+            if covering == ROOT_IGNORE:
+                continue
+            if covering is not None:
+                # Something the indexer cannot see hides the directory itself,
+                # which is a parent's `.gitignore` or an excludes file.
+                findings.append((child, covering))
+                continue
+            hiding = inside.get(f"{child}/{PROBE}")
+            if hiding is not None and hiding != ROOT_IGNORE:
+                findings.append((child, hiding))
+                continue
+            walk(child)
 
     walk("")
     return findings
@@ -344,6 +363,32 @@ class TheGateSeesEveryWayGitCanHideADirectory(unittest.TestCase):
         self.write(".gitignore", " state/\n")
         self.write("state/.gitignore", "*\n")
         self.assertEqual([("state", "state/.gitignore")],
+                         hidden_from_git_only(self.root))
+
+    def test_a_root_rule_matching_only_the_probe_does_not_prune(self):
+        # Copilot round 7. `zz-*` matches the probe's name at any depth and
+        # covers `state` not at all, so reading that as coverage skipped the
+        # directory and never reached the nested file below it. Pruning asks
+        # about the directory now; the probe only ever raises a finding.
+        self.write(".gitignore", "zz-*\n")
+        self.write("state/inner/.gitignore", "*\n")
+        self.assertEqual([("state/inner", "state/inner/.gitignore")],
+                         hidden_from_git_only(self.root))
+
+    def test_a_parent_rule_hiding_a_directory_is_a_finding(self):
+        # The other half of asking about the directory itself: a nested file
+        # one level up hides `state/sub` outright, and the indexer reads it.
+        #
+        # **This one does not pin the round-7 fix, and saying so is the
+        # point.** It was written believing it did, and measured against the
+        # probe-only walk it passes there too — hiding a directory hides
+        # everything under it, so the probe inside finds the same rule and
+        # both readings agree. It stays as cover for the directory-level
+        # branch, which nothing else reaches; the case above is the one that
+        # discriminates.
+        self.write("state/.gitignore", "sub/\n")
+        (self.root / "state" / "sub").mkdir(parents=True)
+        self.assertEqual([("state/sub", "state/.gitignore")],
                          hidden_from_git_only(self.root))
 
     def test_a_negated_probe_does_not_hide_the_subtree_under_it(self):
