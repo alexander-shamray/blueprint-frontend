@@ -398,16 +398,19 @@ same argument as never calling a branch clean because asking failed.
    work that survives this read.
 
    **No comparison of content can stand here, and the two obvious ones
-   fail in the same direction.** A range read over `origin/main..HEAD`
+   fail in opposite directions.** A range read over `origin/main..HEAD`
    cannot see a rebase landing at all: the replay gives the branch's
-   commits new shas, so the range is never empty and no landed branch is
-   ever finished — every worktree kept, silently. A patch-id comparison
-   does answer for a rebase landing and then answers the wrong question:
+   commits new shas, so the range is never empty, no landed branch is
+   ever finished, and every worktree is kept — wrong, and wrong the safe
+   way, costing a directory nobody removes. A patch-id comparison does
+   answer for a rebase landing and then answers the wrong question:
    `git cherry` reports a commit whose patch `main` already carries as
    `-`, and omits merge commits outright, so a resolution recorded only
-   in one is invisible to it. Both hide work done after the landing, and
-   step 0's response to finished is to remove the only worktree holding
-   it.
+   in one is invisible to it. That one hides work done after the
+   landing, and step 0's response to finished is to remove the only
+   worktree holding it — wrong the unsafe way. Reading them as one
+   failure loses the reason the replacement had to be an identity and
+   not a better comparison.
 
    **Identity is also method-agnostic, which is why it is the right read
    rather than the safer one.** Merge, squash or rebase, the head a pull
