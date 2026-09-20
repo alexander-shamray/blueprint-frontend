@@ -126,18 +126,30 @@ if [ "$state" = MERGED ]; then
   merge_oid=$(jq -r '.[0].mergeCommit.oid // ""' <<<"$newest")
   head_oid=$(jq -r '.[0].headRefOid // ""' <<<"$newest")
   tip=$(git rev-parse --verify --quiet "refs/heads/$branch" || true)
-  # **A landing that preserved the tip is not a recreation.** Where the
-  # branch was already based on current `main`, the replay can leave the
-  # landed commit equal to the branch's own head — `mergeCommit` is then
-  # the local tip, the ancestor test is trivially true, and the row was
-  # dropped. Step 0 saw no pull request for a branch that had just
-  # landed, so nothing was ever torn down. Containing your OWN head says
-  # nothing about having been cut afresh from `main`, so that case is
-  # excluded. A merge-commit landing never matches it, because its
-  # `mergeCommit` is a new commit the branch does not carry — so the #24
-  # answer is untouched for every pull request landed before the method
-  # moved. Raised by Copilot.
-  if [ -n "$merge_oid" ] && [ -n "$tip" ] && [ "$merge_oid" != "$head_oid" ] &&
+  # **The row survives only while the tip IS the head that landed.**
+  # Where the branch was already based on current `main`, the replay has
+  # nothing to move and the landed commit can be the branch's own head.
+  # `mergeCommit` is then the local tip, the ancestor test is trivially
+  # true, and the row was dropped — so step 0 saw no pull request for a
+  # branch that had just landed and nothing was ever torn down.
+  #
+  # **Excluding that by `mergeCommit != headRefOid` was too broad**, and
+  # the round that found it is the one worth recording: after a
+  # fast-forward landing the original branch and a branch recreated from
+  # the updated `main` hold the SAME history, so no comparison of oids
+  # can tell them apart. Keeping the row for that history kept it for the
+  # recreated branch too, and `/ship` then read a stale `MERGED` row,
+  # ended the run and never opened a pull request for the new work.
+  #
+  # The drop does not need to know which incarnation this is. It needs to
+  # know whether the branch still stands where its pull request landed —
+  # which is what step 0 calls finished, asked here in the same terms. A
+  # tip that has moved is work this row cannot speak for, whichever
+  # incarnation made it. A merge-commit landing is unaffected either way,
+  # because its `mergeCommit` is a commit the untouched branch does not
+  # carry, so the #24 answer stands for everything landed before the
+  # method moved. Raised by Copilot.
+  if [ -n "$merge_oid" ] && [ -n "$tip" ] && [ "$tip" != "$head_oid" ] &&
      git merge-base --is-ancestor "$merge_oid" "$tip" 2>/dev/null; then
     newest='[]'
   fi
