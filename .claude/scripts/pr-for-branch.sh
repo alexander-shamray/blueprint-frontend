@@ -126,42 +126,36 @@ if [ "$state" = MERGED ]; then
   merge_oid=$(jq -r '.[0].mergeCommit.oid // ""' <<<"$newest")
   head_oid=$(jq -r '.[0].headRefOid // ""' <<<"$newest")
   tip=$(git rev-parse --verify --quiet "refs/heads/$branch" || true)
-  # **The row survives only while the tip IS the head that landed.**
+  # **A branch carrying its own landing commit loses the row, with no
+  # exception for the tip sitting exactly on it.** That exception was
+  # tried and withdrawn, and the reason is a policy this file has to
+  # state rather than a case it can detect.
+  #
   # A landing can leave the branch head unchanged — a fast-forward,
-  # whoever performed it — and the landed commit is then the tip itself.
-  # `gh pr merge --rebase` is not that case: it recreates the commits
-  # with its own committer data and new shas, so this is a defensive
-  # answer for a history the helper may meet rather than one this chain
-  # produces.
-  # `mergeCommit` is then the local tip, the ancestor test is trivially
-  # true, and the row was dropped — so step 0 saw no pull request for a
-  # branch that had just landed and nothing was ever torn down.
+  # whoever performed it — and `mergeCommit` is then the tip itself. So
+  # is the tip of a branch DELETED and RECREATED at that commit, which is
+  # the ordinary way a name gets reused. The two histories are identical
+  # in every oid this helper can read, so no comparison separates a
+  # workspace that has finished from one somebody has just made.
   #
-  # **Excluding that by `mergeCommit != headRefOid` was too broad**, and
-  # the round that found it is the one worth recording: after a
-  # fast-forward landing the original branch and a branch recreated from
-  # the updated `main` hold the SAME history, so no comparison of oids
-  # can tell them apart. Keeping the row for that history kept it for the
-  # recreated branch too, and `/ship` then read a stale `MERGED` row,
-  # ended the run and never opened a pull request for the new work.
+  # **Facing that, the drop is the safe answer and keeping the row is
+  # not.** Dropping leaves the workspace standing: step 0 sees no pull
+  # request, stays put, and a stale directory waits for somebody to
+  # remove it. Keeping the row lets step 0 read a pristine recreated
+  # workspace as finished and REMOVE it — and `git branch -d` is denied,
+  # so the branch survives the directory and the next fork fails on a
+  # name that already exists. A teardown decision must fail towards
+  # keeping things.
   #
-  # The drop does not need to know which incarnation this is. It needs to
-  # know whether the branch still stands where its pull request landed —
-  # which is what step 0 calls finished, asked here in the same terms.
-  #
-  # **Both conditions are required, and the second is the conservative
-  # stop.** A tip that has moved is not enough: it must also CARRY the
-  # landing commit. A branch with commits made after the landing that
-  # does not carry it keeps its row, and step 0 then reads the moved tip
-  # as not finished and stays put — work held where somebody can find it.
-  # Dropping on a moved tip alone would swallow that stop and send the
-  # run to `/pr` to open a second pull request over the first.
-  #
-  # A merge-commit landing is unaffected either way, because its
-  # `mergeCommit` is a commit the untouched branch does not carry, so the
-  # #24 answer stands for everything landed before the method moved.
-  # Raised by Copilot.
-  if [ -n "$merge_oid" ] && [ -n "$tip" ] && [ "$tip" != "$head_oid" ] &&
+  # The cost is bounded and belongs to a shape this chain does not
+  # produce: `gh pr merge --rebase` recreates the commits with its own
+  # committer data and new shas, so a landing it performed never leaves
+  # the tip on `mergeCommit` at all. A merge-commit landing does not
+  # either, its `mergeCommit` being a commit the untouched branch does
+  # not carry — so the #24 answer stands for everything landed before the
+  # method moved, and the ordinary rebase landing still tears down
+  # through step 0's own identity check. Raised by Copilot.
+  if [ -n "$merge_oid" ] && [ -n "$tip" ] &&
      git merge-base --is-ancestor "$merge_oid" "$tip" 2>/dev/null; then
     newest='[]'
   fi

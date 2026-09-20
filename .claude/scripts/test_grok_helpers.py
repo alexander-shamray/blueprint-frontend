@@ -4319,20 +4319,24 @@ class AFeedHelperReturnsTheWholeAnswer(unittest.TestCase):
         self.assertEqual(0, result.returncode, result.stderr)
         self.assertEqual([], json.loads(result.stdout))
 
-    def test_a_fast_forward_landing_keeps_its_row(self):
-        # **A landing that left the branch head where it was.** The landed
-        # commit is then the tip itself, `mergeCommit` equals `headRefOid`
-        # and equals the local tip, the ancestor test is trivially true,
-        # and the row was dropped — leaving `/ship` step 0 with no pull
-        # request for a branch that had just landed, and a worktree
-        # nothing would ever tear down.
+    def test_a_fast_forward_landing_drops_its_row(self):
+        # **The tip sitting exactly on the landing commit is ambiguous, and
+        # the drop is the safe reading of it.** A fast-forward landing
+        # leaves `mergeCommit` equal to the branch head; so does deleting
+        # that branch and recreating it at the same commit, which is how a
+        # name gets reused. Nothing this helper can read separates them.
+        #
+        # Keeping the row was tried and withdrawn: it let step 0 read a
+        # pristine recreated workspace as finished and REMOVE it, and
+        # because `git branch -d` is denied the branch outlived the
+        # directory and the next fork failed on the name. Dropping costs a
+        # stale directory instead, which is the direction a teardown
+        # decision has to fail in.
         #
         # **This is a fast-forward history, not `gh pr merge --rebase`.**
         # That path recreates the commits with its own committer data and
-        # new shas, so it does not produce this shape; the fixture drives
-        # `merge --ff-only` and the case is defensive against a history
-        # the helper may meet, rather than one this chain creates. Raised
-        # by Copilot.
+        # new shas, so it never leaves the tip on `mergeCommit`; the
+        # fixture drives `merge --ff-only`. Raised by Copilot.
         repo = Path(tempfile.mkdtemp(prefix="prlist-noop-"))
         self.addCleanup(shutil.rmtree, str(repo), ignore_errors=True)
 
@@ -4370,37 +4374,51 @@ class AFeedHelperReturnsTheWholeAnswer(unittest.TestCase):
         result = self._pr_list_stub([row], cwd=str(repo))
         self.assertEqual(0, result.returncode, result.stderr)
         self.assertEqual(
-            [11], [r["number"] for r in json.loads(result.stdout)],
-            "a branch that still IS its merged head must keep its row")
+            [], json.loads(result.stdout),
+            "a branch carrying its own landing commit loses the row, so "
+            "step 0 stays put rather than removing a workspace it cannot "
+            "tell from a recreated one")
 
-        # **The branch RECREATED from that same `main`, which is the case
-        # the first exclusion got wrong.** After a fast-forward landing
-        # the original and the recreation hold the same history, so no
-        # comparison of oids separates them — and keeping the row for one
-        # kept it for the other, leaving `/ship` to read a stale `MERGED`
-        # row and end the run instead of opening a pull request for the
-        # new work. The tip having moved off the landed head is what
-        # decides it. Raised by Copilot.
+        # **The branch RECREATED at that same commit, before any new work
+        # has moved the tip.** This is the history the withdrawn exception
+        # got wrong, and it is byte-identical to the one above — same tip,
+        # same `headRefOid`, same `mergeCommit`. It has to answer the same
+        # way, because nothing can distinguish it. Raised by Copilot.
         git("switch", "-q", "main")
         git("branch", "-q", "-D", "feat/reused")
         git("switch", "-q", "-c", "feat/reused")
+        self.assertEqual(
+            tip, git("rev-parse", "HEAD"),
+            "the recreation must land on the same commit, or this case is "
+            "not the ambiguous one")
+        result = self._pr_list_stub([row], cwd=str(repo))
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual([], json.loads(result.stdout))
+
+        # And once new work moves the tip, still dropped — the branch
+        # carries the landing commit either way.
         git("commit", "-q", "--allow-empty", "-m", "new work, same name")
         result = self._pr_list_stub([row], cwd=str(repo))
         self.assertEqual(0, result.returncode, result.stderr)
-        self.assertEqual(
-            [], json.loads(result.stdout),
-            "a tip that has moved off the landed head cannot be spoken "
-            "for by that row, whichever incarnation moved it")
-
-        # The control on the ordinary shape: a different landed commit,
-        # ancestor of the tip, still drops. This is what says the
-        # exclusion narrowed the drop rather than removing it.
-        landed = git("rev-parse", "HEAD")
-        recreated = {**self._row(12, "MERGED"), "headRefOid": tip,
-                     "mergeCommit": {"oid": landed}}
-        result = self._pr_list_stub([recreated], cwd=str(repo))
-        self.assertEqual(0, result.returncode, result.stderr)
         self.assertEqual([], json.loads(result.stdout))
+
+        # **The control that keeps this from being vacuous.** A landing
+        # commit the branch does NOT carry leaves the row alone, which is
+        # what step 0's identity check then judges. Without this the
+        # helper could drop every merged row and every assertion above
+        # would still pass.
+        git("switch", "-q", "main")
+        git("commit", "-q", "--allow-empty", "-m", "landed elsewhere")
+        elsewhere = git("rev-parse", "HEAD")
+        git("switch", "-q", "feat/reused")
+        untouched = {**self._row(12, "MERGED"), "headRefOid": tip,
+                     "mergeCommit": {"oid": elsewhere}}
+        result = self._pr_list_stub([untouched], cwd=str(repo))
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual(
+            [12], [r["number"] for r in json.loads(result.stdout)],
+            "a landing commit the branch does not carry is not evidence of "
+            "reuse, so the row survives for step 0 to judge")
 
     def test_the_newest_row_wins_over_an_older_merged_one(self):
         # **#24, and it is the worst answer this chain can produce.** `--head`
