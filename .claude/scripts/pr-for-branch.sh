@@ -124,7 +124,6 @@ newest=$(jq --arg repo "$repo" \
 state=$(jq -r '.[0].state // ""' <<<"$newest")
 if [ "$state" = MERGED ]; then
   merge_oid=$(jq -r '.[0].mergeCommit.oid // ""' <<<"$newest")
-  head_oid=$(jq -r '.[0].headRefOid // ""' <<<"$newest")
   tip=$(git rev-parse --verify --quiet "refs/heads/$branch" || true)
   # **A branch carrying its own landing commit loses the row, with no
   # exception for the tip sitting exactly on it.** That exception was
