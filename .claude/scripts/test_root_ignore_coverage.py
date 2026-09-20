@@ -40,11 +40,18 @@ edit most likely to undo it. Raised by Copilot, round 1.
 
 **Where this reads git, it reads git rather than remembering it.** Leading
 whitespace being part of a pattern, trailing whitespace not being, a negation
-under an excluded parent re-including nothing, and a later positive rule
-re-excluding a negated name are each measured with `git check-ignore` in this
-repository, and the case that pins each one says so. Copilot raised all four
-in round 2, and every one turned out to fail open — the parser said covered,
-or the scanner said not-a-blanket, where git said otherwise.
+under an excluded parent re-including nothing, a later positive rule
+re-excluding a negated name, and which nested spellings hide a directory
+completely are each measured with `git check-ignore` or
+`git status --ignored=matching` in this repository, and the case that pins
+each one says so. Copilot raised them across rounds 2 and 4, and every one
+turned out to fail open — the parser said covered, or the scanner said
+not-a-blanket, where git said otherwise.
+
+**Every fail-open so far has been the same mistake**: a rule of git's read
+from memory instead of from git. That is why `BLANKET_PATTERNS` is a measured
+set with a measured control (`*/`, which is *not* a blanket) rather than a
+list of spellings that looked equivalent.
 """
 
 import shutil
@@ -71,6 +78,15 @@ ROOT_IGNORE_NAMES = (
 # The characters that make a pattern a glob. `decides` declines to guess about
 # any pattern carrying one.
 GLOB = frozenset("*?[")
+
+# The nested spellings that hide a directory completely. Measured with
+# `git status --ignored=matching` on a directory holding a top-level file and
+# a file inside a subdirectory: each of these hides both. `*/` is the control
+# that is NOT here — it matches directories only, so the top-level file stays
+# visible and the directory is not hidden. Raised by Copilot, round 4, naming
+# `/*`; the other two are the same shape and were measured with it rather than
+# assumed either way.
+BLANKET_PATTERNS = frozenset({"*", "/*", "**", "/**"})
 
 
 def significant(path):
@@ -170,16 +186,24 @@ def covered(relative, rules):
 def blanket(directory):
     """Does this directory hold a nested `.gitignore` that takes all of it?
 
-    Order again: the last matching rule wins, so a negation *before* the `*`
-    is overridden by it and only one *after* it can re-admit anything.
+    **Any of `BLANKET_PATTERNS`, not a literal `*`.** Recognising one spelling
+    of "hide everything" and missing its equivalents is the same fail-open by
+    a different route: `/*` hides a directory exactly as completely, and a
+    directory spelled that way was never reported at all. Raised by Copilot,
+    round 4, and the set is measured rather than enumerated by eye.
+
+    Order again: the last matching rule wins, so a negation *before* the
+    blanket pattern is overridden by it and only one *after* it can re-admit
+    anything.
 
     **Biased towards yes, and the asymmetry is the point.** A false yes costs
     a red gate demanding a root rule that was not needed. A false no means a
     self-ignoring directory is never reported, so the gate never asks about it
-    at all — which is the fail-open this file exists to prevent. So `*` is a
-    blanket unless a negation after the last one is *demonstrably* effective.
+    at all — which is the fail-open this file exists to prevent. So a blanket
+    pattern holds unless a negation after the last one is *demonstrably*
+    effective.
 
-    Two ways a negation after `*` does nothing, both measured against git with
+    Two ways such a negation does nothing, both measured against git with
     `check-ignore` in this repository rather than reasoned about:
 
     - **It names a path below the top level.** `*` has already excluded the
@@ -201,10 +225,11 @@ def blanket(directory):
     if not path.is_file():
         return False
     rules = significant(path)
-    if "*" not in rules:
+    blankets = [index for index, rule in enumerate(rules)
+                if rule in BLANKET_PATTERNS]
+    if not blankets:
         return False
-    last_star = max(index for index, rule in enumerate(rules) if rule == "*")
-    after = rules[last_star + 1:]
+    after = rules[max(blankets) + 1:]
     for index, rule in enumerate(after):
         if not rule.startswith("!"):
             continue
@@ -309,6 +334,37 @@ class TheScannerSeesTheShape(unittest.TestCase):
 
     def test_the_git_directory_is_never_walked(self):
         self.write(".git/modules/thing/.gitignore", "*\n")
+        self.assertEqual([], self_ignoring(self.root, []))
+
+    def test_every_measured_blanket_spelling_is_found(self):
+        # Copilot, round 4. `/*` hides a directory as completely as `*`, and
+        # only the literal `*` was recognised — so a directory spelled that
+        # way was never reported and the gate never asked about it. Each of
+        # these was measured with `git status --ignored=matching` against a
+        # directory holding a top-level file and a file inside a
+        # subdirectory: all four hide both.
+        for spelling in ("*", "/*", "**", "/**"):
+            with self.subTest(spelling=spelling):
+                root = Path(tempfile.mkdtemp())
+                self.addCleanup(shutil.rmtree, str(root), ignore_errors=True)
+                state = root / "state"
+                state.mkdir()
+                (state / ".gitignore").write_text(
+                    spelling + "\n", encoding="utf-8", newline="\n")
+                self.assertEqual(["state"], self_ignoring(root, []))
+
+    def test_a_directory_only_star_is_not_a_blanket(self):
+        # The control, and the reason the set is measured rather than guessed
+        # at: `*/` matches directories only, so `top.txt` stays visible to git
+        # and the two tools do not disagree about this directory.
+        self.write("state/.gitignore", "*/\n")
+        self.write("state/top.txt", "x\n")
+        self.assertEqual([], self_ignoring(self.root, []))
+
+    def test_a_negation_after_an_equivalent_blanket_still_counts(self):
+        # The round-2 reasoning has to survive the round-4 widening: `!keep`
+        # re-includes a direct entry after `/*` exactly as it does after `*`.
+        self.write("state/.gitignore", "/*\n!keep\n")
         self.assertEqual([], self_ignoring(self.root, []))
 
     def test_a_negation_below_the_top_level_re_includes_nothing(self):
