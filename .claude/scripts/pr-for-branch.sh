@@ -124,8 +124,20 @@ newest=$(jq --arg repo "$repo" \
 state=$(jq -r '.[0].state // ""' <<<"$newest")
 if [ "$state" = MERGED ]; then
   merge_oid=$(jq -r '.[0].mergeCommit.oid // ""' <<<"$newest")
+  head_oid=$(jq -r '.[0].headRefOid // ""' <<<"$newest")
   tip=$(git rev-parse --verify --quiet "refs/heads/$branch" || true)
-  if [ -n "$merge_oid" ] && [ -n "$tip" ] &&
+  # **A landing that preserved the tip is not a recreation.** Where the
+  # branch was already based on current `main`, the replay can leave the
+  # landed commit equal to the branch's own head — `mergeCommit` is then
+  # the local tip, the ancestor test is trivially true, and the row was
+  # dropped. Step 0 saw no pull request for a branch that had just
+  # landed, so nothing was ever torn down. Containing your OWN head says
+  # nothing about having been cut afresh from `main`, so that case is
+  # excluded. A merge-commit landing never matches it, because its
+  # `mergeCommit` is a new commit the branch does not carry — so the #24
+  # answer is untouched for every pull request landed before the method
+  # moved. Raised by Copilot.
+  if [ -n "$merge_oid" ] && [ -n "$tip" ] && [ "$merge_oid" != "$head_oid" ] &&
      git merge-base --is-ancestor "$merge_oid" "$tip" 2>/dev/null; then
     newest='[]'
   fi
