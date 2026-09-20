@@ -10192,6 +10192,20 @@ class LandingByRebaseMovedTheReadsThatAssumedAMergeCommit(unittest.TestCase):
                 self.assertNotIn("git log --merges",
                                  path.read_text(encoding="utf-8"))
 
+    def test_the_resume_table_does_not_read_merged_as_finished(self):
+        # **The row that classifies a merged pull request is not the finished
+        # predicate, and saying "is the check" made it look like one.** Read
+        # that way, every MERGED row is a workspace to tear down — the exact
+        # deletion of live work this predicate exists to refuse, reached
+        # through the runbook rather than through the code. `pr-state.sh`
+        # keeps the row, because step 0 assigns it that job explicitly; what
+        # changed is that the row now names the other half. Raised by Copilot.
+        ship = self.ship()
+        row = next(line for line in ship.splitlines()
+                   if "already merged" in line and "pr-state.sh" in line)
+        self.assertIn("headRefOid", row)
+        self.assertIn("pr-for-branch.sh", row)
+
     def test_neither_content_read_can_see_work_done_after_the_merge(self):
         """The review finding on blueprint-admin#34, driven rather than taken.
 
