@@ -10129,10 +10129,16 @@ class LandingByRebaseMovedTheReadsThatAssumedAMergeCommit(unittest.TestCase):
     **So the subject here is what the gate LOOKS AT**, which is the rule
     `CLAUDE.md` states is the only defence against a gate that quietly stops
     covering the newest surface. The structural cases assert that `ship.md`
-    spells all three limbs of that identity in one block, and neither content
-    comparison in any block; the driven cases build real rebase-merged
-    repositories and show both comparisons missing work the identity read
-    sees.
+    spells all three limbs of that identity in one block, and that neither
+    content comparison appears in THAT block; the driven cases build real
+    rebase-merged repositories and show both comparisons missing work the
+    identity read sees.
+
+    The range read is banned from the finished predicate and required
+    elsewhere, because step 0 asks a second question on `main` — does this
+    checkout carry commits `origin/main` does not — that it answers well.
+    `git cherry` is banned everywhere, having only ever been proposed as a
+    finished predicate.
     """
 
     SHIP = COMMANDS / "ship.md"
@@ -10216,11 +10222,6 @@ class LandingByRebaseMovedTheReadsThatAssumedAMergeCommit(unittest.TestCase):
             any("git rev-parse HEAD" in block for block in blocks),
             "step 0's finished predicate must READ the tip, not merely "
             "discuss it")
-        # **Both content reads are gone from every block, not just step 0's.**
-        # Each was a predicate for the same question and each answered it
-        # wrongly in its own direction — the range read cannot see a rebase
-        # merge, `git cherry` cannot see a duplicate patch or a merge commit.
-        # A second copy left in another block is the one a reader trusts.
         # **The range read is banned from the FINISHED PREDICATE, not from
         # the file.** Step 0 asks a second, unrelated question on `main` —
         # does this checkout carry commits `origin/main` does not — and
@@ -10280,9 +10281,11 @@ class LandingByRebaseMovedTheReadsThatAssumedAMergeCommit(unittest.TestCase):
         # predicate, and saying "is the check" made it look like one.** Read
         # that way, every MERGED row is a workspace to tear down — the exact
         # deletion of live work this predicate exists to refuse, reached
-        # through the runbook rather than through the code. `pr-state.sh`
-        # keeps the row, because step 0 assigns it that job explicitly; what
-        # changed is that the row now names the other half. Raised by Copilot.
+        # through the runbook rather than through the code. The row is
+        # `pr-for-branch.sh`'s — the call that answers every row in that
+        # table — and what it now names is the other half: a merged row
+        # classifies, the tip equalling its `headRefOid` finishes. Raised
+        # by Copilot.
         ship = self.ship()
         row = next(line for line in ship.splitlines()
                    if "already merged" in line
