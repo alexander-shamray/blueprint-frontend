@@ -1340,6 +1340,37 @@ copy of this file instead of the shared-checkout path"*, measured on the PR
 that added this paragraph — so for `/branch`'s sessions the update is still
 reported as owed.
 
+**The eleventh was opened deliberately rather than found**, and it is the only
+force push in this repository. Branch updates are rebases now (#57), so a
+branch's published commits are rewritten, and `.claude/settings.json` denies
+`git push --force`, `--force-with-lease` and `-f` alike. **Those denies are
+untouched**, and the eighth entry's parser judges a push exactly as it did
+before. `git-rebase-onto-main.sh` carries the flags itself, takes one branch
+name that has to equal the one checked out, refuses `main` by name before it
+reads the checkout at all, refuses a remote holding commits this checkout did
+not start from, and leases the push against the commit the same run read rather
+than against whatever a fetch has since made of the remote-tracking ref. **A
+rule could have bought none of that**: a permission pattern matches the text of
+a command, and every guard in that list is a fact about the checkout. Which is
+the general form — where the safety is a property of the state rather than of
+the words, the grant has to be a helper.
+
+**It is granted to `/ship` alone, and it was ported rather than written here.**
+The helper and its suite came from `alexander-shamray/blueprint-backend`, which
+built and reviewed them; what that review added and the first draft lacked is
+the `publish` mode — the replay finishes, the push fails, and the rebase state
+goes with it, so without a recorded lease neither `start` nor `continue` can
+reach the branch again, and the only granted way to publish is shut.
+
+**One guard in it is this repository's rather than the backend's, and the
+difference is step 0.** A rebase drops merge commits, and a merge can carry
+content that is in neither parent — a conflict resolved while merging. Over
+there `/ship` step 0 reads the same thing for its own reasons; here it reads
+**identity**, the tip against the pull request's `headRefOid`, and argues at
+length against reading content at all. So nothing downstream would see the
+loss, and the check that refuses such a merge sits in the script that would
+otherwise have done the dropping, before it replays anything.
+
 **The sweeps' item 5 (#75) closed by the same shape** — a second read-only
 dispatch returns a verdict, the parent opens nothing in `$work`, and the issue
 helper leaves `gh issue create` with no free parameter — so
