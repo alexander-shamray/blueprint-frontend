@@ -77,8 +77,10 @@ empty listing exactly where the suite gates.
 Coverage is the root `.gitignore` hiding the path **on its own**, asked in a
 scratch repository holding that file and nothing else — a directory for one
 walk, a file for the other. Anything it does not reach is hidden from git by
-something the indexer cannot see — a nested `.gitignore`, `.git/info/exclude`,
-a global excludes file — and that is the finding.
+something the indexer cannot see — a nested `.gitignore`, or
+`.git/info/exclude` — and that is the finding. A global excludes file is not
+on that list and cannot be: the paragraph at the foot of this docstring owns
+why.
 
 **Reading the *decider* was wrong, and it made this file's own advice
 unfollowable.** Git gives a deeper `.gitignore` precedence over the root one
@@ -107,9 +109,15 @@ fix it asks for is a rule in the root `.gitignore`, which is where
 `blueprint-backend` and `blueprint-admin` put theirs, where this repository
 wants it anyway — and which now actually clears the finding.
 
-The user's global excludes file is emptied for every call. Without that, a
-developer's personal `~/.gitignore` decides paths here and the gate reports
-findings that exist on one machine.
+The user's global excludes file is emptied for every call — `core.excludesFile=`
+in `_check_ignore`. Without that, a developer's personal `~/.gitignore` decides
+paths here and the gate reports findings that exist on one machine. The
+consequence is that it can never be the source of a finding either: a path only
+it hides comes back from git un-ignored, so nothing is raised and nothing is
+suppressed. That is the right trade — a rule one machine has is not a
+disagreement this repository can act on — and it is why the list above names
+two sources rather than three. Raised by Copilot, against a list that still
+named it.
 """
 
 import atexit
