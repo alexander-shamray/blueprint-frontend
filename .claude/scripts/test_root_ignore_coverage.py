@@ -859,10 +859,15 @@ class TheNativeGeneratedTreesAreCoveredAtTheRoot(unittest.TestCase):
     )
 
     # The generated *files*, which need naming here more than the directories
-    # do: three of them sit beside tracked files, so no directory is wholly
-    # hidden and the live scan for directories can never reach them whatever
-    # the checkout. `local.properties` also carries an absolute SDK path from
-    # whichever machine ran the build.
+    # do. Only the pair under `android/app/src/main/assets/` has a directory to
+    # itself; the rest sit beside tracked content — `config.xml` next to
+    # `file_paths.xml`, `local.properties` next to the Gradle files, both iOS
+    # files next to `AppDelegate.swift` — so no directory is wholly hidden and
+    # the directory scan can never reach them whatever the checkout. An earlier
+    # revision of this comment counted three of those and there are four;
+    # Copilot found it, and naming them is what replaces the count.
+    # `local.properties` also carries an absolute SDK path from whichever
+    # machine ran the build.
     GENERATED_FILES = (
         "android/app/src/main/assets/capacitor.config.json",
         "android/app/src/main/assets/capacitor.plugins.json",
