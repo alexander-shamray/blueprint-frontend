@@ -1,6 +1,16 @@
-"""No directory may be hidden from git and visible to the code index.
+"""Nothing may be hidden from git and visible to the code index.
 
-**The subject is the disagreement between the two, not either one of them.**
+**Two subjects, one question.** A *directory* every entry of which is hidden is
+`hidden_from_git_only`'s, and a *file* hidden beside a tracked one is
+`files_hidden_from_git_only`'s. The second was added after the first reported
+the native trees clean while six generated files went on being indexed: `cap
+sync` writes `capacitor.config.json` into `ios/App/App/` next to
+`AppDelegate.swift`, so no directory there is wholly hidden and a
+directory-shaped gate is silent by construction. Each function argues its own
+half; everything below holds for both.
+
+**The subject is the disagreement between the two tools, not either one of
+them.**
 Git honours a `.gitignore` at any depth, so a directory holding one that says
 `*` vanishes from `git status` and from `git ls-files` — which is why
 `.remember/` and `.superpowers/sdd/` looked correctly excluded in this
@@ -60,11 +70,11 @@ empty listing exactly where the suite gates.
 
 ## What counts as covered, and which way it fails
 
-Coverage is the root `.gitignore` hiding the directory **on its own**, asked
-in a scratch repository holding that file and nothing else. Any directory it
-does not reach is hidden from git by something the indexer cannot see — a
-nested `.gitignore`, `.git/info/exclude`, a global excludes file — and that is
-the finding.
+Coverage is the root `.gitignore` hiding the path **on its own**, asked in a
+scratch repository holding that file and nothing else — a directory for one
+walk, a file for the other. Anything it does not reach is hidden from git by
+something the indexer cannot see — a nested `.gitignore`, `.git/info/exclude`,
+a global excludes file — and that is the finding.
 
 **Reading the *decider* was wrong, and it made this file's own advice
 unfollowable.** Git gives a deeper `.gitignore` precedence over the root one
@@ -676,12 +686,55 @@ class TheGateSeesEveryWayGitCanHideADirectory(unittest.TestCase):
     def test_an_ignored_directory_is_not_descended_into_for_files(self):
         # A directory the nested file hides is the directory walk's finding,
         # and repeating it once per file inside would bury it.
+        #
+        # **This case does not reach the other prune.** `*` in a nested file
+        # hides the directory's contents and leaves the directory itself
+        # visible to git, so the skip taken here is `hidden_whole`'s. The case
+        # below is the one that discriminates. Raised by Copilot.
         self.write("state/.gitignore", "*\n")
         self.write("state/one.txt", "x\n")
         self.write("state/two.txt", "x\n")
         self.assertEqual([("state", "state/.gitignore")],
                          hidden_from_git_only(self.root))
         self.assertEqual([], files_hidden_from_git_only(self.root))
+
+    def test_a_directly_ignored_directory_is_never_entered(self):
+        """The prune no result can prove, so the traversal is the subject.
+
+        Deleting `if child in ignored: continue` leaves every other case in
+        this file green — both prunes end in no findings — while the walk
+        recurses through `node_modules/` and every other root-covered tree,
+        asking git about each file in them. Raised by Copilot, which is also
+        where the remedy comes from: record what the walk asked about rather
+        than what it returned.
+
+        `deciders` is rebound on the module rather than wrapped by argument,
+        because the walk resolves it as a global and that is the only seam
+        between it and git.
+        """
+        self.write(".gitignore", "vendor/\n")
+        self.write("vendor/pkg/generated.json", "{}\n")
+        self.write("vendor/pkg/kept.txt", "x\n")
+
+        asked = []
+        original = globals()["deciders"]
+
+        def spy(root, relatives):
+            asked.extend(relatives)
+            return original(root, relatives)
+
+        globals()["deciders"] = spy
+        try:
+            self.assertEqual([], files_hidden_from_git_only(self.root))
+        finally:
+            globals()["deciders"] = original
+
+        # The control: the walk really ran and really considered `vendor`.
+        self.assertIn("vendor", asked)
+        # And stopped there.
+        self.assertEqual(
+            [], [path for path in asked if path.startswith("vendor/")],
+            "the walk entered a directory the root file covers")
 
     def test_a_file_the_root_file_hides_is_never_a_finding(self):
         # What keeps `node_modules/` and every ordinary build output out.
