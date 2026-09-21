@@ -330,6 +330,68 @@ def hidden_from_git_only(root):
     return findings
 
 
+def files_hidden_from_git_only(root):
+    """`(file, source)` for every file hidden from git that the index reads.
+
+    **The directory walk above cannot see these, and six of them is what that
+    cost.** Its subject is a directory *every* entry of which is hidden, so a
+    generated file sitting beside a tracked one is invisible to it: `cap sync`
+    writes `capacitor.config.json` into `ios/App/App/` next to
+    `AppDelegate.swift`, and `config.xml` into `android/app/src/main/res/xml/`
+    next to a tracked `file_paths.xml`. No directory is wholly hidden in
+    either, so the walk is silent while the indexer reads both files.
+
+    They were found by walking a checkout that had really run `cap sync` and
+    asking which of its nested-hidden paths the root file failed to reach —
+    after a scratch-tree check had reported the directory fix complete, having
+    rebuilt the native trees from the very list it was checking. A list
+    verified against itself is the failure this repository already has a name
+    for, and the answer is the same one: make the subject what the gate is
+    looking at.
+
+    **A directory the other walk has already judged is not descended into**,
+    and asking git whether the directory is ignored was not enough to tell.
+    A `.gitignore` holding `*` hides a directory's *contents* and not the
+    directory, so `state/` is plainly visible to git while every file in it is
+    hidden — which is `hidden_from_git_only`'s finding, and repeating it once
+    per file inside would bury it. So both questions are asked: an ignored
+    directory is skipped, which is what keeps `node_modules/` out of the walk,
+    and so is one the directory walk reports.
+    """
+    findings = []
+
+    def walk(relative):
+        base = Path(root, relative) if relative else Path(root)
+        try:
+            entries = sorted(base.iterdir())
+        except OSError:
+            return
+        children, files = [], []
+        for entry in entries:
+            if entry.name == ".git" or entry.is_symlink():
+                continue
+            path = f"{relative}/{entry.name}" if relative else entry.name
+            (children if entry.is_dir() else files).append(path)
+        if files:
+            decided = deciders(root, files)
+            nested = [path for path in files
+                      if decided.get(path) not in (None, ROOT_IGNORE)]
+            if nested:
+                covered = root_only_hides(root, nested)
+                findings.extend((path, decided[path]) for path in nested
+                                if path not in covered)
+        if children:
+            ignored = deciders(root, children)
+            for child in children:
+                if child in ignored:
+                    continue
+                if hidden_whole(root, child) is None:
+                    walk(child)
+
+    walk("")
+    return findings
+
+
 class GitIsReallyBeingAsked(unittest.TestCase):
     """The control on the mechanism every other case here rests on.
 
@@ -591,6 +653,42 @@ class TheGateSeesEveryWayGitCanHideADirectory(unittest.TestCase):
         self.write(".git/modules/thing/.gitignore", "*\n")
         self.assertEqual([], hidden_from_git_only(self.root))
 
+    def test_a_generated_file_beside_a_tracked_one_is_a_file_finding(self):
+        # The shape the directory walk is blind to, and the six real ones it
+        # let through: `kept.txt` keeps the directory visible, so nothing is
+        # wholly hidden, while `generated.json` is read by the indexer.
+        self.write("app/.gitignore", "generated.json\n")
+        self.write("app/generated.json", "{}\n")
+        self.write("app/kept.txt", "x\n")
+        self.assertEqual([], hidden_from_git_only(self.root))
+        self.assertEqual([("app/generated.json", "app/.gitignore")],
+                         files_hidden_from_git_only(self.root))
+
+    def test_a_root_covered_file_is_not_a_file_finding(self):
+        # The fix clears it: the root file reaches the same path, so the two
+        # tools agree although git still names the nested file as decider.
+        self.write(".gitignore", "/app/generated.json\n")
+        self.write("app/.gitignore", "generated.json\n")
+        self.write("app/generated.json", "{}\n")
+        self.write("app/kept.txt", "x\n")
+        self.assertEqual([], files_hidden_from_git_only(self.root))
+
+    def test_an_ignored_directory_is_not_descended_into_for_files(self):
+        # A directory the nested file hides is the directory walk's finding,
+        # and repeating it once per file inside would bury it.
+        self.write("state/.gitignore", "*\n")
+        self.write("state/one.txt", "x\n")
+        self.write("state/two.txt", "x\n")
+        self.assertEqual([("state", "state/.gitignore")],
+                         hidden_from_git_only(self.root))
+        self.assertEqual([], files_hidden_from_git_only(self.root))
+
+    def test_a_file_the_root_file_hides_is_never_a_finding(self):
+        # What keeps `node_modules/` and every ordinary build output out.
+        self.write(".gitignore", "*.log\n")
+        self.write("app/debug.log", "x\n")
+        self.assertEqual([], files_hidden_from_git_only(self.root))
+
     def test_a_covered_tree_is_not_descended_into(self):
         # Everything under a covered directory is covered, and this is what
         # keeps `node_modules/` from dominating the walk.
@@ -639,6 +737,20 @@ class NothingInThisCheckoutHidesFromGitAlone(unittest.TestCase):
             [], findings,
             "each of these is hidden from git by the ignore file named beside "
             "it, which the code index does not read. Add it to the root "
+            ".gitignore (blueprint-frontend#53).",
+        )
+
+    def test_no_file_is_hidden_from_git_and_read_by_the_index(self):
+        # The same question one level down, and the one the directory case
+        # cannot answer: a generated file beside a tracked one leaves its
+        # directory plainly visible. Vacuous on a clean checkout for the same
+        # reason the case above is, which is what the regression lock at the
+        # foot of this file exists for.
+        findings = files_hidden_from_git_only(ROOT)
+        self.assertEqual(
+            [], findings,
+            "each of these is a file hidden from git by the ignore file named "
+            "beside it, which the code index reads. Add it to the root "
             ".gitignore (blueprint-frontend#53).",
         )
 
@@ -693,11 +805,32 @@ class TheNativeGeneratedTreesAreCoveredAtTheRoot(unittest.TestCase):
         "ios/capacitor-cordova-ios-plugins/",
     )
 
+    # The generated *files*, which need naming here more than the directories
+    # do: three of them sit beside tracked files, so no directory is wholly
+    # hidden and the live scan for directories can never reach them whatever
+    # the checkout. `local.properties` also carries an absolute SDK path from
+    # whichever machine ran the build.
+    GENERATED_FILES = (
+        "android/app/src/main/assets/capacitor.config.json",
+        "android/app/src/main/assets/capacitor.plugins.json",
+        "android/app/src/main/res/xml/config.xml",
+        "android/local.properties",
+        "ios/App/App/capacitor.config.json",
+        "ios/App/App/config.xml",
+    )
+
     def test_the_root_file_hides_every_generated_native_tree(self):
         # The whole set in one assertion, so a line dropped from the root
         # file fails here and names itself.
         self.assertEqual(set(self.GENERATED),
                          root_only_hides(ROOT, list(self.GENERATED)))
+
+    def test_the_root_file_hides_every_generated_native_file(self):
+        # No trailing slash and none wanted: these are files, and
+        # `check-ignore` answers for a path it cannot see as long as the rule
+        # does not end in one.
+        self.assertEqual(set(self.GENERATED_FILES),
+                         root_only_hides(ROOT, list(self.GENERATED_FILES)))
 
 
 if __name__ == "__main__":

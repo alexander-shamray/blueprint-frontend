@@ -93,6 +93,26 @@ __pycache__/
 /ios/DerivedData/
 /ios/capacitor-cordova-ios-plugins/
 
+# The generated files beside them, which the block above missed and its own
+# verification could not have caught: that check rebuilt the native trees from
+# the list it was checking, so it compared the list with itself. These come
+# from walking a checkout that has really run `cap sync` and asking which of
+# its nested-hidden paths the root file does not reach — the method, not the
+# answer, is the part worth keeping.
+#
+# Three of them sit in directories holding tracked files, so no directory is
+# wholly hidden and `test_root_ignore_coverage.py` can never report them: its
+# subject is a directory, and a generated file beside a tracked one is invisible
+# to it. The regression lock names these individually for that reason.
+# `local.properties` also carries an absolute SDK path from whichever machine
+# ran the build.
+/android/app/src/main/assets/capacitor.config.json
+/android/app/src/main/assets/capacitor.plugins.json
+/android/app/src/main/res/xml/config.xml
+/android/local.properties
+/ios/App/App/capacitor.config.json
+/ios/App/App/config.xml
+
 # /review-branch's proof that it ran, which grok-review.sh requires before it
 # reads a missing suggestions.md as a clean pass. Ignored so that a standalone
 # review does not dirty the tree the same helper refuses to review over.
