@@ -100,10 +100,12 @@ __pycache__/
 # its nested-hidden paths the root file does not reach — the method, not the
 # answer, is the part worth keeping.
 #
-# Three of them sit in directories holding tracked files, so no directory is
-# wholly hidden and `test_root_ignore_coverage.py` can never report them: its
-# subject is a directory, and a generated file beside a tracked one is invisible
-# to it. The regression lock names these individually for that reason.
+# Only the pair under `android/app/src/main/assets/` has a directory to itself,
+# which the directory walk can reach. The rest sit beside tracked content —
+# `config.xml` next to `file_paths.xml`, `local.properties` next to the Gradle
+# files, both iOS files next to `AppDelegate.swift` — so no directory is wholly
+# hidden and `test_root_ignore_coverage.py`'s directory walk can never report
+# them. The regression lock names them individually for that reason.
 # `local.properties` also carries an absolute SDK path from whichever machine
 # ran the build.
 /android/app/src/main/assets/capacitor.config.json
