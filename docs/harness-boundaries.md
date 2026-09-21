@@ -1355,6 +1355,23 @@ a command, and every guard in that list is a fact about the checkout. Which is
 the general form — where the safety is a property of the state rather than of
 the words, the grant has to be a helper.
 
+**Two residuals stand with it, and an entry that named neither would be the
+thing this paragraph exists to refuse.** The grant is a **prefix** grant, so
+nothing in the rule constrains the text after the script path — which is the
+class recorded further up for every `bash .claude/scripts/*.sh:*` grant,
+including the command substitution in an argument position that runs before the
+helper validates anything, and it is spent here on the one operation that
+rewrites published history. And "carries the flags itself" means the five
+`rebase.*` keys that decide which commits are replayed; the repository's own
+`pre-rebase` and `post-rewrite` hooks are still the host's, which granting a
+rebase at all grants. A third is smaller and is written down for the same
+reason: the replay's provenance and its divergence baseline are files under
+`.git` — the marker the helper writes, the record it keeps and git's own
+`orig-head` — so anything able to write there could steer a publish. Nothing
+granted here can: `guard-git-argv.py` holds `.git` among its protected trees
+for redirections and writing verbs, every command file denies `Edit(.git/**)`,
+and no grant creates files there.
+
 **It is granted to `/ship` alone, and it was ported rather than written here.**
 The helper and its suite came from `alexander-shamray/blueprint-backend`, which
 built and reviewed them; what that review added and the first draft lacked is
@@ -1371,7 +1388,7 @@ length against reading content at all. So nothing downstream would see the
 loss, and the check that refuses such a merge sits in the script that would
 otherwise have done the dropping, before it replays anything.
 
-**The sweeps' item 5 (#75) closed by the same shape** — a second read-only
+**The sweeps' item 5 (#75) closed by the tenth entry's shape** — a second read-only
 dispatch returns a verdict, the parent opens nothing in `$work`, and the issue
 helper leaves `gh issue create` with no free parameter — so
 the two residuals #149 named as one class went in one change, and the raw
