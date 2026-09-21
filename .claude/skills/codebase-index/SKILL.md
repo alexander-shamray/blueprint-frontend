@@ -36,6 +36,13 @@ That wrapper exports `CBX_NO_SKILL_AUTO_UPDATE=1`. The package is named
 | Is what I read earlier still true? | `bash .claude/skills/codebase-index/scripts/run-index verify --session <tag> --json` |
 | Produce a human graph | `bash .claude/skills/codebase-index/scripts/run-index graph "X" --output <path>` — **not auto-approved**; take the prompt |
 
+**`search` takes `--limit 3`**, and no other subcommand takes it at all. The
+default is ten and no configuration changes it: `cli.py` and the MCP server
+each hardcode the number, and the `retrieval.limit` in the index's own
+`config.json` is read by neither. The evidence protocol below opens ranks 1–3,
+so the seven results past the third are paid for and never read — measured over
+eight questions about this client, 69,266 characters against 18,840.
+
 Use `search --mode symbol` for exact symbol work, `--mode fts` for text and
 error messages, and the default `hybrid` mode for mixed questions. Use pure
 `vector` mode only when embeddings are enabled and exact vocabulary is unknown.
@@ -88,9 +95,15 @@ Verdict states and citing evidence in notes: [references/memory.md](references/m
 - **low** or no results — follow `fallback_suggestions`, then use a narrow
   Grep/Glob fallback.
 
-On `refs` and `impact`, inspect `coverage`. If `coverage.partial` is true, an
-empty result is inconclusive; confirm with targeted Grep before saying that
-nothing references the target.
+On `refs` and `impact`, an empty result is inconclusive whatever `coverage`
+reports. The graph carries call edges, and an Angular component is mostly used
+without one: `ErrorBannerComponent` is imported by all six feature pages and
+named in each one's template, and `impact "ErrorBannerComponent" --direction
+up` answers with no dependents and `coverage.partial: false`, while `refs`
+returns the definition and nothing else. A template lives in a string and a
+provider in an array, and neither is a call. Confirm with a targeted Grep
+before saying that nothing references the target, and never report an empty
+graph result as an absence.
 
 Edges carry `confidence`:
 
