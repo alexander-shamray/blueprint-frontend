@@ -209,12 +209,12 @@ rather than here. Three rules reach every session, so they stay:
 - **`.claude/settings.json` self-locks, not instantaneously** — a change to it
   lands complete and goes last, and a restore is verified by reading the file,
   never by trying what it forbids.
-- **Every hook uses `run-guard.sh`** — the three in `settings.json` and
-  the `review-grok-triager` profile's own — which locates a compatible Python
-  launcher before invoking the hook. The one that is not a guard, the index
-  refresh in `settings.json`, guards nothing and refreshes the worktree the
-  edit landed in, while the MCP server stays on the startup checkout
-  (`docs/harness-boundaries.md` says why).
+- **Every hook uses `run-guard.sh`** — the three scripts `settings.json` names
+  and the `review-grok-triager` profile's own — which locates a compatible
+  Python launcher before invoking the hook. The one that is not a guard, the
+  index refresh, guards nothing and refreshes the worktree the event came
+  from, on an edit and again on a session start, while the MCP server stays on
+  the startup checkout (`docs/harness-boundaries.md` says why).
 - **`python -m unittest discover -s .claude/scripts -p 'test_*.py'` is the
   harness's own suite** — it covers the deny lists, the frontmatter grants,
   the helper shapes and the hooks. It reads `git ls-files`, so a new tracked

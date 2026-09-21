@@ -780,16 +780,47 @@ class TheDetachedWorkerReallyRuns(unittest.TestCase):
 
 class TheRefreshIsWiredThroughTheLauncher(unittest.TestCase):
 
-    def test_the_post_tool_use_entry_runs_this_hook(self):
+    COMMAND = ('sh "${CLAUDE_PROJECT_DIR}/.claude/hooks/run-guard.sh" '
+               "index-refresh.py")
+
+    def entries_running_this_hook(self):
+        """`{event: entries}` for every hook event that runs this hook.
+
+        Every event rather than the one being asked about, because the
+        subject is which moves are covered. A read naming `PostToolUse`
+        proves that registration and stays green when a second trigger is
+        dropped, or when a third is added with no decision behind it — the
+        gate-coverage lesson in `CLAUDE.md`, turned on this file's own last
+        class.
+        """
         settings = json.loads(SETTINGS.read_text(encoding="utf-8"))
-        commands = [
-            h.get("command", "")
-            for entry in settings["hooks"]["PostToolUse"]
-            for h in entry.get("hooks", [])
-        ]
-        self.assertIn(
-            'sh "${CLAUDE_PROJECT_DIR}/.claude/hooks/run-guard.sh" index-refresh.py',
-            commands)
+        running = {}
+        for event, entries in (settings.get("hooks") or {}).items():
+            matched = [
+                entry for entry in entries
+                if any(hook.get("type") == "command"
+                       and hook.get("command") == self.COMMAND
+                       for hook in entry.get("hooks", []))
+            ]
+            if matched:
+                running[event] = matched
+        return running
+
+    def test_the_hook_runs_on_an_edit_and_on_a_session_start(self):
+        # `PostToolUse` covers what this session changes. `SessionStart`
+        # covers what it opens onto: a merge, a branch switch or a pull
+        # rewrites the tree with no tool event behind it, and `/branch` ships
+        # every PR from a sibling worktree, so this checkout's `main` moves
+        # almost entirely by merges nobody edited through.
+        self.assertEqual({"PostToolUse", "SessionStart"},
+                         set(self.entries_running_this_hook()))
+
+    def test_no_matcher_narrows_the_session_start_entry(self):
+        # `startup`, `resume`, `clear` and `compact` each leave the session
+        # looking at a tree the index may not have seen. A matcher naming one
+        # of them would cover that one and read as covering the event.
+        for entry in self.entries_running_this_hook()["SessionStart"]:
+            self.assertNotIn("matcher", entry)
 
     def test_the_launcher_admits_it(self):
         launcher = (SCRIPTS.parent / "hooks" / "run-guard.sh").read_text(
