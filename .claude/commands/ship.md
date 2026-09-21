@@ -846,7 +846,10 @@ same argument as never calling a branch clean because asking failed.
    ```
 
    A refused fast-forward is divergence rather than staleness, and it stops
-   the chain: resolving it needs a force-push, which is denied here.
+   the chain: resolving it would mean publishing over commits this checkout
+   did not start from. The raw force push is denied, and the one helper that
+   forces — `git-rebase-onto-main.sh`, step 7 — refuses this case by name, so
+   there is nothing here that resolves it.
 
    1. **`/review-branch`, run by Grok, not by you** — the second opinion is
       the point, and a review run by the author's own model is not one:
@@ -1520,9 +1523,13 @@ same argument as never calling a branch clean because asking failed.
    budget is small.
 
    **A fast-forward that will not fast-forward is divergence**, which is
-   another session's history against this one's, and it stops the chain for
-   the reason an unmergeable PR does — force-pushing is denied here and is the
-   only thing that would resolve it.
+   another session's history against this one's, and it stops the chain: the
+   only thing that would resolve it is a force push over commits this checkout
+   did not start from, which the raw form is denied and
+   `git-rebase-onto-main.sh` refuses by name. **An unmergeable PR is no longer
+   the analogy** — that case has a branch update below and this one does not,
+   which is the difference between a landing the branch can be replayed into
+   and another session's work it would discard.
 
    **Non-empty is not a stop, because there is an obvious right answer.** The
    run goes back: commit — **scoped**, always — push, and re-enter the review
@@ -1581,37 +1588,49 @@ same argument as never calling a branch clean because asking failed.
    merge-forward makes a merge commit whether or not it conflicted, and an
    exception is the rule nobody remembers at the moment it matters.
 
+   **Its exits are enumerated, because the first stop rule says a non-zero
+   helper exit means the step did not run — and two of these mean the opposite.**
+   Step 5 states grok's exceptions the same way, and a section that introduced
+   nine exit codes without saying which are stops would leave this step
+   answering one event two ways:
+
+   | Exit | |
+   |---|---|
+   | 8 | The replay conflicts and is left in progress **on purpose**. Not a stop: resolve, `git add`, then `continue` |
+   | Any failure of the push itself | The replay finished and the record is waiting. Not a stop: `publish` |
+   | 2, 3, 4, 5, 6, 7, 9, 10, 11 | Stops, and each is a refusal before anything was rewritten or published |
+
    **It is not the answer to a diverged remote, and the helper refuses that
    case rather than leaving it to a reader.** Where `origin/<branch>` carries
-   commits this checkout did not start from — the refused fast-forwards step 5
-   and this step already stop on — it exits before the replay, because a lease
-   is satisfied by another session's commits this checkout has already fetched
-   and is therefore not the guard there. Those two stops stand exactly as they
-   are written.
+   commits this checkout did not start from it exits 7 before the replay,
+   because a lease is satisfied by another session's commits this checkout has
+   already fetched and is therefore not the guard there. The two fast-forward
+   stops — step 7's fetch above, and step 5's once Grok is restored — say so
+   where they stand, having been corrected in the same change that made the
+   reason they used to give untrue.
 
    **It rewrites the branch's SHAs, so every verdict above describes a commit
    that no longer exists** — and a conflict resolved during the replay changes
    the content the reviewers read, not merely its sha. So this takes the route
-   the non-empty workspace gate above takes: re-enter the Copilot loop for
-   whatever it has left of its ceiling — step 5 is reported skipped again while
-   Grok is disabled — and then return to the **top of this step**. Going back
-   to the checks alone would merge a head no reviewer has seen, which is the
-   thing every loop in this command exists to prevent.
+   the non-empty workspace gate above takes, on that gate's own terms rather
+   than a second copy of them, and then returns to the **top of this step**.
+   Going back to the checks alone would merge a head no reviewer has seen,
+   which is the thing every loop in this command exists to prevent.
 
-   Kept to, this is also what keeps step 0's finished predicate a read of
-   identity rather than a read of content: a branch that is only ever rebased
-   carries no merge commit at all. A branch that already carries one from
-   before this rule is read rather than refused outright — a replay drops every
-   merge, so the helper stops only where the merge holds something neither
-   parent does, and flattens an ordinary merge-forward whose content its
-   parents already carry.
+   Kept to, this is also what keeps step 0's finished predicate answerable as
+   step 0 states it: a branch that is only ever rebased carries no merge commit
+   at all. A branch that already carries one from before this rule is read
+   rather than refused outright — a replay drops every merge, so the helper
+   stops only where the merge holds something neither parent does, and flattens
+   an ordinary merge-forward whose content its parents already carry.
 
-   **The force push is the helper's and not a rule's.** Every
-   `git push --force`, `--force-with-lease` and `-f` deny in
-   `.claude/settings.json` is untouched, because a permission pattern matches
-   the text of a command and every guard that makes this safe is a fact about
-   the checkout. `docs/harness-boundaries.md` carries the entry.
-
+   **The force push is the helper's, and neither the deny list nor the parser
+   is what admits it.** `.claude/settings.json`'s force-push denies and
+   `guard-git-argv.py`'s push allow-list are both untouched and both still
+   refuse the raw form; what reaches neither of them is a `git push` **inside a
+   script**, which is judged by nothing but the script. That is the whole
+   reason the guards had to be facts about the checkout written into the file,
+   and `docs/harness-boundaries.md` carries the entry.
    **Read `state` on every pass of the poll, before `mergeable`.** The two
    arrive in the same call and only one of them was being used. A PR closed or
    merged elsewhere while the review loops ran — and those loops are the long
