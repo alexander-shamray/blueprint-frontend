@@ -359,8 +359,16 @@ def files_hidden_from_git_only(root):
     limitation. The two files under `android/app/src/main/assets` have that
     directory to themselves, so it is wholly hidden and the directory walk
     reports it — measured, as the one finding left in the main checkout after
-    the directories were covered. What it reports there is the directory, and
-    what this walk reports is the file.
+    the directories were covered.
+
+    **Those two are reported once, and not here.** This walk prunes at a
+    directory `hidden_whole` matches, so it says nothing about their
+    containing directory or anything in it: the directory-level finding
+    already stands for the contents, and repeating it per file would bury the
+    finding under its own detail. The case below named for not descending into
+    an ignored directory is that suppression written down. So the division is
+    by finding rather than by file — a wholly hidden directory belongs to the
+    walk above, and a file whose directory stays visible belongs to this one.
 
     They were found by walking a checkout that had really run `cap sync` and
     asking which of its nested-hidden paths the root file failed to reach —
