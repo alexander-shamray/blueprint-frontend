@@ -98,7 +98,16 @@ approved_lease=""
 # replay has finished and taken the rebase state with it. Without the record
 # `start` then refuses the rewritten branch as non-ancestral and `continue`
 # finds no rebase, so the only granted way to publish is shut. git removes
-# nothing here, so `publish` clears it on success and `abort` on the way out.
+# nothing here, so `publish` clears it on success.
+#
+# Two shapes, and which one is on disk is the whole of what the other modes
+# know about the replay. `<branch> <lease>` is written BEFORE the rebase, so a
+# run that dies anywhere still leaves the lease that was approved; the
+# replayed head is added only once the replay has actually produced one. So an
+# absent third field means no replay ran — `publish` has nothing to publish and
+# `abort` may clear the record — and a present one means the branch has already
+# been rewritten, which is the state `abort` must refuse to walk away from and
+# the state `publish` must check HEAD against before it forces.
 pending=$(git rev-parse --git-path claude-rebase-pending)
 require_remote_carries_nothing_new() {
   approved_lease=$(git rev-parse "refs/remotes/origin/$branch")
@@ -133,6 +142,17 @@ publish() {
 # Written before the replay, so it survives a push that fails after it.
 remember_lease() {
   printf '%s %s\n' "$branch" "$approved_lease" > "$pending"
+}
+
+# Written once the replay has produced a head, immediately before the push.
+# `publish` forces over the remote, and the only thing that makes that safe on
+# a retry is knowing WHICH commit the replay produced: the rebase state is gone
+# by then, so `continue`'s "not started by this helper" guard has nothing left
+# to read. Without this field that mode would force whatever HEAD happened to
+# be — an interactive rebase that dropped commits, a `reset --hard`, a bad
+# `commit --amend` — over the branch's published work with every guard green.
+remember_replay() {
+  printf '%s %s %s\n' "$branch" "$approved_lease" "$(git rev-parse HEAD)" > "$pending"
 }
 
 # A rebase drops merge commits, and a merge can carry content that is in
@@ -174,7 +194,12 @@ conflicted() {
     fi
   done
   [ -n "$now" ] ||
-    { echo "the rebase did not start, so there is nothing to continue; git's own message is above" >&2; exit 11; }
+    { # No state means no replay, so the record written before it describes
+      # nothing. Left behind it blocks the next `start` — "a replay is waiting
+      # to be published" — about a branch git never touched, and offers
+      # `publish` a lease approved for a rebase that did not happen.
+      rm -f "$pending"
+      echo "the rebase did not start, so there is nothing to continue; git's own message is above" >&2; exit 11; }
   : > "$now/started-by-this-helper"
   echo "the rebase onto origin/main conflicts and is left in progress, which is the point:" >&2
   git diff --name-only --diff-filter=U >&2
@@ -208,11 +233,24 @@ case "$mode" in
     require_no_merge_invented_anything
     remember_lease
 
-    # The flags are spelled rather than inherited. `rebase.rebaseMerges` would
-    # keep the merge commits this helper exists to be rid of, and
-    # `rebase.updateRefs` would force-update other local branches' refs as a
-    # side effect — both from configuration this script does not own.
-    git rebase --no-rebase-merges --no-update-refs "refs/remotes/origin/main" || conflicted
+    # The flags are spelled rather than inherited, and the list is every
+    # `rebase.*` key that changes WHICH commits are replayed or what the tree
+    # is while they are. `rebaseMerges` would keep the merge commits this
+    # helper exists to be rid of; `updateRefs` would force-update other local
+    # branches' refs as a side effect; `autoSquash` would silently recombine a
+    # `fixup!` into the commit it names; `forkPoint` would choose a different
+    # base; `autoStash` would carry a dirty tree through a replay this helper
+    # refuses to start with one. All five come from configuration this script
+    # does not own, and the result is force-pushed, so an inherited one is a
+    # rewrite nobody asked for. Measured against git 2.45.1: a non-interactive
+    # rebase accepts all five.
+    #
+    # What is still inherited, and is not this file's to refuse: the
+    # repository's own `pre-rebase` and `post-rewrite` hooks, which granting a
+    # rebase at all grants.
+    git rebase --no-rebase-merges --no-update-refs --no-autosquash \
+      --no-fork-point --no-autostash "refs/remotes/origin/main" || conflicted
+    remember_replay
     publish
     ;;
 
@@ -245,6 +283,7 @@ case "$mode" in
     # The message is the replayed commit's own. An editor would stop the run on
     # a terminal nothing is attached to, so it is answered rather than opened.
     GIT_EDITOR=true git rebase --continue || conflicted
+    remember_replay
     publish
     ;;
 
@@ -256,9 +295,15 @@ case "$mode" in
       { echo "a rebase is still in progress; finish it with 'continue'" >&2; exit 9; }
     [ -f "$pending" ] ||
       { echo "no replay is waiting to be published" >&2; exit 9; }
-    read -r recorded_branch recorded_lease < "$pending"
+    read -r recorded_branch recorded_lease recorded_head < "$pending"
     [ "$recorded_branch" = "$branch" ] ||
       { echo "the waiting replay is $recorded_branch, not $branch" >&2; exit 4; }
+    # No third field is a record from a run whose replay never happened, so
+    # there is no replayed head to publish and the lease was approved for a
+    # rebase git did not perform.
+    [ -n "${recorded_head:-}" ] ||
+      { echo "that record is from a replay that never ran, so there is nothing to publish: 'abort' to clear it" >&2
+        exit 9; }
     require_remote_branch
     # The remote must still be where the guard left it. If it moved, this lease
     # was approved against a tip that no longer exists and re-approving it here
@@ -266,14 +311,42 @@ case "$mode" in
     [ "$(git rev-parse "refs/remotes/origin/$branch")" = "$recorded_lease" ] ||
       { echo "origin/$branch has moved since the replay was approved: 'abort' the record and start again" >&2
         exit 7; }
+    # `continue` refuses a rebase this helper did not start, and the argument
+    # there applies here with nothing left to read it from: by now the rebase
+    # state is gone, so the recorded head is the only evidence that HEAD is
+    # what the replay produced rather than what somebody did to the branch
+    # afterwards. Without this the retry forces a hand-rewritten head over the
+    # published work with every other guard green.
+    [ "$(git rev-parse HEAD)" = "$recorded_head" ] ||
+      { echo "HEAD is no longer the commit that replay produced, so this is not it to publish" >&2
+        echo "expected $recorded_head" >&2
+        exit 9; }
     approved_lease="$recorded_lease"
     publish
     ;;
 
   abort)
     if [ "$in_progress" -eq 0 ] && [ -f "$pending" ]; then
+      read -r recorded_branch recorded_lease recorded_head < "$pending"
+      # The record is per git directory rather than per branch, and every other
+      # arm compares it to the branch it was given. This one did not, so
+      # `abort feat/B` destroyed feat/A's only recovery record and said feat/B
+      # had been cleared.
+      [ "$recorded_branch" = "$branch" ] ||
+        { echo "the waiting replay is $recorded_branch, not $branch" >&2; exit 4; }
+      # A recorded head means the replay finished and only the push failed, so
+      # the branch in hand IS the rewritten history and the remote still holds
+      # what it replaced. Clearing the record there strands it: `start` reads
+      # the rewritten tip as non-ancestral, `continue` finds no rebase, and the
+      # raw force push that would recover it is denied. "Nothing was published"
+      # is true and "left where it is" is not, which is how the old message
+      # made this read like the harmless case.
+      [ -z "${recorded_head:-}" ] ||
+        { echo "the replay already rewrote $branch and only the push failed, so there is nothing here to undo:" >&2
+          echo "publish it with 'publish', or move the branch by hand — clearing the record would strand it" >&2
+          exit 9; }
       rm -f "$pending"
-      echo "cleared the waiting replay; $branch is left where it is and nothing was published"
+      echo "cleared a record whose replay never ran; $branch is untouched and nothing was published"
       exit 0
     fi
     [ "$in_progress" -eq 1 ] ||
