@@ -230,8 +230,19 @@ class TheHelperRefusesBeforeItRewrites(unittest.TestCase):
         # other check in `continue`: the published tip is what it started
         # from, so the divergence guard is satisfied and the result — which
         # holds none of the branch's work — would be forced over it.
+        #
+        # git runs `GIT_SEQUENCE_EDITOR` through a shell with the todo path
+        # appended, so a redirection is the portable way to write one. `sed -i
+        # <script>` is not: BSD sed reads the script as the backup suffix, so
+        # on macOS the editor fails, the rebase never starts, and the case goes
+        # green for the wrong reason — `continue` refusing a rebase that is not
+        # there rather than one this helper did not start. The source
+        # repository never met that, because its matrix job runs two modules
+        # and its full suite runs on ubuntu alone; this repository's `harness`
+        # job runs the whole discover on all three platforms, which is what
+        # caught it.
         published = self.at("git rev-parse refs/remotes/origin/feat/x").stdout.strip()
-        self.at('GIT_SEQUENCE_EDITOR="sed -i 1s/^pick/break/" '
+        self.at('GIT_SEQUENCE_EDITOR="echo break >" '
                 'git rebase -i refs/remotes/origin/main')
         result = self.helper("feat/x", "continue")
         self.assertEqual(9, result.returncode, result.stderr)
