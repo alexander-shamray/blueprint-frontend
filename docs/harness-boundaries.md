@@ -1445,6 +1445,25 @@ through `run-guard.sh`, which splits the two things the anchor had fused:
   sweep's tree is prompt-injection input and indexing it reads that tree's
   `.codeindexignore`. Anything else refreshes nothing.
 
+**`SessionStart` runs the same script, for the moves no edit makes
+(alexander-shamray/blueprint-backend#270, ported).** A merge, a branch switch
+or a pull rewrites the tree with no tool event behind it, so a session opening
+onto one of those reads an index describing the tree it replaced — and this
+checkout is where that bites hardest, because `/branch` ships every PR from a
+sibling worktree and `main` here moves only by a merge nobody was editing
+through. The event names no file and carries a `cwd` like any other, which is
+the whole of what the bullet above asks of it, and the spawn is the same
+detached one, so a session start waits for nothing. The entry is registered
+with no matcher, so `startup`, `resume`, `clear` and `compact` all reach it;
+the marker and the lock below make the extra ones cost a marker each.
+
+**A tree that moves mid-session is the residual the second trigger leaves.**
+A `git pull` or a merge run from `Bash` fires neither event, so the index goes
+on describing the tree it replaced until the next edit — and that is the
+staleness a person is present for, which is why it is left rather than
+watched. Registering the hook on `PostToolUse` for `Bash` as well would fire
+it on every command in the session to catch the few that rewrite the tree.
+
 **Every git call one event makes shares one deadline**, because the hook
 is synchronous and `settings.json` gives it five seconds: validation and
 the state directory each taking their own three-second budget could
