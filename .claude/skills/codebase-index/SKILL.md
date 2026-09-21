@@ -24,7 +24,7 @@ That wrapper exports `CBX_NO_SKILL_AUTO_UPDATE=1`. The package is named
 
 | Intent | Command |
 |---|---|
-| Where is X implemented? | `bash .claude/skills/codebase-index/scripts/run-index search "X" --session <tag> --json` |
+| Where is X implemented? | `bash .claude/skills/codebase-index/scripts/run-index search "X" --limit 3 --session <tag> --json` |
 | How does X work? | `bash .claude/skills/codebase-index/scripts/run-index explain "X" --session <tag> --json` |
 | What is this codebase? | `bash .claude/skills/codebase-index/scripts/run-index architecture --json` |
 | Find a named symbol | `bash .claude/skills/codebase-index/scripts/run-index symbol "X" --json` |

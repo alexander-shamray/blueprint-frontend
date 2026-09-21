@@ -5,7 +5,7 @@ Load this reference only when the intent table in `SKILL.md` is insufficient.
 ## Retrieval
 
 ```bash
-bash .claude/skills/codebase-index/scripts/run-index search "<query>" --session <tag> --json
+bash .claude/skills/codebase-index/scripts/run-index search "<query>" --limit 3 --session <tag> --json
 bash .claude/skills/codebase-index/scripts/run-index explain "<topic or flow>" --session <tag> --json
 ```
 
@@ -13,7 +13,8 @@ Useful search options:
 
 - `--mode hybrid|fts|symbol|vector`
 - `--token-budget <tokens>`
-- `--limit <count>`
+- `--limit <count>` — **pass `--limit 3`**; the default is ten and the
+  evidence protocol opens the first three (`SKILL.md`)
 - `--offset <pagination offset>`
 - `--raw` to disable snippet skeletonization
 - `--no-fallback` to suppress fallback suggestions
@@ -79,9 +80,9 @@ Low symbol counts or partial graph coverage can explain weak results.
 ## Query examples
 
 ```bash
-bash .claude/skills/codebase-index/scripts/run-index search "auth token refresh" --session <tag> --json
-bash .claude/skills/codebase-index/scripts/run-index search "AuthService class" --mode symbol --session <tag> --json
-bash .claude/skills/codebase-index/scripts/run-index search "connection reset by peer" --mode fts --session <tag> --json
+bash .claude/skills/codebase-index/scripts/run-index search "auth token refresh" --limit 3 --session <tag> --json
+bash .claude/skills/codebase-index/scripts/run-index search "AuthService class" --mode symbol --limit 3 --session <tag> --json
+bash .claude/skills/codebase-index/scripts/run-index search "connection reset by peer" --mode fts --limit 3 --session <tag> --json
 bash .claude/skills/codebase-index/scripts/run-index explain "checkout flow" --session <tag> --json
 bash .claude/skills/codebase-index/scripts/run-index impact "User" --direction up --depth 2 --json
 bash .claude/skills/codebase-index/scripts/run-index path "ApiController" "Database" --json

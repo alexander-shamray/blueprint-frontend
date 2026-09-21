@@ -1453,9 +1453,19 @@ checkout is where that bites hardest, because `/branch` ships every PR from a
 sibling worktree and `main` here moves only by a merge nobody was editing
 through. The event names no file and carries a `cwd` like any other, which is
 the whole of what the bullet above asks of it, and the spawn is the same
-detached one, so a session start waits for nothing. The entry is registered
-with no matcher, so `startup`, `resume`, `clear` and `compact` all reach it;
-the marker and the lock below make the extra ones cost a marker each.
+detached one — so the *indexing* is not what a session start waits for. The
+hook's own validation is: the same `target_root` walk and the same lock and
+marker an edit pays for, inside the five seconds `settings.json` allows it and
+the one git budget below. Raised by Copilot, which read the earlier claim here
+that a session start waits for nothing.
+
+**Only the events that overlap a running worker are coalesced**, which is less
+than the marker and the lock look like they promise. `start` spawns a worker
+whenever the lock is free, so a `clear` an hour into a session buys another
+`update` rather than a marker — it is a second `SessionStart` and the tree may
+well have moved since the first. What the marker buys is that two events
+inside one refresh cost one more between them, not that the second is free.
+Raised by Copilot.
 
 **A tree that moves mid-session is the residual the second trigger leaves.**
 A `git pull` or a merge run from `Bash` fires neither event, so the index goes
