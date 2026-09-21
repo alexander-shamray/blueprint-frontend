@@ -2,12 +2,16 @@
 
 **Two subjects, one question.** A *directory* every entry of which is hidden is
 `hidden_from_git_only`'s, and a *file* hidden beside a tracked one is
-`files_hidden_from_git_only`'s. The second was added after the first reported
-the native trees clean while six generated files went on being indexed: `cap
-sync` writes `capacitor.config.json` into `ios/App/App/` next to
-`AppDelegate.swift`, so no directory there is wholly hidden and a
-directory-shaped gate is silent by construction. Each function argues its own
-half; everything below holds for both.
+`files_hidden_from_git_only`'s. The second was added after six generated files
+were found still being indexed, and the division between them is what the two
+functions are for. Two of the six sit in
+`android/app/src/main/assets`, which holds nothing else, so that directory is
+wholly hidden and the first function did report it. The other four sit beside
+tracked content — `cap sync` writes `capacitor.config.json` into
+`ios/App/App/` next to `AppDelegate.swift` — where no directory is wholly
+hidden and a directory-shaped gate is silent by construction. Those four are
+the blind spot, and the second function is the answer to them. Each argues its
+own half; everything below holds for both.
 
 **The subject is the disagreement between the two tools, not either one of
 them.**
@@ -343,13 +347,20 @@ def hidden_from_git_only(root):
 def files_hidden_from_git_only(root):
     """`(file, source)` for every file hidden from git that the index reads.
 
-    **The directory walk above cannot see these, and six of them is what that
-    cost.** Its subject is a directory *every* entry of which is hidden, so a
-    generated file sitting beside a tracked one is invisible to it: `cap sync`
-    writes `capacitor.config.json` into `ios/App/App/` next to
-    `AppDelegate.swift`, and `config.xml` into `android/app/src/main/res/xml/`
-    next to a tracked `file_paths.xml`. No directory is wholly hidden in
-    either, so the walk is silent while the indexer reads both files.
+    **The directory walk above cannot see a file beside a tracked one, and
+    four of those is what that cost.** Its subject is a directory *every*
+    entry of which is hidden, so it is silent wherever one tracked file keeps
+    the directory visible: `cap sync` writes `capacitor.config.json` into
+    `ios/App/App/` next to `AppDelegate.swift`, and `config.xml` into
+    `android/app/src/main/res/xml/` next to a tracked `file_paths.xml`. No
+    directory is wholly hidden in either, and the indexer reads both files.
+
+    It is not blind to all of them, and saying so would misplace the
+    limitation. The two files under `android/app/src/main/assets` have that
+    directory to themselves, so it is wholly hidden and the directory walk
+    reports it — measured, as the one finding left in the main checkout after
+    the directories were covered. What it reports there is the directory, and
+    what this walk reports is the file.
 
     They were found by walking a checkout that had really run `cap sync` and
     asking which of its nested-hidden paths the root file failed to reach —
