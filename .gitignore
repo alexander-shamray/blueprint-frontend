@@ -67,6 +67,32 @@ __pycache__/
 .remember/
 .superpowers/
 
+# The native generated trees, which are the same divergence from the other
+# direction. `android/.gitignore` and `ios/.gitignore` are Capacitor's own
+# templates; git reads them at any depth and the code index reads neither, so
+# everything `cap sync` and Gradle write under them was indexed whole.
+# Measured 2026-09-21: 90 of 342 indexed files and 7,980 of 9,185 symbols were
+# the two copied web bundles, and a minified `main-*.js` outranked the source
+# for two of eight ordinary questions. Four of these lines were
+# `.codeindexignore`'s until now — the root file is where the gate wants them,
+# because it is the one both tools read.
+#
+# This list is what those templates generate in a checkout that has built, not
+# a mirror of everything they could. `test_root_ignore_coverage.py` is what
+# catches the next one, and it asserts these paths whether or not the checkout
+# has built, so the lock holds on CI's clean tree too.
+/android/.gradle/
+/android/build/
+/android/app/build/
+/android/app/src/main/assets/public/
+/android/capacitor-cordova-android-plugins/
+/ios/App/build/
+/ios/App/output/
+/ios/App/Pods/
+/ios/App/App/public/
+/ios/DerivedData/
+/ios/capacitor-cordova-ios-plugins/
+
 # /review-branch's proof that it ran, which grok-review.sh requires before it
 # reads a missing suggestions.md as a clean pass. Ignored so that a standalone
 # review does not dirty the tree the same helper refuses to review over.

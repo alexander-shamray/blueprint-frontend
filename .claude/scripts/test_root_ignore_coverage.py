@@ -60,24 +60,45 @@ empty listing exactly where the suite gates.
 
 ## What counts as covered, and which way it fails
 
-Coverage is the deciding source being the root `.gitignore`. Any other source
-— a nested `.gitignore`, `.git/info/exclude`, a global excludes file — hides
-the directory from git while the indexer reads on, which is the finding.
+Coverage is the root `.gitignore` hiding the directory **on its own**, asked
+in a scratch repository holding that file and nothing else. Any directory it
+does not reach is hidden from git by something the indexer cannot see — a
+nested `.gitignore`, `.git/info/exclude`, a global excludes file — and that is
+the finding.
 
-That is narrower than the indexer's own reading, deliberately. The indexer
-also consults `.codeindexignore`, `.cursorignore` and `.claudeignore` at the
-root, and git reads none of them; so a directory hidden by a nested rule and
-covered only by `.codeindexignore` is reported here although the indexer would
-in fact skip it. The report is then a false one, and it fails in the safe
-direction: the fix it asks for is a rule in the root `.gitignore`, which is
-where `blueprint-backend` and `blueprint-admin` put theirs and where this
-repository wants it anyway.
+**Reading the *decider* was wrong, and it made this file's own advice
+unfollowable.** Git gives a deeper `.gitignore` precedence over the root one
+and names the deeper file whenever both match, so a rule added to the root
+file to cover a directory a nested template already hides moves no decider at
+all: the finding stands, the advice repeats itself, and nothing the reader can
+do to the root file will ever clear it. Measured — with `/sub/build/` at the
+root and `build/` in `sub/`, `check-ignore -v` answers
+`sub/.gitignore:1:build/`.
+
+The session-state trees never showed this, which is why it survived eight
+review rounds. A root rule spelling `.remember/` excludes the directory
+itself, and git does not descend into an excluded directory, so the
+`.gitignore` inside it is never read and the root file is the only decider
+there is. The native trees are the shape that discriminates:
+`android/.gitignore` and `ios/.gitignore` are Capacitor's own templates,
+sitting in directories this repository tracks, and every rule in them outranks
+anything the root file can say.
+
+That is still narrower than the indexer's own reading, deliberately. The
+indexer also consults `.codeindexignore`, `.cursorignore` and `.claudeignore`
+at the root, and git reads none of them; so a directory covered only by
+`.codeindexignore` is reported here although the indexer would in fact skip
+it. The report is then a false one, and it fails in the safe direction: the
+fix it asks for is a rule in the root `.gitignore`, which is where
+`blueprint-backend` and `blueprint-admin` put theirs, where this repository
+wants it anyway — and which now actually clears the finding.
 
 The user's global excludes file is emptied for every call. Without that, a
 developer's personal `~/.gitignore` decides paths here and the gate reports
 findings that exist on one machine.
 """
 
+import atexit
 import shutil
 import subprocess
 import tempfile
@@ -152,6 +173,60 @@ def deciders(root, relatives):
     return decided
 
 
+_ROOT_ONLY_REPOS = {}
+
+
+def _root_only_repo(root):
+    """A scratch repository whose only ignore source is `root`'s root file.
+
+    Built once per distinct text and reused, because the walk below asks
+    about every directory it reaches. A checkout with no root ignore file
+    gets a repository with none either, so the answer is *covers nothing*
+    rather than an error — and `NothingInThisCheckoutHidesFromGitAlone` has
+    the positive control that this checkout is not that one.
+    """
+    source = Path(root, ROOT_IGNORE)
+    text = source.read_text(encoding="utf-8") if source.is_file() else ""
+    if text in _ROOT_ONLY_REPOS:
+        return _ROOT_ONLY_REPOS[text]
+    scratch = Path(tempfile.mkdtemp())
+    atexit.register(shutil.rmtree, str(scratch), ignore_errors=True)
+    subprocess.run(["git", "init", "-q"], cwd=str(scratch), check=True,
+                   capture_output=True)
+    Path(scratch, ROOT_IGNORE).write_text(text, encoding="utf-8",
+                                          newline="\n")
+    _ROOT_ONLY_REPOS[text] = scratch
+    return scratch
+
+
+def root_only_hides(root, relatives):
+    """The subset of `relatives` the root ignore file hides by itself.
+
+    The module docstring argues why this is the question and the decider is
+    not. Nothing here reads a pattern: git is asked, in a repository where no
+    nested file exists to outrank the root one.
+
+    **A path is asked with a trailing slash where the real tree holds a
+    directory**, because `check-ignore` cannot tell that a path it cannot see
+    is one, and the scratch repository holds no directories at all. Measured:
+    with `/sub/build/` as the only rule, `check-ignore sub/build` answers *not
+    ignored* and `check-ignore sub/build/` answers with the rule. A caller
+    asking about a directory that need not exist — the regression locks at the
+    foot of this file — spells the slash itself, and it is kept rather than
+    doubled.
+    """
+    if not relatives:
+        return set()
+    asked = {}
+    for relative in relatives:
+        spelling = relative
+        if not spelling.endswith("/") and Path(root, relative).is_dir():
+            spelling += "/"
+        asked[spelling] = relative
+    answered = _check_ignore(_root_only_repo(root), [], list(asked))
+    return {asked[path] for path in answered.split("\0") if path in asked}
+
+
 def hidden_whole(root, directory):
     """The non-root ignore file hiding *every* entry of `directory`, or `None`.
 
@@ -164,9 +239,10 @@ def hidden_whole(root, directory):
     An empty directory returns `None`. There is nothing in it for the index to
     read, so there is no disagreement to report.
 
-    Entries hidden by the root file are counted as hidden, because they are —
-    but they cannot raise the finding on their own, and a directory whose
-    every entry the root file hides is one the indexer skips too.
+    Entries the root file hides are ones the indexer skips too, so they
+    cannot raise the finding on their own, and a directory whose every entry
+    it reaches is not a disagreement. Reached, not decided: the root file can
+    cover an entry that a nested file is still reported as deciding.
     """
     base = Path(root, directory)
     try:
@@ -176,15 +252,15 @@ def hidden_whole(root, directory):
         return None
     if not names:
         return None
-    decided = deciders(root, [f"{directory}/{name}" for name in names])
-    sources = set()
-    for name in names:
-        source = decided.get(f"{directory}/{name}")
-        if source is None:
-            return None
-        sources.add(source)
-    beyond_root = sorted(sources - {ROOT_IGNORE})
-    return beyond_root[0] if beyond_root else None
+    paths = [f"{directory}/{name}" for name in names]
+    decided = deciders(root, paths)
+    if any(path not in decided for path in paths):
+        return None
+    uncovered = [path for path in paths
+                 if path not in root_only_hides(root, paths)]
+    if not uncovered:
+        return None
+    return decided[uncovered[0]]
 
 
 def hidden_from_git_only(root):
@@ -228,20 +304,27 @@ def hidden_from_git_only(root):
         if not children:
             return
         own = deciders(root, children)
+        covered = root_only_hides(root, children)
         for child in children:
             covering = own.get(child)
-            if covering == ROOT_IGNORE:
+            if covering is None:
+                # Git can see the directory, so the two tools agree about it.
+                # Any disagreement is about its contents, or further down.
+                hiding = hidden_whole(root, child)
+                if hiding is None:
+                    walk(child)
+                else:
+                    findings.append((child, hiding))
                 continue
-            if covering is not None:
-                # Something the indexer cannot see hides the directory itself,
-                # which is a parent's `.gitignore` or an excludes file.
+            # Git hides the directory. Whether the indexer does too is the
+            # root file's question alone, and asking which file git named
+            # instead is the defect the module docstring records: a covered
+            # directory a nested template also matches was reported for ever.
+            # Either way the subtree is settled and is not descended into.
+            if child not in covered:
+                # A parent's `.gitignore` or an excludes file hides it, and
+                # the indexer reads on.
                 findings.append((child, covering))
-                continue
-            hiding = hidden_whole(root, child)
-            if hiding is not None:
-                findings.append((child, hiding))
-                continue
-            walk(child)
 
     walk("")
     return findings
@@ -311,6 +394,36 @@ class GitIsReallyBeingAsked(unittest.TestCase):
         self.write(".gitignore", "*\n!keep\n")
         self.assertEqual({"other": ".gitignore"},
                          deciders(self.root, ["keep", "other"]))
+
+    def test_the_root_file_is_asked_where_nothing_can_outrank_it(self):
+        # The control on `root_only_hides`: a rule that matches, and one that
+        # does not, so an empty set cannot pass for either answer.
+        self.write(".gitignore", "/state/\n")
+        (self.root / "state").mkdir()
+        (self.root / "other").mkdir()
+        self.assertEqual({"state"},
+                         root_only_hides(self.root, ["state", "other"]))
+
+    def test_a_directory_that_need_not_exist_spells_its_own_slash(self):
+        # `check-ignore` cannot tell that a path it cannot see is a
+        # directory, and the scratch repository holds none, so `/build/`
+        # reaches `build/` and not `build`. The regression locks at the foot
+        # of this file ask about paths a clean checkout does not have.
+        self.write(".gitignore", "/build/\n")
+        self.assertFalse((self.root / "build").exists())
+        self.assertEqual({"build/"}, root_only_hides(self.root, ["build/"]))
+        self.assertEqual(set(), root_only_hides(self.root, ["build"]))
+
+    def test_a_real_directory_gets_its_slash_without_being_asked(self):
+        self.write(".gitignore", "/build/\n")
+        (self.root / "build").mkdir()
+        self.assertEqual({"build"}, root_only_hides(self.root, ["build"]))
+
+    def test_no_root_file_covers_nothing(self):
+        # A checkout without the file scans clean for the wrong reason, which
+        # is what `test_the_root_ignore_file_is_where_it_is_expected` exists
+        # to catch. Here it must simply not raise.
+        self.assertEqual(set(), root_only_hides(self.root, ["anything/"]))
 
 
 class TheGateSeesEveryWayGitCanHideADirectory(unittest.TestCase):
@@ -490,6 +603,28 @@ class TheGateSeesEveryWayGitCanHideADirectory(unittest.TestCase):
         self.assertEqual([("vendor/pkg", "vendor/pkg/.gitignore")],
                          hidden_from_git_only(self.root))
 
+    def test_a_root_rule_clears_a_finding_a_nested_file_still_decides(self):
+        # The defect the native trees found, in the smallest tree that shows
+        # it. `outer` is tracked, so git reads `outer/.gitignore` and names it
+        # for `outer/state` although the root file covers that path too — and
+        # a gate reading the decider went on reporting a directory its own
+        # advice had already fixed. The two assertions are the two questions:
+        # git's decider, and the indexer's coverage.
+        self.write(".gitignore", "/outer/state/\n")
+        self.write("outer/.gitignore", "state/\n")
+        self.write("outer/state/top.txt", "x\n")
+        self.assertEqual({"outer/state": "outer/.gitignore"},
+                         deciders(self.root, ["outer/state"]))
+        self.assertEqual([], hidden_from_git_only(self.root))
+
+    def test_the_same_tree_without_the_root_rule_is_a_finding(self):
+        # The other direction of the case above, so it cannot pass by the
+        # gate having stopped looking at nested files altogether.
+        self.write("outer/.gitignore", "state/\n")
+        self.write("outer/state/top.txt", "x\n")
+        self.assertEqual([("outer/state", "outer/.gitignore")],
+                         hidden_from_git_only(self.root))
+
 
 class NothingInThisCheckoutHidesFromGitAlone(unittest.TestCase):
 
@@ -527,6 +662,42 @@ class TheSessionStateTreesAreCoveredAtTheRoot(unittest.TestCase):
         # ancestor rule is what has to answer for it.
         decided = deciders(ROOT, [f".superpowers/sdd/{PROBE}"])
         self.assertEqual(ROOT_IGNORE, decided.get(f".superpowers/sdd/{PROBE}"))
+
+
+class TheNativeGeneratedTreesAreCoveredAtTheRoot(unittest.TestCase):
+    """The regression lock for what `cap sync` and Gradle write, and it holds
+    in CI.
+
+    The live scan cannot carry this one either, and for the opposite reason to
+    the session-state trees above: these directories exist only in a checkout
+    that has built, so CI's tree is clean of them and scans green whether or
+    not the root rules survive. A developer's checkout is where they appear,
+    and a developer's checkout is the only place the index is ever built — the
+    measurement that found them is in the root `.gitignore` beside the rules.
+
+    Asked with a trailing slash, because every rule here ends in one and git
+    cannot tell that a path it cannot see is a directory.
+    """
+
+    GENERATED = (
+        "android/.gradle/",
+        "android/build/",
+        "android/app/build/",
+        "android/app/src/main/assets/public/",
+        "android/capacitor-cordova-android-plugins/",
+        "ios/App/build/",
+        "ios/App/output/",
+        "ios/App/Pods/",
+        "ios/App/App/public/",
+        "ios/DerivedData/",
+        "ios/capacitor-cordova-ios-plugins/",
+    )
+
+    def test_the_root_file_hides_every_generated_native_tree(self):
+        # The whole set in one assertion, so a line dropped from the root
+        # file fails here and names itself.
+        self.assertEqual(set(self.GENERATED),
+                         root_only_hides(ROOT, list(self.GENERATED)))
 
 
 if __name__ == "__main__":
