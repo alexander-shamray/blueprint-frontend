@@ -1,5 +1,5 @@
 ---
-description: Triage an external review of the branch into a resolution record
+description: Triage a review of the branch into a resolution record
 argument-hint: "[path to the review — defaults to suggestions.md] [path to the locality verdict — omit when there is no PR] [path to the branch diff — omit when the caller cannot write one]"
 allowed-tools: Read, Grep, Glob, Edit, Write, Agent(review-adjudicator)
 disallowed-tools: Bash, Edit(.claude/**), Edit(./.claude/**), Edit(.github/**), Edit(./.github/**), Edit(android/**), Edit(./android/**), Edit(ios/**), Edit(./ios/**), Edit(.git/**), Edit(./.git/**), Edit(.git), Edit(./.git), Edit(package.json), Edit(./package.json), Edit(package-lock.json), Edit(./package-lock.json), Edit(npm-shrinkwrap.json), Edit(./npm-shrinkwrap.json), Edit(.npmrc), Edit(./.npmrc), Edit(angular.json), Edit(./angular.json), Edit(tsconfig.json), Edit(./tsconfig.json), Edit(tsconfig.app.json), Edit(./tsconfig.app.json), Edit(tsconfig.spec.json), Edit(./tsconfig.spec.json), Edit(eslint.config.js), Edit(./eslint.config.js), Edit(.prettierrc), Edit(./.prettierrc), Edit(capacitor.config.ts), Edit(./capacitor.config.ts), Edit(playwright.config.ts), Edit(./playwright.config.ts), Edit(ionic.config.json), Edit(./ionic.config.json), Edit(.nvmrc), Edit(./.nvmrc), Edit(.editorconfig), Edit(./.editorconfig), Edit(.gitattributes), Edit(./.gitattributes), Edit(.gitignore), Edit(./.gitignore), Edit(**/*.config.js), Edit(**/*.config.cjs), Edit(**/*.config.mjs), Edit(**/*.config.ts), Edit(**/*.config.mts), Edit(**/package.json), Edit(**/.npmrc), Edit(**/tsconfig*.json), Edit(**/.prettierrc*), Agent(general-purpose), Agent(claude), Agent(Explore), Agent(Plan), Agent(claude-code-guide), Agent(statusline-setup), Agent(security-auditor), Agent(bug-auditor), Agent(review-grok-triager), Edit(CLAUDE.md), Edit(./CLAUDE.md), Edit(README.md), Edit(./README.md), Edit(node_modules/**), Edit(./node_modules/**), Edit(.mcp.json), Edit(./.mcp.json), Edit(.codeindexignore), Edit(./.codeindexignore), Agent(branch-reviewer)
@@ -19,7 +19,7 @@ available. $3, when given, is
 the **branch diff** against `main`, written by the caller the same way; the
 adjudicator reads it to tell a restatement the branch wrote — a finding — from
 one it left alone, and without it returns each row that needed it as `decision`
-rather than guessing. That is where an external review lands by default, and it
+rather than guessing. That is where a review lands by default, and it
 is untracked working state rather than repo content — do not commit it, and do
 not treat its absence as an error worth guessing around. If there is no
 argument and no `suggestions.md`, stop and ask for the review rather than
