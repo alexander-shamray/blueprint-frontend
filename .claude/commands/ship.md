@@ -1,8 +1,8 @@
 ---
-description: Start from a clean main, fork a worktree where one can be forked, branch, commit, push and open a PR, loop the Copilot review until one clean pass (Grok is disabled pending a trusted launcher) — then merge the PR and tear the workspace down. Decides for itself rather than stopping to ask
+description: Start from a clean main, fork a worktree where one can be forked, branch, commit, push and open a PR, loop this repository's own read-only reviewers until two consecutive clean passes (Copilot is skipped by standing instruction; Grok's launcher stays disabled) — then merge the PR and tear the workspace down. Decides for itself rather than stopping to ask
 argument-hint: "[what the change does] — omit and each step derives its own"
-allowed-tools: Read, Grep, Glob, Write, Skill, Agent(review-grok-triager), EnterWorktree, ExitWorktree, Bash(git status:*), Bash(git diff:*), Bash(git branch --list:*), Bash(git branch --show-current), Bash(git branch -a), Bash(git log:*), Bash(git fetch origin:*), Bash(bash .claude/scripts/git-branch-create.sh:*), Bash(bash .claude/scripts/git-worktree-fork.sh:*), Bash(bash .claude/scripts/git-switch-existing.sh:*), Bash(bash .claude/scripts/git-rebase-onto-main.sh:*), Bash(git rev-parse:*), Bash(git worktree list:*), Bash(ls:*), Bash(git add:*), Bash(git commit:*), Bash(bash .claude/scripts/git-unstage.sh:*), Bash(git push -u origin:*), Bash(git push origin:*), Bash(wc:*), Bash(bash .claude/scripts/gh-pr-create.sh), Bash(bash .claude/scripts/pr-state.sh:*), Bash(bash .claude/scripts/pr-for-branch.sh:*), Bash(gh pr checks:*), Bash(bash .claude/scripts/gh-pr-merge.sh:*), Bash(git pull --ff-only), Bash(git merge-base --is-ancestor:*), Bash(bash .claude/scripts/git-worktree-remove.sh:*), Bash(git worktree prune:*), Bash(rm -f suggestions.md), Bash(bash .claude/scripts/grok-ledger.sh:*), Bash(bash .claude/scripts/copilot-request.sh:*), Bash(bash .claude/scripts/copilot-request-count.sh:*), Bash(bash .claude/scripts/pr-review-comments.sh:*), Bash(bash .claude/scripts/pr-review-bodies.sh:*), Bash(bash .claude/scripts/pr-issue-comments.sh:*), Bash(bash .claude/scripts/pr-review-threads.sh:*), Bash(bash .claude/scripts/grok-review.sh:*), Bash(sleep:*), Bash(bash .claude/scripts/pr-locality.sh:*), Bash(bash .claude/scripts/npm-checks.sh:*)
-disallowed-tools: Edit(.claude/**), Edit(./.claude/**), Edit(.github/**), Edit(./.github/**), Edit(.remember/**), Edit(./.remember/**), Edit(android/**), Edit(./android/**), Edit(ios/**), Edit(./ios/**), Edit(.git/**), Edit(./.git/**), Edit(.git), Edit(./.git), Edit(package.json), Edit(./package.json), Edit(package-lock.json), Edit(./package-lock.json), Edit(npm-shrinkwrap.json), Edit(./npm-shrinkwrap.json), Edit(.npmrc), Edit(./.npmrc), Edit(angular.json), Edit(./angular.json), Edit(tsconfig.json), Edit(./tsconfig.json), Edit(tsconfig.app.json), Edit(./tsconfig.app.json), Edit(tsconfig.spec.json), Edit(./tsconfig.spec.json), Edit(eslint.config.js), Edit(./eslint.config.js), Edit(.prettierrc), Edit(./.prettierrc), Edit(capacitor.config.ts), Edit(./capacitor.config.ts), Edit(playwright.config.ts), Edit(./playwright.config.ts), Edit(ionic.config.json), Edit(./ionic.config.json), Edit(.nvmrc), Edit(./.nvmrc), Edit(.editorconfig), Edit(./.editorconfig), Edit(.gitattributes), Edit(./.gitattributes), Edit(.gitignore), Edit(./.gitignore), Edit(CLAUDE.md), Edit(./CLAUDE.md), Edit(README.md), Edit(./README.md), Edit(**/*.config.js), Edit(**/*.config.cjs), Edit(**/*.config.mjs), Edit(**/*.config.ts), Edit(**/*.config.mts), Edit(**/package.json), Edit(**/.npmrc), Edit(**/tsconfig*.json), Edit(**/.prettierrc*), Edit(node_modules/**), Edit(./node_modules/**), Edit(.mcp.json), Edit(./.mcp.json), Edit(.codeindexignore), Edit(./.codeindexignore), Agent(general-purpose), Agent(claude), Agent(Explore), Agent(Plan), Agent(claude-code-guide), Agent(statusline-setup), Agent(security-auditor), Agent(bug-auditor)
+allowed-tools: Read, Grep, Glob, Write, Skill, Agent(review-grok-triager), Agent(branch-reviewer), Agent(bug-auditor), Agent(security-auditor), EnterWorktree, ExitWorktree, Bash(git status:*), Bash(git diff:*), Bash(git branch --list:*), Bash(git branch --show-current), Bash(git branch -a), Bash(git log:*), Bash(git fetch origin:*), Bash(bash .claude/scripts/git-branch-create.sh:*), Bash(bash .claude/scripts/git-worktree-fork.sh:*), Bash(bash .claude/scripts/git-switch-existing.sh:*), Bash(bash .claude/scripts/git-rebase-onto-main.sh:*), Bash(git rev-parse:*), Bash(git worktree list:*), Bash(ls:*), Bash(git add:*), Bash(git commit:*), Bash(bash .claude/scripts/git-unstage.sh:*), Bash(git push -u origin:*), Bash(git push origin:*), Bash(wc:*), Bash(bash .claude/scripts/gh-pr-create.sh), Bash(bash .claude/scripts/pr-state.sh:*), Bash(bash .claude/scripts/pr-for-branch.sh:*), Bash(gh pr checks:*), Bash(bash .claude/scripts/gh-pr-merge.sh:*), Bash(git pull --ff-only), Bash(git merge-base --is-ancestor:*), Bash(bash .claude/scripts/git-worktree-remove.sh:*), Bash(git worktree prune:*), Bash(rm -f suggestions.md), Bash(bash .claude/scripts/grok-ledger.sh:*), Bash(bash .claude/scripts/copilot-request.sh:*), Bash(bash .claude/scripts/copilot-request-count.sh:*), Bash(bash .claude/scripts/pr-review-comments.sh:*), Bash(bash .claude/scripts/pr-review-bodies.sh:*), Bash(bash .claude/scripts/pr-issue-comments.sh:*), Bash(bash .claude/scripts/pr-review-threads.sh:*), Bash(bash .claude/scripts/grok-review.sh:*), Bash(sleep:*), Bash(bash .claude/scripts/pr-locality.sh:*), Bash(bash .claude/scripts/npm-checks.sh:*)
+disallowed-tools: Edit(.claude/**), Edit(./.claude/**), Edit(.github/**), Edit(./.github/**), Edit(.remember/**), Edit(./.remember/**), Edit(android/**), Edit(./android/**), Edit(ios/**), Edit(./ios/**), Edit(.git/**), Edit(./.git/**), Edit(.git), Edit(./.git), Edit(package.json), Edit(./package.json), Edit(package-lock.json), Edit(./package-lock.json), Edit(npm-shrinkwrap.json), Edit(./npm-shrinkwrap.json), Edit(.npmrc), Edit(./.npmrc), Edit(angular.json), Edit(./angular.json), Edit(tsconfig.json), Edit(./tsconfig.json), Edit(tsconfig.app.json), Edit(./tsconfig.app.json), Edit(tsconfig.spec.json), Edit(./tsconfig.spec.json), Edit(eslint.config.js), Edit(./eslint.config.js), Edit(.prettierrc), Edit(./.prettierrc), Edit(capacitor.config.ts), Edit(./capacitor.config.ts), Edit(playwright.config.ts), Edit(./playwright.config.ts), Edit(ionic.config.json), Edit(./ionic.config.json), Edit(.nvmrc), Edit(./.nvmrc), Edit(.editorconfig), Edit(./.editorconfig), Edit(.gitattributes), Edit(./.gitattributes), Edit(.gitignore), Edit(./.gitignore), Edit(CLAUDE.md), Edit(./CLAUDE.md), Edit(README.md), Edit(./README.md), Edit(**/*.config.js), Edit(**/*.config.cjs), Edit(**/*.config.mjs), Edit(**/*.config.ts), Edit(**/*.config.mts), Edit(**/package.json), Edit(**/.npmrc), Edit(**/tsconfig*.json), Edit(**/.prettierrc*), Edit(node_modules/**), Edit(./node_modules/**), Edit(.mcp.json), Edit(./.mcp.json), Edit(.codeindexignore), Edit(./.codeindexignore), Agent(general-purpose), Agent(claude), Agent(Explore), Agent(Plan), Agent(claude-code-guide), Agent(statusline-setup)
 ---
 
 Take the working tree from wherever it is to a merged PR. Description:
@@ -34,12 +34,18 @@ branch keeps catching a round late.
 `/pr` pushes the branch itself, so the chain reaches an open PR without waiting
 for anyone where the harness admits that push — under a user-level `auto` mode
 it may not, and a refused push is a stop (below) — and step 7 merges it.
-Steps 5 and 6 sit between. **Step 5, the Grok half, is disabled** until its
-launcher lives outside the branch it reviews, so a run reports it skipped;
-Copilot reads the PR and
-`/review-copilot` triages that. When the Copilot loop has finished — however
-it finished — the PR is merged, the session returns to the main checkout and the
-worktree is removed.
+Steps 5 and 6 sit between, and both of the external reviewers they were
+written for are out of play. **Step 5 is now this repository's own review
+loop**: read-only subagents review the branch, `/ship` composes their findings
+into `suggestions.md`, and the triage that already existed applies them.
+Grok's launcher stays disabled until it lives outside the branch it reviews —
+a subagent needs no launcher, which is why that objection does not reach the
+lenses. **Step 6, the Copilot half, is skipped** on the caller's standing
+instruction, and skipped rather than removed: its body stays below as the
+record, `/review-copilot` stays hand-runnable, and restoring it is deleting
+one paragraph. When the review loop has finished — however it finished — the PR
+is merged, the session returns to the main checkout and the worktree is
+removed.
 
 **Nothing in this chain stops to ask.** Where an earlier version handed a
 finding back — step 2's checks, a `Needs a decision` row from the Grok triage,
@@ -68,7 +74,7 @@ could have made differently:
 |---|---|
 | A helper or a guarded git command exits non-zero, or the harness refuses it | The step did not run; a report that says otherwise is false. `git pull --ff-only` refusing a diverged branch is the commonest exit; a refused push is the commonest refusal, and has its own paragraph below |
 | This branch's PR was closed unmerged | Reopening a deliberate closure is not a recommended option |
-| A requested review never registers | Same shape: the round did not happen, so no verdict may be minted from it |
+| A review round never happened — a requested review that never registers, or a reviewer subagent that returns `unreadable-root` or `empty-scope` | Same shape: the round did not happen, so no verdict may be minted from it. The subagent form fails closed for the same reason the silent one does: a review that read nothing is indistinguishable from a branch with nothing wrong in it, and only one of those is worth merging on |
 | `main` is ahead of `origin/main` at step 0 | Local commits on `main` need a decision this chain has no way to take |
 | CI is not green at step 7 | A merge onto a red `main` is not a judgement call |
 | The PR is not mergeable | Conflicts are the caller's tree, not this chain's |
@@ -127,7 +133,7 @@ that reaches a merge — so the rows below say what is owed *between* them:
 | On a branch, tree dirty | Checks, `/commit`, push, `/pr` |
 | On a branch, tree clean, unpushed or ahead | Push, `/pr` |
 | On a branch, tree clean and pushed | `/pr`, then the review loops |
-| On a branch with an open PR | The review loops (steps 5–6) — step 5 reported skipped while Grok is disabled, then Copilot — and, if the tree is dirty, checks, `/commit` **scoped to the implementation paths** and a push first, so the reviewers read what the PR will actually carry. Never unscoped while `suggestions.md` is on disk: that file is Grok's working state, and the unscoped form sweeps untracked files into the commit |
+| On a branch with an open PR | The review loop (step 5, run by this repository's own lenses; step 6 skipped) and, if the tree is dirty, checks, `/commit` **scoped to the implementation paths** and a push first, so the reviewers read what the PR will actually carry. Never unscoped while `suggestions.md` is on disk: that file is the review loop's working state, and the unscoped form sweeps untracked files into the commit |
 | On a branch whose PR was **closed unmerged** | **Stop.** Somebody decided this branch does not land, and the open-PR read cannot see that: with no open PR the *clean and pushed* row would send the run to `/pr`, which refuses only an **open** one — so the chain would open a replacement and merge it, overriding a deliberate closure with no human in the loop. Report the closed PR and its number |
    | On a branch whose PR is **already merged** | **Step 0 alone, and then the run is over.** `pr-for-branch.sh` returning a row whose state is `MERGED` is what classifies **this row** — the same call that answers every other row in this table, and not step 0's finished predicate, which additionally requires the local tip to still equal that row's `headRefOid`. A merged row alone is a pull request that landed, never a workspace that is finished with. The classification comes before the review loops rather than after them — re-requesting a review on a merged PR spends a round of somebody's budget on a branch nobody can change. With nothing left in the workspace, step 0's teardown is a complete one (switch, pull, remove, prune); with a dirty tree, or commits made after the merge moving the tip off that `headRefOid`, the branch is **not** finished, step 0 stays put, tears nothing down, and the run still ends here. Either way step 7 has nothing left to do: there is no PR to merge. **This row is reached only while the helper still returns that row at all.** Where later commits took the landing commit into the branch's own history — a branch recreated from `main`, or one brought up to date by merging it — the helper drops it, the branch reads as having no pull request, and the run takes the *clean and pushed* row onward to `/pr` rather than ending here. That drop is the reuse answer working as intended for a recreated branch and a known wrong answer for an updated one, which the helper cannot tell apart |
 
@@ -154,12 +160,18 @@ nothing forks a second directory. A run that starts in the main checkout on
 `main` is the only one that can fork a workspace at all — and only with a clean
 tree and a writable parent, per step 1's two exceptions.
 
-**The Grok loop's clean state cannot be read from the tree**, so a resumed run
+**The review loop's clean state cannot be read from the tree**, so a resumed run
 re-enters step 5 rather than inferring it ran: `suggestions.md` is absent
 before the first review and after a clean one, and the two states are
 indistinguishable. Re-entering is safe because that loop is idempotent against
-a clean branch — a Grok full review of nothing writes nothing — and that re-run
+a clean branch — a round with no findings writes no file and removes a stale one — and that re-run
 is the proof, where the inference was a guess.
+
+**The paragraphs from here to the end of this section describe step 6's
+resume marker, and they are dormant while step 6 is skipped.** They are kept
+because the skip is a standing instruction rather than a deletion, and a
+resume clause rebuilt from memory when Copilot comes back is the one that gets
+rebuilt wrong. No resumed run reads them while no round is ever requested.
 
 **The Copilot loop is the opposite, and deliberately so**: its clean state is
 not a missing file but a landed review, which is durable, on the PR, and
@@ -826,19 +838,33 @@ same argument as never calling a branch clean because asking failed.
    is that decision already made: pushes that close review findings update
    the PR without asking again.
 
-5. **The review loop.** Grok is disabled: report that half as skipped and move
-   directly to step 6. `grok-review.sh` exits before any credential or network
-   operation, and `.claude/settings.json` denies invoking it. Re-enable it only
-   after its launcher is installed outside the branch it reviews.
+5. **The review loop.** Once the PR is open, review the branch with this
+   repository's own read-only reviewers and loop until two consecutive clean
+   rounds. **Grok's launcher stays disabled** — `grok-review.sh` exits before
+   any credential or network operation and `.claude/settings.json` denies
+   invoking it — and the retained design inside item (1) documents the loop to
+   restore if it is ever installed outside the branch it reviews.
 
-   The retained design below documents the loop to restore once a trusted
-   launcher exists. Once the PR is open, alternate the two halves of the
-   external review until it has nothing left to say.
+   **The lenses are subagents rather than this session, and that is the whole
+   of why they count as a second opinion.** A review run in the context that
+   wrote the change is not a review: it has already accepted every premise the
+   change rests on. A subagent starts from the branch and its own instructions,
+   reads with `Read`, `Grep` and `Glob`, and holds no tool that could edit what
+   it is judging — so the independence is a property of the grant rather than a
+   promise in prose.
 
-   **First, once, synchronise the branch with its remote**, because both
-   halves read this working tree — `grok-review.sh` clones it — and a checkout
-   another session has pushed to would have Grok reviewing commits the PR no
-   longer carries:
+   **What it is not is an *external* opinion, and that is the cost of the
+   skip.** The same model family reviews its own family's work, so a class of
+   mistake this session would make is a class the lenses may share, and no
+   amount of separate context closes that. Two things stand in its place: the
+   lenses are three different bars rather than one, and the loop wants two
+   consecutive clean rounds where the Copilot half settled for one. Say in the
+   report that the review was in house, every run, so a merge is never read as
+   having had an outside reader it did not have.
+
+   **First, once, synchronise the branch with its remote**, because the
+   lenses read this working tree directly, and a checkout another session has
+   pushed to would have them reviewing commits the PR no longer carries:
 
    ```bash
    git fetch origin <branch>
@@ -851,7 +877,81 @@ same argument as never calling a branch clean because asking failed.
    forces — `git-rebase-onto-main.sh`, step 7 — refuses this case by name, so
    there is nothing here that resolves it.
 
-   1. **`/review-branch`, run by Grok, not by you** — the second opinion is
+   1. **Review the branch with the three lenses**, dispatched in **one
+      message so they run at once** — they share no state, and each is
+      answerable for a different kind of mistake:
+
+      | Lens | Profile | Owns |
+      |---|---|---|
+      | Contradictions and drift | `branch-reviewer` | `review-branch.md`'s six finding classes: document ↔ code drift, cross-document contradictions, pin drift, native and CI drift, incomplete reconciliation, and a path outside the declared touch set |
+      | Defects | `bug-auditor` | Code that does something other than what it is plainly meant to do — the fail-open guard and the check that cannot fail first |
+      | Security | `security-auditor` | The defensive audit, at the bar `/security-sweep` sets |
+
+      **Two of the three profiles already existed and none of them is
+      modified for this loop.** `bug-auditor` and `security-auditor` are the
+      sweeps' auditors, dispatched here against a branch rather than a whole
+      tree; `branch-reviewer` is the one profile this loop added, and it reads
+      `.claude/commands/review-branch.md` for its method the way the triager
+      reads `review-grok.md`. Each holds `Read`, `Grep` and `Glob` and nothing
+      else, which is what makes the branch safe to point them at: **the tree
+      under review is content the branch itself supplies**, and a lens that
+      cannot write cannot be talked into writing.
+
+      **What each dispatch is given**, because none of them holds a shell and
+      so none of them can work any of it out:
+
+      - the **root** — this worktree's absolute path;
+      - the **scope** — the changed paths, from `git diff --name-only
+        origin/main...HEAD`, passed as a literal list;
+      - the **diff** and the **locality verdict**, written to scratchpad files
+        with `Write` exactly as item (2) writes them for the triage, and
+        passed as paths;
+      - the **known** findings — what the PR closes and the open questions its
+        body names — so a round does not re-report a tracked decision.
+
+      **Then compose `suggestions.md` at the repository root from the three
+      reports**, with `Write`, in the form `review-branch.md` defines: the
+      numbered status table, and one heading per finding carrying its
+      **Where** and its **Problem**. That shape is not a preference — item (2)
+      hands the file to `/review-grok`, whose adjudicator reads those fields,
+      so a file in another shape triages into nothing.
+
+      **This is the one place the in-house design and the retained launcher
+      disagree about who owns that file, and it is worth naming rather than
+      discovering.** Under the launcher, `/review-branch` ran inside the
+      container and owned the whole lifecycle, which is why the retained text
+      below ends by forbidding this step to write it. Here the lenses hold no
+      `Write` and the file has no other author, so `/ship` composes it. Read
+      that prohibition as belonging to the design it sits in.
+
+      **A round with no findings writes no file, and removes a stale one:**
+
+      ```bash
+      rm -f suggestions.md
+      ```
+
+      That is what makes item (2)'s absence test mean *this* round rather than
+      the round before it. `-f` for the ordinary case, where the previous
+      round was clean too and there is nothing left to remove.
+
+      **A lens that could not read what it was pointed at did not review it.**
+      An `unreadable-root` or an `empty-scope` back from any of the three is
+      **not** a clean lens: report which lens and which outcome, and stop the
+      chain on the row the contract already carries for a round that did not
+      happen. Composing a file from the other two and calling the round
+      complete would mint a verdict from a review that never ran. The two
+      outcomes have different causes and are worth reporting apart: an
+      unreadable root is a path the lens cannot resolve, an empty scope is a
+      scope that selects nothing somebody thought it did.
+
+      **The retained Grok launcher follows, kept as the record rather than as
+      the procedure.** Everything from here to the end of this item describes
+      the disabled half — its reservation, its container, its exit codes and
+      its credential residual — and none of it runs. It is kept because
+      `docs/harness-boundaries.md` cites it, and because a launcher rebuilt
+      from memory would be rebuilt wrong.
+
+      **`/review-branch`, run by Grok, not by you** — the second opinion is
       the point, and a review run by the author's own model is not one:
 
       ```bash
@@ -992,8 +1092,8 @@ same argument as never calling a branch clean because asking failed.
       clean pass, not the end: if the pass before it was also clean the loop is
       done, and otherwise go back to (1) and run one more. Keep the count in
       the report, because "clean twice" and "clean once" are what separate
-      convergence from a lull, and a Grok recheck of nothing costs a few
-      minutes. Present → run `bash .claude/scripts/pr-locality.sh <n>`
+      convergence from a lull, and a round of three lenses over a branch
+      with nothing wrong in it is the cheapest round there is. Present → run `bash .claude/scripts/pr-locality.sh <n>`
       and `git diff origin/main...HEAD`, write each output to a scratchpad
       file with `Write`, and spawn a **`review-grok-triager`** agent
       (`.claude/agents/review-grok-triager.md`) to run `/review-grok` with
@@ -1026,7 +1126,7 @@ same argument as never calling a branch clean because asking failed.
       here by design, waiting for the next pass to recheck and remove it,
       and `/commit`'s unscoped form sweeps untracked files, which would
       commit the review record itself. Push the branch by name so the next
-      Grok pass (and the PR) reads the fixed state, and go back to (1).
+      round (and the PR) reads the fixed state, and go back to (1).
 
    One exit short of clean, reported rather than looped past — and one row
    that used to be a second:
@@ -1230,9 +1330,24 @@ same argument as never calling a branch clean because asking failed.
    is reported as skipped-on-limits and proceeds to step 6. Every other
    outright failure mints nothing and stops the chain.
 
-6. **The Copilot loop.** Once the Grok loop has ended — however it ended —
-   hand the branch to the second reviewer and alternate the same way. All
-   three of its outcomes come here:
+6. **The Copilot loop — skipped.** The caller's standing instruction is that
+   Copilot does not review this repository until they say otherwise, so this
+   step requests nothing, waits for nothing, and reports itself skipped. Step 7
+   treats that the way it treats any other finished loop.
+
+   **Skipped rather than dismantled, and the difference is what a restore
+   costs.** The grants are still in this file's frontmatter, the three
+   `copilot-*.sh` helpers are still on disk and still covered by the harness
+   suite, `/review-copilot` is still hand-runnable against a review requested
+   by other means, and the body below is still the design. Restoring the loop
+   is deleting these two paragraphs. Nothing mechanical refuses a request,
+   because a skip is an instruction to this command rather than a boundary —
+   `docs/harness-boundaries.md` is where a boundary would be recorded, and
+   this is not one.
+
+   **The retained design follows.** Once the review loop had ended — however it
+   ended — this step would hand the branch to the second reviewer and alternate
+   the same way. All three of those outcomes came here:
 
    | Grok ended | Reaches step 6 because |
    |---|---|
@@ -1429,8 +1544,9 @@ same argument as never calling a branch clean because asking failed.
    did, because a loop that ran longer than its rule is as much a departure as
    one that ran shorter.
 
-7. **Merge, then tear the workspace down.** Both loops have finished — clean,
-   all-resolved, skipped on limits, or unconverged at a ceiling — and the goal
+7. **Merge, then tear the workspace down.** The loops have finished — clean,
+   all-resolved, skipped on limits, skipped by standing instruction, or
+   unconverged at a ceiling — and the goal
    of this chain is a merged PR, so it merges.
 
    **Unconverged is not a reason to hold the PR.** A ceiling is a budget
@@ -1447,8 +1563,9 @@ same argument as never calling a branch clean because asking failed.
    ```
 
    **`-f` is doing the load-bearing work, and without it this line stopped the
-   chain on the *common* path.** A Grok loop that converged deleted the file
-   itself, so the ordinary run reaches here with nothing to remove, `rm` exits
+   chain on the *common* path.** A loop that converged deleted the file
+   itself — the retained launcher's `/review-branch` did, and item (1)'s
+   compose step does — so the ordinary run reaches here with nothing to remove, `rm` exits
    non-zero, and the helper-failure rule ends the run one gate short of the
    merge — a clean review producing a worse outcome than an unconverged one.
    The flag is narrow enough to grant exactly: the path is a fixed literal, so
