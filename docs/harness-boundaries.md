@@ -1609,3 +1609,40 @@ route, `bash .claude/skills/codebase-index/scripts/run-index <subcommand>`,
 resolves its root from the working directory and so reads the worktree's
 index, which the hook now keeps fresh. Inside a worktree, query through the
 skill; a session launched *in* the worktree gets an MCP server rooted there.
+
+**The twelfth is `/ship`'s review dispatch, and calling it a widening would be
+the comfortable half of the truth.** Step 5's loop is this repository's own
+now: the command grants `Agent(branch-reviewer)`, `Agent(bug-auditor)` and
+`Agent(security-auditor)` where it granted `Agent(review-grok-triager)` alone,
+and it stopped denying the two auditors it used to deny by name. Three
+profiles reached from the most autonomous command here is a wider grant than
+one. What bounds it is the thing a permission rule cannot state: each of those
+profiles is `Read`, `Grep` and `Glob` and nothing else, so the widening buys
+three readers and no new way to act.
+`test_every_review_lens_holds_read_only_tools` is what keeps that true — it
+reads the lenses back out of `ship.md` and fails on a fourth whose profile can
+write — because the property lives in three files the grant does not name, and
+a grant whose safety is a property of another file is the eleventh entry's
+general form exactly.
+
+**The residual is that the chain no longer has an outside reader, and no grant
+expresses it.** Grok's launcher is disabled, Copilot is skipped, and what
+reviews a branch before it merges is now the same model family that wrote it,
+with its own context and its own blind spots. Nothing in the harness can close
+that: independence of judgement is not a tool grant. The two things standing in
+its place are procedural rather than enforced — three different bars in one
+round, and a loop that wants two consecutive clean rounds where the Copilot
+half settled for one. It is recorded here because `/ship` merges unattended,
+and a reader who learns only that the reviewers are read-only has been told the
+safe half.
+
+**The Copilot skip is not a boundary, and this paragraph exists so that nobody
+comes looking for one.** No deny was added: the three `copilot-*.sh` helpers
+are still on disk, still granted in `ship.md`'s frontmatter and still covered
+by the suite, and `/review-copilot` is still hand-runnable against a review
+requested by other means. Step 6 reports itself skipped because the caller
+instructed it to, which is an instruction to one command and not a refusal by
+the harness — so nothing here stops a session requesting a review, and
+restoring the loop is deleting a paragraph rather than lifting a lock. Were it
+ever made a boundary, this is the file that would record the deny and
+`settings.json` is where it would live.
