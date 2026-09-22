@@ -5294,9 +5294,35 @@ class CommandsEnforceTheEditingBoundariesTheyState(unittest.TestCase):
         # standing sixty lines above the corrected bullet; a test asserting
         # only that the base form appears SOMEWHERE passed while the stale
         # instruction was still there to be followed.
-        self.assertNotRegex(
-            ship,
-            r"it reads\s+`\.claude/commands/review-branch\.md` for its method")
+        #
+        # **Assert the property, not the sentence.** The first version of this
+        # guard was an assertNotRegex against that one phrasing — which had
+        # already been deleted, so nothing could make it red, and any
+        # rewording walked past it. Mutation-confirming the exact sentence
+        # proved it caught the sentence, never the class.
+        #
+        # So the subject is the PROPERTY: a paragraph that both names the
+        # method file and talks about where the bar comes from must also name
+        # `origin/main`. The three words are what separate an instruction from
+        # a mention — ship.md legitimately names the file when listing the six
+        # finding classes and when describing the form it defines, and neither
+        # of those says `method`, `judged` or `its bar`. (`bar` alone is too
+        # loose: the lens table's own security row says "at the bar
+        # `/security-sweep` sets", which is a different sense entirely.)
+        method_words = ("method", "judged", "its bar")
+        instructions = [
+            p for p in ship.split("\n\n")
+            if "review-branch.md" in p
+            and any(w in p.lower() for w in method_words)]
+        self.assertTrue(
+            instructions,
+            "ship.md stopped saying where the lens takes its method from")
+        for para in instructions:
+            with self.subTest(paragraph=" ".join(para.split())[:70]):
+                self.assertIn(
+                    "origin/main", para,
+                    "a paragraph says where the lens takes its bar from "
+                    "without naming the base it must come from")
 
     def test_every_review_lens_holds_read_only_tools(self):
         # The subject is what the gate looks at rather than what it found, so

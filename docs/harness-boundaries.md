@@ -1671,3 +1671,28 @@ the harness — so nothing here stops a session requesting a review, and
 restoring the loop is deleting a paragraph rather than lifting a lock. Were it
 ever made a boundary, this is the file that would record the deny and
 `settings.json` is where it would live.
+
+**Two methods come out of the branch under review, and only one was moved.**
+`branch-reviewer` takes its bar from `review-branch.md` as `origin/main`
+carries it, because a branch that can edit that command chooses the bar it is
+judged against — the shape the sandbox met when its image was built from the
+branch it was about to review. **The triage's method was not moved.**
+`review-grok-triager` reads `.claude/commands/review-grok.md` out of the
+checkout, and unlike the three lenses that agent holds `Edit` and `Write` and
+applies findings unattended, so the asymmetry runs the wrong way: the reader
+was protected and the writer was not. It is owed the same extraction and has
+not had it. **`ship.md` cited this record before the record existed**, which
+is why it is written here rather than left as a citation to nothing.
+
+**The guard that bounds that agent reads its rules from the same tree.**
+`guard-triager-edit.py` derives its path from its own `__file__` and takes the
+refused trees from `/ship`'s `disallowed-tools` in the `ship.md` beside it —
+one owner, no copy, which is the right design and the wrong source here. On
+`/branch`'s in-place path, taken whenever `main` was dirty, that checkout *is*
+the branch under review, so a pull request that legitimately edits `ship.md`'s
+frontmatter — an ordinary change class in this repository — writes the rules
+that gate the agent applying that pull request's own review fixes. It fails
+closed on an unreadable or empty list and **not** on a weakened one. The
+machinery predates the in-house loop; what this change did was put it on the
+hot path, since step 5 spawns that triager on every round that finds anything.
+Reading the list from `origin/main` is the fix, and it is not done.
