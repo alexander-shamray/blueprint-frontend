@@ -897,7 +897,7 @@ nor end the sweep, because it never counted as tracking in the first place.
 safe to stop on it anyway.** This repo has watched a review loop go clean and
 then find more — PR-11's Copilot round eight came back clean and every round
 after it surfaced findings, which is the whole reason its review ceiling moved
-from three to twelve. A sweep differs from `/ship`'s **Grok** loop — which still
+from three to twelve. A sweep differs from `/ship`'s **review** loop — which still
 wants two consecutive clean passes — in the way that makes a single clean round
 the right stop here: each round's fan-out is **stateless**, re-reading the tree
 from scratch rather than reacting to the last round's fixes, so a clean round is

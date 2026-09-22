@@ -5275,6 +5275,15 @@ class CommandsEnforceTheEditingBoundariesTheyState(unittest.TestCase):
         # It reads the method rather than restating it, so the pointer is
         # load-bearing: without it the profile states no bar at all.
         self.assertIn(".claude/commands/review-branch.md", profile)
+        # And the method comes from the BASE. A lens reading that command out
+        # of the tree it is reviewing lets the branch rewrite the bar it is
+        # judged against — the shape the sandbox met when its image was built
+        # from the branch it reviewed. Both halves are pinned because the
+        # pointer alone reads correctly while naming the wrong copy.
+        self.assertIn("origin/main", profile)
+        ship = (COMMANDS / "ship.md").read_text(encoding="utf-8")
+        self.assertRegex(ship, r"git show origin/main:"
+                               r"\.claude/commands/review-branch\.md")
 
     def test_every_review_lens_holds_read_only_tools(self):
         # The subject is what the gate looks at rather than what it found, so
@@ -5305,6 +5314,12 @@ class CommandsEnforceTheEditingBoundariesTheyState(unittest.TestCase):
                     set(self.frontmatter_list(profile, "tools")),
                     "%s is dispatched at the branch and could act on it"
                     % name)
+                # The branch-reviewer case treats a `skills:` key as
+                # load-bearing; if it is load-bearing for one lens it is
+                # load-bearing for all of them, and a gate that checks it for
+                # one profile only is the asymmetry this suite exists to
+                # refuse.
+                self.assertNotRegex(profile, r"(?m)^skills:")
 
     def test_ship_skips_copilot_without_dismantling_it(self):
         # `skip` rather than `disable` was the caller's choice, and the two
