@@ -5282,8 +5282,21 @@ class CommandsEnforceTheEditingBoundariesTheyState(unittest.TestCase):
         # pointer alone reads correctly while naming the wrong copy.
         self.assertIn("origin/main", profile)
         ship = (COMMANDS / "ship.md").read_text(encoding="utf-8")
-        self.assertRegex(ship, r"git show origin/main:"
-                               r"\.claude/commands/review-branch\.md")
+        # The extraction must be the MSYS-safe spelling: Git Bash rewrites a
+        # bare `origin/main:.claude/...` into a Windows path and git refuses
+        # the revision, so the unquoted form fails outright on the platform
+        # CI's own `harness (windows-latest)` job runs.
+        self.assertIn(
+            'git show "origin/main:./.claude/commands/review-branch.md"',
+            ship)
+        # And no surviving sentence may send the lens to the checkout's copy.
+        # Round 2 moved the method to the base and left one such sentence
+        # standing sixty lines above the corrected bullet; a test asserting
+        # only that the base form appears SOMEWHERE passed while the stale
+        # instruction was still there to be followed.
+        self.assertNotRegex(
+            ship,
+            r"it reads\s+`\.claude/commands/review-branch\.md` for its method")
 
     def test_every_review_lens_holds_read_only_tools(self):
         # The subject is what the gate looks at rather than what it found, so
