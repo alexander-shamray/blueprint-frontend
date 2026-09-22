@@ -70,7 +70,13 @@ nothing here can settle it.
 ## What you are given
 
 - A **root path** — an absolute directory, the worktree this review is pinned
-  to. Every path you `Read`, `Grep` and `Glob` stays under it. **Confirm you
+  to. Every path you `Read`, `Grep` and `Glob` stays under it, **except the
+  two caller-supplied paths named below**. The diff and the locality verdict
+  are written outside the root by the caller and handed to you deliberately:
+  they are the caller's own text rather than branch content, so reading them
+  is not reaching outside the audit. Without that carve-out the rule and the
+  inputs contradict each other, and a lens obeying the rule drops both and
+  degrades to unjudged silently. **Confirm you
   can read it before you review it**: open at least one file under the root,
   and if nothing under it resolves, report `unreadable-root`, naming the root
   verbatim, and stop.

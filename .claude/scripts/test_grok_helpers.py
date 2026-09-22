@@ -5277,13 +5277,25 @@ class CommandsEnforceTheEditingBoundariesTheyState(unittest.TestCase):
         self.assertIn(".claude/commands/review-branch.md", profile)
 
     def test_every_review_lens_holds_read_only_tools(self):
-        # The subject is what the gate looks at rather than what it found. The
-        # lenses are read back out of ship.md, so a fourth one added to step 5
-        # without a read-only profile fails here rather than in a delivery run
-        # — and the two auditors are shared with the sweeps, where a widening
-        # for their sake would land silently on this path.
+        # The subject is what the gate looks at rather than what it found, so
+        # the lens names are DERIVED from ship.md's own grant rather than
+        # typed here. The first version of this test looped over a literal
+        # tuple of the three current lenses while its comment claimed it read
+        # them out of ship.md — so a FOURTH lens, with `Edit` in its profile,
+        # was never looked at and the suite stayed green. Caught by this
+        # loop's own first round, against the branch that introduced it, and
+        # it is the vacuous-gate failure this repository ranks highest: the
+        # check existed, passed, and covered nothing at the edge that mattered.
         ship = (COMMANDS / "ship.md").read_text(encoding="utf-8")
-        for name in ("branch-reviewer", "bug-auditor", "security-auditor"):
+        granted = {m for t in self.frontmatter_list(ship, "allowed-tools")
+                   for m in re.findall(r"^Agent\((.+)\)$", t)}
+        lenses = granted - {"review-grok-triager"}
+        # Non-vacuous in its own right: an extraction that matched nothing
+        # would satisfy every assertion below without opening one profile.
+        self.assertGreaterEqual(
+            len(lenses), 3,
+            "no review lens extracted from ship.md's agent grant")
+        for name in sorted(lenses):
             with self.subTest(lens=name):
                 self.assertIn("`%s`" % name, ship)
                 profile = (SCRIPTS.parent / "agents" / ("%s.md" % name)
