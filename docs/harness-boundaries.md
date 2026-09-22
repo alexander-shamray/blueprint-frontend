@@ -908,7 +908,8 @@ On that path the push is safe and the triage would read an untrusted review
 holding a shell.
 
 **So the triage runs under a profile of its own, and `/ship` says what a
-profile cannot.** Step 5 grants exactly `Agent(review-grok-triager)`, whose
+profile cannot.** Step 5 grants the triager by exact type — beside the three
+read-only lenses the twelfth entry below records, and nothing broader — whose
 `tools:` — an allowlist — holds no `Bash` and no `Skill`; it reads
 `review-grok.md` rather than loading it, so the skill load measured above never
 happens there. Two rules cannot live in `tools:`. A type list inside a
@@ -943,8 +944,16 @@ The tool allowlist and the dispatch hook were probed in blueprint-admin
 (blueprint-admin#23), on the same harness and the same files; that the edit
 hook fires on `Edit` in a turn after `/ship`'s was not probed anywhere and
 rests on the mechanism the dispatch hook was measured under. The measurement
-owed before Grok is re-enabled here: spawn the triager in a turn after the one
-`/ship` was loaded in, have it edit `README.md`, and see the hook refuse it.
+owed: spawn the triager in a turn after the one `/ship` was loaded in, have it
+edit `README.md`, and see the hook refuse it.
+
+**That debt used to be payable later and is not any more, which is a change to
+when rather than to what.** It read "owed before Grok is re-enabled here",
+which was true while step 5 was skipped outright and nothing in `/ship` ever
+spawned the triager. The twelfth entry's loop spawns it on every round that
+finds anything, and Grok is not coming back to trigger the condition — so the
+unmeasured path is live now, in the command that merges unattended, and the
+debt is due rather than pending.
 
 The sixth **was** the `--output` deny itself — the inventory's one entry that
 is a *deny* rather than an allow, listed because a deny over a command string
@@ -1609,3 +1618,81 @@ route, `bash .claude/skills/codebase-index/scripts/run-index <subcommand>`,
 resolves its root from the working directory and so reads the worktree's
 index, which the hook now keeps fresh. Inside a worktree, query through the
 skill; a session launched *in* the worktree gets an MCP server rooted there.
+
+**The twelfth is `/ship`'s review dispatch, and calling it a widening would be
+the comfortable half of the truth.** Step 5's loop is this repository's own
+now: the command grants `Agent(branch-reviewer)`, `Agent(bug-auditor)` and
+`Agent(security-auditor)` where it granted `Agent(review-grok-triager)` alone,
+and it stopped denying the two auditors it used to deny by name. Three
+profiles reached from the most autonomous command here is a wider grant than
+one. What bounds it is the thing a permission rule cannot state: each of those
+profiles is `Read`, `Grep` and `Glob` and nothing else, so the widening buys
+three readers and no new way to *act*.
+`test_every_review_lens_holds_read_only_tools` is what keeps that true —
+because the property lives in three files the grant does not name, and a grant
+whose safety is a property of another file is the eleventh entry's general form
+exactly.
+
+**"No new way to act" is the profile half, and stating it alone would be a
+boundary claimed where none exists.** The lenses also *report*, and their
+reports land in `/ship`'s own session — the context holding `git commit`,
+`git push` and `gh-pr-merge.sh`, which also decides whether the round was
+clean. A lens is required to quote the branch text it is judging, so
+branch-controlled bytes now re-enter the privileged session before any
+adjudication: under the launcher `/ship` never opened the review at all, and
+the only reader of its content was the read-only adjudicator. **That is a
+residual of this change and not a closed path.** It is the same shape this
+file already refuses one thread over, where the Copilot feed filter reports a
+dropped item's author and location but never its body, "since printing the text
+one stream over would put the injection vector back into the transcript the
+filter exists to keep it out of". The lens channel has no equivalent filter,
+and naming it is what keeps a later reader from checking the three profiles,
+finding them read-only, and concluding the path is shut.
+
+**The residual is that the chain no longer has an outside reader, and no grant
+expresses it.** Grok's launcher is disabled, Copilot is skipped, and what
+reviews a branch before it merges is now the same model family that wrote it,
+with its own context and its own blind spots. Nothing in the harness can close
+that: independence of judgement is not a tool grant. The two things standing in
+its place are procedural rather than enforced — three different bars in one
+round, and a loop that wants two consecutive clean rounds where the Copilot
+half settled for one. It is recorded here because `/ship` merges unattended,
+and a reader who learns only that the reviewers are read-only has been told the
+safe half.
+
+**The Copilot skip is not a boundary, and this paragraph exists so that nobody
+comes looking for one.** No deny was added: the three `copilot-*.sh` helpers
+are still on disk and still covered by the suite, the two `ship.md` invokes —
+`copilot-request.sh` and `copilot-request-count.sh` — are still granted in its
+frontmatter, and `/review-copilot` is still hand-runnable against a review
+requested by other means. Step 6 reports itself skipped because the caller
+instructed it to, which is an instruction to one command and not a refusal by
+the harness — so nothing here stops a session requesting a review, and
+restoring the loop is deleting a paragraph rather than lifting a lock. Were it
+ever made a boundary, this is the file that would record the deny and
+`settings.json` is where it would live.
+
+**Two methods come out of the branch under review, and only one was moved.**
+`branch-reviewer` takes its bar from `review-branch.md` as `origin/main`
+carries it, because a branch that can edit that command chooses the bar it is
+judged against — the shape the sandbox met when its image was built from the
+branch it was about to review. **The triage's method was not moved.**
+`review-grok-triager` reads `.claude/commands/review-grok.md` out of the
+checkout, and unlike the three lenses that agent holds `Edit` and `Write` and
+applies findings unattended, so the asymmetry runs the wrong way: the reader
+was protected and the writer was not. It is owed the same extraction and has
+not had it. **`ship.md` cited this record before the record existed**, which
+is why it is written here rather than left as a citation to nothing.
+
+**The guard that bounds that agent reads its rules from the same tree.**
+`guard-triager-edit.py` derives its path from its own `__file__` and takes the
+refused trees from `/ship`'s `disallowed-tools` in the `ship.md` beside it —
+one owner, no copy, which is the right design and the wrong source here. On
+`/branch`'s in-place path, taken whenever `main` was dirty, that checkout *is*
+the branch under review, so a pull request that legitimately edits `ship.md`'s
+frontmatter — an ordinary change class in this repository — writes the rules
+that gate the agent applying that pull request's own review fixes. It fails
+closed on an unreadable or empty list and **not** on a weakened one. The
+machinery predates the in-house loop; what this change did was put it on the
+hot path, since step 5 spawns that triager on every round that finds anything.
+Reading the list from `origin/main` is the fix, and it is not done.

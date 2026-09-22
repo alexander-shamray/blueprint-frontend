@@ -5223,8 +5223,15 @@ class CommandsEnforceTheEditingBoundariesTheyState(unittest.TestCase):
 
     @staticmethod
     def frontmatter_list(text, key):
+        # **Only the leading `---` block counts.** This matched `^<key>:`
+        # anywhere in the document, so a grant or a deny written in body prose
+        # — inside a fenced example, inside an "it used to say" quotation —
+        # satisfied every gate built on it while Claude Code, which parses the
+        # real frontmatter, never saw it. The profile-name read further down
+        # this file already split on the closing fence; this is the same read.
+        head = text.split("\n---", 1)[0]
         return [item.strip() for line in
-                re.findall(rf"^{key}:\s*(.+)$", text, re.MULTILINE)
+                re.findall(rf"^{key}:\s*(.+)$", head, re.MULTILINE)
                 for item in line.split(",") if item.strip()]
 
     def test_the_triage_runs_under_a_profile_that_holds_no_shell(self):
@@ -5244,13 +5251,176 @@ class CommandsEnforceTheEditingBoundariesTheyState(unittest.TestCase):
         self.assertIn(".claude/commands/review-grok.md", profile)
 
     def test_ship_grants_the_triager_by_exact_type_and_nothing_broader(self):
+        # The exact SET, not merely that the triager is among it: a bare
+        # `Agent` would admit every profile in the repository along with every
+        # broad type, and the four here are the triager plus step 5's three
+        # review lenses. Pinning the set is what catches an addition nobody
+        # reviewed, which is the failure a membership test cannot see.
         ship = (COMMANDS / "ship.md").read_text(encoding="utf-8")
         allowed = self.frontmatter_list(ship, "allowed-tools")
         self.assertIn("Agent(review-grok-triager)", allowed)
         self.assertEqual(
-            ["Agent(review-grok-triager)"],
-            [t for t in allowed if t == "Agent" or t.startswith("Agent(")])
+            {"Agent(review-grok-triager)", "Agent(branch-reviewer)",
+             "Agent(bug-auditor)", "Agent(security-auditor)"},
+            {t for t in allowed if t == "Agent" or t.startswith("Agent(")})
         self.assertIn("spawn a **`review-grok-triager`** agent", ship)
+
+    def test_the_branch_reviewer_reviews_under_a_profile_that_cannot_write(self):
+        # Step 5 points three lenses at content the branch itself supplies, so
+        # the property that matters is that none of them can act on it. A
+        # profile is the only thing that holds in every turn: /ship's own
+        # `disallowed-tools` lasts the turn it was loaded in
+        # (blueprint-admin#27), and prose inside the profile is not
+        # enforcement at all.
+        profile = (SCRIPTS.parent / "agents" / "branch-reviewer.md"
+                   ).read_text(encoding="utf-8")
+        self.assertRegex(profile, r"(?m)^name:\s*branch-reviewer\s*$")
+        self.assertEqual(
+            {"Read", "Grep", "Glob"},
+            set(self.frontmatter_list(profile, "tools")))
+        self.assertNotRegex(profile, r"(?m)^skills:")
+        # It reads the method rather than restating it, so the pointer is
+        # load-bearing: without it the profile states no bar at all.
+        self.assertIn(".claude/commands/review-branch.md", profile)
+        # And the method comes from the BASE. A lens reading that command out
+        # of the tree it is reviewing lets the branch rewrite the bar it is
+        # judged against — the shape the sandbox met when its image was built
+        # from the branch it reviewed. Both halves are pinned because the
+        # pointer alone reads correctly while naming the wrong copy.
+        self.assertIn("origin/main", profile)
+        ship = (COMMANDS / "ship.md").read_text(encoding="utf-8")
+        # The extraction must be the MSYS-safe spelling: Git Bash rewrites a
+        # bare `origin/main:.claude/...` into a Windows path and git refuses
+        # the revision, so the unquoted form fails outright on the platform
+        # CI's own `harness (windows-latest)` job runs.
+        self.assertIn(
+            'git show "origin/main:./.claude/commands/review-branch.md"',
+            ship)
+        # And no surviving sentence may send the lens to the checkout's copy.
+        # Round 2 moved the method to the base and left one such sentence
+        # standing sixty lines above the corrected bullet; a test asserting
+        # only that the base form appears SOMEWHERE passed while the stale
+        # instruction was still there to be followed.
+        #
+        # **Assert the property, not the sentence.** The first version of this
+        # guard was an assertNotRegex against that one phrasing — which had
+        # already been deleted, so nothing could make it red, and any
+        # rewording walked past it. Mutation-confirming the exact sentence
+        # proved it caught the sentence, never the class.
+        #
+        # So the subject is the PROPERTY: a paragraph that both names the
+        # method file and talks about where the bar comes from must also name
+        # `origin/main`. The three words are what separate an instruction from
+        # a mention — ship.md legitimately names the file when listing the six
+        # finding classes and when describing the form it defines, and neither
+        # of those says `method`, `judged` or `its bar`. (`bar` alone is too
+        # loose: the lens table's own security row says "at the bar
+        # `/security-sweep` sets", which is a different sense entirely.)
+        # **Allowlist the mentions that are not instructions; require the
+        # base of every other one.** Selecting by keyword was the third form
+        # of this guard and the third to be evadable: a stale instruction
+        # phrased without the chosen words was never selected at all. The
+        # inverse fails closed — a new paragraph naming the file has to be
+        # either recognised here or accompanied by `origin/main`.
+        not_instructions = (
+            "six finding classes",      # the lens table's Owns cell
+            "recheck path",             # why the composed shape matters
+        )
+        for para in ship.split("\n\n"):
+            if "review-branch.md" not in para:
+                continue
+            if any(mark in para for mark in not_instructions):
+                continue
+            with self.subTest(paragraph=" ".join(para.split())[:70]):
+                self.assertIn(
+                    "origin/main", para,
+                    "a paragraph names the method file without naming the "
+                    "base it must come from; add `origin/main` or, if this "
+                    "is not an instruction, add a marker to not_instructions")
+        # And no paragraph naming the file may point at the checkout's copy.
+        for para in ship.split("\n\n"):
+            if "review-branch.md" not in para:
+                continue
+            for banned in ("this checkout", "the checkout's copy",
+                           "the working tree", "fall back to the tree"):
+                with self.subTest(phrase=banned):
+                    self.assertNotIn(
+                        banned, para,
+                        "a paragraph points the lens at the branch's own copy")
+        # **What this still does not cover, stated rather than implied.** Two
+        # evasions survive and both were found by review rather than by the
+        # gate: an instruction that never spells `review-branch.md` (ship.md
+        # says "that command" in its own voice), and one written inside a
+        # paragraph whose `origin/main` comes from a neighbouring bullet,
+        # since the containment unit is the blank-line block. Banning the
+        # phrases document-wide would over-fire on the file's own argument
+        # AGAINST taking the method from the checkout, which uses the same
+        # words to forbid the thing. The residual is the gap between a
+        # property and a text search over prose; `docs/harness-boundaries.md`
+        # is where it would be recorded if it were a boundary rather than a
+        # test.
+
+    def test_every_review_lens_holds_read_only_tools(self):
+        # The subject is what the gate looks at rather than what it found, so
+        # the lens names are DERIVED from ship.md's own grant rather than
+        # typed here. The first version of this test looped over a literal
+        # tuple of the three current lenses while its comment claimed it read
+        # them out of ship.md — so a FOURTH lens, with `Edit` in its profile,
+        # was never looked at and the suite stayed green. Caught by this
+        # loop's own first round, against the branch that introduced it, and
+        # it is the vacuous-gate failure this repository ranks highest: the
+        # check existed, passed, and covered nothing at the edge that mattered.
+        ship = (COMMANDS / "ship.md").read_text(encoding="utf-8")
+        granted = {m for t in self.frontmatter_list(ship, "allowed-tools")
+                   for m in re.findall(r"^Agent\((.+)\)$", t)}
+        lenses = granted - {"review-grok-triager"}
+        # Non-vacuous in its own right: an extraction that matched nothing
+        # would satisfy every assertion below without opening one profile.
+        self.assertGreaterEqual(
+            len(lenses), 3,
+            "no review lens extracted from ship.md's agent grant")
+        for name in sorted(lenses):
+            with self.subTest(lens=name):
+                self.assertIn("`%s`" % name, ship)
+                profile = (SCRIPTS.parent / "agents" / ("%s.md" % name)
+                           ).read_text(encoding="utf-8")
+                self.assertEqual(
+                    {"Read", "Grep", "Glob"},
+                    set(self.frontmatter_list(profile, "tools")),
+                    "%s is dispatched at the branch and could act on it"
+                    % name)
+                # The branch-reviewer case treats a `skills:` key as
+                # load-bearing; if it is load-bearing for one lens it is
+                # load-bearing for all of them, and a gate that checks it for
+                # one profile only is the asymmetry this suite exists to
+                # refuse.
+                self.assertNotRegex(profile, r"(?m)^skills:")
+
+    def test_ship_skips_copilot_without_dismantling_it(self):
+        # `skip` rather than `disable` was the caller's choice, and the two
+        # differ in what a restore costs. So both halves are pinned: the skip
+        # is stated, and the machinery it skips is still granted and still on
+        # disk. A later change that deleted the helpers while leaving the
+        # prose standing would pass a test that read only the prose, and the
+        # restore this wording promises would then be a rewrite.
+        ship = (COMMANDS / "ship.md").read_text(encoding="utf-8")
+        self.assertIn("**The Copilot loop \u2014 skipped.**", ship)
+        allowed = self.frontmatter_list(ship, "allowed-tools")
+        for helper in ("copilot-request.sh", "copilot-request-count.sh"):
+            with self.subTest(helper=helper):
+                self.assertIn(
+                    "Bash(bash .claude/scripts/%s:*)" % helper, allowed)
+                self.assertTrue((SCRIPTS / helper).exists())
+
+    def test_the_review_loop_wants_two_consecutive_clean_rounds(self):
+        # Copilot's loop stopped on the first clean round because a round
+        # spent somebody's quota. The in-house lenses spend tokens instead, so
+        # the rule reverts to the one step 5 was built with — and item (2),
+        # which implements it, is pinned beside the head that states it,
+        # because each reads correctly alone.
+        ship = (COMMANDS / "ship.md").read_text(encoding="utf-8")
+        self.assertRegex(ship, r"loop until two consecutive clean\s+rounds")
+        self.assertIn("if the pass before it was also clean the loop is", ship)
 
     def test_ship_carries_every_edit_deny_the_triage_states(self):
         # A profile's `disallowedTools` cannot scope a path — an entry with a

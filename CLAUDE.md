@@ -185,12 +185,12 @@ These stay here because they have to be true before anyone opens the guide:
 
 | | |
 |---|---|
-| `/ship` | Clean `main` → `/branch` → checks → `/commit` → `/pr` → the Copilot review loop (Grok is disabled) → merge → teardown. **It stops for nothing that is a judgement** |
+| `/ship` | Clean `main` → `/branch` → checks → `/commit` → `/pr` → the in-house review loop (Copilot skipped, Grok disabled) → merge → teardown. **It stops for nothing that is a judgement** |
 | `/branch` | A correctly named branch **in a sibling worktree** the session moves into; in place when the tree is dirty or the parent is not writable |
 | `/commit` | Split the working tree into semantic commits with arguing bodies |
 | `/pr` | Open a PR in the house body form |
-| `/review-grok` | Triage an external review into a resolution record |
-| `/review-copilot` | Triage Copilot's PR comments — verify each before acting |
+| `/review-grok` | Triage a review of the branch into a resolution record |
+| `/review-copilot` | Triage Copilot's PR comments — verify each before acting. Hand-run only: `/ship` step 6 skips it until the user says otherwise |
 | `/review-branch` | Review the branch against `main` for contradictions; writes `suggestions.md` |
 | `/style-pass` | Apply one corrected code form corpus-wide, then record it in the guide and the linters |
 | `/security-sweep` | Loop a defensive security audit in a throwaway worktree, filing an issue per confirmed medium-or-above finding |

@@ -2,7 +2,7 @@
 description: Loop a defensive security audit up to seven rounds, filing a GitHub issue per confirmed medium-or-above finding, until a round surfaces nothing new
 argument-hint: "[scope hint, e.g. 'the compose stack' or a path] — omit to sweep the whole repo"
 allowed-tools: Read, Grep, Glob, Agent(security-auditor), Bash(bash .claude/scripts/gh-issue-list.sh), Bash(bash .claude/scripts/gh-issue-text.sh:*), Bash(bash .claude/scripts/gh-sweep-issue-create.sh:*), Bash(bash .claude/scripts/gh-label-ensure.sh:*), Bash(bash .claude/scripts/gh-issue-suppresses.sh:*), Bash(git rev-parse:*), Bash(bash .claude/scripts/git-worktree-detach.sh:*), Bash(git worktree list:*), Bash(bash .claude/scripts/git-worktree-drop.sh:*)
-disallowed-tools: Bash(bash .claude/scripts/gh-issue-create.sh:*), Edit, Write, NotebookEdit, Agent(general-purpose), Agent(claude), Agent(Explore), Agent(Plan), Agent(claude-code-guide), Agent(statusline-setup), Agent(bug-auditor), Agent(review-adjudicator), Agent(review-grok-triager), Bash(gh issue create:*), Bash(git push origin:*), Bash(git push -u origin:*)
+disallowed-tools: Bash(bash .claude/scripts/gh-issue-create.sh:*), Edit, Write, NotebookEdit, Agent(general-purpose), Agent(claude), Agent(Explore), Agent(Plan), Agent(claude-code-guide), Agent(statusline-setup), Agent(bug-auditor), Agent(review-adjudicator), Agent(review-grok-triager), Bash(gh issue create:*), Bash(git push origin:*), Bash(git push -u origin:*), Agent(branch-reviewer)
 ---
 
 Sweep the repository for security findings, file the real ones as GitHub
@@ -613,7 +613,7 @@ nor end the sweep, because it never counted as tracking in the first place.
 is safe to stop on it anyway.** This repo has watched a review loop go clean and
 then find more — PR-11's Copilot round eight came back clean and every round
 after it surfaced findings, which is the whole reason its review ceiling moved
-from three to twelve. A security sweep differs from `/ship`'s **Grok** loop —
+from three to twelve. A security sweep differs from `/ship`'s **review** loop —
 which still wants two consecutive clean passes — in the way that makes a single
 clean round the right stop here: each round's
 fan-out is **stateless** — it re-reads the tree from scratch, not a reviewer
