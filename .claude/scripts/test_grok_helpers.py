@@ -5223,8 +5223,15 @@ class CommandsEnforceTheEditingBoundariesTheyState(unittest.TestCase):
 
     @staticmethod
     def frontmatter_list(text, key):
+        # **Only the leading `---` block counts.** This matched `^<key>:`
+        # anywhere in the document, so a grant or a deny written in body prose
+        # — inside a fenced example, inside an "it used to say" quotation —
+        # satisfied every gate built on it while Claude Code, which parses the
+        # real frontmatter, never saw it. The profile-name read further down
+        # this file already split on the closing fence; this is the same read.
+        head = text.split("\n---", 1)[0]
         return [item.strip() for line in
-                re.findall(rf"^{key}:\s*(.+)$", text, re.MULTILINE)
+                re.findall(rf"^{key}:\s*(.+)$", head, re.MULTILINE)
                 for item in line.split(",") if item.strip()]
 
     def test_the_triage_runs_under_a_profile_that_holds_no_shell(self):
@@ -5309,20 +5316,49 @@ class CommandsEnforceTheEditingBoundariesTheyState(unittest.TestCase):
         # of those says `method`, `judged` or `its bar`. (`bar` alone is too
         # loose: the lens table's own security row says "at the bar
         # `/security-sweep` sets", which is a different sense entirely.)
-        method_words = ("method", "judged", "its bar")
-        instructions = [
-            p for p in ship.split("\n\n")
-            if "review-branch.md" in p
-            and any(w in p.lower() for w in method_words)]
-        self.assertTrue(
-            instructions,
-            "ship.md stopped saying where the lens takes its method from")
-        for para in instructions:
+        # **Allowlist the mentions that are not instructions; require the
+        # base of every other one.** Selecting by keyword was the third form
+        # of this guard and the third to be evadable: a stale instruction
+        # phrased without the chosen words was never selected at all. The
+        # inverse fails closed — a new paragraph naming the file has to be
+        # either recognised here or accompanied by `origin/main`.
+        not_instructions = (
+            "six finding classes",      # the lens table's Owns cell
+            "recheck path",             # why the composed shape matters
+        )
+        for para in ship.split("\n\n"):
+            if "review-branch.md" not in para:
+                continue
+            if any(mark in para for mark in not_instructions):
+                continue
             with self.subTest(paragraph=" ".join(para.split())[:70]):
                 self.assertIn(
                     "origin/main", para,
-                    "a paragraph says where the lens takes its bar from "
-                    "without naming the base it must come from")
+                    "a paragraph names the method file without naming the "
+                    "base it must come from; add `origin/main` or, if this "
+                    "is not an instruction, add a marker to not_instructions")
+        # And no paragraph naming the file may point at the checkout's copy.
+        for para in ship.split("\n\n"):
+            if "review-branch.md" not in para:
+                continue
+            for banned in ("this checkout", "the checkout's copy",
+                           "the working tree", "fall back to the tree"):
+                with self.subTest(phrase=banned):
+                    self.assertNotIn(
+                        banned, para,
+                        "a paragraph points the lens at the branch's own copy")
+        # **What this still does not cover, stated rather than implied.** Two
+        # evasions survive and both were found by review rather than by the
+        # gate: an instruction that never spells `review-branch.md` (ship.md
+        # says "that command" in its own voice), and one written inside a
+        # paragraph whose `origin/main` comes from a neighbouring bullet,
+        # since the containment unit is the blank-line block. Banning the
+        # phrases document-wide would over-fire on the file's own argument
+        # AGAINST taking the method from the checkout, which uses the same
+        # words to forbid the thing. The residual is the gap between a
+        # property and a text search over prose; `docs/harness-boundaries.md`
+        # is where it would be recorded if it were a boundary rather than a
+        # test.
 
     def test_every_review_lens_holds_read_only_tools(self):
         # The subject is what the gate looks at rather than what it found, so
