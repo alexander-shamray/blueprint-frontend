@@ -75,7 +75,7 @@ Save it to a file and name the path.
 > `tsconfig*.json` set, `eslint.config.js`, `.prettierrc`, `.npmrc`,
 > `capacitor.config.ts`, `playwright.config.ts` and the `**/*.config.*` class
 > are refused here for a reason the three machinery trees do not cover: this
-> command **applies** an external reviewer's findings, and several of those
+> command **applies** a reviewer's findings, and several of those
 > files are executed by the next thing that builds. `eslint.config.js` and a
 > Vitest config are JavaScript run in order to be loaded, `.npmrc` can set
 > `script-shell`, and a `pre`/`post` entry in `package.json` runs on every
@@ -130,7 +130,8 @@ Save it to a file and name the path.
 **This command triages a review that already ran; it does not invoke Grok and
 consumes no Grok usage.** So the usage-limit preflight (skip when out of limits)
 and the per-PR check cap live where Grok is actually run and looped —
-`grok-review.sh` (the preflight, exit 12 = skip) and `/ship` step 5 (the cap and
+`grok-review.sh` (the preflight, exit 12 = skip) and, while that launcher ran,
+`/ship` step 5 (the cap and
 the skip handling) — not here. Looking for either in this file is looking one
 step too late.
 
