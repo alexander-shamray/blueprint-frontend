@@ -42,10 +42,12 @@ rewrite `package-lock.json`, which then arrives in somebody's review as a diff
 nobody chose; `npm ci` cannot, and it also fails loudly when the manifest and
 the lockfile have drifted apart, which is the failure worth having.
 
-**A new worktree has no `node_modules`.** It is gitignored, so `/branch`'s
-sibling worktree carries the lockfile and none of what it pins. The first
-check in it fails on a missing `ng` binary, which reads like a broken
-toolchain rather than an uninstalled one. Run `npm ci` once after moving in.
+**A new worktree has no `node_modules`.** It is gitignored, so the worktree
+`/branch` forks under `.claude/worktrees/` carries the lockfile and none of
+what it pins. Nothing fails to say so: Node's module search and `npm run`'s
+`PATH` walk up into the main checkout's `node_modules`, so the first check in
+it runs `main`'s packages rather than the branch's. Run `npm ci` once after
+moving in.
 
 **The harness suite needs bash, grep, git, jq and **Python 3.12**.** How you
 reach that interpreter is a local choice: `py -3.12` works on Windows and

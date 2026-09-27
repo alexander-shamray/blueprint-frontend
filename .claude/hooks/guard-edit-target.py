@@ -489,9 +489,9 @@ def linked_worktree(path, checkouts):
     """`path`'s checkout root, when that root is a worktree of an anchor's repo.
 
     **Found by walking into it rather than by reading the code.** `/branch`
-    forks a sibling worktree and the session moves into it, so `cwd` is an
-    anchor and the ordinary path works. A session standing in the PARENT
-    checkout and editing that sibling is a different case: the worktree is a
+    forks a worktree and the session moves into it, so `cwd` is an anchor and
+    the ordinary path works. A session standing in another checkout and
+    editing a linked worktree outside it is a different case: the worktree is a
     checkout, but not one of the three `anchors` knows about, so the target
     resolved outside every anchor and `outside_offence` refused it. That is a
     real edit refused for being in the wrong checkout rather than for landing
@@ -559,7 +559,7 @@ def verified_gitdir(root):
 # **The one file outside every anchor that this guard admits by name.**
 # `CLAUDE.md` keeps the user's task list at the MAIN checkout's root, gitignored,
 # and tells a session to update it the moment a PR or an issue changes — which,
-# since `/branch` moves every session into a sibling worktree, is almost always
+# since `/branch` moves every session into a forked worktree, is almost always
 # from one. The main checkout is not an anchor there, so the write fell to
 # `outside_offence` and was refused, and the rule and the guard disagreed
 # (blueprint-frontend#45).
@@ -681,7 +681,7 @@ def anchors(event):
     `CLAUDE_PROJECT_DIR` is what the harness sets and what
     `.claude/settings.json` interpolates into this hook's own command line; the
     event's `cwd` is where the session actually is, which differs the moment
-    `/branch` moves it into a sibling worktree; and this file's own location is
+    `/branch` moves it into a forked worktree; and this file's own location is
     the checkout that owns the guard, which is true even if the other two are
     absent or wrong.
 
@@ -803,18 +803,18 @@ def offence(event):
     lexical = os.path.normpath(os.path.abspath(joined))
     resolved = os.path.realpath(joined)
 
-    # A sibling worktree of a repository an anchor stands in becomes an anchor
+    # A linked worktree of a repository an anchor stands in becomes an anchor
     # itself, so the target is JUDGED there rather than refused for being
     # outside. It narrows nothing: the loop below still requires every anchor
     # containing the target to agree, which is the property `anchors` rests its
     # trust in `CLAUDE_PROJECT_DIR` on.
     #
-    # **The sibling's `.claude` is refused whether or not the session stands in
+    # **The worktree's `.claude` is refused whether or not the session stands in
     # it, and only its `.claude`.** This check used to be `control_surface`
     # rooted at the whole worktree, which treats `commands`, `scripts` and
     # `plugins` as protected at ANY depth — the reading that function exists
     # for under `~/.claude` — and so refused `src/app/core/commands/`, a real
-    # application directory. The rest of the inventory, for a sibling the
+    # application directory. The rest of the inventory, for a worktree the
     # session is not in, is `protected_in_worktree` below. Raised by Copilot.
     sibling = linked_worktree(lexical, checkouts)
     if sibling is not None:
@@ -830,14 +830,14 @@ def offence(event):
             )
     if sibling is not None and not any(
             same(sibling, root, traits) for root, _, traits in checkouts):
-        # **The control surface was not the whole inventory.** A sibling the
+        # **The control surface was not the whole inventory.** A worktree the
         # session is not standing in is reached by no permission rule at all,
         # so `../sibling/package.json`, `../sibling/.github/workflows/ci.yml`
         # and `../sibling/.git/config` — each denied to the editing commands
         # in this checkout — agreed with themselves under the new anchor and
         # were admitted. The inventory is the redirection guard's, borrowed
         # rather than copied, because that list is the one the suite holds to
-        # `git ls-files`. A sibling that IS an anchor — `/branch` moved the
+        # `git ls-files`. A worktree that IS an anchor — `/branch` moved the
         # session into it — is judged as the project, where the rules apply.
         # Raised by Copilot.
         machinery = protected_in_worktree(lexical, sibling)

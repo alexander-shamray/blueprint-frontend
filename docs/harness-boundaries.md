@@ -176,9 +176,21 @@ lift.
 enumeration lesson in miniature: an exact-file rule cannot cover a sibling, and
 Claude Code loads both files. Denying `.claude/**` wholesale was considered and
 refused — `.claude/worktrees/` is where `/branch` puts working checkouts, so
-that blanket would deny editing the repository itself while a worktree run is
-live. A test pins both halves: every loaded settings file denied, and the
+that blanket would deny a main-checkout session every edit to a live worktree.
+A test pins both halves: every loaded settings file denied, and the
 worktree root never denied.
+
+**Every rule here anchors at the session's permission root, and
+`EnterWorktree` moves it.** Measured in blueprint-backend with nested
+`claude -p` sessions: once a session has entered `.claude/worktrees/<slug>`,
+`Edit(.claude/commands/**)` and `Edit(.claude/hooks/**)` refuse the
+worktree's own `.claude/` and `docs/` stays writable. From the main checkout
+the same paths sit under `.claude/worktrees/<slug>/.claude/`, which no rule
+here names; what refuses them there is Claude Code's own sensitive-file check,
+which measured every `.claude/` target inside a nested worktree — hooks,
+scripts, commands, agents, settings — as a refusal under `acceptEdits` and a
+prompt otherwise. That is the residual, and it is the one a sibling worktree
+had: a path outside the project prompted there too.
 
 Changing any of them is a human's edit, made with the deny lifted. Like the
 push denies it is defence in depth — `Bash` redirection can still write a file
@@ -1323,22 +1335,22 @@ and deriving it would be a guess the hook cannot check.
 
 **One file outside every anchor is admitted by name: the main checkout's
 `TODO.md` (blueprint-frontend#45).** `CLAUDE.md` tells a session to update the
-task list from a sibling worktree, where the main checkout is not an anchor
-and the write fell to the allow-list above. The hook finds the main checkout
-from the worktree's own `.git` file, trusted only once git's backlink agrees,
-and only when that `.git` is the repository the guard itself belongs to: the
-event's `cwd` and `CLAUDE_PROJECT_DIR` are anchors too, and one standing in
-another repository's worktree would otherwise name that repository's task
-list. It admits that one path when its spelling and its resolution are both
+task list from a worktree under `.claude/worktrees/`, where the main checkout is
+not an anchor and the write fell to the allow-list above. The hook finds the
+main checkout from the worktree's own `.git` file, trusted only once git's
+backlink agrees, and only when that `.git` is the repository the guard itself
+belongs to: the event's `cwd` and `CLAUDE_PROJECT_DIR` are anchors too, and one
+standing in another repository's worktree would otherwise name that repository's
+task list. It admits that one path when its spelling and its resolution are both
 it — a `TODO.md` that is a link is refused. The file is gitignored, so nothing
 any commit, review or build reads can change through it; the residual is that a
 session in a worktree can rewrite the user's task list, which is the write the
 rule asks for. **The guard is not the only layer, and it is the only one this
 repository owns**: a session moved into the worktree with `EnterWorktree` is
-refused the same write by Claude Code's own isolation — *"Edit the worktree
-copy of this file instead of the shared-checkout path"*, measured on the PR
-that added this paragraph — so for `/branch`'s sessions the update is still
-reported as owed.
+refused the same write by Claude Code's own isolation — *"Edit the worktree copy
+of this file instead of the shared-checkout path"*, measured on the PR that
+added this paragraph — so for `/branch`'s sessions the update is still reported
+as owed, and made once the session is back in the main checkout.
 
 **The eleventh was opened deliberately rather than found**, and it is the only
 force push in this repository. Branch updates are rebases now (#57), so a
@@ -1428,7 +1440,7 @@ the residual.
 **Both sweeps' worktrees carry the `secsweep-` prefix**, and the second is
 borrowing. `git-worktree-detach.sh` and `git-worktree-drop.sh` refuse any path
 that is not `secsweep-` plus six characters under the canonical temp root —
-the shape check that stops a poisoned finding from naming a sibling PR worktree
+the shape check that stops a poisoned finding from naming a PR worktree
 and having it deleted. Renaming the prefix would have to move in both helpers
 and both callers at once, so it stands; what is lost is attribution.
 
@@ -1469,13 +1481,13 @@ test here can show is the hook firing: the command is asynchronous and
 discards its output, so a failure is invisible when it happens, and CI runs
 the suite rather than the harness.
 
-**The anchor refreshed the checkout the session started in, and after
-`/branch` that is not the one being edited
-(alexander-shamray/blueprint-frontend#48).** `/branch` moves the session into
-a sibling worktree, the event's `cwd` then differs from `CLAUDE_PROJECT_DIR`
-(`guard-edit-target.py`'s `anchors` says so), and the refresh indexed a tree
-the edit never touched. The entry now runs `.claude/hooks/index-refresh.py`
-through `run-guard.sh`, which splits the two things the anchor had fused:
+**The anchor refreshed the checkout the session started in, and after `/branch`
+that is not the one being edited (alexander-shamray/blueprint-frontend#48).**
+`/branch` moves the session into a worktree under `.claude/worktrees/`, the
+event's `cwd` then differs from `CLAUDE_PROJECT_DIR` (`guard-edit-target.py`'s
+`anchors` says so), and the refresh indexed a tree the edit never touched. The
+entry now runs `.claude/hooks/index-refresh.py` through `run-guard.sh`, which
+splits the two things the anchor had fused:
 
 - **The wrapper still comes from `CLAUDE_PROJECT_DIR`**, where
   `.claude/hooks/**` and `.claude/skills/**` are edit-denied, so no tree the
@@ -1498,7 +1510,7 @@ through `run-guard.sh`, which splits the two things the anchor had fused:
 or a pull rewrites the tree with no tool event behind it, so a session opening
 onto one of those reads an index describing the tree it replaced — and this
 checkout is where that bites hardest, because `/branch` ships every PR from a
-sibling worktree and `main` here moves only by a merge nobody was editing
+forked worktree and `main` here moves only by a merge nobody was editing
 through. The event names no file and carries a `cwd` like any other, which is
 the whole of what the bullet above asks of it, and the spawn is the same
 detached one — so the *indexing* is not what a session start waits for. The

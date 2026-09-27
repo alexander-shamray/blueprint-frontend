@@ -824,13 +824,14 @@ class WhatThisGuardIsNotTheSubjectOf(GuardCase):
     def test_a_sibling_worktree_of_this_repository_is_judged_not_refused(self):
         """The false positive the allow-list introduced, found by walking into it.
 
-        `/branch` forks a sibling worktree and the session moves into it, so
-        `cwd` is an anchor and the ordinary path works. A session standing in
-        the PARENT and editing that sibling is the case that broke: the
-        worktree is a checkout, but not one of the three `anchors` knows, so
-        the target resolved outside every anchor and was refused — a real edit
-        refused for being in the wrong checkout rather than for landing
-        somewhere its path does not spell, which is not this guard's subject.
+        `/branch` forks a worktree and the session moves into it, so `cwd` is an
+        anchor and the ordinary path works. A session standing in another
+        checkout and editing a linked worktree outside it is the case that
+        broke: the worktree is a checkout, but not one of the three `anchors`
+        knows, so the target resolved outside every anchor and was refused — a
+        real edit refused for being in the wrong checkout rather than for
+        landing somewhere its path does not spell, which is not this guard's
+        subject.
 
         The repair is narrow on purpose. Admitting "any checkout" would hand
         the session another repository's machinery with no rule able to name
@@ -921,7 +922,7 @@ class WhatThisGuardIsNotTheSubjectOf(GuardCase):
     def test_the_main_checkouts_task_list_is_admitted_from_a_worktree(self):
         """`CLAUDE.md` keeps `TODO.md` at the main checkout's root and has a
         session update it from wherever it stands, which after `/branch` is a
-        sibling worktree. The main checkout is not an anchor there, so the
+        forked worktree. The main checkout is not an anchor there, so the
         write fell to the out-of-tree allow-list and was refused
         (blueprint-frontend#45).
 
