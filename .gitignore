@@ -57,6 +57,11 @@ __pycache__/
 # are shared so Claude in this clone uses the same map.
 .claude/cache/codebase-index/
 
+# /branch's worktrees. They sit inside the checkout because EnterWorktree
+# moves a session there without a confirmation; ignored here so git status,
+# /commit and the code index do not read a second copy of the tree.
+.claude/worktrees/
+
 # Session state, already ignored by a nested `.gitignore` holding `*` — but
 # git reads those at any depth and the code index reads only the root files
 # its config names, so without these two lines it indexed both trees whole,
