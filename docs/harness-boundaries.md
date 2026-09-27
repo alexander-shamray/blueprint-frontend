@@ -186,11 +186,16 @@ worktree root never denied.
 `Edit(.claude/commands/**)` and `Edit(.claude/hooks/**)` refuse the
 worktree's own `.claude/` and `docs/` stays writable. From the main checkout
 the same paths sit under `.claude/worktrees/<slug>/.claude/`, which no rule
-here names; what refuses them there is Claude Code's own sensitive-file check,
-which measured every `.claude/` target inside a nested worktree — hooks,
-scripts, commands, agents, settings — as a refusal under `acceptEdits` and a
-prompt otherwise. That is the residual, and it is the one a sibling worktree
-had: a path outside the project prompted there too.
+here names. Two things refuse them there instead. `guard-edit-target.py` finds
+the linked worktree whatever encloses it, and refuses its `.claude/` — and,
+from a session not standing in it, its `package.json`, `.github/` and `.git`.
+Claude Code's own sensitive-file check measured every `.claude/` target inside
+a nested worktree — hooks, scripts, commands, agents, settings — as a refusal
+under `acceptEdits` and a prompt otherwise. **One refusal is wider than it was**:
+`guard-git-argv.py` refuses a redirect, `cp`, `tee` or `mv` target with a
+`.claude` component, and every absolute path into a nested worktree has one,
+so from inside a worktree such a target must be spelled relative. It fails
+closed, and no chain step writes one.
 
 Changing any of them is a human's edit, made with the deny lifted. Like the
 push denies it is defence in depth — `Bash` redirection can still write a file

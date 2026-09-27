@@ -54,6 +54,11 @@ def run_bash(script, **env_extra):
     env = dict(os.environ)
     env.setdefault("GIT_CONFIG_GLOBAL", NO_CONFIG)
     env.setdefault("GIT_CONFIG_SYSTEM", NO_CONFIG)
+    # git reads its default excludes file whatever GIT_CONFIG_GLOBAL says, so a
+    # developer whose global ignore lists .claude/ would pass the unignored case.
+    env.setdefault("GIT_CONFIG_COUNT", "1")
+    env.setdefault("GIT_CONFIG_KEY_0", "core.excludesFile")
+    env.setdefault("GIT_CONFIG_VALUE_0", "")
     env.update(env_extra)
     return subprocess.run([BASH, "-c", script], capture_output=True,
                           text=True, env=env)
@@ -127,8 +132,11 @@ class ForkShape(unittest.TestCase):
         result = self.fork(f"{root}/checkout", ".claude/worktrees/probe")
         self.assertEqual(2, result.returncode, result.stderr)
         self.assertIn("is not ignored", result.stderr)
-        self.assertFalse(Path(root, "checkout", ".claude", "worktrees",
-                              "probe").exists())
+        # Probed through bash: `root` is bash's spelling of the temp directory,
+        # which native Windows Python reads as a path that never exists.
+        absent = run_bash('[ ! -e "$P" ]',
+                          P=f"{root}/checkout/.claude/worktrees/probe")
+        self.assertEqual(0, absent.returncode)
         branches = run_bash('git -C "$C" branch --list feat/probe',
                             C=f"{root}/checkout")
         self.assertEqual("", branches.stdout.strip())

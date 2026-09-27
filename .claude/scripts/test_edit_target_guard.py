@@ -919,6 +919,29 @@ class WhatThisGuardIsNotTheSubjectOf(GuardCase):
         os.makedirs(os.path.join(other, ".claude"), exist_ok=True)
         self.assertRefused(os.path.join(other, ".claude", "settings.json"))
 
+    def test_a_nested_worktree_keeps_its_machinery_refused(self):
+        """`/branch` forks under the main checkout's `.claude/worktrees/`, so
+        the worktree is lexically inside an anchor as well as being a linked
+        worktree. A session standing in the main checkout may still edit its
+        ordinary files, and is still refused its machinery and toolchain."""
+        worktree = os.path.join(self.root, ".claude", "worktrees", "linked")
+        os.makedirs(os.path.join(worktree, "docs"), exist_ok=True)
+        admin = os.path.join(self.root, ".git", "worktrees", "linked")
+        os.makedirs(admin, exist_ok=True)
+        self.write(os.path.join(worktree, ".git"), "gitdir: " + admin + "\n")
+        self.write(os.path.join(admin, "gitdir"),
+                   os.path.join(worktree, ".git") + "\n")
+
+        self.assertAdmitted(os.path.join(worktree, "docs", "note.md"))
+        for parts in (
+            (".claude", "scripts", "helper.sh"),
+            (".claude", "settings.json"),
+            (".github", "workflows", "ci.yml"),
+            ("package.json",),
+        ):
+            with self.subTest(parts=parts):
+                self.assertRefused(os.path.join(worktree, *parts))
+
     def test_the_main_checkouts_task_list_is_admitted_from_a_worktree(self):
         """`CLAUDE.md` keeps `TODO.md` at the main checkout's root and has a
         session update it from wherever it stands, which after `/branch` is a
