@@ -96,8 +96,9 @@ and a downloaded browser — `docs/testing.md` owns which, and on which ports �
 and a suite that passed because nothing was listening would be worse than
 none. Three things hold first: **`npm ci`, never
 `npm install`**, because `install` may rewrite the lockfile; **a fresh
-worktree has no `node_modules`**, and without its own `npm ci` its checks
-silently resolve the main checkout's packages, which sit above it; and
+worktree has no `node_modules`**, and `npm-checks.sh` refuses one until
+`npm ci` has run there, since its checks would otherwise resolve the main
+checkout's packages, which sit above it; and
 **lint, the unit suite and the web build cover none of the native surface** —
 the emulator relaxations live in files `cap sync` generates, and CI's
 `android` job is the only thing that asserts them, in both directions.
