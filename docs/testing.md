@@ -46,8 +46,8 @@ the lockfile have drifted apart, which is the failure worth having.
 `/branch` forks under `.claude/worktrees/` carries the lockfile and none of
 what it pins, and Node's module search and `npm run`'s `PATH` walk up into
 the main checkout's `node_modules`, so a check there would run `main`'s
-packages. `npm-checks.sh` refuses a worktree with no `node_modules`, or one
-older than its `package-lock.json`; run `npm ci` once after moving in. The
+packages. `npm-checks.sh` refuses a worktree with no `node_modules`; run
+`npm ci` once after moving in, and again after a lockfile change. The
 walk still reaches `main`'s tree for anything the worktree's lacks, so a
 dependency dropped from `package.json` but still imported passes locally and
 fails in CI.
