@@ -68,6 +68,16 @@ class TheRootFollowsTheActiveWorktree(unittest.TestCase):
         self.assertIsNotNone(root)
         self.assertEqual(real(self.sibling), real(root))
 
+    def test_an_edit_in_a_nested_worktree_refreshes_that_worktree(self):
+        # /branch forks under the main checkout's .claude/worktrees/, so the
+        # worktree also sits inside the main checkout's tree; the innermost
+        # checkout is the one the edit changed.
+        nested = os.path.join(self.main, ".claude", "worktrees", "nested")
+        git("worktree", "add", "-q", "-b", "nested", nested, cwd=self.main)
+        sub = os.path.join(nested, "src")
+        os.makedirs(sub)
+        self.assertEqual(real(nested), real(self.hook.target_root(sub, self.main)))
+
     def test_a_subdirectory_is_walked_up_to_its_checkout(self):
         sub = os.path.join(self.sibling, "src", "app")
         os.makedirs(sub)
