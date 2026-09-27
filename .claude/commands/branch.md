@@ -295,8 +295,9 @@ not content.
    the whole point of those paths is to carry the state that is already in the
    tree. A base is not what they are short of.
 
-   From a clean `main` in the main checkout, both halves happen in one
-   command:
+   From a clean `main` at the main checkout's root — the path is relative, so
+   the helper refuses a subdirectory and a linked worktree — both halves
+   happen in one command:
 
    ```bash
    bash .claude/scripts/git-worktree-fork.sh .claude/worktrees/<slug> <name>
@@ -335,15 +336,17 @@ not content.
 
    **A new worktree has no `node_modules`, and nothing here creates one.**
    `node_modules/` is gitignored, so the worktree git just cut carries the
-   lockfile and none of what it pins — and nothing fails to say so. The
-   worktree sits inside the main checkout, so Node's module search and
-   `npm run`'s `PATH` walk up to the main checkout's `node_modules`: the first
-   `npm-checks.sh` finds `main`'s `ng` and checks the branch against `main`'s
-   packages, which passes or fails for reasons that are not the branch's. Run
-   `npm ci` once after moving in — `ci`, never `install`, because `install`
-   may rewrite `package-lock.json` and a lockfile edit nobody chose is a diff
-   hunk in somebody's review. It costs a minute and it is the difference
-   between checking the branch's dependencies and checking `main`'s.
+   lockfile and none of what it pins. The worktree sits inside the main
+   checkout, so Node's module search and `npm run`'s `PATH` walk up to the
+   main checkout's `node_modules`, where `main`'s `ng` would check the branch
+   against `main`'s packages — so `npm-checks.sh` refuses a worktree with no
+   `node_modules`, or one older than its `package-lock.json`. Run `npm ci`
+   once after moving in — `ci`, never `install`, because `install` may
+   rewrite `package-lock.json` and a lockfile edit nobody chose is a diff hunk
+   in somebody's review. **It does not seal the worktree off**: the walk
+   still reaches `main`'s `node_modules` for anything the worktree's own tree
+   lacks, so a branch that drops a dependency it still imports can pass here
+   and fail in CI, which installs nothing above the checkout.
 
    **If `.claude/worktrees/` is not writable, `git worktree add` fails and the
    answer is the in-place branch, not a temp path.** A checkout whose `.claude/`
