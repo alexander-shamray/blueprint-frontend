@@ -5,7 +5,7 @@
 away from it (alexander-shamray/blueprint-frontend#48).** The `PostToolUse`
 entry used to be `cd "${CLAUDE_PROJECT_DIR}" && run-index update`, which
 anchored the wrapper safely and indexed the wrong tree: after `/branch` enters
-a sibling worktree, every edit refreshed the startup checkout, which the edit
+a forked worktree, every edit refreshed the startup checkout, which the edit
 never touched, and the worktree's own index went stale — the staleness #44 set
 out to remove.
 

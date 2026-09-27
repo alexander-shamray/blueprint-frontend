@@ -96,11 +96,11 @@ and a downloaded browser — `docs/testing.md` owns which, and on which ports �
 and a suite that passed because nothing was listening would be worse than
 none. Three things hold first: **`npm ci`, never
 `npm install`**, because `install` may rewrite the lockfile; **a fresh
-worktree has no `node_modules`** and the first check in it fails on a missing
-`ng` binary; and **lint, the unit suite and the web build cover none of the
-native surface** — the emulator relaxations live in files `cap sync`
-generates, and CI's `android` job is the only thing that asserts them, in both
-directions.
+worktree has no `node_modules`**, and without its own `npm ci` its checks
+silently resolve the main checkout's packages, which sit above it; and
+**lint, the unit suite and the web build cover none of the native surface** —
+the emulator relaxations live in files `cap sync` generates, and CI's
+`android` job is the only thing that asserts them, in both directions.
 
 ## Build policy
 
@@ -168,10 +168,12 @@ These stay here because they have to be true before anyone opens the guide:
   (with the issues each closes) and open issues with no PR. Update it the
   moment this session opens, merges or closes a PR, or files, closes or
   reopens an issue. Only the main checkout's copy counts, never one in a
-  worktree. `guard-edit-target.py` admits that one file from a sibling
-  worktree (#45), but a session moved there with `EnterWorktree` is refused
-  by Claude Code's own isolation, which no file here controls — so there the
-  update goes in the report as owed rather than into a copy nobody reads.
+  worktree. `guard-edit-target.py` admits that one file from a linked
+  worktree (#45), but a session moved into `.claude/worktrees/` with
+  `EnterWorktree` is refused it by Claude Code's own isolation, which no file
+  here controls — so there the update is carried in the report as owed and
+  made once the session is back in the main checkout, never into a copy
+  nobody reads.
   When in doubt, rebuild it from
   `gh pr list --limit 1000 --json number,title,url,closingIssuesReferences`
   and `gh issue list --limit 1000 --json number,title,url,labels`, because
@@ -186,7 +188,7 @@ These stay here because they have to be true before anyone opens the guide:
 | | |
 |---|---|
 | `/ship` | Clean `main` → `/branch` → checks → `/commit` → `/pr` → the Copilot review loop (Grok is disabled) → merge → teardown. **It stops for nothing that is a judgement** |
-| `/branch` | A correctly named branch **in a sibling worktree** the session moves into; in place when the tree is dirty or the parent is not writable |
+| `/branch` | A correctly named branch **in a worktree under `.claude/worktrees/`** the session moves into; in place when the tree is dirty or that directory is not writable |
 | `/commit` | Split the working tree into semantic commits with arguing bodies |
 | `/pr` | Open a PR in the house body form |
 | `/review-grok` | Triage an external review into a resolution record |

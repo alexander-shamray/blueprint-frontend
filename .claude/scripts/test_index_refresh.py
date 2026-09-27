@@ -810,7 +810,7 @@ class TheRefreshIsWiredThroughTheLauncher(unittest.TestCase):
         # `PostToolUse` covers what this session changes. `SessionStart`
         # covers what it opens onto: a merge, a branch switch or a pull
         # rewrites the tree with no tool event behind it, and `/branch` ships
-        # every PR from a sibling worktree, so this checkout's `main` moves
+        # every PR from a forked worktree, so this checkout's `main` moves
         # almost entirely by merges nobody edited through.
         self.assertEqual({"PostToolUse", "SessionStart"},
                          set(self.entries_running_this_hook()))
