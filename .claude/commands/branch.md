@@ -340,13 +340,14 @@ not content.
    checkout, so Node's module search and `npm run`'s `PATH` walk up to the
    main checkout's `node_modules`, where `main`'s `ng` would check the branch
    against `main`'s packages — so `npm-checks.sh` refuses a worktree with no
-   `node_modules`, or one older than its `package-lock.json`. Run `npm ci`
-   once after moving in — `ci`, never `install`, because `install` may
-   rewrite `package-lock.json` and a lockfile edit nobody chose is a diff hunk
-   in somebody's review. **It does not seal the worktree off**: the walk
-   still reaches `main`'s `node_modules` for anything the worktree's own tree
-   lacks, so a branch that drops a dependency it still imports can pass here
-   and fail in CI, which installs nothing above the checkout.
+   `node_modules`. Run `npm ci` once after moving in — `ci`, never `install`,
+   because `install` may rewrite `package-lock.json` and a lockfile edit
+   nobody chose is a diff hunk in somebody's review — and again after pulling
+   a lockfile change, which nothing here detects. **It does not seal the
+   worktree off**: the walk still reaches `main`'s `node_modules` for anything
+   the worktree's own tree lacks, so a branch that drops a dependency it still
+   imports can pass here and fail in CI, which installs nothing above the
+   checkout.
 
    **If `.claude/worktrees/` is not writable, `git worktree add` fails and the
    answer is the in-place branch, not a temp path.** A checkout whose `.claude/`

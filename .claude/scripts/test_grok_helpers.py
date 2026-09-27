@@ -5005,11 +5005,11 @@ class CommandsEnforceTheEditingBoundariesTheyState(unittest.TestCase):
         self.assertNotIn('"$@"', source)
         self.assertNotIn("$mode\"", source.replace('"$mode" in', ""))
 
-    def test_the_check_runner_refuses_an_absent_or_stale_install(self):
+    def test_the_check_runner_refuses_an_absent_install(self):
         # Driven, not grepped. A worktree under .claude/worktrees/ resolves
         # packages from the main checkout's node_modules when it has none of
         # its own, so without this refusal every mode would pass against main.
-        # Neither case reaches npm: both stop before the mode is read.
+        # The refusal stops before the mode is read, so npm never runs.
         base = Path(tempfile.mkdtemp(prefix="npm-checks-"))
         self.addCleanup(shutil.rmtree, str(base), ignore_errors=True)
         subprocess.run(["git", "init", "-q", str(base)], check=True)
@@ -5025,14 +5025,11 @@ class CommandsEnforceTheEditingBoundariesTheyState(unittest.TestCase):
         self.assertEqual(3, out.returncode, out.stderr)
         self.assertIn("no node_modules", out.stderr)
 
-        hidden = base / "node_modules" / ".package-lock.json"
-        hidden.parent.mkdir()
-        hidden.write_text("{}\n", encoding="utf-8")
-        older = lock.stat().st_mtime - 60
-        os.utime(hidden, (older, older))
-        out = checks()
-        self.assertEqual(3, out.returncode, out.stderr)
-        self.assertIn("predates package-lock.json", out.stderr)
+        # No staleness test: a lockfile rewritten with identical content by a
+        # checkout that passed through another one is newer than a correct
+        # install, so an mtime comparison refused it.
+        source = (SCRIPTS / "npm-checks.sh").read_text(encoding="utf-8")
+        self.assertNotIn("-nt package-lock.json", source)
 
     def test_the_check_runner_offers_no_e2e_mode(self):
         # Playwright needs a browser download and the backend's Compose stack.

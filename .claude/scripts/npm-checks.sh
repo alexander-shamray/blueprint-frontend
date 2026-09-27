@@ -46,17 +46,15 @@ mode="${1:-all}"
 root="$(git rev-parse --show-toplevel)"
 cd "$root"
 
-# **An absent or stale install checks main's packages, and passes.** /branch
-# forks under .claude/worktrees/, inside the main checkout, and both Node's
-# module search and npm's PATH walk up out of a worktree into the main
-# checkout's node_modules — so every mode below would find main's ng, eslint
-# and vitest and check this branch against them. npm ci writes the hidden
-# lockfile after package-lock.json is in place, so one older than the lockfile
-# is an install from before the lockfile last changed.
+# **An absent install checks main's packages, and passes.** /branch forks
+# under .claude/worktrees/, inside the main checkout, and both Node's module
+# search and npm's PATH walk up out of a worktree into the main checkout's
+# node_modules — so every mode below would find main's ng, eslint and vitest
+# and check this branch against them. Presence only: an mtime test against
+# package-lock.json refuses correct installs, because a checkout or rebase
+# that passes through another lockfile rewrites it with identical content.
 [ -d node_modules ] ||
   { echo "no node_modules in $root — run npm ci here first" >&2; exit 3; }
-[ node_modules/.package-lock.json -nt package-lock.json ] ||
-  { echo "node_modules predates package-lock.json in $root — run npm ci here first" >&2; exit 3; }
 
 case "$mode" in
   all)
