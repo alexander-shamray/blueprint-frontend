@@ -10,13 +10,35 @@ import { ALREADY_COMMITTED } from '@core/commands/command-id';
 import { CatalogRefresh } from '@core/catalog/catalog-refresh';
 import { PublishPage } from './publish.page';
 
+/** A Stencil host element: resolves once its lazily loaded component has rendered. */
+interface StencilHost extends Element {
+  componentOnReady(): Promise<unknown>;
+}
+
+// Every `ion-*` element this page renders is a lazy Stencil component:
+// connecting it starts a dynamic `import()` of its entry chunk, and nothing
+// else in this file waits for it. The last test used to end with those imports
+// in flight, so the chunk landed on a detached host after the file finished,
+// Ionic's `consoleError` logged `Constructor for "ion-item#undefined" was not
+// found`, and that log was still pending when Vitest closed the worker's RPC
+// channel: `EnvironmentTeardownError: Closing rpc while "onUserConsoleLog" was
+// pending`, exit 1 with every test passing (#71). Same mechanism and same cure
+// as tabs.page.spec.ts (#31): wait on each host's own `componentOnReady()`
+// while the fixture is live, rather than on a guessed delay.
+async function hydrated(root: Element): Promise<void> {
+  const hosts = [...root.querySelectorAll('*')].filter(
+    (el): el is StencilHost => el.tagName.startsWith('ION-') && 'componentOnReady' in el,
+  );
+  await Promise.all(hosts.map((host) => host.componentOnReady()));
+}
+
 describe('PublishPage', () => {
   let fixture: ComponentFixture<PublishPage>;
   let controller: HttpTestingController;
   let navigate: ReturnType<typeof vi.fn>;
   let signIn: ReturnType<typeof vi.fn>;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     signIn = vi.fn(async () => undefined);
 
     TestBed.configureTestingModule({
@@ -44,13 +66,20 @@ describe('PublishPage', () => {
     fixture = TestBed.createComponent(PublishPage);
     controller = TestBed.inject(HttpTestingController);
     fixture.detectChanges();
+    await hydrated(fixture.nativeElement);
 
     fixture.componentInstance.form.setValue({
       name: 'A widget', thumbnailUrl: '', amount: 12.5, currency: 'EUR',
     });
   });
 
-  afterEach(() => controller.verify());
+  afterEach(async () => {
+    controller.verify();
+    // Hosts a test rendered late (the result and error notes) are not in the
+    // set beforeEach waited on.
+    fixture.detectChanges();
+    await hydrated(fixture.nativeElement);
+  });
 
   it('sends a PublishProductCommand with a null thumbnail when blank', async () => {
     fixture.componentInstance.publish();
