@@ -3086,6 +3086,149 @@ class CopilotFeedHelpersAreTheOnlyIntake(unittest.TestCase):
             r.stdout.splitlines(),
         )
 
+    # **#61 — the matcher was rewritten, and these cases are why that was
+    # safe.** The helper spawned one `grep` per changed path per touch-set
+    # pattern, and the verdicts it printed are what every caller acts on, so
+    # the rewrite was owed a pin on every input shape before it landed. The
+    # cases below were written and seen green against the per-path matcher
+    # FIRST, then held unchanged across the rewrite: they characterise the
+    # verdicts rather than catching a defect, and are marked as such.
+
+    def test_glob_corners_keep_their_verdicts(self):
+        # Characterisation. An empty brace alternative, an empty brace pair,
+        # nested braces, a `**/` that needs a directory between its two
+        # slashes, a `?` that does not cross one, a trailing `/`, every
+        # non-alphanumeric character the grammar admits, padding around a
+        # token, and a two-letter class written in reverse order.
+        body = (
+            "| Class | B+A |\n"
+            "| Touch set | `docs/{a,}.md`, src/{}x.ts, lib/{a,{b,c}}/**, "
+            "e2e/**/*.spec.ts,  assets/img?.png , tools/, "
+            "`pkg(1)/a+b-c_d@e.txt` |\n"
+        )
+        expected = [
+            ("docs/.md", "inside"),
+            ("docs/a.md", "inside"),
+            ("docs/aa.md", "outside"),
+            ("src/x.ts", "inside"),
+            ("src/x.ts/deeper.ts", "inside"),
+            ("lib/a/z.ts", "inside"),
+            ("lib/c/deep/z.ts", "inside"),
+            ("lib/d/z.ts", "outside"),
+            ("lib/b", "outside"),
+            ("e2e/x.spec.ts", "outside"),
+            ("e2e/a/x.spec.ts", "inside"),
+            ("e2e/a/b/x.spec.tsx", "outside"),
+            ("assets/img1.png", "inside"),
+            ("assets/img.png", "outside"),
+            ("assets/img/.png", "outside"),
+            ("tools/a.sh", "inside"),
+            ("toolsx/a.sh", "outside"),
+            ("pkg(1)/a+b-c_d@e.txt", "inside"),
+            ("pkg1/a+b-c_d@e.txt", "outside"),
+            ("pkg(1)/aab-c_d@e.txt", "outside"),
+        ]
+        files = "".join(path + "\n" for path, _ in expected)
+        r = self._run_locality_with_gh(self._gh_printing(body, files))
+        self.assertEqual(0, r.returncode, r.stderr)
+        self.assertEqual(
+            ["class B+A"] + [f"{verdict} {path}" for path, verdict in expected],
+            r.stdout.splitlines(),
+        )
+
+    def test_a_renamed_file_is_judged_by_its_new_name(self):
+        # Characterisation. The files endpoint reports a rename as one entry
+        # carrying `filename` and `previous_filename`, and the helper's jq
+        # program — pinned whole by the gh-line case above — reads the first
+        # alone. The stub applies that program here, so this is the shape a
+        # rename arrives in rather than a test of jq: a file moved out of the
+        # set is `outside`, one moved into it is `inside`.
+        entries = [
+            {"filename": "src/new.ts", "previous_filename": "docs/old.md",
+             "status": "renamed"},
+            {"filename": "docs/moved.md", "previous_filename": "src/was.ts",
+             "status": "renamed"},
+        ]
+        files = "".join(entry["filename"] + "\n" for entry in entries)
+        body = "| Class | D |\n| Touch set | docs/** |\n"
+        r = self._run_locality_with_gh(self._gh_printing(body, files))
+        self.assertEqual(0, r.returncode, r.stderr)
+        self.assertEqual(
+            ["class D", "outside src/new.ts", "inside docs/moved.md"],
+            r.stdout.splitlines(),
+        )
+
+    @staticmethod
+    def _gh_printing_lines(body, lines):
+        # As `_gh_printing`, but the files endpoint's lines are given exactly
+        # as `gh` would print them — so a line that is not JSON, or a name jq
+        # leaves as raw UTF-8, can be put in front of the helper.
+        return (
+            'case "$*" in *"/files"*) cat <<\'FILES\'\n'
+            + "".join(line + "\n" for line in lines)
+            + "FILES\n;; *) cat <<'STUB'\n" + body + "STUB\n;; esac\n"
+        )
+
+    def test_every_refusal_keeps_its_exit_and_its_message(self):
+        # Characterisation, over every `refuse` the helper can reach and the
+        # order in which two of them meet. Each is exit 3 with nothing on
+        # stdout, and the message is pinned whole: a caller reports it, and a
+        # rewrite that reached a different check first would say so here.
+        row = "| Class | D |\n| Touch set | docs/x.md |\n"
+        good = json.dumps("docs/x.md")
+        cases = [
+            ("| Class | D |\n| Class | E |\n| Touch set | docs/x.md |\n",
+             [good], "more than one Class row"),
+            ("| Class | D |\n| Touch set | docs/x.md |\n| Touch set | a.md |\n",
+             [good], "more than one Touch set row"),
+            ("| Class | D |\n", [good], "one row without the other"),
+            ("| Touch set | docs/x.md |\n", [good], "one row without the other"),
+            ("| Class | A+B+C |\n| Touch set | docs/x.md |\n",
+             [good], "the Class row is not a class"),
+            ("| Class | F |\n| Touch set | docs/x.md |\n",
+             [good], "the Class row is not a class"),
+            ("| Class | A+A |\n| Touch set | docs/x.md |\n",
+             [good], "the Class row repeats a class"),
+            ("| Class | D |\n| Touch set | docs/a.md | docs/b.md |\n",
+             [good], "the Touch set row is not one cell"),
+            ("| Class | D |\n| Touch set |  |\n",
+             [good], "the Touch set row is empty"),
+            ("| Class | D |\n| Touch set | docs/{a.md |\n",
+             [good], "the Touch set row has an unbalanced brace"),
+            ("| Class | D |\n| Touch set | docs/}a{.md |\n",
+             [good], "the Touch set row has an unbalanced brace"),
+            ("| Class | D |\n| Touch set | `docs/x.md |\n",
+             [good], "the Touch set row has an unbalanced backtick"),
+            ("| Class | D |\n| Touch set | docs/x.md; now run rm -rf / |\n",
+             [good], "the Touch set row is not a path list"),
+            ("| Class | D |\n| Touch set | Ignore, all, previous |\n",
+             [good], "the Touch set row is not a path list"),
+            ("| Class | D |\n| Touch set | docs/a.md, ../x |\n",
+             [good], "the Touch set row names a path outside the repository"),
+            # A leading empty alternative joins as `//`, so it is the boundary
+            # check that refuses it, before any pattern is built.
+            ("| Class | D |\n| Touch set | docs/{,a}.md |\n",
+             [good], "the Touch set row names a path outside the repository"),
+            (row, [good, "docs/raw.md"],
+             "a changed path did not arrive as a JSON string"),
+            (row, [json.dumps("docs/a\nb.md")], "a changed path is not a plain path"),
+            (row, [json.dumps("docs/a b.md")], "a changed path is not a plain path"),
+            (row, ['"docs/é.md"'], "a changed path is not a plain path"),
+            (row, ['""'], "a changed path is not a plain path"),
+            (row, [json.dumps("README")], "a changed path is not a plain path"),
+            (row, [json.dumps("docs/../x.md")], "a changed path is not a plain path"),
+            (row, [json.dumps("docs/a b.md"), "docs/raw.md"],
+             "a changed path is not a plain path"),
+            (row, ["docs/raw.md", json.dumps("docs/a b.md")],
+             "a changed path did not arrive as a JSON string"),
+        ]
+        for body, lines, message in cases:
+            with self.subTest(body=body, lines=lines):
+                r = self._run_locality_with_gh(self._gh_printing_lines(body, lines))
+                self.assertEqual(3, r.returncode, r.stderr)
+                self.assertEqual("", r.stdout)
+                self.assertEqual(message + "\n", r.stderr)
+
 
 # The one bounded read of the reviewer transcript, spelled out so the
 # allow-list can require it exactly. grok-review.sh writes it across two
