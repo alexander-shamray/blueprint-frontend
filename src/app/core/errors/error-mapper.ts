@@ -132,10 +132,15 @@ export function mapError(
       // them apart by English would break on a reword. An absent or unknown
       // code takes the kind that forbids the retry: guessing "retry" on a
       // command that already committed is the one wrong answer that places a
-      // second order.
+      // second order. Own keys only: CONFLICT_KINDS is an object literal, and
+      // a plain index answers `constructor` or `__proto__` with what it
+      // inherits, which is not a kind.
       return {
         ...base,
-        kind: (body.code && CONFLICT_KINDS[body.code]) || 'alreadyCommitted',
+        kind:
+          body.code !== undefined && Object.hasOwn(CONFLICT_KINDS, body.code)
+            ? CONFLICT_KINDS[body.code]
+            : 'alreadyCommitted',
       };
 
     case 422:
