@@ -1724,11 +1724,14 @@ with that deny lifted, or made outside the session's tools. And what a
 rewritten method makes the triager write is read by the next round's lenses,
 which is why step 5 runs no triage on the round that spends its ceiling:
 there would be no next round. **The stops step 5 has key on a word the lens
-chooses.** A finding's ranking decides whether the chain stops on it, and
-branch text can argue a lens down as it can argue it into anything; what
-stands against that is that a finding keeps the highest ranking it was given
-in the run, and that an unfixed finding of any ranking keeps the loop from
-converging. **And what keeps a quotation from being read as a finding is an
+chooses, and nothing remembers it.** A finding ranked high or critical stops
+the chain on the round it is raised, and branch text can argue a lens down as
+it can argue it into anything. A finding ranked lower and left unfixed keeps
+the loop unconverged, and step 7 merges an unconverged loop with the
+finding listed in the report: that is reported, not held. And the stop holds
+for one run only: a later `/ship` reviews afresh, so a lens that ranks the
+same finding lower then lets it through. What stands against both is the
+report a person reads, not a mechanism. **And what keeps a quotation from being read as a finding is an
 instruction**: the adjudicator is told that fenced text is quotation, in a
 profile read from the checkout, and nothing parses the review to enforce it. **`ship.md` cited this record before the record existed**, which
 is why it is written here rather than left as a citation to nothing.

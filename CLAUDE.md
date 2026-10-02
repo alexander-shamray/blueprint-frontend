@@ -188,7 +188,7 @@ These stay here because they have to be true before anyone opens the guide:
 
 | | |
 |---|---|
-| `/ship` | Clean `main` → `/branch` → checks → `/commit` → `/pr` → the in-house review loop (Copilot skipped, Grok disabled) → merge → teardown. **It stops for nothing that is a judgement** |
+| `/ship` | Clean `main` → `/branch` → checks → `/commit` → `/pr` → the in-house review loop (Copilot skipped, Grok disabled) → merge → teardown. **It stops for nothing that is a judgement**, except a finding its own review ranks high or critical |
 | `/branch` | A correctly named branch **in a worktree under `.claude/worktrees/`** the session moves into; in place when the tree is dirty or that directory is not writable |
 | `/commit` | Split the working tree into semantic commits with arguing bodies |
 | `/pr` | Open a PR in the house body form |
