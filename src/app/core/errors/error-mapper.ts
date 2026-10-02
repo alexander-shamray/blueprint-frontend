@@ -68,7 +68,7 @@ export const RATE_LIMIT_FALLBACK_SECONDS = 60;
 /**
  * Backend codes on the 409 rows. Common.Web's four handlers, verbatim.
  *
- * `command.id_reused` is ADR-057's (backend PR #371): the id's first command
+ * `command.id_reused` is the backend's ADR-057: the id's first command
  * completed and its result is stored, and this one differs from it, so it was
  * refused without running. It is not `alreadyCommitted`, which is what the
  * fallback below made of it: that kind says this request's work happened, and
