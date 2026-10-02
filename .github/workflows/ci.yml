@@ -108,10 +108,10 @@ jobs:
   # case-insensitive path unexercised while the docstring claimed otherwise —
   # a stated coverage nothing enforces, which is the failure this repository
   # ranks critical. Raised by Copilot against PR #13 round 8, against the job
-  # added in round 7. The three legs run concurrently, so each one costs runner
-  # minutes and adds wall clock only while it is the slowest job in the run.
-  # How long they take is each run's job timings to say, not this comment's: a
-  # figure written here has nothing keeping it current.
+  # added in round 7. Each leg occupies a runner of its own, but the legs run
+  # concurrently, so one adds wall clock only when it is the last job in the
+  # run to finish. How long each takes is for the run's job timings to report,
+  # not this comment (`docs/change-locality.md` §2).
   harness:
     strategy:
       fail-fast: false
