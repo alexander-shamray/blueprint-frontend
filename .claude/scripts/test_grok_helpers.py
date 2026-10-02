@@ -10038,9 +10038,13 @@ class TheHookWiringRunsOnMoreThanOneOperatingSystem(unittest.TestCase):
         code = "\n".join(
             line for line in self.LAUNCHER.read_text(encoding="utf-8").splitlines()
             if not line.lstrip().startswith("#"))
-        self.assertIn("command -v python3", code)
+        # The probe lines, as above: `command -v python3` also opens the
+        # block that names the first candidate, above the probes.
+        self.assertIn('python3 -c "$probe"', code)
+        self.assertIn('python -c "$probe"', code)
         self.assertIn("exec python ", code)
-        self.assertLess(code.find("command -v python3"), code.find("exec python "))
+        self.assertLess(code.find('python3 -c "$probe"'),
+                        code.find('python -c "$probe"'))
 
     def test_a_launcher_that_is_present_but_broken_is_passed_over(self):
         # `command -v` proves a name exists, not that it runs: a `py` with no
@@ -10158,19 +10162,30 @@ class TheHookWiringRunsOnMoreThanOneOperatingSystem(unittest.TestCase):
     def test_the_launcher_runs_each_hook_it_admits(self):
         # The positive control, end to end: an argument the closed set admits
         # reaches the module and produces a verdict. Without this the case
-        # above passes against a launcher that refuses everything.
+        # above passes against a launcher that refuses everything. On a copy
+        # of the hooks, with the host's own PATH, so that the mark it leaves
+        # is the copy's and not this checkout's.
+        root = Path(tempfile.mkdtemp(prefix="launcher-admits-"))
+        self.addCleanup(shutil.rmtree, str(root), ignore_errors=True)
+        hooks = root / ".claude" / "hooks"
+        hooks.mkdir(parents=True)
+        for name in ("run-guard.sh", "run-guard.py",
+                     "guard-git-argv.py", "guard-edit-target.py"):
+            shutil.copy2(self.LAUNCHER.parent / name, hooks / name)
+        launcher = hooks / "run-guard.sh"
+
         event = json.dumps({"tool_name": "Bash",
                             "tool_input": {"command": "ls > package.json"}})
         out = subprocess.run(
-            [BASH, str(self.LAUNCHER), "guard-git-argv.py"],
+            [BASH, str(launcher), "guard-git-argv.py"],
             input=event, capture_output=True, text=True)
         self.assertEqual(0, out.returncode, out.stderr)
         self.assertIn("permissionDecision", out.stdout)
 
-        event = json.dumps({"tool_name": "Write", "cwd": str(SCRIPTS),
+        event = json.dumps({"tool_name": "Write", "cwd": str(root),
                             "tool_input": {}})
         out = subprocess.run(
-            [BASH, str(self.LAUNCHER), "guard-edit-target.py"],
+            [BASH, str(launcher), "guard-edit-target.py"],
             input=event, capture_output=True, text=True)
         self.assertEqual(0, out.returncode, out.stderr)
         self.assertIn("permissionDecision", out.stdout)
@@ -10182,7 +10197,12 @@ class ALauncherCheckout:
     **Its own tree, because the mark is the checkout's.** The launcher finds
     `.claude/cache/` from its own path, so a case run against this
     repository's copy would read and leave the mark every live session and
-    every other shard is using. **And a PATH of its own**, because the tools'
+    every other shard is using. The triager classes do run this repository's
+    copy, because their guards judge paths relative to where they sit, so a
+    suite run still meets and leaves this checkout's mark: either path gives
+    the same verdict, which is `ARememberedGuardAnswersAsAProbedOne`'s
+    subject, and no case about the mark itself runs here. **And a PATH of
+    its own**, because the tools'
     directory carries a real `python3` on Linux, which would take over the
     moment a case left a candidate out. Git for Windows' own `bash` puts its
     tool directories back in front of whatever PATH it is handed, so that no

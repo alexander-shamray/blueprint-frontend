@@ -19,8 +19,8 @@
 # hook whenever the first invocation exits non-zero for a real reason — and for
 # a `PreToolUse` hook a real reason includes printing a deny, so a refusal
 # would be emitted twice and the second interpreter would judge the event a
-# second time. The interpreter is chosen before anything runs, and the chosen
-# one replaces this shell.
+# second time. The interpreter is chosen before anything runs, and one probed
+# on this call replaces this shell; a remembered one runs as a child, below.
 #
 # **A closed set of hook names, like every helper in `.claude/scripts/`.**
 # Its callers are hook wirings — `settings.json` and an agent profile's
