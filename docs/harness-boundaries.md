@@ -530,6 +530,37 @@ the Store alias, present on `PATH` and not Python; `python` goes last because
 pinned only where the launcher can pin it: `python3` and `python` are whatever
 the host provides.
 
+**It runs each candidate before choosing one, and remembers only that the
+first of them passed (blueprint-admin#44, ported for blueprint-frontend#62).**
+The probe was a second interpreter start on every `Bash`, `Edit` and `Write`
+call for an answer that is a property of the host. The mark is an empty
+directory under `.claude/cache/`, named for that candidate, and the launcher
+never opens it: it holds nothing to choose a program with, nothing to write
+through, and nothing to block on — a file there could be a FIFO, or a
+newline-free file for `read` to sit in, and a hook that hangs is timed out,
+which does not block the tool. No `Edit(...)` deny covers the directory and
+none has to: the most a session can leave there is a skipped probe of the
+program the probe would have run, or a mark it cannot remove, which refuses
+every call until somebody does. **A remembered interpreter is never
+`exec`ed**, because an `exec` that fails exits non-zero and not 2, and the
+tool then runs unguarded. It runs `.claude/hooks/run-guard.py` as a child
+instead, which checks the floor in the interpreter that is about to judge and
+answers with a status nothing else is known to produce; on any other status
+the call is refused, the mark is removed and the next call probes. **The
+residual is that one refused call**, where the probe used to move on to the
+next candidate unnoticed, and a host whose first candidate is not its working
+one is never remembered at all. `TheLauncherProvesWhatItRemembers` and
+`ARememberedGuardAnswersAsAProbedOne` in `test_grok_helpers.py` hold the
+launcher to each of those.
+
+**Two things differ from blueprint-admin, where the design was built.** The
+index refresh goes through this launcher here, so the remembered path runs it
+too, and a refused call there is a refresh skipped rather than a tool held.
+And `.gitignore` ignores only `.claude/cache/codebase-index/`, not the whole
+of `.claude/cache/`: an empty mark is invisible to git all the same, and a
+mark something was put inside — the state that refuses every call — shows in
+`git status` as untracked, which is where its owner will see it.
+
 **The failure mode is loud and total, which is the good kind** — a host with
 none of the three gets `exit 2` and a message, and exit 2 is the only code a
 `PreToolUse` hook blocks with: any other non-zero exit is reported and the
