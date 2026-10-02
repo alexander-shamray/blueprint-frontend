@@ -1723,7 +1723,14 @@ loop.** `.claude/settings.json` denies a session `Edit` on
 with that deny lifted, or made outside the session's tools. And what a
 rewritten method makes the triager write is read by the next round's lenses,
 which is why step 5 runs no triage on the round that spends its ceiling:
-there would be no next round. **`ship.md` cited this record before the record existed**, which
+there would be no next round. **The stops step 5 has key on a word the lens
+chooses.** A finding's ranking decides whether the chain stops on it, and
+branch text can argue a lens down as it can argue it into anything; what
+stands against that is that a finding keeps the highest ranking it was given
+in the run, and that an unfixed finding of any ranking keeps the loop from
+converging. **And what keeps a quotation from being read as a finding is an
+instruction**: the adjudicator is told that fenced text is quotation, in a
+profile read from the checkout, and nothing parses the review to enforce it. **`ship.md` cited this record before the record existed**, which
 is why it is written here rather than left as a citation to nothing.
 
 **The guard that bounds that agent reads its rules from the same tree.**
@@ -1736,5 +1743,6 @@ frontmatter — an ordinary change class in this repository — writes the rules
 that gate the agent applying that pull request's own review fixes. It fails
 closed on an unreadable or empty list and **not** on a weakened one. The
 machinery predates the in-house loop; what this change did was put it on the
-hot path, since step 5 spawns that triager on every round that finds anything.
+hot path, since step 5 spawns that triager on every round that finds anything
+but the one that spends its ceiling.
 Reading the list from `origin/main` is the fix, and it is not done.

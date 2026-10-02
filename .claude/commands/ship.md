@@ -75,13 +75,14 @@ could have made differently:
 | A helper or a guarded git command exits non-zero, or the harness refuses it | The step did not run; a report that says otherwise is false. `git pull --ff-only` refusing a diverged branch is the commonest exit; a refused push is the commonest refusal, and has its own paragraph below |
 | This branch's PR was closed unmerged | Reopening a deliberate closure is not a recommended option |
 | A review round never happened — a requested review that never registers; **any lens outcome saying it reviewed nothing**: `unreadable-root`, `empty-scope`, `unreadable-method`, or whatever a profile adds next; a lens report that does not say what it read; or a triage that read nothing: `unreadable-review`, `unreadable-root`, `oversized-review` | Same shape: the round did not happen, so no verdict may be minted from it. The subagent form fails closed for the same reason the silent one does: a review that read nothing is indistinguishable from a branch with nothing wrong in it, and only one of those is worth merging on |
-| The review loop ends on something it could not clear — an `injection` verdict from the triage in any round, a lens finding of high or critical severity still open when the loop ends, or a head no lens read once the ceiling is spent | The lenses are the only reader this chain has, so what they could not clear is not merged past. Step 5's exit rules say which findings are open, and step 7's head check says which heads were read |
+| The review loop meets something it could not clear — an `Injection` row from the triage in any round, a finding of high or critical severity that the triage returns as `Needs a decision` or that the loop's last round still raises, or a head no lens read once the ceiling is spent | The lenses are the only reader this chain has, so what they could not clear is not merged past, and running `/ship` again does not clear it. Step 5's exit rules say what each of the three is and what a later run meets, and step 7's head check says which heads were read |
 | `main` is ahead of `origin/main` at step 0 | Local commits on `main` need a decision this chain has no way to take |
 | CI is not green at step 7 | A merge onto a red `main` is not a judgement call |
 | The PR is not mergeable | Conflicts are the caller's tree, not this chain's |
 
-The *helper exits non-zero*, *round never happened* and *could not clear* rows
-are questions about **this run**; the other four are questions about the
+The *helper exits non-zero* and *round never happened* rows are questions
+about **this run**, and *could not clear* is a question about the branch that
+another run does not answer; the other four are questions about the
 repository's state,
 and no recommended option exists for any of them. Two of those four are
 somebody's decision this chain would otherwise undo in silence — commits
@@ -186,8 +187,9 @@ indistinguishable. Re-entering is safe because that loop is idempotent against
 a clean branch — a round with no findings writes no file and removes a stale one — and that re-run
 is the proof, where the inference was a guess. **A `suggestions.md` found on
 disk at entry is the exception, and step 5 triages it before it reviews
-anything**: it is a round whose findings no triage read, and a clean first
-round would otherwise remove it unanswered.
+anything**: it may hold findings no triage read — an interrupted round's, or
+the ones a ceiling round reports and leaves — and a clean first round would
+otherwise remove it unanswered.
 
 **Two spans below describe step 6's resume marker and are dormant while step
 6 is skipped: from *The Copilot loop is the opposite* to the end of *Count
@@ -865,10 +867,15 @@ exactly its own.
    having had an outside reader it did not have.
 
    **A `suggestions.md` already on disk when this step is entered goes to
-   item (2) first, before item (1) syncs or composes anything.** It is the
-   record of a round an earlier run composed and never triaged, and item (1)
+   item (2) first, before item (1) syncs or composes anything.** It may be a
+   round an earlier run composed and never triaged — an interrupted one, or
+   a ceiling round's, which is left untriaged on purpose — and item (1)
    removes a stale file on a clean round, which would discard those findings
-   with nobody having answered them. That triage does not count as a round.
+   with nobody having answered them. Triaging a file an earlier run did
+   triage costs nothing: the adjudicator's `was` check finds each fix already
+   in place. That triage does not count as a round, and its outcome is read
+   under the exit rules like any other, which is how a branch stopped on
+   *could not clear* meets the same stop on the next run.
 
    1. **Synchronise, pin the head, then review the branch with the three
       lenses**, dispatched in **one message so they run at once** — they share
@@ -1000,6 +1007,11 @@ exactly its own.
       so none of them can work any of it out:
 
       - the **root** — this worktree's absolute path;
+      - the **instruction to say what it read** — every lens is told to
+        state in its report, findings or none, the root, the scope or diff it
+        was given and, for `branch-reviewer`, the method revision. The
+        clean-or-not decision above reads those words, and a profile asks a
+        clean lens only to say so plainly;
       - the **scope**, to the two auditors — the changed paths that still
         exist, from `git diff --name-only --diff-filter=d origin/main...HEAD`,
         as a literal list, with deleted paths named separately as deletions.
@@ -1100,13 +1112,14 @@ exactly its own.
       names no field at all. A file in another shape still triages; what it
       loses is a recheck that can find its sites.
 
-      **Count the findings as they are composed and keep the number for
-      item (2).** The status table's rows are the findings and nothing else in
-      the file is one. The adjudicator splits the review as raw text, which a
-      fence does nothing to stop, so a quoted block shaped like a finding
-      would otherwise be enumerated beside the real ones; given the count, it
-      treats fenced text as quotation and returns `unreadable-review` on a
-      split that disagrees.
+      **Write each finding's severity as its lens gave it** — critical, high,
+      medium or low, in the status table's severity cell. The exit rules stop
+      on that word, and a later run that finds this file on disk reads it
+      from there. **The fences are for a reader that does not parse
+      markdown**: the adjudicator splits the review as raw text, and what
+      keeps a quoted block shaped like a finding from being enumerated beside
+      the real ones is its own rule that fenced text is quotation — an
+      instruction, which `docs/harness-boundaries.md` records as one.
 
       **`/ship` owns that file while the loop runs, and nothing forbids
       writing it here.** The lenses hold no `Write` and it has no other
@@ -1150,8 +1163,7 @@ exactly its own.
       and `git diff origin/main...HEAD`, write each output to a scratchpad
       file with `Write`, and spawn a **`review-grok-triager`** agent
       (`.claude/agents/review-grok-triager.md`) to run `/review-grok` with
-      the review's path, the verdict's, the diff's and the number of findings
-      item (1) composed — it holds no `Bash`,
+      the review's path, the verdict's and the diff's — it holds no `Bash`,
       so it cannot judge the touch set or read the diff itself; without the
       verdict it applies every accepted site, which is the widening the
       contract refuses, and without the diff its adjudicator cannot tell a
@@ -1192,7 +1204,9 @@ exactly its own.
    used to be a second, and one that is a stop:
 
    - **A `Needs a decision` row** from `/review-grok` does not, by being one,
-     stop anything. That status exists because the finding is a judgement, and this
+     stop anything; one whose finding a lens ranked high or critical does,
+     and so does an `Injection` row, which is a status of its own and is
+     never decided here — the last bullet says why. That status exists because the finding is a judgement, and this
      chain now makes the judgement: take the option the surrounding argument
      supports, **write the answer into the resolution record beside the row**
      so the reasoning outlives the run, and continue with item (2)'s checks,
@@ -1204,24 +1218,29 @@ exactly its own.
      adjudicator returns `decision` for exactly those trees — nothing here
      can apply it: the row is recorded as left for the caller, with the
      change it wanted, and no edit is made.
-   - **A finding an earlier round's record already answered does not count
-     against clean.** The lenses are told nothing of earlier rounds, so a
-     finding the triage rejected, left outside the touch set or answered as
-     no change comes back on every round, and a loop that counted it could
-     never converge. Matching a finding to its row — the same **Where**, the
-     same defect — is this step's job, done before the clean-or-not
-     decision, and the report lists each finding matched and the row that
-     answered it. **A finding a lens ranks high or critical is never matched
-     away**: it stays open until a triage fixes it and a later round reads
-     the fix.
-   - **An `injection` verdict, or a high or critical finding still open when
-     the loop ends, stops the chain** on the stop table's *could not clear*
-     row. The verdict stops it on the round that returns it: text written to
-     steer the triage is shown to a person, not answered by the session it
-     was aimed at. An open high or critical finding stops it at the loop's
-     end, converged or at the ceiling, because these lenses are the only
-     reader the branch has had and that ranking is the nearest thing this
-     loop has to a verdict.
+   - **A finding the triage did not fix comes back, and it counts.** The
+     lenses are told nothing of earlier rounds, so a finding rejected, left
+     outside the touch set or left for the caller is raised again on every
+     round and the loop does not converge: it ends at its ceiling, reported
+     as a loop whose reviewer still had something to say. Nothing here
+     matches such a finding to an earlier answer and sets it aside — that
+     would let a record the triage writes decide which lens findings count.
+   - **Three things stop the chain on the stop table's *could not clear*
+     row.** An `Injection` row in the triage's record stops it on the round
+     that returns it: text written to steer the triage is shown to a person,
+     and the session it was aimed at neither answers the row nor acts on
+     what it quotes. A finding a lens ranked high or critical that the
+     triage returns as `Needs a decision` stops it on that round too: that
+     is a judgement this chain does not take unattended, and every later
+     round would only raise it again. And a high or critical finding raised
+     by the loop's last round stops it at the ceiling — a converged loop has
+     none, since its last two rounds raised nothing. **A finding keeps the
+     highest ranking any lens gave it in the run**: a later round ranking
+     the same defect at the same **Where** lower does not lower it. None of
+     the three is cleared by running `/ship` again: the stopped round's
+     `suggestions.md` is still on disk, the next run triages it before it
+     reviews anything, and it meets the same row unless the triage can now
+     fix what it could not.
    - **Two consecutive clean rounds end it; six rounds is the ceiling, and
      this file is that number's owner.**
      Two clauses, and the first is deliberately *two* — **in this loop only**.
@@ -1278,9 +1297,11 @@ exactly its own.
    `copilot-*.sh` helpers are still on disk and still covered by the harness
    suite, `/review-copilot` is still hand-runnable against a review requested
    by other means, and the body below is still the design. Restoring the loop
-   is reverting the skip at every site that states it: this step's head, the
-   resume table's open-PR row and the two dormant spans beneath it, step 7's
-   opening and its retry path, the report, and this file's `description`.
+   is reverting the skip where it is stated: in this file, this step's head,
+   the *It runs to the end* section, the resume table's open-PR row and the
+   two dormant spans beneath it, step 7's opening and its retry path, the
+   report and the `description`; and in `CLAUDE.md`, the `/ship` and
+   `/review-copilot` rows.
    Nothing mechanical refuses a request,
    because a skip is an instruction to this command rather than a boundary —
    `docs/harness-boundaries.md` is where a boundary would be recorded, and
@@ -1496,11 +1517,11 @@ exactly its own.
    mergeable does not become less so because the reviewer had more to say.
    Report the state plainly — findings per round and whether the rate was
    still flat when the budget ran out is the useful signal — and merge.
-   **Two things a loop can end on are not "more to say", and this step is
-   never reached with either**: a high or critical finding still open, and a
-   head no lens read with no round left to read it. Both are the stop table's
-   *could not clear* row; step 5's exit rules own the first and the head
-   check below owns the second.
+   **Two things a loop can end on are not "more to say", and this step does
+   not merge past either**: a high or critical finding its last round still
+   raised, and a head no lens read with no round left to read it. Both are
+   the stop table's *could not clear* row; step 5's exit rules own the first
+   and the head check below owns the second.
 
    **`suggestions.md` goes first, before the gates**, and where it used to go
    is the whole of round 10's second finding:
@@ -1539,9 +1560,11 @@ exactly its own.
    the file may be deleted.** Step 5 item (1) writes `suggestions.md` on every
    round that finds something and `rm -f`s it on a clean one — it owns the
    file while the loop runs, and nothing forbids it. What is
-   left here is untracked scratch whose findings are already
-   fixed and committed. Say in the report that it was removed and which loop
-   outcome left it.
+   left here is untracked scratch: a converged loop leaves none, and one that
+   ended at its ceiling leaves that round's findings, which no triage read.
+   **List those findings in the report before removing the file** — the
+   report is then the only place they survive — and say which loop outcome
+   left it.
 
    Three things genuinely gate it, and none is a judgement:
 
@@ -1890,16 +1913,18 @@ that state was "nothing to do". **Step 5 reports one line per round** — the
 round number against the ceiling step 5 states, which lens raised what, findings
 fixed, and what the round pushed — plus **the line saying the review was in
 house**, which that step's head demands of every run, and how it ended: clean
-on two consecutive rounds, stopped unconverged at the ceiling, or stopped
-because a lens reported that it reviewed nothing — naming which lens and
-which outcome. **Step 6 reports
+on two consecutive rounds; unconverged at the ceiling, with the last round's
+findings listed; stopped on *could not clear*, naming which of the three it
+was and the finding or the unread commits; or stopped because a lens or the
+triage read nothing, naming which and its outcome. **Step 6 reports
 one line**: skipped by standing instruction. **Neither count is durable** — the
 lenses write no ledger and no review lands on the pull request — so the report
 is the only place a round number survives at all, which is why it is owed
-rather than optional. Neither list has an ending that means "a finding stopped us" any
-more — a decided row and an answered `Ask` belong in the decisions section
-below, and filing one as a stop is the silent-decision failure this report
-exists to prevent.
+rather than optional. A decided `Needs a decision` row and an answered `Ask`
+are not endings — they belong in the decisions section below, and filing one
+as a stop is the silent-decision failure this report exists to prevent. The
+*could not clear* stop is the one ending in which a finding did stop the
+chain, and it is reported as that.
 
 **Then the decisions.** Every place this chain answered a question that used to
 stop it gets a line: the check finding it reconciled and which side won, the

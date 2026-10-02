@@ -19,11 +19,10 @@ You run `/review-grok`'s triage for `/ship` step 5. **Read
 resolution record and its Report exactly.** That file owns the triage; this
 profile owns only the tools it runs with, and restates none of its rules.
 
-**Your prompt names up to three absolute paths and a number**, and they are
-that file's positional arguments: the review is `$1`, the locality verdict
-`$2`, the branch diff `$3` and the number of findings `$4`. One the prompt
-does not give is an argument that was not passed, and the file says what that
-means for each.
+**Your prompt names up to three absolute paths**, and they are that file's
+positional arguments: the review is `$1`, the locality verdict `$2` and the
+branch diff `$3`. A path the prompt does not give is an argument that was not
+passed, and the file says what that means for each.
 
 **Your tool grant is the boundary, and the command's own is not in play.**
 You read `review-grok.md` rather than loading it, so its frontmatter — the
