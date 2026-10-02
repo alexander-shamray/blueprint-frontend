@@ -1731,7 +1731,12 @@ the loop unconverged, and step 7 merges an unconverged loop with the
 finding listed in the report: that is reported, not held. And the stop holds
 for one run only: a later `/ship` reviews afresh, so a lens that ranks the
 same finding lower then lets it through. What stands against both is the
-report a person reads, not a mechanism. **And what keeps a quotation from being read as a finding is an
+report a person reads, not a mechanism. **An `Injection` stop leaves the
+triage's edits in the tree, uncommitted**, and a later `/ship` checks,
+commits and pushes a dirty tree before it reviews: so what a steered triager
+wrote reaches the pull request's branch unless a person discards it first,
+and is then read by lenses the same branch can argue with. The report names
+those paths for that reason. **And what keeps a quotation from being read as a finding is an
 instruction**: the adjudicator is told that fenced text is quotation, in a
 profile read from the checkout, and nothing parses the review to enforce it. **`ship.md` cited this record before the record existed**, which
 is why it is written here rather than left as a citation to nothing.
