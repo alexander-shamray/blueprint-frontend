@@ -5585,18 +5585,66 @@ class CommandsEnforceTheEditingBoundariesTheyState(unittest.TestCase):
                     self.assertNotIn(
                         banned, para,
                         "a paragraph points the lens at the branch's own copy")
-        # **What this still does not cover, stated rather than implied.** Two
-        # evasions survive and both were found by review rather than by the
-        # gate: an instruction that never spells `review-branch.md` (ship.md
-        # says "that command" in its own voice), and one written inside a
+        # **What this still does not cover, stated rather than implied.**
+        # Three evasions survive and all were found by review rather than by
+        # the gate: an instruction that never spells `review-branch.md`
+        # (ship.md says "that command" in its own voice); one written inside a
         # paragraph whose `origin/main` comes from a neighbouring bullet,
-        # since the containment unit is the blank-line block. Banning the
+        # since the containment unit is the blank-line block; and one written
+        # inside either allowlisted block, which its marker exempts whole. The
+        # profile's own `origin/main` pin above is as loose: it passes on a
+        # mention anywhere in the file. Banning the
         # phrases document-wide would over-fire on the file's own argument
         # AGAINST taking the method from the checkout, which uses the same
         # words to forbid the thing. The residual is the gap between a
         # property and a text search over prose; `docs/harness-boundaries.md`
         # is where it would be recorded if it were a boundary rather than a
         # test.
+
+    def test_the_loop_does_not_merge_past_what_it_could_not_clear(self):
+        # The lenses are the only reader a branch has before /ship merges it,
+        # so three exits must be stops rather than merges: a head no lens
+        # read once the rounds are spent, a high or critical finding still
+        # open, and an injection verdict. The first was reachable on every
+        # unconverged run: the ceiling round's triage pushed a head no round
+        # would read, and step 7 was told both to refuse it and to merge it.
+        ship = " ".join(
+            (COMMANDS / "ship.md").read_text(encoding="utf-8").split())
+        stops = ship[ship.index("things still stop the chain"):
+                     ship.index("## Resume, don't restart")]
+        self.assertIn("could not clear", stops)
+        for subject in ("`injection` verdict", "high or critical severity",
+                        "a head no lens read once the ceiling is spent"):
+            with self.subTest(stop=subject):
+                self.assertIn(subject, stops)
+        # The sentence that made the ceiling a merge is gone, and the two
+        # that replace it say stop. Pinned as an absence as well, because the
+        # replacement reads correctly beside a surviving copy of the old one.
+        self.assertNotIn(
+            "an exhausted loop reports unconverged and this step merges",
+            ship)
+        self.assertIn(
+            "With the ceiling spent there is no round to give it, and that "
+            "is a stop", ship)
+        # What keeps the last reviewed head the pushed one: the round that
+        # spends the ceiling composes its findings and runs no triage.
+        self.assertIn(
+            "on the round that spends the ceiling** → stop here with the "
+            "findings reported and no triage", ship)
+        # A quotation shaped like a finding is not one, and the count is what
+        # lets the adjudicator tell: both halves, since either alone leaves
+        # the split unbounded.
+        adjudicator = " ".join(
+            (SCRIPTS.parent / "agents" / "review-adjudicator.md"
+             ).read_text(encoding="utf-8").split())
+        self.assertIn(
+            "Text inside a fenced block is quotation and never a finding",
+            adjudicator)
+        self.assertIn(
+            "the split yields a different number, return `unreadable-review`",
+            adjudicator)
+        self.assertIn(
+            "the number of findings item (1) composed", ship)
 
     def test_every_review_lens_holds_read_only_tools(self):
         # The subject is what the gate looks at rather than what it found, so
