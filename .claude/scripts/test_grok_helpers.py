@@ -3272,8 +3272,9 @@ class CopilotFeedHelpersAreTheOnlyIntake(unittest.TestCase):
         # grows, and on Windows, where a process is the expensive operation,
         # the difference between a helper that answers and one that appears to
         # hang inside /ship. The same touch set against two diffs of different
-        # sizes must spawn the same processes: what may grow with the touch
-        # set is per token, and nothing may grow with the diff.
+        # sizes must spawn the same `grep`s and `sed`s, the two tools counted
+        # here: what may grow with the touch set is per token, and neither
+        # may grow with the diff. Another tool spawned per path is not seen.
         body = ("| Class | D |\n"
                 "| Touch set | docs/**, .claude/scripts/*.sh, e2e/{a,b}/**, "
                 "src/app/x.ts |\n")
