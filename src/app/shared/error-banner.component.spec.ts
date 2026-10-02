@@ -28,6 +28,19 @@ describe('ErrorBannerComponent', () => {
     );
   });
 
+  it('says an earlier submission went through when a reused id is refused without a title', () => {
+    const fixture = TestBed.createComponent(ErrorBannerComponent);
+    fixture.componentRef.setInput('error', { kind: 'idReused', title: '', detail: null });
+    fixture.detectChanges();
+
+    // ADR-057 stores only a successful command's result, so this 409 means
+    // the id's first submission was applied and this changed one was not.
+    // The fallback "Something went wrong." would say neither.
+    expect(fixture.nativeElement.textContent).toContain(
+      'An earlier submission from this form already went through, so this changed one was not applied.',
+    );
+  });
+
   it('renders the seconds the page is counting, not the number the response carried', () => {
     const fixture = TestBed.createComponent(ErrorBannerComponent);
     fixture.componentRef.setInput('error', rateLimited);

@@ -2,7 +2,7 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { ProblemDetails, isProblemDetails } from './problem-details';
 
 /**
- * The six generic banners spec §6 permits the client to author, plus the two
+ * The six generic banners spec §6 permits the client to author, plus the three
  * extra 409 kinds the backend actually distinguishes. Everything else on
  * screen is the backend's own `title` and `detail`, shown as sent.
  */
@@ -14,6 +14,7 @@ export type ErrorKind =
   | 'alreadyCommitted'
   | 'inProgress'
   | 'concurrencyConflict'
+  | 'idReused'
   | 'rule'
   | 'rateLimited'
   | 'unavailable'
@@ -64,11 +65,20 @@ export interface DisplayError {
  */
 export const RATE_LIMIT_FALLBACK_SECONDS = 60;
 
-/** Backend codes on the 409 row. Common.Web's three handlers, verbatim. */
+/**
+ * Backend codes on the 409 rows. Common.Web's four handlers, verbatim.
+ *
+ * `command.id_reused` is ADR-057's (backend PR #371): the id's first command
+ * completed and its result is stored, and this one differs from it, so it was
+ * refused without running. It is not `alreadyCommitted`, which is what the
+ * fallback below made of it: that kind says this request's work happened, and
+ * here the work that happened is the earlier request's.
+ */
 const CONFLICT_KINDS: Readonly<Record<string, ErrorKind>> = {
   'request.in_progress': 'inProgress',
   'command.already_committed': 'alreadyCommitted',
   'request.concurrency_conflict': 'concurrencyConflict',
+  'command.id_reused': 'idReused',
 };
 
 export function mapError(
@@ -116,12 +126,13 @@ export function mapError(
       return { ...base, kind: 'banner' };
 
     case 409:
-      // Switching on `code`, not on `detail`. The three producers carry
-      // instructions that contradict each other — one says retry, one says do
+      // Switching on `code`, not on `detail`. The four producers carry
+      // instructions that contradict each other — two say retry, two say do
       // not — and RFC 9457 makes `detail` human-readable, so a client told
-      // them apart by English would break on a reword. An absent code takes
-      // the kind that forbids the retry: guessing "retry" on a command that
-      // already committed is the one wrong answer that places a second order.
+      // them apart by English would break on a reword. An absent or unknown
+      // code takes the kind that forbids the retry: guessing "retry" on a
+      // command that already committed is the one wrong answer that places a
+      // second order.
       return {
         ...base,
         kind: (body.code && CONFLICT_KINDS[body.code]) || 'alreadyCommitted',

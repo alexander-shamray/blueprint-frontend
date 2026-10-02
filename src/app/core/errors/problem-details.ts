@@ -5,7 +5,7 @@
  *
  * The three extension members are Common.Web's, not the RFC's:
  *   code           the stable identifier a client switches on. ResultExtensions.cs
- *                  puts Error.Code here; the three 409 handlers put their own.
+ *                  puts Error.Code here; the four 409 handlers put their own.
  *                  RFC 9457 makes `detail` human-readable, so switching on prose
  *                  is what this member exists to prevent.
  *   correlationId  ProblemDetailsExtensions.cs:57. Read from the BODY and never

@@ -107,8 +107,32 @@ describe('mapError', () => {
     expect(result.kind).toBe('concurrencyConflict');
   });
 
-  it('409 with no code falls back to the most cautious of the three', () => {
+  it('409 command.id_reused is a fourth kind, not an already-committed one', () => {
+    // ADR-057: the id's first command completed, and THIS one, which differs
+    // from it, was refused without running. Read as alreadyCommitted, the
+    // checkout page would report the edited request as the order placed.
+    const result = mapError(
+      problem(409, {
+        status: 409,
+        code: 'command.id_reused',
+        detail:
+          'This command identifier was already used for a different request; send a changed request under a new identifier.',
+      }),
+    );
+
+    expect(result.kind).toBe('idReused');
+  });
+
+  it('409 with no code falls back to the most cautious kind', () => {
     expect(mapError(problem(409, { status: 409 })).kind).toBe('alreadyCommitted');
+  });
+
+  it('409 with a code this client does not know falls back to the same kind', () => {
+    // A fifth producer added after this client shipped must still forbid the
+    // retry, exactly as an absent code does.
+    expect(mapError(problem(409, { status: 409, code: 'request.something_new' })).kind).toBe(
+      'alreadyCommitted',
+    );
   });
 
   it('422 shows the backend title and detail verbatim', () => {
