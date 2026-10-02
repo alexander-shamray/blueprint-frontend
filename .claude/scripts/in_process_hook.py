@@ -12,13 +12,15 @@ literals, zero differences.
 **It is one helper rather than a copy per test file**, because the three
 properties below are what make the speed-up safe, and a copy is where one of
 them is dropped. `test_index_refresh.py`'s `load()` and
-`test_egress_proxy.py`'s `load_proxy()` are the precedent for importing a hook;
-this adds the entry point, the streams and the reset.
+`test_egress_proxy.py`'s `load_proxy()` are the precedent for importing a
+script under test, and `TheGitArgvGuard._run_hook` for calling a guard's
+`main()` with its streams swapped; what this adds is the reset and the stack.
 
 1. **Through the entry point the `__main__` block calls, never the judgement
-   function.** `main()` carries the `except Exception → refuse` handler and
-   the JSON-on-stdout contract — `guard-triager-edit.py`'s `run()` carries its
-   crash handler — so a case calling `offence()` directly would test neither.
+   function.** Every entry point carries the JSON-on-stdout contract and the
+   exit status, and two carry a crash handler — `guard-git-argv.py`'s
+   `main()` its `except Exception → refuse`, `guard-triager-edit.py`'s `run()`
+   its exit 2 — so a case calling `offence()` directly would test neither.
    `run` therefore hands back what a spawn hands back: an exit status, stdout
    and stderr, in a `subprocess.CompletedProcess`, and every assertion written
    against a spawn reads it unchanged.
@@ -27,8 +29,11 @@ this adds the entry point, the streams and the reset.
    event is a Bash call it will judge — so a module kept across cases lets one
    case's `cwd` decide the next one's verdict. The namespace is snapshotted
    once, straight after import, and restored before **and** after every call,
-   which resets `EVENT_CWD` and any global a later edit adds, without a list
-   here to fall behind the hooks.
+   which resets `EVENT_CWD` and any global a later edit rebinds, without a
+   list here to fall behind the hooks. **A global changed in place is not
+   reset** — a module-level dict filled as a cache, or an `lru_cache` — and
+   none of the four guards holds one today; a guard that gains one needs it
+   cleared here, or one case's cached verdict decides the next.
 3. **It is not the wiring, and the suite keeps spawning where the wiring is
    the subject.** The launcher, the interpreter, stdin and the exit status are
    reached only by a real process, so each class that judges through here

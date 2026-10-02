@@ -973,8 +973,9 @@ a command spawns, in the turn it was loaded in.
 `CommandsEnforceTheEditingBoundariesTheyState` pins the profile, the grant and
 both deny lists, and reads `.claude/agents/` on every run, so a new profile
 fails each exact grant that does not deny it;
-`TheTriagerDispatchesOnlyTheAdjudicator` runs the hook through the launcher and
-pins its wiring on the profile.
+`TheTriagerDispatchesOnlyTheAdjudicator` judges the hook — in-process for most
+cases, through the launcher for its controls — and pins its wiring on the
+profile.
 
 **The trees held only in the turn `/ship` was loaded in, so they moved onto
 the profile too (blueprint-admin#27).** Measured there: spawned in that turn,
@@ -986,8 +987,9 @@ profile carries a second `PreToolUse` hook, `guard-triager-edit.py`, on
 `Edit|Write|MultiEdit|NotebookEdit`: it reads `/ship`'s `Edit(...)` denies
 from `ship.md` on every call — one list, no copy — and refuses a target under
 any of them, matched without regard to case, and any target outside the
-checkout its event's `cwd` stands in. `TheTriagerEditsNothingShipDenies` runs
-it through the launcher against every pattern that list holds.
+checkout its event's `cwd` stands in. `TheTriagerEditsNothingShipDenies` judges
+it against every pattern that list holds, in-process, and runs a handful of
+controls through the launcher.
 
 **None of the profile's runtime behaviour was measured in this repository.**
 The tool allowlist and the dispatch hook were probed in blueprint-admin
