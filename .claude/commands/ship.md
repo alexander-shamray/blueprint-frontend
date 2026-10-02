@@ -1120,8 +1120,8 @@ exactly its own.
 
       **Write each finding's severity as its lens gave it**, on the lenses'
       scale — critical, high, medium, low or info — in the status table's
-      severity cell, which takes that scale in place of `review-branch.md`'s
-      `bug | suggestion | nit`. The exit rules stop on those words, and a
+      severity cell, which takes that scale in place of the composed form's
+      own `bug | suggestion | nit`. The exit rules stop on those words, and a
       file found on disk at entry is read for them. **The fences are for a reader that does not parse
       markdown**: the adjudicator splits the review as raw text, and what
       keeps a quoted block shaped like a finding from being enumerated beside
