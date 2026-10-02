@@ -144,6 +144,52 @@ describe('CheckoutPage', () => {
     expect(fixture.componentInstance.identity.isSpent()).toBe(true);
   });
 
+  it('on command.id_reused stays put with the edited address, and spends the basket and the id', async () => {
+    // The route the platform answers this on: a failure after which the id is
+    // held, an edit, and a resubmission — when the first attempt had in fact
+    // committed.
+    fixture.componentInstance.placeOrder();
+    const first = controller.expectOne('http://localhost:5000/api/v1/orders');
+    const firstId = first.request.body.commandId;
+    first.flush({ title: 'Server error', status: 500 }, { status: 500, statusText: 'Error' });
+    await fixture.whenStable();
+
+    fixture.componentInstance.form.controls.postalCode.setValue('12345');
+    fixture.componentInstance.placeOrder();
+    const second = controller.expectOne('http://localhost:5000/api/v1/orders');
+    expect(second.request.body.commandId).toBe(firstId);
+    second.flush(
+      { status: 409, code: 'command.id_reused', detail: 'Already used for a different request.' },
+      { status: 409, statusText: 'Conflict' },
+    );
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    // Not the placed page: that page would say the order just sent — the
+    // edited one — was placed, and the order placed is the earlier one.
+    expect(navigate).not.toHaveBeenCalled();
+    expect(fixture.componentInstance.error()?.kind).toBe('idReused');
+    expect(fixture.componentInstance.form.controls.postalCode.value).toBe('12345');
+    expect(fixture.nativeElement.textContent).toContain(
+      'any changes you made since were not applied',
+    );
+
+    // The earlier order exists, so its basket is spent as on a 200, and this
+    // form cannot send again: under the old id it meets the same refusal, and
+    // under a new one it would be a second order.
+    expect(TestBed.inject(CartStore).isEmpty()).toBe(true);
+    expect(TestBed.inject(CheckoutHandoff).quote()).toBeNull();
+    expect(fixture.componentInstance.identity.isSpent()).toBe(true);
+
+    const place = [...fixture.nativeElement.querySelectorAll('ion-button')].find(
+      (el: HTMLElement) => el.textContent?.trim() === 'Place order',
+    );
+    expect(place.disabled).toBe(true);
+
+    fixture.componentInstance.placeOrder();
+    controller.expectNone('http://localhost:5000/api/v1/orders');
+  });
+
   it('does not navigate on request.in_progress — the first attempt is still running', async () => {
     fixture.componentInstance.placeOrder();
     const request = controller.expectOne('http://localhost:5000/api/v1/orders');

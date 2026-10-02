@@ -49,6 +49,15 @@ import { ErrorBannerComponent } from '@shared/error-banner.component';
  * longer holds the result to hand back an id for. So this branch does what
  * a success does, minus the id.
  *
+ * command.id_reused gets the same escape and one difference. The earlier
+ * publish under this id went through — ADR-057 stores only a success's
+ * result — and this one, which the user has since edited, was refused
+ * without running. So a new entry starts and the catalogue refreshes, as on
+ * already_committed, but the form KEEPS the edited values: they are what was
+ * not applied, and the note under the form says so and points at Products,
+ * where the product that does exist can be read. Checkout cannot point
+ * anywhere (there is no order read) and makes the opposite choice.
+ *
  * The gateway routes this POST through `catalog-write`, which matches POST
  * and requires authentication, rather than through `catalog-public`, which
  * matches GET alone and is anonymous. Both routes exist
@@ -100,6 +109,16 @@ import { ErrorBannerComponent } from '@shared/error-banner.component';
         } @else {
           <ion-item><ion-note>Published as <code>{{ id }}</code>.</ion-note></ion-item>
         }
+      }
+
+      @if (error()?.kind === 'idReused') {
+        <ion-item>
+          <ion-note>
+            An earlier publish from this form already went through, so any changes you made since
+            were not applied. Check Products before publishing again: publishing now creates a
+            second product.
+          </ion-note>
+        </ion-item>
       }
     </ion-content>
   `,
@@ -230,6 +249,18 @@ export class PublishPage {
           this.publishedIdState.set(ALREADY_COMMITTED);
           this.identity.onSuccess();
           this.form.reset({ name: '', thumbnailUrl: '', amount: null, currency: '' });
+          this.catalogRefresh.request();
+          return;
+        }
+
+        if (displayed.kind === 'idReused') {
+          // The earlier publish committed and this edited one did not (see
+          // the class doc comment). The banner and the note stay up, the
+          // edited values stay in the form, and onSuccess() starts the new
+          // entry that onFailure() above left spent — so the next click is a
+          // new product under a new id, which the note has just warned of.
+          this.errorState.set(displayed);
+          this.identity.onSuccess();
           this.catalogRefresh.request();
           return;
         }
