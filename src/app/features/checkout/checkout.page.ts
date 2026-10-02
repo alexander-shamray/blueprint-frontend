@@ -165,12 +165,14 @@ export class CheckoutPage {
 
   placeOrder(): void {
     // Guards the same window the button's [disabled] binding guards, and for
-    // the same reason: after a success, an already_committed or an id_reused
-    // (which spends the quote without leaving this page), handoff.clear()
-    // has run but router.navigate() has not resolved yet, identity.isSpent()
-    // may already be false again (onSuccess() clears it), and the form is
-    // still valid — so a click landing in that gap would otherwise reach
-    // currency()'s assertion with a null quote. This is deliberately not an
+    // the same reason: after a success or an already_committed,
+    // handoff.clear() has run but router.navigate() has not resolved yet,
+    // identity.isSpent() may already be false again (onSuccess() clears it),
+    // and the form is still valid — so a click landing in that gap would
+    // otherwise reach currency()'s assertion with a null quote. After an
+    // id_reused there is no gap: the page stays, the quote stays null for the
+    // rest of its life, and since this method never reads isSpent(), this
+    // return is what refuses a resubmit. This is deliberately not an
     // in-flight guard: a double-click before any response lands still sends
     // two requests under the same commandId, and the platform answering the
     // second with request.in_progress is the idempotency mechanism working
