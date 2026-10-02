@@ -228,9 +228,9 @@ at all — the wire body is `{ reason }` alone — so a second tap replays nothi
 it is a second uncorrelated write that can surface EF's
 `request.concurrency_conflict`.
 
-## 5. Three 409s, not one
+## 5. Four 409s, not one
 
-`Common.Web` registers three exception handlers that all answer 409, and they
+`Common.Web` registers four exception handlers that all answer 409, and they
 give contradictory instructions:
 
 | `code` | Handler | What its `detail` tells a person |
@@ -238,8 +238,9 @@ give contradictory instructions:
 | `request.in_progress` | `ConcurrentRequestExceptionHandler` | "A request with this command identifier is already in progress. Retry." |
 | `command.already_committed` | `CommandAlreadyCommittedExceptionHandler` | "This command has already been applied and its result is no longer available; read the resource rather than retrying." |
 | `request.concurrency_conflict` | `ConcurrencyExceptionHandler` | "The resource was modified by another request. Re-read it and retry." |
+| `command.id_reused` | `CommandIdReusedExceptionHandler` | "This command identifier was already used for a different request; send a changed request under a new identifier." |
 
-Two say retry. One says do not. The handlers themselves argue that the
+Two say retry. Two say do not. The handlers themselves argue that the
 distinction must not be carried by the prose: RFC 9457 makes `detail`
 human-readable, so a caller "switching on English prose breaks on a reword", and
 each handler puts its discriminator in a `code` extension member instead. The
@@ -247,15 +248,55 @@ same member carries `Error.Code` on the failures `ResultExtensions` maps, so one
 field answers the question on every problem response the platform produces.
 
 `core/errors/error-mapper.ts` switches on `code` and never on `detail`. Its
-`CONFLICT_KINDS` map is those three codes verbatim, and the fallback for a 409
-with no readable code is `alreadyCommitted` — the kind that forbids the retry.
-That asymmetry is deliberate: guessing "retry" on a command that already
-committed is the one wrong answer that places a second order, where guessing
-"already committed" on a retryable conflict merely makes the user click again.
+`CONFLICT_KINDS` map is those four codes verbatim, and the fallback for a 409
+with no readable code, or one it does not know, is `alreadyCommitted` — the
+kind that forbids the retry. That asymmetry is deliberate: guessing "retry" on
+a command that already committed is the one wrong answer that places a second
+order, where guessing "already committed" on a retryable conflict merely makes
+the user click again.
 
 `error-banner.component.ts` then holds one sentence per kind, used only where
 the backend sent no `title` of its own. Wherever the backend sent text, the text
 is shown as sent.
+
+**The fourth arrived after this section was written, and it carries more than
+its `detail` says.** Until backend PR #371 merged ADR-057, "A command id is
+bound to the fingerprint of the command that claimed it" (merge `c5f29e0`),
+there were three handlers and this section said three. A second, different
+command under an id already used was answered 200 with the first command's
+result. ADR-057 stores only a *successful* command's result, behind a
+fingerprint of that command, and refuses a different fingerprint without
+running the handler. So `command.id_reused` proves two things: the id's first
+command committed, and this one did not. Before the map knew the code, the
+fallback read it as `alreadyCommitted`. That was safe, because the kind forbids
+a retry, but it was wrong about the order: `alreadyCommitted` says this
+request's work happened, and here the work that happened is the earlier
+request's.
+
+The realistic route to it is the one §4's state machine already argues about:
+a failure after which the id is held, an edit the id survives, and a
+resubmission when the first attempt had in fact committed.
+`CommandIdentity.onFailure()` spends the id on `idReused` as it does on
+`alreadyCommitted`. Under that id the form meets the same refusal for as long
+as the result lives, and under a fresh one the edited request is a second
+order. What the page does next depends on the page:
+
+- **`CheckoutPage` stays where it is.** It keeps the edited address on screen,
+  spends the basket (an order from it exists) and leaves Place order disabled.
+  It does not route to the placed page, which would tell the customer that the
+  order they just sent was placed. It does not offer the edited order under a
+  fresh id either: that would certainly be a second order, and a warning to
+  check for the first would point at nothing, because there is no order read
+  (§7). A deliberate second order goes back through the cart.
+- **`PublishPage` starts a new entry, as it does for `alreadyCommitted`, and
+  for the same reason.** It never navigates, so a spent identity would leave
+  the tab dead for the session. It refreshes the catalogue and keeps the
+  edited values, and tells the user to check Products, where the product that
+  does exist can be read, before publishing again.
+
+Both pages say this in a note of their own under the form, because the
+backend's `detail` ("send a changed request under a new identifier") is
+written for a client, not for a customer.
 
 ## 6. 200, not 201
 
