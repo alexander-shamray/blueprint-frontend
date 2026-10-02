@@ -135,6 +135,16 @@ describe('mapError', () => {
     );
   });
 
+  it.each(['constructor', '__proto__'])(
+    '409 with code %s, a name every object inherits, is unknown too',
+    (code) => {
+      // The map is an object literal, so a lookup that reads inherited keys
+      // finds a function or Object.prototype here, not a kind: the id would
+      // not be spent and no page branch would fire.
+      expect(mapError(problem(409, { status: 409, code })).kind).toBe('alreadyCommitted');
+    },
+  );
+
   it('422 shows the backend title and detail verbatim', () => {
     const result = mapError(
       problem(422, {
