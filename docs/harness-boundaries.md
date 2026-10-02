@@ -557,9 +557,11 @@ launcher to each of those.
 index refresh goes through this launcher here, so the remembered path runs it
 too, and a refused call there is a refresh skipped rather than a tool held.
 And `.gitignore` ignores only `.claude/cache/codebase-index/`, not the whole
-of `.claude/cache/`: an empty mark is invisible to git all the same, and a
-mark something was put inside — the state that refuses every call — shows in
-`git status` as untracked, which is where its owner will see it.
+of `.claude/cache/`. An empty mark is invisible to git all the same. A mark
+something was put inside is the state that refuses every call, and git need
+not show it: an empty directory inside it, a name another rule ignores such
+as `__pycache__/`, or a file a branch committed there all leave `git status`
+clean. What does find it is the refusal, which names the mark's path.
 
 **The failure mode is loud and total, which is the good kind** — a host with
 none of the three gets `exit 2` and a message, and exit 2 is the only code a
