@@ -3227,34 +3227,30 @@ class CopilotFeedHelpersAreTheOnlyIntake(unittest.TestCase):
                 self.assertEqual(message + "\n", r.stderr)
 
     def _spawns_for(self, body, files):
-        # The `gh` stub, plus a counting stand-in for each tool the helper
-        # spawns per item — `grep` and `sed` — that logs its own name and then
-        # execs the real one from the rest of PATH. A stand-in that is not
-        # first on PATH refuses rather than recursing into itself.
+        # The `gh` stub on PATH, plus a counting function for each tool the
+        # helper spawns per item — `grep` and `sed` — that logs its name and
+        # then runs the real one. Functions rather than stand-ins on PATH: a
+        # function is found before any PATH entry, and a runner whose bash
+        # puts its own tool directory ahead of the inherited PATH never
+        # reaches a stand-in at all. `BASH_ENV` is what a non-interactive
+        # bash reads before the script, so the helper is run unmodified.
         d = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, d, ignore_errors=True)
         log = Path(d) / "spawns.log"
         log.write_text("", encoding="utf-8")
-        for name, script in (
-            ("gh", self._gh_printing(body, files)),
-            ("grep", None),
-            ("sed", None),
-        ):
-            if script is None:
-                script = (
-                    "printf '%s\\n' \"${0##*/}\" >> \"$LOCALITY_SPAWN_LOG\"\n"
-                    'self=${0%/*}\n'
-                    'case "$PATH" in "$self":*) PATH=${PATH#*:} ;;\n'
-                    '  *) echo "stand-in not first on PATH" >&2; exit 127 ;;\n'
-                    "esac\n"
-                    'exec "${0##*/}" "$@"\n'
-                )
-            tool = Path(d) / name
-            tool.write_text("#!/usr/bin/env bash\n" + script, encoding="utf-8")
-            tool.chmod(0o755)
+        gh = Path(d) / "gh"
+        gh.write_text("#!/usr/bin/env bash\n" + self._gh_printing(body, files),
+                      encoding="utf-8")
+        gh.chmod(0o755)
+        counting = Path(d) / "counting.sh"
+        counting.write_text(
+            'grep() { printf "grep\\n" >> "$LOCALITY_SPAWN_LOG"; command grep "$@"; }\n'
+            'sed() { printf "sed\\n" >> "$LOCALITY_SPAWN_LOG"; command sed "$@"; }\n',
+            encoding="utf-8", newline="\n")
         env = dict(os.environ)
         env["PATH"] = d + os.pathsep + env["PATH"]
-        env["LOCALITY_SPAWN_LOG"] = str(log)
+        env["BASH_ENV"] = counting.as_posix()
+        env["LOCALITY_SPAWN_LOG"] = log.as_posix()
         r = subprocess.run(
             [BASH, str(SCRIPTS / "pr-locality.sh"), "187"],
             capture_output=True, text=True, env=env,
