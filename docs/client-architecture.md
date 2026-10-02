@@ -287,7 +287,11 @@ order. What the page does next depends on the page:
   order they just sent was placed. It does not offer the edited order under a
   fresh id either: that would certainly be a second order, and a warning to
   check for the first would point at nothing, because there is no order read
-  (§7). A deliberate second order goes back through the cart.
+  (§7). A deliberate second order goes back through the cart. This is the one
+  terminal outcome on which checkout does not navigate away, the exception to
+  "navigates away on both terminal outcomes" in §12's *State at a tab root
+  never gets a teardown*: the way out is the back button, which pops the page
+  and destroys it, so the next visit builds a fresh `CommandIdentity`.
 - **`PublishPage` starts a new entry, as it does for `alreadyCommitted`, and
   for the same reason.** It never navigates, so a spent identity would leave
   the tab dead for the session. It refreshes the catalogue and keeps the
