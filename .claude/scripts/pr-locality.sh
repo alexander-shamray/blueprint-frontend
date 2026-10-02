@@ -113,6 +113,19 @@ for item in "${items[@]}"; do
   case "/$n/" in
     *//*|*/./*|*/../*) refuse "the Touch set row names a path outside the repository" ;;
   esac
+  # **An empty brace alternative is refused, not translated (#70).** `{a,}`
+  # becomes `(a|)` and `{}` becomes `()`, and an empty alternative in an ERE
+  # is undefined by POSIX: GNU grep reads `docs/{a,}.md` as admitting
+  # `docs/.md` and `docs/a.md`, BSD grep (macOS) matches neither, so the same
+  # touch set judged one path `inside` on one machine and `outside` on
+  # another, with no error. A refusal is the same on every platform, and no
+  # token in use writes one. A leading empty alternative, `{,a}`, already
+  # fails the boundary check above; `{}`, `{a,}`, `,,` and `,}` end here. A
+  # `,` outside braces never reaches this point — the split consumed it.
+  case "$t" in
+    *'{}'*|*'{,'*|*',,'*|*',}'*)
+      refuse "the Touch set row has an empty brace alternative" ;;
+  esac
   # The token as an anchored regular expression: `**` crosses directories,
   # `*` and `?` do not, braces are alternation, and a token also covers
   # everything beneath the directory it names — `tests/Ordering.*` is the

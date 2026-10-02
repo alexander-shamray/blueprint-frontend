@@ -3099,9 +3099,9 @@ class CopilotFeedHelpersAreTheOnlyIntake(unittest.TestCase):
         # between its two slashes, a `?` that does not cross one, a trailing
         # `/`, every non-alphanumeric character the grammar admits, padding
         # around a token, and a two-letter class written in reverse order.
-        # An empty brace alternative and an empty brace pair are left out on
-        # purpose: they become an empty regex alternative, which POSIX leaves
-        # undefined, and GNU grep and BSD grep answer it differently.
+        # An empty brace alternative and an empty brace pair are not here
+        # because the helper refuses them (#70); see
+        # `test_an_empty_brace_alternative_is_refused_on_every_platform`.
         body = (
             "| Class | B+A |\n"
             "| Touch set | lib/{a,{b,c}}/**, "
@@ -3130,6 +3130,32 @@ class CopilotFeedHelpersAreTheOnlyIntake(unittest.TestCase):
         self.assertEqual(0, r.returncode, r.stderr)
         self.assertEqual(
             ["class B+A"] + [f"{verdict} {path}" for path, verdict in expected],
+            r.stdout.splitlines(),
+        )
+
+    def test_an_empty_brace_alternative_is_refused_on_every_platform(self):
+        # #70. `docs/{a,}.md` and `src/{}x.ts` became `(a|)` and `()`, an
+        # empty ERE alternative that GNU grep reads as matching and BSD grep
+        # (macOS) as matching nothing, so the verdict depended on the runner.
+        # The helper refuses them before any pattern is built — exit 3, no
+        # verdict on stdout — and a well-formed brace beside them is still
+        # judged as before. A refusal is the same on ubuntu, windows and macOS,
+        # which is what the CI matrix proves here.
+        files = "docs/a.md\ndocs/.md\nsrc/x.ts\nsrc/ax.ts\n"
+        for token in ("docs/{a,}.md", "src/{}x.ts"):
+            with self.subTest(token=token):
+                body = f"| Class | D |\n| Touch set | {token} |\n"
+                r = self._run_locality_with_gh(self._gh_printing(body, files))
+                self.assertEqual(3, r.returncode, r.stderr)
+                self.assertEqual("", r.stdout)
+                self.assertEqual(
+                    "the Touch set row has an empty brace alternative\n", r.stderr)
+        body = "| Class | D |\n| Touch set | docs/{a,b}.md, src/{x,ax}.ts |\n"
+        r = self._run_locality_with_gh(self._gh_printing(body, files))
+        self.assertEqual(0, r.returncode, r.stderr)
+        self.assertEqual(
+            ["class D", "inside docs/a.md", "outside docs/.md",
+             "inside src/x.ts", "inside src/ax.ts"],
             r.stdout.splitlines(),
         )
 
@@ -3206,6 +3232,14 @@ class CopilotFeedHelpersAreTheOnlyIntake(unittest.TestCase):
             # check that refuses it, before any pattern is built.
             ("| Class | D |\n| Touch set | docs/{,a}.md |\n",
              [good], "the Touch set row names a path outside the repository"),
+            # #70: an empty alternative or pair is an empty ERE alternative,
+            # which GNU and BSD grep read differently, so it is refused.
+            ("| Class | D |\n| Touch set | docs/{a,}.md |\n",
+             [good], "the Touch set row has an empty brace alternative"),
+            ("| Class | D |\n| Touch set | src/{}x.ts |\n",
+             [good], "the Touch set row has an empty brace alternative"),
+            ("| Class | D |\n| Touch set | lib/{a,b{}}/x.ts |\n",
+             [good], "the Touch set row has an empty brace alternative"),
             (row, [good, "docs/raw.md"],
              "a changed path did not arrive as a JSON string"),
             (row, [json.dumps("docs/a\nb.md")], "a changed path is not a plain path"),
