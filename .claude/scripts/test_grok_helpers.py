@@ -3095,23 +3095,20 @@ class CopilotFeedHelpersAreTheOnlyIntake(unittest.TestCase):
     # verdicts rather than catching a defect, and are marked as such.
 
     def test_glob_corners_keep_their_verdicts(self):
-        # Characterisation. An empty brace alternative, an empty brace pair,
-        # nested braces, a `**/` that needs a directory between its two
-        # slashes, a `?` that does not cross one, a trailing `/`, every
-        # non-alphanumeric character the grammar admits, padding around a
-        # token, and a two-letter class written in reverse order.
+        # Characterisation. Nested braces, a `**/` that needs a directory
+        # between its two slashes, a `?` that does not cross one, a trailing
+        # `/`, every non-alphanumeric character the grammar admits, padding
+        # around a token, and a two-letter class written in reverse order.
+        # An empty brace alternative and an empty brace pair are left out on
+        # purpose: they become an empty regex alternative, which POSIX leaves
+        # undefined, and GNU grep and BSD grep answer it differently.
         body = (
             "| Class | B+A |\n"
-            "| Touch set | `docs/{a,}.md`, src/{}x.ts, lib/{a,{b,c}}/**, "
+            "| Touch set | lib/{a,{b,c}}/**, "
             "e2e/**/*.spec.ts,  assets/img?.png , tools/, "
             "`pkg(1)/a+b-c_d@e.txt` |\n"
         )
         expected = [
-            ("docs/.md", "inside"),
-            ("docs/a.md", "inside"),
-            ("docs/aa.md", "outside"),
-            ("src/x.ts", "inside"),
-            ("src/x.ts/deeper.ts", "inside"),
             ("lib/a/z.ts", "inside"),
             ("lib/c/deep/z.ts", "inside"),
             ("lib/d/z.ts", "outside"),
