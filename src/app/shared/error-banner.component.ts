@@ -3,7 +3,7 @@ import { IonIcon, IonNote, IonText } from '@ionic/angular';
 import { DisplayError, ErrorKind } from '@core/errors/error-mapper';
 
 /**
- * The six generic banners spec §6 permits, plus one each for the two extra
+ * The six generic banners spec §6 permits, plus one each for the three extra
  * 409s the backend distinguishes. Where the backend sends `title` and
  * `detail`, they are shown as sent and these are not used.
  */
@@ -16,6 +16,11 @@ const GENERIC: Readonly<Record<ErrorKind, string | null>> = {
   alreadyCommitted: 'This request was already applied. It has not been sent again.',
   inProgress: 'An identical request is still in flight. Try again in a moment.',
   concurrencyConflict: 'Someone else changed this while you were working. Reload and try again.',
+  // ADR-057 stores only a successful command's result, so the earlier
+  // submission is known to have been applied — and this one, which differs
+  // from it, is known not to have been.
+  idReused:
+    'An earlier submission from this form already went through, so this changed one was not applied.',
   rateLimited: 'Too many requests.',
   unavailable: 'The service is temporarily unavailable.',
   retry: 'Something went wrong.',
