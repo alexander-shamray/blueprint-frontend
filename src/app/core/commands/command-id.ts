@@ -19,7 +19,7 @@ export const ALREADY_COMMITTED = 'already-committed';
  * same id is refused with 409 `request.in_progress`; a retry of an id whose
  * result has expired is 409 `command.already_committed`; and a DIFFERENT
  * command under an id whose first command completed is 409 `command.id_reused`
- * (ADR-057, backend PR #371), refused without running. So the id is minted
+ * (backend ADR-057), refused without running. So the id is minted
  * once per FORM, not once per click — and the difference between the two is
  * the difference between a replay and a second order.
  */
