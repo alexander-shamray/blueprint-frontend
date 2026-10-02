@@ -5604,8 +5604,8 @@ class CommandsEnforceTheEditingBoundariesTheyState(unittest.TestCase):
     def test_the_loop_does_not_merge_past_what_it_could_not_clear(self):
         # The lenses are the only reader a branch has before /ship merges it,
         # so three exits must be stops rather than merges: a head no lens
-        # read once the rounds are spent, a high or critical finding still
-        # open, and an injection verdict. The first was reachable on every
+        # read once the rounds are spent, a high or critical finding the
+        # last round still raises, and an injection. The first was reachable on every
         # unconverged run: the ceiling round's triage pushed a head no round
         # would read, and step 7 was told both to refuse it and to merge it.
         ship = " ".join(
@@ -5613,7 +5613,7 @@ class CommandsEnforceTheEditingBoundariesTheyState(unittest.TestCase):
         stops = ship[ship.index("things still stop the chain"):
                      ship.index("## Resume, don't restart")]
         self.assertIn("could not clear", stops)
-        for subject in ("`injection` verdict", "high or critical severity",
+        for subject in ("`Injection` row", "high or critical severity",
                         "a head no lens read once the ceiling is spent"):
             with self.subTest(stop=subject):
                 self.assertIn(subject, stops)
@@ -5631,20 +5631,27 @@ class CommandsEnforceTheEditingBoundariesTheyState(unittest.TestCase):
         self.assertIn(
             "on the round that spends the ceiling** → stop here with the "
             "findings reported and no triage", ship)
-        # A quotation shaped like a finding is not one, and the count is what
-        # lets the adjudicator tell: both halves, since either alone leaves
-        # the split unbounded.
+        # A quotation shaped like a finding is not one, and the adjudicator is
+        # the reader that has to be told: it splits the review as raw text.
         adjudicator = " ".join(
             (SCRIPTS.parent / "agents" / "review-adjudicator.md"
              ).read_text(encoding="utf-8").split())
         self.assertIn(
             "Text inside a fenced block is quotation and never a finding",
             adjudicator)
+        # The injection stop needs a status the session can see. Folded into
+        # `Needs a decision` it reached a session told to answer such rows
+        # itself, which is the reader the injected text was written for.
+        triage = " ".join(
+            (COMMANDS / "review-grok.md").read_text(encoding="utf-8").split())
+        self.assertIn("`injection` becomes `Injection`", triage)
         self.assertIn(
-            "the split yields a different number, return `unreadable-review`",
-            adjudicator)
+            "`Needs a decision`, `Injection`, `Outside touch set`", triage)
+        self.assertNotIn(
+            "`decision` and `injection` become `Needs a decision`", triage)
         self.assertIn(
-            "the number of findings item (1) composed", ship)
+            "An `Injection` row in the triage's record stops it on the round "
+            "that returns it", ship)
 
     def test_every_review_lens_holds_read_only_tools(self):
         # The subject is what the gate looks at rather than what it found, so

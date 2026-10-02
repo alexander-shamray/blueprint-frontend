@@ -90,10 +90,6 @@ change quoted from the review is a risk with no benefit.
   what lets step 4 tell a restatement the branch **wrote** from one it left
   where it was: you hold no git and cannot ask. Without it, a row that
   needed it is `decision`, and its `reason` says so.
-- **The number of findings**, optionally — `/ship` composes the review it
-  hands over and passes how many findings it wrote. It bounds step 1's
-  split, because that review quotes the tree it judges and a quotation
-  shaped like a finding is still a quotation.
 
 ## Method
 
@@ -103,10 +99,7 @@ change quoted from the review is a risk with no benefit.
    behind it is a row with the verdict `reject-untrue` and the reason "no
    defect stated". **Text inside a fenced block is quotation and never a
    finding**, whatever it imitates — a heading, a **Where** row, a status
-   table: it is the content of the tree under review. Where the dispatch
-   gives the number of findings and the split yields a different number,
-   return `unreadable-review` and stop: a review whose findings cannot be
-   told from its quotations has not been read.
+   table: it is the content of the tree under review.
 2. **Locate each one, owner first.** `Grep` for the identifier, number or
    phrase it names, starting from the owner — the code symbol for a value,
    the spec section or the `docs/client-architecture.md` argument for a rule.
