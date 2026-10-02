@@ -146,7 +146,23 @@ done
 # read as a JSON string so that a newline inside a name cannot be a second
 # line: a name that needed an escape is refused rather than decoded.
 files=$(gh api "repos/{owner}/{repo}/pulls/$pr/files" --paginate --jq '.[].filename | @json')
+#
+# **No process is spawned per changed path (#61).** The validation below and
+# the matcher after it each ran a `grep` per path — the matcher once per path
+# per pattern — so the cost was quadratic in the two things a pull request
+# grows, and on Windows, where process creation is the expensive operation, a
+# 50-file change against a 10-token set was the difference between a helper
+# that answers and one that appears to hang inside /ship.
+#
+# The character check is a `case` over the grammar's characters spelled out
+# one by one rather than as ranges, because a range in a bracket expression is
+# the locale's to interpret and this list is not: it admits exactly the ASCII
+# characters `^[A-Za-z0-9_./@+()-]+$` names, and any other byte or character
+# — raw UTF-8 included — refuses the run as before. An empty name refuses too,
+# as `+` did; the `[/.]` check below would also catch it, with the same
+# message.
 verdicts=()
+list=""
 while IFS= read -r line; do
   [ -n "$line" ] || continue
   case "$line" in
@@ -155,16 +171,40 @@ while IFS= read -r line; do
   esac
   case "$line" in *\\*) refuse "a changed path is not a plain path" ;; esac
   path="${line:1:${#line}-2}"
-  grep -Eq '^[A-Za-z0-9_./@+()-]+$' <<<"$path" || refuse "a changed path is not a plain path"
+  case "$path" in
+    ''|*[!ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_./@+\(\)-]*)
+      refuse "a changed path is not a plain path" ;;
+  esac
   case "$path" in *[/.]*) ;; *) refuse "a changed path is not a plain path" ;; esac
   case "/$path/" in *//*|*/./*|*/../*) refuse "a changed path is not a plain path" ;; esac
   verdicts+=("$path")
+  list+="$path"$'\n'
 done <<<"$files"
 printf 'class %s\n' "$class"
+# **One `grep` per pattern over every path at once, and the matcher is still
+# `grep -E`.** A bash `[[ =~ ]]` would spawn nothing, and it was not taken:
+# it hands the pattern to the platform's own regcomp — glibc, Cygwin's and
+# Apple's are three engines — where `grep -E` is the one these patterns and
+# their verdicts were written and tested against. The verdict decides `inside`
+# from `outside` for a path the author chose, so the engine stays and only the
+# batching moves. `grep` is line-oriented and a validated path holds no
+# newline, so line N's match is exactly what `grep -Eq` said of path N alone;
+# `-n` says which lines matched. A pattern `grep` cannot compile matches
+# nothing, as it did per path, and leaves every other pattern's verdict alone
+# — the reason this is one `grep` per pattern and not one `-e` list.
+hits=()
+if [ -n "$list" ]; then
+  for re in "${patterns[@]}"; do
+    matched=$(grep -nE -e "$re" <<<"${list%$'\n'}" || true)
+    while IFS=: read -r n _; do
+      [ -z "$n" ] || hits[n - 1]=1
+    done <<<"$matched"
+  done
+fi
+i=0
 for path in "${verdicts[@]}"; do
   verdict=outside
-  for re in "${patterns[@]}"; do
-    if grep -Eq "$re" <<<"$path"; then verdict=inside; break; fi
-  done
+  [ -z "${hits[i]:-}" ] || verdict=inside
   printf '%s %s\n' "$verdict" "$path"
+  i=$((i + 1))
 done
