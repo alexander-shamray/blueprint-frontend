@@ -94,6 +94,20 @@ describe('CommandIdentity', () => {
     expect(identity.isSpent()).toBe(true);
   });
 
+  it('spends the id after a reused-id answer, and an edit does not release it', () => {
+    // command.id_reused (ADR-057): this id's first command completed. The id
+    // replays nothing this form now holds, and a fresh one would place the
+    // edited request as a second order, so no edit may mint one.
+    const identity = new CommandIdentity();
+    const first = identity.current();
+
+    identity.onFailure(failure('idReused'));
+    identity.onEdit();
+
+    expect(identity.current()).toBe(first);
+    expect(identity.isSpent()).toBe(true);
+  });
+
   it('asserts v4 uuid format with version and variant nibbles', () => {
     const id = new CommandIdentity().current();
     // Version 4 (random) has 4 in the third group's first position

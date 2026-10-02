@@ -78,6 +78,23 @@ import { ErrorBannerComponent } from '@shared/error-banner.component';
           Place order
         </ion-button>
       </form>
+
+      <!--
+        command.id_reused: the form stays on screen with the user's changes in
+        it, because those changes are what was NOT applied, and this note is
+        the page saying so in its own words — the banner above carries the
+        platform's title and detail, which are addressed to a client rather
+        than to a customer.
+      -->
+      @if (error()?.kind === 'idReused') {
+        <ion-item>
+          <ion-note>
+            This order was already placed by an earlier submission from this page, so any changes
+            you made since were not applied, and nothing was sent again. Its id cannot be shown
+            here: the platform exposes no endpoint that reads an order back.
+          </ion-note>
+        </ion-item>
+      }
     </ion-content>
   `,
 })
@@ -148,7 +165,8 @@ export class CheckoutPage {
 
   placeOrder(): void {
     // Guards the same window the button's [disabled] binding guards, and for
-    // the same reason: after a success or an already_committed, handoff.clear()
+    // the same reason: after a success, an already_committed or an id_reused
+    // (which spends the quote without leaving this page), handoff.clear()
     // has run but router.navigate() has not resolved yet, identity.isSpent()
     // may already be false again (onSuccess() clears it), and the form is
     // still valid — so a click landing in that gap would otherwise reach
@@ -203,6 +221,21 @@ export class CheckoutPage {
           void this.router.navigate(['/tabs/cart/placed', ALREADY_COMMITTED]);
         }
 
+        // command.id_reused: the earlier submission under this id was placed
+        // — ADR-057 stores only a success's result, and refuses a different
+        // command against it without running the handler — and THIS one,
+        // which differs from it (the address, edited since), was not. So the
+        // order exists and the basket is spent, as on a 200. The page does
+        // not move: the placed page would tell the customer that the order
+        // they just sent was placed, which is the one thing this response
+        // rules out. Nor does it offer the edited order again under a new
+        // id: that order is certainly a second one, and the customer cannot
+        // check the first from here (no order read, §7). onFailure() has
+        // spent the identity, so Place order stays disabled; leaving and
+        // coming back through the cart is how a deliberate second order is
+        // made.
+        if (displayed.kind === 'idReused') this.spendQuote();
+
         // Spec §6's 401 row: the caller invokes AuthService.signIn() and
         // replays after. What this page replays is THIS order, under the
         // commandId it already holds — `identity.onFailure()` above mints
@@ -256,9 +289,10 @@ export class CheckoutPage {
   }
 
   /**
-   * Both paths that end the checkout flow — a 200 and command.already_committed
-   * — need the same two writes, and for the same reason: the order exists (or,
-   * for already_committed, might as well), so the basket that produced it is
+   * The three paths that end the checkout flow — a 200,
+   * command.already_committed and command.id_reused — need the same two
+   * writes, and for the same reason: the order exists (or, for
+   * already_committed, might as well), so the basket that produced it is
    * spent. Clearing only the cart is half of that: quoteGuard reads the
    * handoff to decide whether this route is reachable at all, so a quote left
    * behind lets the user navigate back into checkout with an emptied cart and

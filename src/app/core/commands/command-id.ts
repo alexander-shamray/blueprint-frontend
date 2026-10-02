@@ -17,7 +17,9 @@ export const ALREADY_COMMITTED = 'already-committed';
  * The backend keys IdempotencyBehavior on subject, operation and commandId. A
  * retry with the same id is a replay; a concurrent second request with the
  * same id is refused with 409 `request.in_progress`; a retry of an id whose
- * result has expired is 409 `command.already_committed`. So the id is minted
+ * result has expired is 409 `command.already_committed`; and a DIFFERENT
+ * command under an id whose first command completed is 409 `command.id_reused`
+ * (ADR-057, backend PR #371), refused without running. So the id is minted
  * once per FORM, not once per click — and the difference between the two is
  * the difference between a replay and a second order.
  */
@@ -29,7 +31,9 @@ export class CommandIdentity {
   readonly current: Signal<string> = this.id.asReadonly();
 
   /**
-   * True once the platform has said this id already committed. Do not resubmit it.
+   * True once the platform has said this id already committed — either
+   * `command.already_committed`, or `command.id_reused`, which ADR-057 answers
+   * only when the id's first command succeeded. Do not resubmit it.
    *
    * This is a *record* of the fact, not an enforcement: `current()` returns a
    * usable id regardless of this signal's value. A page holding a spent identity
@@ -47,7 +51,12 @@ export class CommandIdentity {
     // committed, so the id is held.
     this.failedValidationOnly = error.kind === 'validation';
 
-    if (error.kind === 'alreadyCommitted') this.spent.set(true);
+    // A reused id is spent for the same reason: its first command completed,
+    // so under this id the form meets the same refusal for as long as the
+    // platform keeps the result, and under a fresh one an edited request
+    // becomes a second order. Whether a new form entry may start is the
+    // page's call, made by calling onSuccess(), as it is for the other code.
+    if (error.kind === 'alreadyCommitted' || error.kind === 'idReused') this.spent.set(true);
   }
 
   /**

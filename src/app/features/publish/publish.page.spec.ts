@@ -159,6 +159,47 @@ describe('PublishPage', () => {
     await fixture.whenStable();
   });
 
+  it('on command.id_reused keeps the edited product, refreshes the catalogue and starts a new entry', async () => {
+    const refresh = TestBed.inject(CatalogRefresh);
+    const before = refresh.current();
+
+    fixture.componentInstance.publish();
+    const first = controller.expectOne('http://localhost:5000/api/v1/catalog/products');
+    const firstId = first.request.body.commandId;
+    first.flush({ title: 'Service Unavailable', status: 503 }, { status: 503, statusText: '' });
+    await fixture.whenStable();
+
+    fixture.componentInstance.form.controls.name.setValue('A renamed widget');
+    fixture.componentInstance.publish();
+    const second = controller.expectOne('http://localhost:5000/api/v1/catalog/products');
+    expect(second.request.body.commandId).toBe(firstId);
+    second.flush(
+      { status: 409, code: 'command.id_reused', detail: 'Already used for a different request.' },
+      { status: 409, statusText: 'Conflict' },
+    );
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    // The earlier publish went through and the rename did not. The product
+    // that exists is the one the catalogue should show, and the edit stays
+    // on the form for the user to read against it.
+    expect(fixture.componentInstance.error()?.kind).toBe('idReused');
+    expect(fixture.componentInstance.publishedId()).toBeNull();
+    expect(fixture.componentInstance.form.controls.name.value).toBe('A renamed widget');
+    expect(refresh.current()).toBe(before + 1);
+    expect(fixture.nativeElement.textContent).toContain('Check Products before publishing again');
+
+    // This page never navigates, so a spent identity would leave the tab dead
+    // for the session; a new entry starts instead, and the next publish is a
+    // new product under a new id.
+    expect(fixture.componentInstance.identity.isSpent()).toBe(false);
+    fixture.componentInstance.publish();
+    const third = controller.expectOne('http://localhost:5000/api/v1/catalog/products');
+    expect(third.request.body.commandId).not.toBe(firstId);
+    third.flush('77777777-7777-7777-7777-777777777777', { status: 200, statusText: 'OK' });
+    await fixture.whenStable();
+  });
+
   it('shows field errors from a 400 keyed as the validator keyed them', async () => {
     fixture.componentInstance.publish();
     controller.expectOne('http://localhost:5000/api/v1/catalog/products').flush(
