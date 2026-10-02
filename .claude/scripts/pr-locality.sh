@@ -119,9 +119,11 @@ for item in "${items[@]}"; do
   # `docs/.md` and `docs/a.md`, BSD grep (macOS) matches neither, so the same
   # touch set judged one path `inside` on one machine and `outside` on
   # another, with no error. A refusal is the same on every platform, and no
-  # token in use writes one. A leading empty alternative, `{,a}`, already
-  # fails the boundary check above; `{}`, `{a,}`, `,,` and `,}` end here. A
-  # `,` outside braces never reaches this point — the split consumed it.
+  # token in use writes one. The boundary check above already refuses an empty
+  # alternative at a segment start (`docs/{,a}.md`, `docs/{a,,b}.md`), with its
+  # own message; `{}` and `,}` are what reach here, and `{,` and `,,` are kept
+  # as a second net for the mid-segment forms. A `,` outside braces never
+  # reaches this point — the split consumed it.
   case "$t" in
     *'{}'*|*'{,'*|*',,'*|*',}'*)
       refuse "the Touch set row has an empty brace alternative" ;;
