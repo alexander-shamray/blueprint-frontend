@@ -42,6 +42,8 @@ import unittest
 from unittest import mock
 from pathlib import Path
 
+import in_process_hook
+
 SCRIPTS = Path(__file__).resolve().parent
 HOOK = SCRIPTS.parent / "hooks" / "guard-edit-target.py"
 SETTINGS = SCRIPTS.parent / "settings.json"
@@ -185,20 +187,30 @@ class GuardCase(unittest.TestCase):
         return linkpath
 
     def judge(self, file_path, tool="Edit", cwd=None, key="file_path",
-              project=None):
-        """The hook's verdict on one call: the reason, or `None` for allowed."""
+              project=None, spawn=False):
+        """The hook's verdict on one call: the reason, or `None` for allowed.
+
+        **In this process unless `spawn`** (blueprint-frontend#74),
+        through `main()` as `in_process_hook` argues;
+        `test_a_spawned_hook_gives_the_same_verdict` is each class's
+        real-process control.
+        """
         event = {
             "hook_event_name": "PreToolUse",
             "cwd": self.root if cwd is None else cwd,
             "tool_name": tool,
             "tool_input": {} if file_path is None else {key: file_path},
         }
-        result = subprocess.run(
-            [sys.executable, str(HOOK)],
-            input=json.dumps(event), capture_output=True, text=True,
-            env={**os.environ,
-                 "CLAUDE_PROJECT_DIR": self.root if project is None else project},
-        )
+        env = {**os.environ,
+               "CLAUDE_PROJECT_DIR": self.root if project is None else project}
+        if spawn:
+            result = subprocess.run(
+                [sys.executable, str(HOOK)],
+                input=json.dumps(event), capture_output=True, text=True,
+                env=env,
+            )
+        else:
+            result = in_process_hook.run(HOOK, json.dumps(event), env=env)
         self.assertEqual(
             0, result.returncode,
             f"the hook must return a decision, not a traceback: {result.stderr}")
@@ -224,6 +236,27 @@ class GuardCase(unittest.TestCase):
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
         return module
+
+    def test_a_spawned_hook_gives_the_same_verdict(self):
+        # **The real-process control, inherited so every class here runs
+        # it** (blueprint-frontend#74). `judge` asks `main()` in this
+        # process, so the interpreter, stdin, the environment and the exit
+        # status are reached only by a spawn: an admitted edit, a refusal
+        # through a link, a target outside every checkout, a call with no
+        # path and a tool this guard does not judge, each asked both ways and
+        # required to agree.
+        helper = os.path.join(self.root, ".claude", "scripts", "helper.sh")
+        for file_path, tool in (
+            (os.path.join(self.root, "docs", "chapter.md"), "Edit"),
+            (self.link_to("parity", helper, linkers()[0]), "Write"),
+            (os.path.join(self.outside, "loot.txt"), "Edit"),
+            (None, "Edit"),
+            (os.path.join(self.outside, "loot.txt"), "Read"),
+        ):
+            with self.subTest(file_path=file_path, tool=tool):
+                self.assertEqual(
+                    self.judge(file_path, tool=tool, spawn=True),
+                    self.judge(file_path, tool=tool))
 
 
 class ALinkIsNotTheFileItIsSpelledAs(GuardCase):

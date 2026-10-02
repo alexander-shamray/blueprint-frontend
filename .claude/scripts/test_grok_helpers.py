@@ -147,6 +147,8 @@ import unittest
 from unittest import mock
 from pathlib import Path
 
+import in_process_hook
+
 SCRIPTS = Path(__file__).resolve().parent
 REVIEW = SCRIPTS / "grok-review.sh"
 LEDGER = SCRIPTS / "grok-ledger.sh"
@@ -6176,16 +6178,28 @@ class TheGitArgvGuard(unittest.TestCase):
     built-in, so it reaches commands no allow or deny rule is consulted for.
     """
 
-    def judge(self, command, tool="Bash", cwd=None, timeout=None):
-        """The hook's verdict on one command: None to allow, or the reason."""
+    def judge(self, command, tool="Bash", cwd=None, timeout=None,
+              spawn=False):
+        """The hook's verdict on one command: None to allow, or the reason.
+
+        **In this process unless the case needs a process**
+        (blueprint-frontend#74) — through `main()`, with `EVENT_CWD` put
+        back between cases, which `in_process_hook` argues. A `timeout`
+        always spawns: in the budget cases the subprocess bound IS the
+        assertion, and nothing in-process can cut a scan off. `spawn` is the
+        rest of the real-process controls.
+        """
         event = {"tool_name": tool, "tool_input": {"command": command}}
         if cwd is not None:
             event["cwd"] = cwd
-        result = subprocess.run(
-            [sys.executable, str(HOOK)],
-            input=json.dumps(event), capture_output=True, text=True,
-            timeout=timeout,
-        )
+        if spawn or timeout is not None:
+            result = subprocess.run(
+                [sys.executable, str(HOOK)],
+                input=json.dumps(event), capture_output=True, text=True,
+                timeout=timeout,
+            )
+        else:
+            result = in_process_hook.run(HOOK, json.dumps(event))
         self.assertEqual(0, result.returncode, result.stderr)
         if not result.stdout.strip():
             return None
@@ -6216,6 +6230,40 @@ class TheGitArgvGuard(unittest.TestCase):
         ):
             with self.subTest(command=command):
                 self.assertAdmitted(command)
+
+    def test_a_spawned_hook_gives_the_in_process_verdict(self):
+        # **The real-process control for every in-process case here**
+        # (blueprint-frontend#74). `judge` asks `main()` in this process, so
+        # the interpreter, stdin and the exit status are reached only by a
+        # spawn: this runs a spread of the shapes below both ways — admitted,
+        # refused, a non-Bash tool, a verdict that depends on the event's
+        # `cwd`, and one deep enough to reach the nesting cap — and requires
+        # the same answer from each. The budget cases and the malformed event
+        # spawn on their own.
+        root = tempfile.mkdtemp(prefix="argv-parity-")
+        self.addCleanup(shutil.rmtree, root, ignore_errors=True)
+        os.makedirs(os.path.join(root, ".git"))
+        os.makedirs(os.path.join(root, "src", "app"))
+        nested = "git status"
+        for _ in range(40):
+            nested = "$(echo " + nested + ")"
+        for command, tool, cwd in (
+            ("git status --short", "Bash", None),
+            ("git log -1 --format=%B --out''put=/tmp/probe", "Bash", None),
+            ("git push origin +HEAD:main", "Bash", None),
+            ("git push origin +HEAD:main", "Read", None),
+            ("ls > src/app/x.ts", "Bash", root),
+            ("cat foo.txt > notes.md", "Bash", root),
+            ("echo " + nested, "Bash", None),
+        ):
+            with self.subTest(command=command[:40], tool=tool, cwd=cwd):
+                self.assertEqual(self.judge(command, tool, cwd, spawn=True),
+                                 self.judge(command, tool, cwd))
+
+        # And the reset the module needs between cases: the event's `cwd` is
+        # a module global, and it must not outlive the case that set it.
+        self.assertIsNotNone(self.judge("ls > src/app/x.ts", cwd=root))
+        self.assertIsNone(in_process_hook.load(HOOK)[0].EVENT_CWD)
 
     # ---- #30: the write primitive ------------------------------------------
 
@@ -11392,32 +11440,41 @@ class TheTriagerDispatchesOnlyTheAdjudicator(unittest.TestCase):
 
     `/ship` grants the triager and so cannot deny it, so no deny list stops
     the triager spawning another editing triager. The profile's own
-    `PreToolUse` hook is the rule; these cases run it through the launcher,
-    exactly as the harness does, and pin the wiring that makes it the
-    profile's rather than the session's.
+    `PreToolUse` hook is the rule; these cases pin it and the wiring that
+    makes it the profile's rather than the session's.
+
+    **Most of them ask `main()` in this process** (blueprint-frontend#74),
+    which `in_process_hook` argues; the positive control, the triager refusing
+    itself and the unreadable event still run it through the launcher, exactly
+    as the harness does, so the launcher, stdin and the blocking exit status
+    are exercised end to end.
     """
 
     LAUNCHER = SCRIPTS.parent / "hooks" / "run-guard.sh"
+    GUARD = SCRIPTS.parent / "hooks" / "guard-triager-dispatch.py"
     PROFILE = SCRIPTS.parent / "agents" / "review-grok-triager.md"
 
-    def run_guard(self, event):
+    def run_guard(self, event, spawn=False):
         payload = event if isinstance(event, str) else json.dumps(event)
+        if not spawn:
+            return in_process_hook.run(self.GUARD, payload)
         return subprocess.run(
             [BASH, str(self.LAUNCHER), "guard-triager-dispatch.py"],
             input=payload, capture_output=True, text=True)
 
-    def dispatch(self, subagent_type, tool="Agent"):
+    def dispatch(self, subagent_type, tool="Agent", spawn=False):
         tool_input = {"description": "d", "prompt": "p"}
         if subagent_type is not None:
             tool_input["subagent_type"] = subagent_type
-        return self.run_guard({"tool_name": tool, "tool_input": tool_input})
+        return self.run_guard({"tool_name": tool, "tool_input": tool_input},
+                              spawn=spawn)
 
     def test_the_adjudicator_passes(self):
         # The positive control: without it every refusal below passes against
         # a guard that refuses everything, and the triage could never start.
         for tool in ("Agent", "Task"):
             with self.subTest(tool=tool):
-                out = self.dispatch("review-adjudicator", tool)
+                out = self.dispatch("review-adjudicator", tool, spawn=True)
                 self.assertEqual(0, out.returncode, out.stderr)
                 self.assertEqual("", out.stdout)
 
@@ -11428,7 +11485,8 @@ class TheTriagerDispatchesOnlyTheAdjudicator(unittest.TestCase):
                        "Review-Adjudicator", "review-adjudicator ", "", None):
             for tool in ("Agent", "Task"):
                 with self.subTest(subagent_type=wanted, tool=tool):
-                    out = self.dispatch(wanted, tool)
+                    out = self.dispatch(
+                        wanted, tool, spawn=wanted == "review-grok-triager")
                     self.assertEqual(0, out.returncode, out.stderr)
                     decision = json.loads(out.stdout)["hookSpecificOutput"]
                     self.assertEqual("deny", decision["permissionDecision"])
@@ -11437,7 +11495,7 @@ class TheTriagerDispatchesOnlyTheAdjudicator(unittest.TestCase):
         # Fail closed: exit 2 is the only code that blocks a PreToolUse call.
         for event in ("not json", "[]", "\"Agent\""):
             with self.subTest(event=event):
-                self.assertEqual(2, self.run_guard(event).returncode)
+                self.assertEqual(2, self.run_guard(event, spawn=True).returncode)
 
     def test_other_tools_are_not_judged(self):
         out = self.run_guard({"tool_name": "Edit",
@@ -11464,10 +11522,17 @@ class TheTriagerEditsNothingShipDenies(unittest.TestCase):
     """`/ship`'s `Edit(...)` denies bind the triager in every turn.
 
     The frontmatter list lasts only the turn `/ship` was loaded in, so the
-    profile's own `PreToolUse` hook is the boundary; these cases run it
-    through the launcher, as the harness does, and read the patterns from
-    `ship.md` rather than from a copy, so the subject is the list the guard
-    reads and a path added there is covered here with no edit to this class.
+    profile's own `PreToolUse` hook is the boundary; these cases read the
+    patterns from `ship.md` rather than from a copy, so the subject is the
+    list the guard reads and a path added there is covered here with no edit
+    to this class.
+
+    **Most of them ask the guard's `run()` in this process**
+    (blueprint-frontend#74) — the entry its `__main__` block calls, crash
+    handler and all — because one process per deny, per spelling, was most
+    of this class's cost. An
+    ordinary edit, every edit tool refused and the unreadable events still
+    run through the launcher, as the harness does.
     """
 
     LAUNCHER = SCRIPTS.parent / "hooks" / "run-guard.sh"
@@ -11476,19 +11541,21 @@ class TheTriagerEditsNothingShipDenies(unittest.TestCase):
     SHIP = SCRIPTS.parent / "commands" / "ship.md"
     ROOT = SCRIPTS.parent.parent
 
-    def run_guard(self, event):
+    def run_guard(self, event, spawn=False):
         payload = event if isinstance(event, str) else json.dumps(event)
+        if not spawn:
+            return in_process_hook.run(self.GUARD, payload, entry="run")
         return subprocess.run(
             [BASH, str(self.LAUNCHER), "guard-triager-edit.py"],
             input=payload, capture_output=True, text=True)
 
-    def edit(self, path, tool="Edit", cwd=None):
+    def edit(self, path, tool="Edit", cwd=None, spawn=False):
         key = "notebook_path" if tool == "NotebookEdit" else "file_path"
         return self.run_guard({
             "tool_name": tool,
             "tool_input": {key: path},
             "cwd": str(cwd or self.ROOT),
-        })
+        }, spawn=spawn)
 
     def assert_refused(self, out):
         self.assertEqual(0, out.returncode, out.stderr)
@@ -11530,7 +11597,9 @@ class TheTriagerEditsNothingShipDenies(unittest.TestCase):
                      str(self.ROOT / "docs" / "testing.md")):
             for tool in ("Edit", "Write", "MultiEdit"):
                 with self.subTest(path=path, tool=tool):
-                    self.assert_admitted(self.edit(path, tool))
+                    self.assert_admitted(self.edit(
+                        path, tool,
+                        spawn=path == "docs/harness-boundaries.md"))
 
     def test_every_ship_deny_is_refused(self):
         denies = self.ship_denies()
@@ -11545,7 +11614,7 @@ class TheTriagerEditsNothingShipDenies(unittest.TestCase):
     def test_every_edit_tool_is_judged(self):
         for tool in ("Edit", "Write", "MultiEdit", "NotebookEdit"):
             with self.subTest(tool=tool):
-                self.assert_refused(self.edit("README.md", tool))
+                self.assert_refused(self.edit("README.md", tool, spawn=True))
 
     def test_spellings_windows_folds_are_refused(self):
         for spelled in ("README.md.", "README.md ", "README.md:stream",
@@ -11582,7 +11651,7 @@ class TheTriagerEditsNothingShipDenies(unittest.TestCase):
                       json.dumps({"tool_name": "Edit", "tool_input": {}}),
                       json.dumps({"tool_name": "Write", "tool_input": "x"})):
             with self.subTest(event=event):
-                self.assertEqual(2, self.run_guard(event).returncode)
+                self.assertEqual(2, self.run_guard(event, spawn=True).returncode)
 
     def test_a_ship_md_without_edit_denies_blocks(self):
         # Fail closed on the source: a guard that finds no rules and admits
