@@ -1644,8 +1644,11 @@ and it stopped denying the two auditors it used to deny by name. Three
 profiles reached from the most autonomous command here is a wider grant than
 one. What bounds it is the thing a permission rule cannot state: each of those
 profiles is `Read`, `Grep` and `Glob` and nothing else, so the widening buys
-three readers and no new way to *act*.
-`test_every_review_lens_holds_read_only_tools` is what keeps that true —
+three readers and no new way to *act*. **Which type does a lens's job is
+bound by the command's prose and nothing else**: `allowed-tools` grants the
+three and restricts no other, and `disallowed-tools` names the broad built-in
+types only for the turn it holds.
+`test_every_review_lens_holds_read_only_tools` is what keeps the profile half true —
 because the property lives in three files the grant does not name, and a grant
 whose safety is a property of another file is the eleventh entry's general form
 exactly.
@@ -1654,7 +1657,15 @@ exactly.
 boundary claimed where none exists.** The lenses also *report*, and their
 reports land in `/ship`'s own session — the context holding `git commit`,
 `git push` and `gh-pr-merge.sh`, which also decides whether the round was
-clean. A lens is required to quote the branch text it is judging, so
+clean. **That session holds two more things than those three**: `Write`, over
+every tree only `ship.md`'s frontmatter denies it, and `npm-checks.sh`, which
+runs `package.json`'s scripts and the JavaScript configuration on the host.
+`.claude/settings.json` denies a session none of `.github/**`, `package.json`,
+`.npmrc` or the configuration files — those denies are the command's, which
+this file records above as holding for the turn that loaded it — so a session
+steered by a report could write a script and then be told to run the checks.
+Moving those denies into `settings.json`, as `.claude/**`'s were, is the fix;
+that file is the owner's to edit and it is not done. A lens is required to quote the branch text it is judging, so
 branch-controlled bytes now re-enter the privileged session before any
 adjudication: under the launcher `/ship` never opened the review at all, and
 the only reader of its content was the read-only adjudicator. **That is a
@@ -1685,20 +1696,34 @@ frontmatter, and `/review-copilot` is still hand-runnable against a review
 requested by other means. Step 6 reports itself skipped because the caller
 instructed it to, which is an instruction to one command and not a refusal by
 the harness — so nothing here stops a session requesting a review, and
-restoring the loop is deleting a paragraph rather than lifting a lock. Were it
+restoring the loop is reverting a skip, at the sites `ship.md` step 6 lists,
+rather than lifting a lock. Were it
 ever made a boundary, this is the file that would record the deny and
 `settings.json` is where it would live.
 
-**Two methods come out of the branch under review, and only one was moved.**
+**Methods come out of the branch under review at three places, and only one
+was moved.**
 `branch-reviewer` takes its bar from `review-branch.md` as `origin/main`
 carries it, because a branch that can edit that command chooses the bar it is
 judged against — the shape the sandbox met when its image was built from the
-branch it was about to review. **The triage's method was not moved.**
+branch it was about to review. **The two auditors' methods are their
+profiles, and those were not moved**: a profile is a tracked file read from
+the checkout, its `tools:` line with it, and so is `branch-reviewer`'s own
+list of refusals. `test_every_review_lens_holds_read_only_tools` reads the
+branch's copies, in CI, which step 7 waits on after step 5 has already
+dispatched them — so a branch that edits a lens's profile is reviewed by that
+edit. **The triage's method was not moved.**
 `review-grok-triager` reads `.claude/commands/review-grok.md` out of the
 checkout, and unlike the three lenses that agent holds `Edit` and `Write` and
 applies findings unattended, so the asymmetry runs the wrong way: the reader
 was protected and the writer was not. It is owed the same extraction and has
-not had it. **`ship.md` cited this record before the record existed**, which
+not had it. **Two things bound all three, and neither is a mechanism in the
+loop.** `.claude/settings.json` denies a session `Edit` on
+`.claude/agents/**` and `.claude/commands/**`, so each takes a change made
+with that deny lifted, or made outside the session's tools. And what a
+rewritten method makes the triager write is read by the next round's lenses,
+which is why step 5 runs no triage on the round that spends its ceiling:
+there would be no next round. **`ship.md` cited this record before the record existed**, which
 is why it is written here rather than left as a citation to nothing.
 
 **The guard that bounds that agent reads its rules from the same tree.**
