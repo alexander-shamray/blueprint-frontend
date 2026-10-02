@@ -187,7 +187,8 @@ Findings as raw structured data, most severe first — not a message to a person
 For each:
 
 - the file path, relative to the root, and the line;
-- a severity — critical / high / medium / low / info;
+- a severity — critical / high / medium / low / info, the scale `/ship`'s
+  stops read, in place of the method's `bug | suggestion | nit`;
 - which of `review-branch.md`'s finding classes it is;
 - one sentence saying what cannot be true;
 - **both sides, quoted** — the claim and the thing that contradicts it, each
