@@ -253,19 +253,23 @@ export class ProductsPage {
    * closed, which is precisely the loop the paragraph above says it exists to
    * prevent.
    *
-   * A request already in flight is the fourth. `loadMore()` asks for whatever
+   * A first page in flight is the fourth. `loadMore()` asks for whatever
    * `cursor` holds and bumps no generation, so a scroll while the first page
    * of a cold start, a pull to refresh or a `CatalogRefresh` reload is still
    * out — and the skeleton gives the content something to scroll — would ask
    * for page one again under the same generation, and both replies would be
-   * appended.
+   * appended. Each of those empties the list before it asks, so "loading with
+   * no rows" is exactly that state. A later page the scroll itself started is
+   * not stopped here: Ionic's own `isLoading` already holds the scroll until
+   * `complete()`, and disabling it mid-load would clear that flag, hide the
+   * spinner and turn `complete()` into a no-op.
    */
   readonly canLoadMore = computed(
     () =>
       this.hasMoreSignal() &&
       this.errorSignal() === null &&
       !this.rateLimit.blocked() &&
-      !this.loadingSignal(),
+      !(this.loadingSignal() && this.productsSignal().length === 0),
   );
 
   constructor() {
