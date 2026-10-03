@@ -24,6 +24,15 @@ export interface ProductSummary {
   readonly currency: string;
   /** DateTimeOffset on the wire; the client only ever displays it. */
   readonly publishedAt: string;
+  /**
+   * Inventory's level as Catalog last projected it, and `null` where none was
+   * ever reported: `GetProductsHandler.cs` LEFT JOINs `catalog.StockLevels`,
+   * which `StockLevelProjection.cs` fills only on a `StockLevelChanged`. So
+   * null is "never reported" and not "none", and a screen that rendered it as
+   * out of stock would be refusing to sell a product nobody has counted.
+   * A hint for the listing, not a reservation — `client-architecture.md` §12.
+   */
+  readonly quantityAvailable: number | null;
 }
 
 /** Catalog.Application/Products/PublishProduct/PublishProductCommand.cs — `PublishProductCommand`. */

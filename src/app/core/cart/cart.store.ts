@@ -178,13 +178,20 @@ export class CartStore {
    * — including, quietly, a future test — stop persisting entirely, with
    * no error and no signal that anything is wrong).
    */
-  add(product: ProductSummary): void {
+  add(product: ProductSummary, quantity = 1): void {
+    // The product sheet's stepper is the caller that passes more than one.
+    // Below one adds nothing, rather than reaching `setQuantity`'s removal
+    // through the back door of an add.
+    if (quantity < 1) return;
+
     this.mutate((lines) => {
       const existing = lines.find((line) => line.productId === product.productId);
 
       return existing
         ? lines.map((line) =>
-            line.productId === product.productId ? { ...line, quantity: line.quantity + 1 } : line,
+            line.productId === product.productId
+              ? { ...line, quantity: line.quantity + quantity }
+              : line,
           )
         : [
             ...lines,
@@ -193,7 +200,7 @@ export class CartStore {
               name: product.name,
               amount: product.amount,
               currency: product.currency,
-              quantity: 1,
+              quantity,
             },
           ];
     });

@@ -9,7 +9,7 @@ import { quoteGuard } from './quote.guard';
 
 const product = (id: string): ProductSummary => ({
   productId: id, name: `Product ${id}`, thumbnailUrl: null,
-  amount: 10, currency: 'EUR', publishedAt: '2026-09-10T00:00:00Z',
+  amount: 10, currency: 'EUR', publishedAt: '2026-09-10T00:00:00Z', quantityAvailable: null,
 });
 
 describe('quoteGuard', () => {

@@ -11,6 +11,7 @@ const product = (id: string, name = 'Thing', amount = 10): ProductSummary => ({
   amount,
   currency: 'EUR',
   publishedAt: '2026-09-10T00:00:00Z',
+  quantityAvailable: null,
 });
 
 describe('CartStore', () => {
@@ -99,6 +100,26 @@ describe('CartStore', () => {
     expect(store.lines()).toHaveLength(1);
     expect(store.lines()[0].quantity).toBe(2);
     expect(store.count()).toBe(2);
+  });
+
+  it('adds several at once when asked, onto a line that already exists', () => {
+    store.add(product('p1'));
+    store.add(product('p1'), 3);
+
+    expect(store.lines()).toHaveLength(1);
+    expect(store.lines()[0].quantity).toBe(4);
+  });
+
+  it('adds nothing for a quantity below one, and moves no version', () => {
+    store.add(product('p1'));
+    const before = store.version();
+
+    store.add(product('p1'), 0);
+    store.add(product('p2'), -1);
+
+    expect(store.lines()).toHaveLength(1);
+    expect(store.lines()[0].quantity).toBe(1);
+    expect(store.version()).toBe(before);
   });
 
   it('setting a quantity of zero removes the line', () => {

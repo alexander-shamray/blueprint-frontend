@@ -4,15 +4,22 @@ import {
 import { HttpErrorResponse } from '@angular/common/http';
 import {
   IonContent, IonHeader, IonInfiniteScroll, IonInfiniteScrollContent, IonItem, IonLabel,
-  IonList, IonNote, IonThumbnail, IonTitle, IonToolbar, IonButton,
+  IonList, IonModal, IonNote, IonRefresher, IonRefresherContent, IonThumbnail, IonTitle,
+  IonToolbar, IonButton,
 } from '@ionic/angular';
 import { CatalogApi } from '@core/api/catalog.api';
 import { ProductSummary } from '@core/api/types';
 import { CartStore } from '@core/cart/cart.store';
+import { CatalogAvailability } from '@core/catalog/catalog-availability';
 import { CatalogRefresh } from '@core/catalog/catalog-refresh';
 import { DisplayError, mapError } from '@core/errors/error-mapper';
 import { RateLimitWindows } from '@core/errors/rate-limit';
+import { EmptyStateComponent } from '@shared/empty-state.component';
 import { ErrorBannerComponent } from '@shared/error-banner.component';
+import { MoneyPipe } from '@shared/money.pipe';
+import { SkeletonListComponent } from '@shared/skeleton-list.component';
+import { ProductSheetComponent } from './product-sheet.component';
+import { stockLabel, stockOf } from './stock';
 
 /**
  * Spec §5.1. The landing tab, and it works before sign-in: the listing is
@@ -24,13 +31,24 @@ import { ErrorBannerComponent } from '@shared/error-banner.component';
   standalone: true,
   imports: [
     IonButton, IonContent, IonHeader, IonInfiniteScroll, IonInfiniteScrollContent, IonItem,
-    IonLabel, IonList, IonNote, IonThumbnail, IonTitle, IonToolbar, ErrorBannerComponent,
+    IonLabel, IonList, IonModal, IonNote, IonRefresher, IonRefresherContent, IonThumbnail,
+    IonTitle, IonToolbar, EmptyStateComponent, ErrorBannerComponent, MoneyPipe,
+    ProductSheetComponent, SkeletonListComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <ion-header><ion-toolbar><ion-title>Products</ion-title></ion-toolbar></ion-header>
 
     <ion-content>
+      <!--
+        Pull to refresh is reload(), the same restart a publish asks for, and
+        it is refused while a 429 window is open for the reason the Try again
+        button below is: the gateway has said how long to wait.
+      -->
+      <ion-refresher slot="fixed" [disabled]="rateLimit.blocked()" (ionRefresh)="refresh($event)">
+        <ion-refresher-content></ion-refresher-content>
+      </ion-refresher>
+
       <app-error-banner [error]="error() ?? rateLimit.refusal()" [retryInSeconds]="rateLimit.remaining()" />
 
       <!--
@@ -51,6 +69,15 @@ import { ErrorBannerComponent } from '@shared/error-banner.component';
           [disabled]="rateLimit.blocked()" (click)="retryLoad()">Try again</ion-button>
       }
 
+      @if (showSkeleton()) {
+        <app-skeleton-list />
+      }
+
+      @if (isEmpty()) {
+        <app-empty-state heading="Nothing published yet"
+          message="Products appear here as soon as a seller publishes one." />
+      }
+
       <ion-list>
         @for (product of products(); track product.productId) {
           <ion-item>
@@ -60,26 +87,60 @@ import { ErrorBannerComponent } from '@shared/error-banner.component';
               </ion-thumbnail>
             }
 
-            <ion-label>
-              <h2>{{ product.name }}</h2>
-              <ion-note>{{ product.amount }} {{ product.currency }}</ion-note>
-            </ion-label>
+            <!--
+              A native button around the label rather than a clickable
+              ion-item: the row already holds Add, and a button inside a
+              button is neither valid nor reachable by keyboard in an order a
+              screen reader can explain.
+            -->
+            <button type="button" class="open" (click)="open(product)">
+              <ion-label>
+                <h2>{{ product.name }}</h2>
+                <ion-note>{{ product.amount | money: product.currency }}</ion-note>
+                @if (stockText(product); as text) {
+                  <p class="stock" [class.out]="isOut(product)">{{ text }}</p>
+                }
+              </ion-label>
+            </button>
 
-            <ion-button slot="end" fill="clear" (click)="addToCart(product)">Add</ion-button>
+            <ion-button slot="end" fill="clear" [disabled]="isOut(product)"
+              (click)="addToCart(product)">Add</ion-button>
           </ion-item>
         }
       </ion-list>
 
+      @if (reachedEnd()) {
+        <p class="end" data-testid="end-of-list">That is everything published so far.</p>
+      }
+
       <ion-infinite-scroll [disabled]="!canLoadMore()" (ionInfinite)="loadMore($event)">
         <ion-infinite-scroll-content></ion-infinite-scroll-content>
       </ion-infinite-scroll>
+
+      <ion-modal [isOpen]="selected() !== null" [initialBreakpoint]="0.75" [breakpoints]="[0, 0.75, 1]"
+        (didDismiss)="close()">
+        <ng-template>
+          @if (selected(); as product) {
+            <app-product-sheet [product]="product" (added)="addFromSheet(product, $event)"
+              (closed)="close()" />
+          }
+        </ng-template>
+      </ion-modal>
     </ion-content>
+  `,
+  styles: `
+    .open { all: unset; flex: 1; cursor: pointer; padding: .5rem 0; }
+    .open:focus-visible { outline: 2px solid var(--ion-color-primary); }
+    .stock { margin: .25rem 0 0; font-size: .875rem; color: var(--ion-color-medium); }
+    .stock.out { color: var(--ion-color-danger); }
+    .end { text-align: center; color: var(--ion-color-medium); padding: 1rem; }
   `,
 })
 export class ProductsPage {
   private readonly catalog = inject(CatalogApi);
   private readonly cart = inject(CartStore);
   private readonly catalogRefresh = inject(CatalogRefresh);
+  private readonly availability = inject(CatalogAvailability);
   private cursor: string | null = null;
 
   /**
@@ -113,6 +174,14 @@ export class ProductsPage {
    * and are now held in different places; `canLoadMore` is where they meet.
    */
   private readonly hasMoreSignal = signal(true);
+  /**
+   * A request for this generation is in flight. Set by `load()` and cleared
+   * only by the response of the generation that is current, so a superseded
+   * reply landing late cannot report "done" while the reload that replaced it
+   * is still waiting.
+   */
+  private readonly loadingSignal = signal(false);
+  private readonly selectedSignal = signal<ProductSummary | null>(null);
 
   // Writable only inside this class — CartStore.lines and CommandIdentity's
   // current/isSpent make the same choice, for the same reason: `readonly` on
@@ -126,6 +195,28 @@ export class ProductsPage {
   readonly products: Signal<readonly ProductSummary[]> = this.productsSignal.asReadonly();
   readonly error: Signal<DisplayError | null> = this.errorSignal.asReadonly();
   readonly hasMore: Signal<boolean> = this.hasMoreSignal.asReadonly();
+  readonly loading: Signal<boolean> = this.loadingSignal.asReadonly();
+  /** The row whose sheet is open, or null. A row, not an id: the sheet shows what the row holds. */
+  readonly selected: Signal<ProductSummary | null> = this.selectedSignal.asReadonly();
+
+  /**
+   * Three list states a blank screen used to stand in for, each its own fact.
+   * Loading with nothing yet to show is the skeleton; loaded, with no error,
+   * no rows and no further page is the platform saying the catalogue is
+   * empty; rows and no further page is the end. A failed first page is none
+   * of these — the banner and Try again say what happened.
+   */
+  readonly showSkeleton = computed(
+    () => this.loadingSignal() && this.productsSignal().length === 0 && this.errorSignal() === null,
+  );
+  readonly isEmpty = computed(
+    () =>
+      !this.loadingSignal() &&
+      this.errorSignal() === null &&
+      this.productsSignal().length === 0 &&
+      !this.hasMoreSignal(),
+  );
+  readonly reachedEnd = computed(() => !this.hasMoreSignal() && this.productsSignal().length > 0);
 
   /**
    * Spec §6's 429 row — and the one page whose bucket is NOT the one every
@@ -192,12 +283,17 @@ export class ProductsPage {
    * above, when a publish elsewhere bumps `CatalogRefresh` (spec §5.5), and
    * the template's "Try again" button after a failed load.
    */
-  reload(): void {
+  reload(done?: () => void): void {
     this.generation++;
     this.cursor = null;
     this.productsSignal.set([]);
     this.hasMoreSignal.set(true);
-    this.load();
+    this.load(done);
+  }
+
+  /** Pull to refresh: a reload whose spinner closes when its own response lands. */
+  refresh(event?: { target: { complete: () => void } }): void {
+    this.reload(() => event?.target.complete());
   }
 
   loadMore(event?: { target: { complete: () => void } }): void {
@@ -222,12 +318,37 @@ export class ProductsPage {
   }
 
   addToCart(product: ProductSummary): void {
-    // Local only. The backend has no cart, so there is nothing to call.
+    // Local only. The backend has no cart, so there is nothing to call. An
+    // out-of-stock row's button is disabled, and this refuses too, because
+    // the binding and the method are two paths to the same store.
+    if (this.isOut(product)) return;
     this.cart.add(product);
+  }
+
+  open(product: ProductSummary): void {
+    this.selectedSignal.set(product);
+  }
+
+  close(): void {
+    this.selectedSignal.set(null);
+  }
+
+  addFromSheet(product: ProductSummary, quantity: number): void {
+    if (!this.isOut(product)) this.cart.add(product, quantity);
+    this.close();
+  }
+
+  isOut(product: ProductSummary): boolean {
+    return stockOf(product.quantityAvailable).kind === 'out';
+  }
+
+  stockText(product: ProductSummary): string | null {
+    return stockLabel(stockOf(product.quantityAvailable));
   }
 
   private load(done?: () => void): void {
     const generation = this.generation;
+    this.loadingSignal.set(true);
 
     this.catalog.products(this.cursor).subscribe({
       next: (page) => {
@@ -246,7 +367,9 @@ export class ProductsPage {
         // against the sequence reload() already discarded.
         if (generation !== this.generation) return;
 
+        this.loadingSignal.set(false);
         this.errorSignal.set(null);
+        this.availability.record(page.items);
         this.productsSignal.update((existing) => [...existing, ...page.items]);
         this.cursor = page.nextCursor;
         this.hasMoreSignal.set(page.nextCursor !== null);
@@ -254,6 +377,8 @@ export class ProductsPage {
       error: (failure: HttpErrorResponse) => {
         done?.();
         if (generation !== this.generation) return;
+
+        this.loadingSignal.set(false);
 
         // Stop asking automatically — retrying into a 429 is how a rate limit
         // becomes a loop — but say so by RECORDING THE FAILURE, which
