@@ -251,6 +251,21 @@ describe('ProductsPage', () => {
     expect(fixture.componentInstance.canLoadMore()).toBe(false);
   });
 
+  it('keeps the infinite scroll quiet while the first page is in flight', async () => {
+    // beforeEach's first page is still out: no error, no window, and the
+    // platform has not yet said there is no further page. A scroll now would
+    // ask for page one a second time, and both replies would be appended.
+    expect(fixture.componentInstance.hasMore()).toBe(true);
+    expect(fixture.componentInstance.canLoadMore()).toBe(false);
+
+    controller
+      .expectOne((r) => r.url === 'http://localhost:5000/api/v1/catalog/products')
+      .flush(page(20, 'cursor-2'));
+    await fixture.whenStable();
+
+    expect(fixture.componentInstance.canLoadMore()).toBe(true);
+  });
+
   it('disables Try again while a 429 window is open', async () => {
     controller
       .expectOne((r) => r.url === 'http://localhost:5000/api/v1/catalog/products')

@@ -18,9 +18,12 @@ import { stockLabel, stockOf } from './stock';
  *
  * The stepper floors at one and has no ceiling, for the reason `CartPage`'s
  * own stepper gives — a client-side limit is a copy of the platform's that
- * drifts. Asking for more than the listing says is there is warned about and
+ * drifts. Asking for more than a positive listed level is warned about and
  * not refused: the level is Catalog's projection, the reservation is
- * Inventory's, and only the second is a verdict.
+ * Inventory's, and only the second is a verdict. A level of zero or below is
+ * out of stock, and there Add to cart is disabled, as it is on the listing's
+ * row (docs/client-architecture.md §12, "The listing carries stock, and null
+ * is not none").
  */
 @Component({
   selector: 'app-product-sheet',

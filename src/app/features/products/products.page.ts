@@ -189,9 +189,12 @@ export class ProductsPage {
   // reference to this component — the publish page asks for a refresh through
   // CatalogRefresh precisely BECAUSE a feature may not import another feature
   // (spec §3, enforced by the ESLint rule and boundaries.spec.ts) — so the
-  // point is not to fend off a caller that exists. It is that these three
-  // signals are what the platform answered, and the only code entitled to say
-  // what the platform answered is the code that read the response.
+  // point is not to fend off a caller that exists. It is that `products`,
+  // `error` and `hasMore` are what the platform answered, and the only code
+  // entitled to say what the platform answered is the code that read the
+  // response. `loading` and `selected` are this page's own state — a request
+  // it has out, a row it has opened — and are written only here for the same
+  // reason.
   readonly products: Signal<readonly ProductSummary[]> = this.productsSignal.asReadonly();
   readonly error: Signal<DisplayError | null> = this.errorSignal.asReadonly();
   readonly hasMore: Signal<boolean> = this.hasMoreSignal.asReadonly();
@@ -249,9 +252,20 @@ export class ProductsPage {
    * re-arms and fires straight into a limiter the client already knows is
    * closed, which is precisely the loop the paragraph above says it exists to
    * prevent.
+   *
+   * A request already in flight is the fourth. `loadMore()` asks for whatever
+   * `cursor` holds and bumps no generation, so a scroll while the first page
+   * of a cold start, a pull to refresh or a `CatalogRefresh` reload is still
+   * out — and the skeleton gives the content something to scroll — would ask
+   * for page one again under the same generation, and both replies would be
+   * appended.
    */
   readonly canLoadMore = computed(
-    () => this.hasMoreSignal() && this.errorSignal() === null && !this.rateLimit.blocked(),
+    () =>
+      this.hasMoreSignal() &&
+      this.errorSignal() === null &&
+      !this.rateLimit.blocked() &&
+      !this.loadingSignal(),
   );
 
   constructor() {
