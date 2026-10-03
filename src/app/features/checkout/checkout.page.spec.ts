@@ -438,6 +438,21 @@ describe('CheckoutPage', () => {
       expect(fixture.componentInstance.submitting()).toBe(false);
     });
 
+    it('stays busy until the last of two double-clicked requests is answered', async () => {
+      fixture.componentInstance.placeOrder();
+      fixture.componentInstance.placeOrder();
+      const [first, second] = controller.match('http://localhost:5000/api/v1/orders');
+      expect(second).toBeDefined();
+
+      first.flush({ title: 'Server error', status: 500 }, { status: 500, statusText: 'Error' });
+      await fixture.whenStable();
+      expect(fixture.componentInstance.submitting()).toBe(true);
+
+      second.flush({ title: 'Server error', status: 500 }, { status: 500, statusText: 'Error' });
+      await fixture.whenStable();
+      expect(fixture.componentInstance.submitting()).toBe(false);
+    });
+
     it('summarises the quote it will order against, as the BFF priced it', () => {
       // Three figures that differ, none the product or sum of the others: the
       // beforeEach quote's 10 / 10 / 10 would let a deleted Total row, or one
@@ -468,6 +483,12 @@ describe('CheckoutPage', () => {
 
       expect(qatar?.textContent?.trim()).toBe('Qatar');
       expect(select.value).toBe('QA');
+
+      // View to model: the beforeEach value only proves the other direction.
+      select.value = 'GB';
+      select.dispatchEvent(new Event('change'));
+
+      expect(fixture.componentInstance.form.controls.country.value).toBe('GB');
     });
   });
 });
