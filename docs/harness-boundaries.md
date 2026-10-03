@@ -756,12 +756,15 @@ paragraph on `gh` inside a substitution closes that route for `gh` and for
 anything off its allow-list — **not for a program on the allow-list with an
 option that executes or writes, because the list is not inert.**
 `guard-git-argv.py` judges a `git` word there only for `push`, the `-c` and
-`--config-env` options, its forbidden flags and the `ext::` transport, and it
-models none of `rg`'s `--pre`, `sort`'s `-o` or `uniq`'s output operand. So
-`git`'s other mutating subcommands — a forced `git worktree remove` among them
-— and those three options run inside a substitution in this tail, or in any
-prefix grant's, before the helper checks anything: a standing residual, as a
-class, whose fix is in `.claude/hooks/`, not here.
+`--config-env` options, its forbidden flags in their long spelling and the
+`ext::` transport, and it models no option of the other programs on the list —
+`rg`'s `--pre`, `sort`'s `-o` and `uniq`'s output operand are examples, not
+the list. So `git`'s other mutating and executing subcommands — a forced
+`git worktree remove`, `rebase -x` and `bisect run` among them — and every
+such option run inside a substitution in this tail, or in any prefix grant's,
+before the helper checks anything: a standing residual, as a class, whose fix
+is in `.claude/hooks/` and is scoped from the class rather than from these
+examples.
 
 **And the script run is the checkout's copy, which `Edit(.claude/scripts/**)`
 protects from neither a branch nor the session.** A branch can carry an
