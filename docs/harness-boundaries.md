@@ -743,24 +743,32 @@ Neither raw form is in any command's frontmatter —
 `test_no_command_grants_the_raw_form` in `.claude/scripts/test_grok_helpers.py`
 asserts that over every command — though both are still quoted as history.
 
-**What a helper grant leaves is still a prefix grant with a free tail**, and
-these two are no exception. `Bash(bash .claude/scripts/gh-pr-merge.sh:*)`
+**A helper granted by prefix still leaves a free tail, and these two are
+granted by prefix** — unlike `gh-pr-create.sh`, which the hook paragraph above
+records as granted exactly. `Bash(bash .claude/scripts/gh-pr-merge.sh:*)`
 admits whatever follows the name, so the tail is bounded by each script's own
 arity and shape checks rather than by the rule — both refuse anything but
-their two arguments, and neither argument may begin with `-`. What runs
-*before* the script checks anything is outside it: a substitution in the tail
-runs while bash builds the argv, which the hook paragraph on `gh` inside a
-substitution closes for `gh` and for anything off its allow-list. **It does not
-close it for `git`**, which is on that allow-list while `guard-git-argv.py`
-judges a `git` word there only for `push`, the `-c` and `--config-env`
-options, its forbidden flags and the `ext::` transport. Every other mutating
-subcommand — a forced `git worktree remove` among them — runs inside a
-substitution in this tail, or in any prefix grant's, before the helper checks
-anything: a standing residual, as a class, whose fix is in `.claude/hooks/`,
-not here. And the script run is the checkout's copy —
-`Edit(.claude/scripts/**)` stops a session editing it, not a branch carrying
-an edited one, the class blueprint-frontend#115 records for the triager's
-method.
+their two arguments, and neither argument may begin with `-`.
+
+**What runs *before* the script checks anything is outside it.** A
+substitution in the tail runs while bash builds the argv, and the hook
+paragraph on `gh` inside a substitution closes that route for `gh` and for
+anything off its allow-list — **not for a program on the allow-list with an
+option that executes or writes, because the list is not inert.**
+`guard-git-argv.py` judges a `git` word there only for `push`, the `-c` and
+`--config-env` options, its forbidden flags and the `ext::` transport, and it
+models none of `rg`'s `--pre`, `sort`'s `-o` or `uniq`'s output operand. So
+`git`'s other mutating subcommands — a forced `git worktree remove` among them
+— and those three options run inside a substitution in this tail, or in any
+prefix grant's, before the helper checks anything: a standing residual, as a
+class, whose fix is in `.claude/hooks/`, not here.
+
+**And the script run is the checkout's copy, which `Edit(.claude/scripts/**)`
+protects from neither a branch nor the session.** A branch can carry an
+edited one — the class blueprint-frontend#115 records for the triager's
+method — and the deny binds the editing tools only, so a write run inside such
+a substitution, a `git` one among them, can replace the helper before bash
+opens it.
 What the worktree helper's branch binding still leaves is stated in
 `git-worktree-remove.sh`'s own header, which owns it.
 
