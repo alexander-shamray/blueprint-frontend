@@ -264,6 +264,19 @@ describe('ProductsPage', () => {
     await fixture.whenStable();
 
     expect(fixture.componentInstance.canLoadMore()).toBe(true);
+
+    // A later page is a different case: the scroll that asked for it holds
+    // itself until complete(), and disabling it now would clear Ionic's
+    // isLoading, hide the spinner and make that complete() do nothing.
+    fixture.componentInstance.loadMore();
+    const later = controller.expectOne(
+      (r) => r.url === 'http://localhost:5000/api/v1/catalog/products',
+    );
+    expect(fixture.componentInstance.loading()).toBe(true);
+    expect(fixture.componentInstance.canLoadMore()).toBe(true);
+
+    later.flush(page(0, null));
+    await fixture.whenStable();
   });
 
   it('disables Try again while a 429 window is open', async () => {
