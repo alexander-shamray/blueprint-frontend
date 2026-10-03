@@ -104,7 +104,8 @@ test('demo browses, quotes, orders and cancels', async ({ page }) => {
   await page.getByLabel('Line 1').fill('1 Example Street');
   await page.getByLabel('City').fill('Doha');
   await page.getByLabel('Postal code').fill('00000');
-  await page.getByLabel('Country').fill('QA');
+  // A select of countries by name, whose value is the ISO code that is sent.
+  await page.getByLabel('Country').selectOption('QA');
   await page.getByRole('button', { name: 'Place order' }).click();
 
   // The page's only real heading is the <h2> "Order"; "Order placed" is the
