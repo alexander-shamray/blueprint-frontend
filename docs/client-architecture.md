@@ -932,7 +932,8 @@ as 0 and publish a free product indistinguishable from a deliberate one.
 
 *The claim.* A listing row is `name`, `amount` and `currency` with an optional
 thumbnail (spec §5.1), so the client learns that a product cannot be had only
-from the 409 at checkout.
+after the order is placed, when the fulfilment saga cancels it as
+`out_of_stock` (§12, "A customer may not name the platform's reasons").
 
 *What is true.* `ProductSummaryDto.cs` ends in `int? QuantityAvailable`, which
 its own summary calls "Inventory's level … null where never reported".

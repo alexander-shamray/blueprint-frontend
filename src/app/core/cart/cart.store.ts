@@ -220,9 +220,8 @@ export class CartStore {
       // nothing did.
       if (!lines.some((line) => line.productId === productId)) return lines;
 
-      // Zero and negative both remove. A stepper that can reach zero is the
-      // ordinary way a line is deleted, and PlaceOrderItem has no meaning at
-      // a quantity of nought.
+      // Zero and negative both remove: remove() below is this call with zero,
+      // and PlaceOrderItem has no meaning at a quantity of nought.
       return quantity <= 0
         ? lines.filter((line) => line.productId !== productId)
         : lines.map((line) => (line.productId === productId ? { ...line, quantity } : line));

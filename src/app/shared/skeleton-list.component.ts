@@ -2,9 +2,9 @@ import { ChangeDetectionStrategy, Component, computed, input } from '@angular/co
 import { IonItem, IonLabel, IonList, IonSkeletonText, IonThumbnail } from '@ionic/angular';
 
 /**
- * Placeholder rows for a list whose first page has not arrived. Shared because
- * the product listing wants it now and the order list will want it later; the
- * cart does not, since its lines are local and never wait on the network.
+ * Placeholder rows for any paged list whose first page has not arrived; the
+ * product listing is the one that has such a page today. The cart does not
+ * use it, since its lines are local and never wait on the network.
  *
  * `aria-busy` on the list and nothing for a screen reader to read inside it:
  * a row of grey bars announced one by one is noise, and the busy state is the

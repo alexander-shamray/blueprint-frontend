@@ -281,7 +281,7 @@ export class ProductsPage {
   /**
    * Restarts the listing from the first page. Reached two ways: the effect
    * above, when a publish elsewhere bumps `CatalogRefresh` (spec §5.5), and
-   * the template's "Try again" button after a failed load.
+   * `refresh()`, pull to refresh.
    */
   reload(done?: () => void): void {
     this.generation++;
