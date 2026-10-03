@@ -728,7 +728,7 @@ Ordinals are kept even where an entry is closed, so a cross-reference to "the
 fourth" still lands, and each entry says its own state. Read the entries; do
 not count them here.
 
-The first **was** two of `/ship`'s, and #16 closed both.
+The first **was** two of `/ship`'s, and #16 narrowed both.
 `Bash(git worktree remove:*)` admitted the `-f` that discards work, and
 `Bash(gh pr merge --merge:*)` admitted a trailing `--admin` that merges past
 failing checks. Until someone with the `Edit(.claude/scripts/**)` deny lifted
@@ -742,6 +742,21 @@ that is not the checked-out branch's own, from this repository, into `main`.
 Neither raw form is in any command's frontmatter —
 `test_no_command_grants_the_raw_form` in `.claude/scripts/test_grok_helpers.py`
 asserts that over every command — though both are still quoted as history.
+
+**Withdrawing an allow refused nothing, so both raw forms are now denied.**
+An allow is auto-approval and only a deny refuses, the argument the sweeps
+made when they withdrew `gh issue create` and denied it by name: with the
+allows gone, a directly typed `gh pr merge <n> --admin` or
+`git worktree remove -f <path>` met no rule and no hook. `.claude/settings.json`
+denies `Bash(gh pr merge:*)` and `Bash(git worktree remove:*)` in every turn,
+which the helpers do not meet — a deny judges the typed command, never the
+commands inside a script. The deny sits there rather than in `ship.md`'s
+`disallowed-tools` for two reasons: a frontmatter deny lasts only the turn
+that loaded it, and the test above reads a command's whole frontmatter, so a
+deny there would fail it. **What it does not close is the substitution
+route below**: a deny matches the typed command's prefix, not a `$(…)` inside
+another grant's tail, and blueprint-frontend#122 owns that. Nor does it
+reach `gh api`'s merge endpoint, which has no allow and so prompts.
 
 **A helper granted by prefix still leaves a free tail, and these two are
 granted by prefix** — unlike `gh-pr-create.sh`, which the hook paragraph above
