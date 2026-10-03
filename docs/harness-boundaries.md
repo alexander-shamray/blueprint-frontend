@@ -756,7 +756,19 @@ that loaded it, and the test above reads a command's whole frontmatter, so a
 deny there would fail it. **What it does not close is the substitution
 route below**: a deny matches the typed command's prefix, not a `$(…)` inside
 another grant's tail, and blueprint-frontend#122 owns that. Nor does it
-reach `gh api`'s merge endpoint, which has no allow and so prompts.
+reach `gh api`'s merge endpoint, which no rule denies, so it meets what any
+un-granted command meets: a prompt, or the classifier under the user-level
+`auto` mode the #26 paragraph above records. **And the deny refuses the
+canonical spelling only**: a global option before the subcommand — `git`'s
+`-C`, `--git-dir` or `--work-tree` — escapes the prefix, as may an option of
+`gh`'s placed before `merge` or another spelling of either executable, which
+is unmeasured. `guard-git-argv.py` has no `worktree` rule to catch the first,
+so a wider pattern is a `settings.json` change, for its owner to make. **The
+third raw form #16 withdrew, `gh pr create`, is withdrawn and not denied**:
+the same argument reaches it, and no rule refuses a typed
+`gh pr create --repo …`; denying it is that same owner's change. Nor does any
+test pin these denies — `test_no_command_grants_the_raw_form` reads command
+frontmatter, not `settings.json` — so deleting one leaves the suite green.
 
 **A helper granted by prefix still leaves a free tail, and these two are
 granted by prefix** — unlike `gh-pr-create.sh`, which the hook paragraph above
@@ -826,8 +838,9 @@ declared once in `copilot-authors.sh` and each printing an admitted/dropped
 count. `Bash(gh pr view:*)` is gone from `review-copilot.md`'s frontmatter,
 which is the half that makes it enforcement rather than courtesy: that command
 used `gh pr view` for nothing but the two GraphQL feeds, and `settings.json`
-carries no `gh` allow, so a raw call prompts — a stall in the unattended loop
-instead of a silent pass.
+carries no `gh` allow, so no rule approves a raw call: it prompts — a stall in
+the unattended loop instead of a silent pass — or, under the user-level
+`auto` mode the #26 paragraph records, goes to the classifier.
 
 **One file was not enough, and the review of the PR that closed this is what
 established it.** `/ship` invokes `/review-copilot` as a skill while holding
@@ -1529,9 +1542,10 @@ The filing logic is now a sourced library with two entry points that each pass
 a constant — `gh-sweep-issue-create.sh` and `gh-issue-create.sh` — and the
 sweeps grant the first while **denying the second by name**, since a grant is
 auto-approval and only a deny refuses. **The residual**: nothing stops a
-session invoking the sweep entry point by hand, because no `gh` rule exists at
-all and it is a `bash` invocation like any other. What the split removes is the
-case that runs unattended over a tree that is prompt-injection input.
+session invoking the sweep entry point by hand, because no rule in
+`.claude/settings.json` names it and it is a `bash` invocation like any other.
+What the split removes is the case that runs unattended over a tree that is
+prompt-injection input.
 
 **The two sweeps are one shape asking two questions**, split by what makes a
 finding rather than by where they look. `/security-sweep` files what an
