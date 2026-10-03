@@ -46,7 +46,7 @@ describe('CheckoutPage', () => {
 
     TestBed.inject(CartStore).add({
       productId: 'p1', name: 'Widget', thumbnailUrl: null,
-      amount: 10, currency: 'EUR', publishedAt: '2026-09-10T00:00:00Z',
+      amount: 10, currency: 'EUR', publishedAt: '2026-09-10T00:00:00Z', quantityAvailable: null,
     });
     // Quote currency deliberately differs from the cart line's listed
     // currency (EUR) — a quote repricing a basket into another currency is
@@ -362,6 +362,96 @@ describe('CheckoutPage', () => {
 
     expect(fixture.componentInstance.error()?.fields).toEqual({
       'ShippingAddress.City': ['City is required.'],
+    });
+  });
+
+  describe('per-field messages, the summary and the busy state', () => {
+    const refuse = async (errors: Record<string, string[]>) => {
+      fixture.componentInstance.placeOrder();
+      controller.expectOne('http://localhost:5000/api/v1/orders').flush(
+        { title: 'One or more validation errors occurred.', status: 400, errors },
+        { status: 400, statusText: 'Bad Request' },
+      );
+      await fixture.whenStable();
+      fixture.detectChanges();
+    };
+    const notes = (field: string): string[] =>
+      [...fixture.nativeElement.querySelectorAll(`.field-error[data-field="${field}"]`)].map(
+        (el: HTMLElement) => el.textContent?.trim() ?? '',
+      );
+
+    it('puts each address message under its control and keeps the rest in the banner', async () => {
+      await refuse({
+        'ShippingAddress.City': ['City is required.'],
+        'ShippingAddress.Country': ["'Country' is not in the correct format."],
+        Items: ['An order cannot contain more than 100 items.'],
+      });
+
+      expect(notes('city')).toEqual(['City is required.']);
+      expect(notes('country')).toEqual(["'Country' is not in the correct format."]);
+      expect(fixture.componentInstance.bannerError()?.fields).toEqual({
+        Items: ['An order cannot contain more than 100 items.'],
+      });
+    });
+
+    it('keeps the banner title when every message landed on a control', async () => {
+      await refuse({ 'ShippingAddress.City': ['City is required.'] });
+
+      const banner = fixture.componentInstance.bannerError();
+      expect(banner?.title).toBe('One or more validation errors occurred.');
+      expect(banner?.fields).toBeUndefined();
+    });
+
+    it('drops a field message when that field is edited, and only that one', async () => {
+      await refuse({
+        'ShippingAddress.City': ['City is required.'],
+        'ShippingAddress.PostalCode': ['Too long.'],
+      });
+
+      fixture.componentInstance.form.controls.city.setValue('Lusail');
+      fixture.detectChanges();
+
+      expect(notes('city')).toEqual([]);
+      expect(notes('postalCode')).toEqual(['Too long.']);
+    });
+
+    it('is busy from the tap to the answer, and says so on the button', async () => {
+      fixture.componentInstance.placeOrder();
+      fixture.detectChanges();
+
+      expect(fixture.componentInstance.submitting()).toBe(true);
+      const button = [...fixture.nativeElement.querySelectorAll('ion-button')].find(
+        (el: HTMLElement) => el.getAttribute('type') === 'submit',
+      );
+      expect(button.disabled).toBe(true);
+      expect(button.textContent).toContain('Placing order');
+
+      controller.expectOne('http://localhost:5000/api/v1/orders').flush(
+        { title: 'Server error', status: 500 },
+        { status: 500, statusText: 'Error' },
+      );
+      await fixture.whenStable();
+
+      expect(fixture.componentInstance.submitting()).toBe(false);
+    });
+
+    it('summarises the quote it will order against, as the BFF priced it', () => {
+      fixture.detectChanges();
+      const summary: string = (
+        fixture.nativeElement.querySelector('[data-testid="order-summary"]')?.textContent ?? ''
+      ).replace(/\s+/g, ' ');
+
+      expect(summary).toContain('Widget');
+      expect(summary).toContain('1 × £10.00 = £10.00');
+      expect(summary).toContain('£10.00');
+    });
+
+    it('chooses the country from a select of codes, sending the code', () => {
+      const select: HTMLSelectElement = fixture.nativeElement.querySelector('#checkout-country');
+      const qatar = [...select.options].find((o) => o.value === 'QA');
+
+      expect(qatar?.textContent?.trim()).toBe('Qatar');
+      expect(select.value).toBe('QA');
     });
   });
 });

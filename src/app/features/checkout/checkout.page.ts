@@ -1,10 +1,12 @@
-import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy, Component, LOCALE_ID, computed, inject, signal,
+} from '@angular/core';
 import { HttpErrorResponse } from '@angular/common/http';
 import { FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
 import { Router } from '@angular/router';
 import {
-  IonBackButton, IonButton, IonButtons, IonContent, IonHeader, IonInput, IonItem, IonNote,
-  IonTitle, IonToolbar,
+  IonBackButton, IonButton, IonButtons, IonContent, IonHeader, IonInput, IonItem, IonLabel,
+  IonList, IonListHeader, IonNote, IonSpinner, IonTitle, IonToolbar,
 } from '@ionic/angular';
 import { OrderingApi } from '@core/api/ordering.api';
 import { AuthService } from '@core/auth/auth.service';
@@ -15,6 +17,9 @@ import { ALREADY_COMMITTED, CommandIdentity } from '@core/commands/command-id';
 import { DisplayError, mapError } from '@core/errors/error-mapper';
 import { RateLimitWindows } from '@core/errors/rate-limit';
 import { ErrorBannerComponent } from '@shared/error-banner.component';
+import { MoneyPipe } from '@shared/money.pipe';
+import { ADDRESS_FIELDS, AddressField, splitAddressErrors } from './address-errors';
+import { countryOptions } from './countries';
 
 /**
  * Spec §5.3. The address form mirrors AddressDto's five fields with the same
@@ -26,8 +31,9 @@ import { ErrorBannerComponent } from '@shared/error-banner.component';
   selector: 'app-checkout',
   standalone: true,
   imports: [
-    IonBackButton, IonButton, IonButtons, IonContent, IonHeader, IonInput, IonItem, IonNote,
-    IonTitle, IonToolbar, ReactiveFormsModule, ErrorBannerComponent,
+    IonBackButton, IonButton, IonButtons, IonContent, IonHeader, IonInput, IonItem, IonLabel,
+    IonList, IonListHeader, IonNote, IonSpinner, IonTitle, IonToolbar, ReactiveFormsModule,
+    ErrorBannerComponent, MoneyPipe,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -39,14 +45,48 @@ import { ErrorBannerComponent } from '@shared/error-banner.component';
     </ion-header>
 
     <ion-content>
-      <app-error-banner [error]="error() ?? rateLimit.refusal()" [retryInSeconds]="rateLimit.remaining()" />
+      <app-error-banner [error]="bannerError() ?? rateLimit.refusal()" [retryInSeconds]="rateLimit.remaining()" />
 
       <form [formGroup]="form" (ngSubmit)="placeOrder()">
+        <!--
+          A 400's messages sit under the control they name (fieldErrors), and
+          leave the banner, which keeps only the keys no control here owns.
+          Each goes when its control is edited: the message was about the
+          value that was sent, and that value is no longer the one on screen.
+        -->
         <ion-item><ion-input label="Line 1" formControlName="line1" required></ion-input></ion-item>
+        @for (message of fieldErrors().line1 ?? []; track $index) {
+          <ion-note class="field-error" color="danger" data-field="line1">{{ message }}</ion-note>
+        }
         <ion-item><ion-input label="Line 2" formControlName="line2"></ion-input></ion-item>
+        @for (message of fieldErrors().line2 ?? []; track $index) {
+          <ion-note class="field-error" color="danger" data-field="line2">{{ message }}</ion-note>
+        }
         <ion-item><ion-input label="City" formControlName="city" required></ion-input></ion-item>
+        @for (message of fieldErrors().city ?? []; track $index) {
+          <ion-note class="field-error" color="danger" data-field="city">{{ message }}</ion-note>
+        }
         <ion-item><ion-input label="Postal code" formControlName="postalCode" required></ion-input></ion-item>
-        <ion-item><ion-input label="Country" formControlName="country" required></ion-input></ion-item>
+        @for (message of fieldErrors().postalCode ?? []; track $index) {
+          <ion-note class="field-error" color="danger" data-field="postalCode">{{ message }}</ion-note>
+        }
+        <!--
+          A native select, not ion-select: it is labelled by a real <label>,
+          a WebView renders it as the platform's own picker, and a browser
+          test chooses an option by value rather than by driving an overlay.
+        -->
+        <ion-item>
+          <label class="country" for="checkout-country">Country</label>
+          <select id="checkout-country" formControlName="country" required>
+            <option value="" disabled>Choose a country</option>
+            @for (option of countries; track option.code) {
+              <option [value]="option.code">{{ option.name }}</option>
+            }
+          </select>
+        </ion-item>
+        @for (message of fieldErrors().country ?? []; track $index) {
+          <ion-note class="field-error" color="danger" data-field="country">{{ message }}</ion-note>
+        }
 
         <!--
           Reads the handoff directly, with optional chaining, rather than
@@ -63,19 +103,48 @@ import { ErrorBannerComponent } from '@shared/error-banner.component';
           and returns before ever calling currency() with a null quote.
         -->
         @if (handoff.quote(); as quote) {
+          <!--
+            The summary is the quote the cart handed over, line for line and
+            number for number: what this order will be placed against, read
+            off the reply and formatted, never added up here (§9).
+          -->
+          <ion-list data-testid="order-summary">
+            <ion-list-header><ion-label>Order summary</ion-label></ion-list-header>
+            @for (line of quote.lines; track line.productId) {
+              <ion-item>
+                <ion-label>{{ line.name }}</ion-label>
+                <ion-note slot="end">
+                  {{ line.quantity }} × {{ line.amount | money: quote.currency }} =
+                  {{ line.lineTotal | money: quote.currency }}
+                </ion-note>
+              </ion-item>
+            }
+            <ion-item>
+              <ion-label><strong>Total</strong></ion-label>
+              <ion-note slot="end"><strong>{{ quote.total | money: quote.currency }}</strong></ion-note>
+            </ion-item>
+          </ion-list>
+
           <ion-item>
             <ion-note>Ordering in {{ quote.currency }}, carried from the quote.</ion-note>
           </ion-item>
         }
 
         <!--
-          rateLimit.blocked() joins the other three refusals: a 429 says the
-          platform will not take this order yet, and the banner above is
-          counting the window down (spec §6).
+          rateLimit.blocked() joins the other refusals: a 429 says the platform
+          will not take this order yet, and the banner above is counting the
+          window down (spec §6). submitting() is the busy state — what the
+          customer sees between the tap and the answer — and it is a courtesy
+          rather than the guard: placeOrder() below says why it refuses
+          nothing on that account.
         -->
         <ion-button expand="block" type="submit"
-          [disabled]="form.invalid || identity.isSpent() || !handoff.quote() || rateLimit.blocked()">
-          Place order
+          [disabled]="form.invalid || identity.isSpent() || !handoff.quote() || rateLimit.blocked() || submitting()">
+          @if (submitting()) {
+            <ion-spinner name="dots" aria-hidden="true"></ion-spinner> Placing order…
+          } @else {
+            Place order
+          }
         </ion-button>
       </form>
 
@@ -96,6 +165,12 @@ import { ErrorBannerComponent } from '@shared/error-banner.component';
         </ion-item>
       }
     </ion-content>
+  `,
+  styles: `
+    .field-error { display: block; padding: .25rem 1rem 0; font-size: .875rem; }
+    .country { flex: 0 0 auto; margin-right: 1rem; }
+    select { flex: 1; min-height: 2.75rem; background: transparent; color: inherit;
+             border: none; font: inherit; }
   `,
 })
 export class CheckoutPage {
@@ -130,8 +205,30 @@ export class CheckoutPage {
   // outside. What this banner says about an order is decided by the response
   // this page read, and by nothing else.
   private readonly errorState = signal<DisplayError | null>(null);
+  private readonly fieldErrorsState = signal<Partial<Record<AddressField, readonly string[]>>>({});
+  private readonly submittingState = signal(false);
 
   readonly error = this.errorState.asReadonly();
+  /** A 400's messages for the controls on this form, by control. */
+  readonly fieldErrors = this.fieldErrorsState.asReadonly();
+  /** A request is out and its answer has not landed. */
+  readonly submitting = this.submittingState.asReadonly();
+
+  /**
+   * What the banner shows: the mapped error, less the field messages a
+   * control on this form already shows. A validation error whose every key
+   * landed on a control keeps its title, so the banner still says the order
+   * was refused and the controls say why.
+   */
+  readonly bannerError = computed<DisplayError | null>(() => {
+    const error = this.errorState();
+    if (error?.kind !== 'validation') return error;
+
+    const { rest } = splitAddressErrors(error.fields);
+    return { ...error, fields: Object.keys(rest).length > 0 ? rest : undefined };
+  });
+
+  protected readonly countries = countryOptions(inject(LOCALE_ID));
 
   /**
    * Spec §6's 429 row — the gateway's authenticated bucket, shared with Get
@@ -161,6 +258,17 @@ export class CheckoutPage {
 
   constructor() {
     this.form.valueChanges.subscribe(() => this.identity.onEdit());
+
+    for (const field of ADDRESS_FIELDS) {
+      this.form.controls[field].valueChanges.subscribe(() => {
+        if (this.fieldErrorsState()[field] === undefined) return;
+        this.fieldErrorsState.update((errors) => {
+          const remaining = { ...errors };
+          delete remaining[field];
+          return remaining;
+        });
+      });
+    }
   }
 
   placeOrder(): void {
@@ -176,7 +284,10 @@ export class CheckoutPage {
     // in-flight guard: a double-click before any response lands still sends
     // two requests under the same commandId, and the platform answering the
     // second with request.in_progress is the idempotency mechanism working
-    // as designed, not a bug this method should suppress.
+    // as designed, not a bug this method should suppress. The button's busy
+    // state makes that double-click rarer and is not this guard: it shows
+    // the customer the order is on its way, and this method still sends
+    // whatever it is asked to.
     const quote = this.handoff.quote();
     if (quote === null) return;
 
@@ -201,17 +312,28 @@ export class CheckoutPage {
       currency: quote.currency,
     };
 
+    this.submittingState.set(true);
+
     this.ordering.place(command).subscribe({
       next: (orderId) => {
+        this.submittingState.set(false);
         this.replayedAfterSignIn = false;
         this.errorState.set(null);
+        this.fieldErrorsState.set({});
         this.identity.onSuccess();
         this.spendQuote();
         void this.router.navigate(['/tabs/cart/placed', orderId]);
       },
       error: (failure: HttpErrorResponse) => {
+        this.submittingState.set(false);
         const displayed = mapError(failure, { permission: PERMISSIONS.ordersWrite });
         this.errorState.set(displayed);
+        // Replaced, not merged: every response is the whole of what the
+        // platform said about the order just sent, and a field it no longer
+        // names has no message to keep.
+        this.fieldErrorsState.set(
+          displayed.kind === 'validation' ? splitAddressErrors(displayed.fields).byField : {},
+        );
         this.identity.onFailure(displayed);
 
         // command.already_committed: the earlier submission won. Treat it as
