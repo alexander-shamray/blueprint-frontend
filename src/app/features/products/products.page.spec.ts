@@ -2,9 +2,10 @@ import { HttpClient, provideHttpClient, withInterceptors } from '@angular/common
 import { rateLimitInterceptor } from '@core/errors/rate-limit.interceptor';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CartStore } from '@core/cart/cart.store';
 import { CartPersistence } from '@core/cart/cart.persistence';
+import { CatalogAvailability } from '@core/catalog/catalog-availability';
 import { CatalogRefresh } from '@core/catalog/catalog-refresh';
 import { ProductsPage } from './products.page';
 
@@ -16,6 +17,7 @@ const page = (n: number, nextCursor: string | null) => ({
     amount: 10 + i,
     currency: 'EUR',
     publishedAt: '2026-09-10T00:00:00Z',
+    quantityAvailable: null,
   })),
   nextCursor,
 });
@@ -384,5 +386,135 @@ describe('ProductsPage', () => {
 
     expect(fixture.componentInstance.products()).toHaveLength(2);
     expect(fixture.componentInstance.hasMore()).toBe(false);
+  });
+
+  describe('stock, list states and the sheet', () => {
+    const listing = () =>
+      controller.expectOne((r) => r.url === 'http://localhost:5000/api/v1/catalog/products');
+
+    /** One row per level, in order: p0 carries the first, p1 the second. */
+    const stocked = (...levels: (number | null)[]) => ({
+      items: levels.map((quantityAvailable, i) => ({
+        ...page(1, null).items[0],
+        productId: `p${i}`,
+        name: `Product ${i}`,
+        quantityAvailable,
+      })),
+      nextCursor: null,
+    });
+
+    const text = (): string => fixture.nativeElement.textContent ?? '';
+
+    it('says in stock, how many are left, or out of stock, and nothing for never reported', async () => {
+      listing().flush(stocked(40, 3, 0, null));
+      await fixture.whenStable();
+
+      const rows: string[] = [...fixture.nativeElement.querySelectorAll('ion-item')].map(
+        (row: HTMLElement) => row.textContent ?? '',
+      );
+      expect(rows[0]).toContain('In stock');
+      expect(rows[1]).toContain('Only 3 left');
+      expect(rows[2]).toContain('Out of stock');
+      expect(rows[3]).not.toMatch(/stock|left/i);
+    });
+
+    it('disables Add on an out-of-stock row, and refuses it if called anyway', async () => {
+      listing().flush(stocked(0, null));
+      await fixture.whenStable();
+
+      const adds = [...fixture.nativeElement.querySelectorAll('ion-button')].filter(
+        (b: HTMLElement) => b.textContent?.trim() === 'Add',
+      );
+      fixture.detectChanges();
+      expect(adds[0].disabled).toBe(true);
+      expect(adds[1].disabled).toBe(false);
+
+      fixture.componentInstance.addToCart(fixture.componentInstance.products()[0]);
+      expect(TestBed.inject(CartStore).count()).toBe(0);
+
+      // Never reported is not none: that row still sells.
+      fixture.componentInstance.addToCart(fixture.componentInstance.products()[1]);
+      expect(TestBed.inject(CartStore).count()).toBe(1);
+    });
+
+    it('hands every level it receives to the cart through core', async () => {
+      listing().flush(stocked(2, null));
+      await fixture.whenStable();
+
+      const availability = TestBed.inject(CatalogAvailability);
+      expect(availability.of('p0')).toBe(2);
+      expect(availability.of('p1')).toBeNull();
+    });
+
+    it('shows the skeleton while the first page is in flight, and not after', async () => {
+      expect(fixture.componentInstance.showSkeleton()).toBe(true);
+      expect(fixture.nativeElement.querySelector('app-skeleton-list')).not.toBeNull();
+
+      listing().flush(stocked(1));
+      await fixture.whenStable();
+
+      expect(fixture.componentInstance.showSkeleton()).toBe(false);
+      expect(fixture.nativeElement.querySelector('app-skeleton-list')).toBeNull();
+    });
+
+    it('says the catalogue is empty when the first page is empty and last', async () => {
+      listing().flush({ items: [], nextCursor: null });
+      await fixture.whenStable();
+
+      expect(fixture.nativeElement.querySelector('app-empty-state')).not.toBeNull();
+      expect(text()).toContain('Nothing published yet');
+      expect(fixture.nativeElement.querySelector('[data-testid="end-of-list"]')).toBeNull();
+    });
+
+    it('does not call a failed first page empty', async () => {
+      listing().flush({ title: 'Down' }, { status: 503, statusText: 'Unavailable' });
+      await fixture.whenStable();
+
+      expect(fixture.nativeElement.querySelector('app-empty-state')).toBeNull();
+      expect(fixture.nativeElement.querySelector('app-skeleton-list')).toBeNull();
+    });
+
+    it('marks the end only once the platform says there is no further page', async () => {
+      listing().flush(page(2, 'cursor-2'));
+      await fixture.whenStable();
+      expect(fixture.nativeElement.querySelector('[data-testid="end-of-list"]')).toBeNull();
+
+      fixture.componentInstance.loadMore();
+      listing().flush(page(1, null));
+      await fixture.whenStable();
+      expect(fixture.nativeElement.querySelector('[data-testid="end-of-list"]')).not.toBeNull();
+    });
+
+    it('pull to refresh restarts from the first page and closes its spinner on the reply', async () => {
+      listing().flush(page(2, 'cursor-2'));
+      await fixture.whenStable();
+
+      const complete = vi.fn();
+      fixture.componentInstance.refresh({ target: { complete } });
+
+      const fresh = listing();
+      expect(fresh.request.params.has('cursor')).toBe(false);
+      expect(complete).not.toHaveBeenCalled();
+
+      fresh.flush(page(1, null));
+      await fixture.whenStable();
+
+      expect(complete).toHaveBeenCalledOnce();
+      expect(fixture.componentInstance.products()).toHaveLength(1);
+    });
+
+    it('opens a sheet over the row, and adds the quantity it was given', async () => {
+      listing().flush(stocked(10));
+      await fixture.whenStable();
+      const product = fixture.componentInstance.products()[0];
+
+      (fixture.nativeElement.querySelector('button.open') as HTMLElement).click();
+      expect(fixture.componentInstance.selected()).toBe(product);
+
+      fixture.componentInstance.addFromSheet(product, 3);
+
+      expect(TestBed.inject(CartStore).count()).toBe(3);
+      expect(fixture.componentInstance.selected()).toBeNull();
+    });
   });
 });

@@ -332,8 +332,15 @@ introduces.
 
 ## 10. Out of scope
 
-- A mobile BFF, order history, product detail, search, images upload or any
-  screen without an endpoint behind it.
+- A mobile BFF, order history, a product detail *route*, search, images upload
+  or any screen without an endpoint behind it.
+- **Product detail as a sheet is in scope, and needs no endpoint.** It opens
+  over a row of the listing and shows only what that row's `ProductSummary`
+  already carries — a larger image, the name, the price, the stock — with a
+  quantity stepper that adds to the local cart. Nothing is fetched, so no `GET`
+  by id is wanted. It is not a route and cannot be deep-linked: a link to one
+  product would have to read that product from the platform, and Catalog
+  serves no product by id.
 - Push notifications, offline mode beyond the persisted cart, deep links other
   than the auth callback.
 - Store publication, signing, and iOS builds on this workstation.

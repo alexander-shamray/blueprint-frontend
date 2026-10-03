@@ -368,7 +368,13 @@ has to mean something.
 is computed here because every client would otherwise compute it, and two
 clients computing a total is two places to get rounding wrong." That is the
 rule, and this client follows it without exception: no page multiplies, divides,
-sums or rounds an amount. Prices are rendered as the numbers they arrived as.
+sums or rounds an amount. Prices are rendered as the numbers they arrived as,
+through one pipe, `shared/money.pipe.ts`: it hands the server's amount and
+currency to `Intl.NumberFormat` and lifts `maximumFractionDigits`, so the
+formatter pads `12.5` to `12.50` and never rounds a `decimal(19,4)` price to
+the currency's minor unit. Writing a number differently is formatting; writing
+a different number would be arithmetic, and the pipe's spec pins the
+difference.
 
 It is worth seeing how much care the BFF puts into the arithmetic it is
 protecting, because that is the argument for not duplicating it.
@@ -921,6 +927,30 @@ refusing a blank field — which binds `null` and is genuinely empty. The nullab
 control type mirrors the backend's own `decimal?`, for the reason that field
 states: a bare `decimal` cannot say "absent", and an omitted amount would bind
 as 0 and publish a free product indistinguishable from a deliberate one.
+
+### The listing carries stock, and null is not none
+
+*The claim.* A listing row is `name`, `amount` and `currency` with an optional
+thumbnail (spec §5.1), so the client learns that a product cannot be had only
+from the 409 at checkout.
+
+*What is true.* `ProductSummaryDto.cs` ends in `int? QuantityAvailable`, which
+its own summary calls "Inventory's level … null where never reported".
+`GetProductsHandler.cs` LEFT JOINs `catalog.StockLevels`, and
+`StockLevelProjection.cs` writes a row there only on a `StockLevelChanged`. So
+a number is Inventory's level as Catalog last projected it, and null is a
+product Inventory has never reported on — not one it has none of. Neither is a
+reservation: that is Inventory's, taken when the order is placed.
+
+*Where it shows.* `ProductSummary.quantityAvailable` mirrors the member, and
+`features/products/stock.ts` reads it as four states: null says nothing, zero
+or below is out of stock with Add disabled, at or under its named threshold
+says how many are left, and above it says in stock.
+`core/catalog/catalog-availability.ts` keeps the levels the listing has shown
+this session so the cart can warn about a line that asks for more — and only
+warn: the quote
+and the order go ahead, because the level is a projection and the refusal, if
+there is one, is the platform's to make on the path that already exists for it.
 
 ### Tooling: `ng new`, not `ionic start`; Vitest 4, not 5
 
