@@ -774,7 +774,11 @@ a wider pattern is a `settings.json` change, for its owner to make. A verb
 split by empty quotes, `gh pr me''rge` or `git worktree re''move`, escapes
 both denies as well, for the reason the `grok-review.sh` paragraph above
 records: the `settings.json` denies are substrings of the typed command, and
-that spelling holds neither, while no hook rule judges either verb.
+that spelling holds neither, while no hook rule judges either verb. So does
+the same command handed to an interpreter — `bash -c '…'`, a script file run
+with `bash` — or reached through a `gh` or `git` alias, since the typed command
+then starts with the interpreter or the alias, and the hook refuses `gh` only
+inside a substitution.
 Both denies are also `Bash` rules and the hook is registered for `Bash` only,
 so a PowerShell tool, if a session has one, meets neither — unmeasured, and a
 harness-wide gap rather than one of these two. **The
