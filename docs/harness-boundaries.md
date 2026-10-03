@@ -739,8 +739,9 @@ fork wrote there, refuses any other path and a worktree holding any other
 branch, and has no `--force`; `gh-pr-merge.sh` takes a number and a full head
 oid, spells `--rebase --match-head-commit` itself, and refuses a pull request
 that is not the checked-out branch's own, from this repository, into `main`.
-Neither raw form is in any command's frontmatter; both survive only as quoted
-history in `ship.md`'s prose.
+Neither raw form is in any command's frontmatter —
+`test_no_command_grants_the_raw_form` in `.claude/scripts/test_grok_helpers.py`
+asserts that over every command — though both are still quoted as history.
 
 **What a helper grant leaves is still a prefix grant with a free tail**, and
 these two are no exception. `Bash(bash .claude/scripts/gh-pr-merge.sh:*)`
@@ -749,12 +750,16 @@ arity and shape checks rather than by the rule — both refuse anything but
 their two arguments, and neither argument may begin with `-`. What runs
 *before* the script checks anything is outside it: a substitution in the tail
 runs while bash builds the argv, which the hook paragraph on `gh` inside a
-substitution closes for `gh` and for anything off its allow-list. And the
-script run is the checkout's copy — `Edit(.claude/scripts/**)` stops a session
-editing it, not a branch carrying an edited one, the class
+substitution closes for `gh` and for anything off its allow-list. **It does not
+close it for `git`**, which is on that allow-list while `guard-git-argv.py`
+holds no rule for `worktree` at all, so a forced `git worktree remove` inside a
+substitution in this tail, or in any prefix grant's, runs before the helper
+checks anything — a standing residual whose fix is in `.claude/hooks/`, not
+here. And the script run is the checkout's copy — `Edit(.claude/scripts/**)`
+stops a session editing it, not a branch carrying an edited one, the class
 blueprint-frontend#115 records for the triager's method.
-`git-worktree-remove.sh` names its own last gap: a caller naming another run's
-path and its branch together passes.
+What the worktree helper's branch binding still leaves is stated in
+`git-worktree-remove.sh`'s own header, which owns it.
 
 **Two more sat in the sweep command files rather than in this paragraph, and
 both are now closed — which is worth recording because they were closed the
