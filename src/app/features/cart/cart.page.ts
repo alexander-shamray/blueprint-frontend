@@ -394,8 +394,11 @@ export class CartPage {
     // check is what makes CheckoutHandoff.set()'s non-nullable parameter
     // honest: quoteGuard treats "a quote was set" as the route-reachability
     // fact, and a `!` here could assert that fact falsely.
+    // canCheckout() is checked here too, for the same reason: the handoff is
+    // meant to hold only a quote with no unpriced lines, and quoteGuard admits
+    // the route on any quote it finds there.
     const quote = this.quote();
-    if (quote === null) return;
+    if (quote === null || !this.canCheckout()) return;
 
     // The quote travels through core rather than through a route parameter: a
     // QuoteResponse does not belong in a URL, and a feature never imports

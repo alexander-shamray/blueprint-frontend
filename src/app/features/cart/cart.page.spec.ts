@@ -250,6 +250,26 @@ describe('CartPage', () => {
     expect(navigate).not.toHaveBeenCalled();
   });
 
+  it('refuses to hand an unpriced quote to checkout even if checkout() is called directly', async () => {
+    fixture.componentInstance.getQuote();
+    controller.expectOne((r) => r.url.includes('/quote')).flush({
+      currency: 'EUR',
+      lines: [quoted('p1', 4, 1, 4)],
+      total: 4,
+      unpriced: ['p2'],
+    });
+    await fixture.whenStable();
+
+    // The quote is current, so only its unpriced line stands between it and
+    // the handoff the guard reads.
+    expect(fixture.componentInstance.quote()).not.toBeNull();
+    const navigate = vi.spyOn(TestBed.inject(Router), 'navigate');
+    fixture.componentInstance.checkout();
+
+    expect(TestBed.inject(CheckoutHandoff).quote()).toBeNull();
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
   it('disables Get quote while a 429 window is open', async () => {
     fixture.componentInstance.getQuote();
     controller.expectOne((r) => r.url.includes('/quote')).flush(
