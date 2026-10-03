@@ -436,14 +436,27 @@ describe('CheckoutPage', () => {
     });
 
     it('summarises the quote it will order against, as the BFF priced it', () => {
+      // Three figures that differ, none the product or sum of the others: the
+      // beforeEach quote's 10 / 10 / 10 would let a deleted Total row, or one
+      // the client added up, pass unseen.
+      TestBed.inject(CheckoutHandoff).set({
+        currency: 'GBP',
+        lines: [{ productId: 'p1', name: 'Widget', amount: 10, quantity: 2, lineTotal: 7 }],
+        total: 99, unpriced: [],
+      });
       fixture.detectChanges();
-      const summary: string = (
-        fixture.nativeElement.querySelector('[data-testid="order-summary"]')?.textContent ?? ''
-      ).replace(/\s+/g, ' ');
+      const list: HTMLElement =
+        fixture.nativeElement.querySelector('[data-testid="order-summary"]');
+      const summary: string = (list?.textContent ?? '').replace(/\s+/g, ' ');
 
       expect(summary).toContain('Widget');
-      expect(summary).toContain('1 × £10.00 = £10.00');
-      expect(summary).toContain('£10.00');
+      expect(summary).toContain('2 × £10.00 = £7.00');
+      expect(summary).not.toContain('£20.00');
+
+      const rows = [...list.querySelectorAll('ion-item')].map((item) =>
+        (item.textContent ?? '').replace(/\s+/g, ' ').trim(),
+      );
+      expect(rows.find((row) => row.startsWith('Total'))?.replace(/\s/g, '')).toBe('Total£99.00');
     });
 
     it('chooses the country from a select of codes, sending the code', () => {

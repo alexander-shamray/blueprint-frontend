@@ -399,9 +399,16 @@ describe('CartPage', () => {
       await fixture.whenStable();
 
       expect(fixture.nativeElement.querySelector('app-empty-state')).not.toBeNull();
-      const browse: HTMLElement = buttons('Browse products')[0];
-      expect(browse.getAttribute('routerLink') ?? browse.getAttribute('ng-reflect-router-link'))
-        .toBe('/tabs/products');
+      // A click and a navigation, not the attribute: the literal routerLink
+      // stays in the DOM even when RouterLink is not imported to act on it.
+      const router = TestBed.inject(Router);
+      const navigateByUrl = vi.spyOn(router, 'navigateByUrl').mockResolvedValue(true);
+      buttons('Browse products')[0].click();
+
+      expect(navigateByUrl).toHaveBeenCalledTimes(1);
+      const target = navigateByUrl.mock.calls[0][0];
+      const url = typeof target === 'string' ? target : router.serializeUrl(target);
+      expect(url).toBe('/tabs/products');
       expect(buttons('Get quote')).toHaveLength(0);
     });
   });
