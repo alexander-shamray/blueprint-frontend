@@ -129,11 +129,12 @@ import { MoneyPipe } from '@shared/money.pipe';
         </ion-item>
 
         <!--
-          Disabled while a 429 window is open as well as for an empty basket
-          (spec §6): the gateway has already said how long to wait, and the
-          banner above is counting it down.
+          Disabled while a 429 window is open (spec §6): the gateway has
+          already said how long to wait, and the banner above is counting it
+          down. An empty basket never reaches here; the empty state stands in
+          for this whole branch.
         -->
-        <ion-button expand="block" [disabled]="store.isEmpty() || rateLimit.blocked()"
+        <ion-button expand="block" [disabled]="rateLimit.blocked()"
           (click)="getQuote()">Get quote</ion-button>
 
         @if (quote(); as q) {
