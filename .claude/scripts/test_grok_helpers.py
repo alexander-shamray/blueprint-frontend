@@ -6826,6 +6826,74 @@ class TheGitArgvGuard(unittest.TestCase):
             f"{NEWLINE}$(git push origin +HEAD:main){NEWLINE}B"
         )
 
+    def test_a_substitution_runs_only_what_reads(self):
+        # **A substitution runs before the command holding it is judged**, and
+        # its allow-list read a program's name and nothing else, so an option
+        # that executes or writes, or a `git` subcommand that writes, ran under
+        # any prefix grant's tail (blueprint-frontend#122). Each of these was
+        # admitted before that issue's fix.
+        for command in (
+                "ls $(rg --pre=bash -e . tools/run)",
+                "ls $(sort -o .claude/settings.json /dev/null)",
+                "ls $(sort --compress-program=./tools/run big)",
+                "ls $(uniq a .claude/settings.json)",
+                "ls $(git worktree remove -f .claude/worktrees/x)",
+                "ls $(git -C . worktree remove -f x)",
+                "ls $(git checkout HEAD -- .claude/scripts/gh-pr-merge.sh)",
+                "ls $(git restore --source=HEAD~1 .claude/scripts/x.sh)",
+                "ls $(git bisect run ./tools/m)",
+                "ls $(git submodule foreach ./tools/m)",
+                "ls $(git rebase -x ./tools/m HEAD~1)",
+                "ls $(git reset --hard)",
+                "ls $(git clean -fdx)",
+                "ls $(git branch -D x)",
+                "ls $(git branch x)",
+                "ls $(git)",
+                "ls `git worktree remove -f x`",
+                "cat <(git worktree remove -f x)",
+                "bash .claude/scripts/gh-pr-merge.sh 1 $(git checkout x -- .)",
+        ):
+            with self.subTest(command=command):
+                self.assertRefused(command)
+        # The reads this repository's commands run inside a substitution, which
+        # must stay admitted or the fix breaks the chain it protects.
+        for command in (
+                "echo $(git rev-parse HEAD)",
+                'echo "$(git -C . rev-parse --git-path claude-rebase-pending)"',
+                "echo $(git branch --show-current)",
+                "echo $(git branch --show-current 2>/dev/null)",
+                "echo $(git worktree list --porcelain)",
+                "echo $(git status --porcelain)",
+                "echo $(git merge-base origin/main HEAD)",
+                "echo $(git ls-tree -r HEAD)",
+                "echo $(git log --merges --oneline -1)",
+                "echo $(git diff --name-only origin/main...HEAD)",
+        ):
+            with self.subTest(command=command):
+                self.assertAdmitted(command)
+
+    def test_the_short_and_operand_spellings_that_run_a_command(self):
+        # `FORBIDDEN_FLAGS` read the long spelling and its abbreviations only,
+        # and `bisect run` and `submodule foreach` carry their command as an
+        # operand (blueprint-frontend#122).
+        for command in (
+                "git rebase -x ./tools/m HEAD~1",
+                "git rebase -ix ./tools/m HEAD~1",
+                "git rebase -x./tools/m HEAD~1",
+                "git difftool -x ./tools/m",
+                "git difftool --extcmd=./tools/m",
+                "git difftool --extc=./tools/m",
+                "git bisect run ./tools/m",
+                "git submodule --quiet foreach ./tools/m",
+        ):
+            with self.subTest(command=command):
+                self.assertRefused(command)
+        # A letter that runs a command on one subcommand is harmless on another.
+        for command in ("git cherry-pick -x abc123", "git rebase -i HEAD~2",
+                        "git bisect start", "git submodule status"):
+            with self.subTest(command=command):
+                self.assertAdmitted(command)
+
     def test_process_substitution_is_a_command(self):
         # `<(…)` and `>(…)` are executed by the shell, and the guard reaches
         # them through the tokeniser rather than through `substitutions` —
