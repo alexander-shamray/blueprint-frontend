@@ -728,12 +728,33 @@ Ordinals are kept even where an entry is closed, so a cross-reference to "the
 fourth" still lands, and each entry says its own state. Read the entries; do
 not count them here.
 
-Two are `/ship`'s:
-`Bash(git worktree remove:*)` admits the `-f` that discards work, and
-`Bash(gh pr merge --merge:*)` admits a trailing `--admin` that merges past
-failing checks. Helpers are owed for both; until someone with the
-`Edit(.claude/scripts/**)` deny lifted writes them, `/ship` carries them by
-reporting its literal invocations, flags and all.
+The first **was** two of `/ship`'s, and #16 closed both.
+`Bash(git worktree remove:*)` admitted the `-f` that discards work, and
+`Bash(gh pr merge --merge:*)` admitted a trailing `--admin` that merges past
+failing checks. Until someone with the `Edit(.claude/scripts/**)` deny lifted
+wrote the helpers, `/ship` carried both by reporting its literal invocations,
+flags and all. **The helpers exist now and the raw grants are withdrawn**:
+`git-worktree-remove.sh` takes `.claude/worktrees/<name>` and the branch the
+fork wrote there, refuses any other path and a worktree holding any other
+branch, and has no `--force`; `gh-pr-merge.sh` takes a number and a full head
+oid, spells `--rebase --match-head-commit` itself, and refuses a pull request
+that is not the checked-out branch's own, from this repository, into `main`.
+Neither raw form is in any command's frontmatter; both survive only as quoted
+history in `ship.md`'s prose.
+
+**What a helper grant leaves is still a prefix grant with a free tail**, and
+these two are no exception. `Bash(bash .claude/scripts/gh-pr-merge.sh:*)`
+admits whatever follows the name, so the tail is bounded by each script's own
+arity and shape checks rather than by the rule — both refuse anything but
+their two arguments, and neither argument may begin with `-`. What runs
+*before* the script checks anything is outside it: a substitution in the tail
+runs while bash builds the argv, which the hook paragraph on `gh` inside a
+substitution closes for `gh` and for anything off its allow-list. And the
+script run is the checkout's copy — `Edit(.claude/scripts/**)` stops a session
+editing it, not a branch carrying an edited one, the class
+blueprint-frontend#115 records for the triager's method.
+`git-worktree-remove.sh` names its own last gap: a caller naming another run's
+path and its branch together passes.
 
 **Two more sat in the sweep command files rather than in this paragraph, and
 both are now closed — which is worth recording because they were closed the
