@@ -372,10 +372,10 @@ rule, and this client follows it without exception: no page multiplies, divides,
 sums or rounds an amount. Prices are rendered as the numbers they arrived as,
 through one pipe, `shared/money.pipe.ts`: it hands the server's amount and
 currency to `Intl.NumberFormat` and lifts `maximumFractionDigits`, so the
-formatter pads `12.5` to `12.50` and never rounds a `decimal(19,4)` price to
-the currency's minor unit. Writing a number differently is formatting; writing
-a different number would be arithmetic, and the pipe's spec pins the
-difference.
+formatter pads `12.5` to `12.50` and never rounds a price held at
+`PriceAmount`'s full scale (§12, "A product may cost nothing") to the
+currency's minor unit. Writing a number differently is formatting; writing a
+different number would be arithmetic, and the pipe's spec pins the difference.
 
 It is worth seeing how much care the BFF puts into the arithmetic it is
 protecting, because that is the argument for not duplicating it.

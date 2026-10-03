@@ -75,7 +75,7 @@ import { stockLabel, stockOf } from './stock';
 
       @if (isEmpty()) {
         <app-empty-state heading="Nothing published yet"
-          message="Products appear here as soon as a seller publishes one." />
+          message="Pull down to check again for newly published products." />
       }
 
       <ion-list>
