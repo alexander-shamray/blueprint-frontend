@@ -745,7 +745,10 @@ asserts that over every command — though both are still quoted as history.
 
 **A helper granted by prefix still leaves a free tail, and these two are
 granted by prefix** — unlike `gh-pr-create.sh`, which the hook paragraph above
-records as granted exactly. `Bash(bash .claude/scripts/gh-pr-merge.sh:*)`
+records as granted exactly, without the `:*`. That form closes the tail only
+if a rule with no wildcard matches exactly rather than as a prefix, which the
+`git pull` paragraph above records as never measured, so it is narrowed, not
+proven. `Bash(bash .claude/scripts/gh-pr-merge.sh:*)`
 admits whatever follows the name, so the tail is bounded by each script's own
 arity and shape checks rather than by the rule — both refuse anything but
 their two arguments, and neither argument may begin with `-`.
@@ -1468,10 +1471,14 @@ rewrites published history. And "carries the flags itself" means the five
 rebase at all grants. A third is smaller and is written down for the same
 reason: the replay's provenance and its divergence baseline are files under
 `.git` — the marker the helper writes, the record it keeps and git's own
-`orig-head` — so anything able to write there could steer a publish. Nothing
-granted here can: `guard-git-argv.py` holds `.git` among its protected trees
-for redirections and writing verbs, every command file denies `Edit(.git/**)`,
-and no grant creates files there.
+`orig-head` — so anything able to write there could steer a publish. What
+stands in the way is partial: `guard-git-argv.py` holds `.git` among its
+protected trees for redirections and the writing verbs it models, every
+command file denies `Edit(.git/**)`, and no grant's own operation creates
+files there. None of that reaches a substitution in this grant's tail, which
+the first entry records as a standing residual: a `git` subcommand or a
+writing option run there can write under `.git` before the helper checks
+anything.
 
 **It is granted to `/ship` alone, and it was ported rather than written here.**
 The helper and its suite came from `alexander-shamray/blueprint-backend`, which
