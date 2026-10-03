@@ -106,7 +106,8 @@ import { countryOptions } from './countries';
           <!--
             The summary is the quote the cart handed over, line for line and
             number for number: what this order will be placed against, read
-            off the reply and formatted, never added up here (§9).
+            off the reply and formatted, never added up here
+            (client-architecture.md §9).
           -->
           <ion-list data-testid="order-summary">
             <ion-list-header><ion-label>Order summary</ion-label></ion-list-header>
@@ -207,13 +208,16 @@ export class CheckoutPage {
   // this page read, and by nothing else.
   private readonly errorState = signal<DisplayError | null>(null);
   private readonly fieldErrorsState = signal<Partial<Record<AddressField, readonly string[]>>>({});
-  private readonly submittingState = signal(false);
+  // A count, not a flag: placeOrder() lets a double-click send two requests,
+  // and the first answer to land must not clear the busy state while the
+  // second is still out.
+  private readonly inFlightState = signal(0);
 
   readonly error = this.errorState.asReadonly();
   /** A 400's messages for the controls on this form, by control. */
   readonly fieldErrors = this.fieldErrorsState.asReadonly();
   /** A request is out and its answer has not landed. */
-  readonly submitting = this.submittingState.asReadonly();
+  readonly submitting = computed(() => this.inFlightState() > 0);
 
   /**
    * What the banner shows: the mapped error, less the field messages a
@@ -314,11 +318,11 @@ export class CheckoutPage {
       currency: quote.currency,
     };
 
-    this.submittingState.set(true);
+    this.inFlightState.update((count) => count + 1);
 
     this.ordering.place(command).subscribe({
       next: (orderId) => {
-        this.submittingState.set(false);
+        this.inFlightState.update((count) => count - 1);
         this.replayedAfterSignIn = false;
         this.errorState.set(null);
         this.fieldErrorsState.set({});
@@ -327,7 +331,7 @@ export class CheckoutPage {
         void this.router.navigate(['/tabs/cart/placed', orderId]);
       },
       error: (failure: HttpErrorResponse) => {
-        this.submittingState.set(false);
+        this.inFlightState.update((count) => count - 1);
         const displayed = mapError(failure, { permission: PERMISSIONS.ordersWrite });
         this.errorState.set(displayed);
         // Replaced, not merged: every response is the whole of what the
