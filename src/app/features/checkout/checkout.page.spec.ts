@@ -415,7 +415,7 @@ describe('CheckoutPage', () => {
       expect(notes('postalCode')).toEqual(['Too long.']);
     });
 
-    it('is busy from the tap to the answer, and says so on the button', async () => {
+    it('is busy from the tap to the answer, says so on the button, and leaves it live', async () => {
       fixture.componentInstance.placeOrder();
       fixture.detectChanges();
 
@@ -423,8 +423,11 @@ describe('CheckoutPage', () => {
       const button = [...fixture.nativeElement.querySelectorAll('ion-button')].find(
         (el: HTMLElement) => el.getAttribute('type') === 'submit',
       );
-      expect(button.disabled).toBe(true);
       expect(button.textContent).toContain('Placing order');
+      // The busy state is not a guard: a double-click while the request is
+      // out still reaches the platform, which answers it with
+      // request.in_progress (client-architecture.md §4).
+      expect(button.disabled).toBe(false);
 
       controller.expectOne('http://localhost:5000/api/v1/orders').flush(
         { title: 'Server error', status: 500 },

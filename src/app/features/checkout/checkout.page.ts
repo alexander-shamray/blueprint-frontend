@@ -134,12 +134,13 @@ import { countryOptions } from './countries';
           rateLimit.blocked() joins the other refusals: a 429 says the platform
           will not take this order yet, and the banner above is counting the
           window down (spec §6). submitting() is the busy state — what the
-          customer sees between the tap and the answer — and it is a courtesy
-          rather than the guard: placeOrder() below says why it refuses
-          nothing on that account.
+          customer sees between the tap and the answer — and it changes the
+          label only: the button stays live while the request is out, so a
+          double-click still reaches the platform, as client-architecture.md
+          §4 decides and placeOrder() below explains.
         -->
         <ion-button expand="block" type="submit"
-          [disabled]="form.invalid || identity.isSpent() || !handoff.quote() || rateLimit.blocked() || submitting()">
+          [disabled]="form.invalid || identity.isSpent() || !handoff.quote() || rateLimit.blocked()">
           @if (submitting()) {
             <ion-spinner name="dots" aria-hidden="true"></ion-spinner> Placing order…
           } @else {
@@ -285,7 +286,8 @@ export class CheckoutPage {
     // two requests under the same commandId, and the platform answering the
     // second with request.in_progress is the idempotency mechanism working
     // as designed, not a bug this method should suppress. The button's busy
-    // state makes that double-click rarer and is not this guard: it shows
+    // state is shown and the button stays enabled, so that double-click still
+    // reaches the platform (client-architecture.md §4): the busy state tells
     // the customer the order is on its way, and this method still sends
     // whatever it is asked to.
     const quote = this.handoff.quote();
