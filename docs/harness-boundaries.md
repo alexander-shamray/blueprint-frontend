@@ -755,15 +755,21 @@ commands inside a script. The deny sits there rather than in `ship.md`'s
 that loaded it, and the test above reads a command's whole frontmatter, so a
 deny there would fail it. **What it does not close is the substitution
 route below**: a deny matches the typed command's prefix, not a `$(…)` inside
-another grant's tail, and blueprint-frontend#122 owns that. Nor does it
-reach `gh api`'s merge endpoint, which no rule denies, so it meets what any
-un-granted command meets: a prompt, or the classifier under the user-level
-`auto` mode the #26 paragraph above records. **And the deny refuses the
-canonical spelling only**: a global option before the subcommand — `git`'s
-`-C`, `--git-dir` or `--work-tree` — escapes the prefix, as may an option of
-`gh`'s placed before `merge` or another spelling of either executable, which
-is unmeasured. `guard-git-argv.py` has no `worktree` rule to catch the first,
-so a wider pattern is a `settings.json` change, for its owner to make. **The
+another grant's tail. The hook refuses a `gh` word there, so that route stays
+open for `git worktree remove` rather than `gh pr merge`, and
+blueprint-frontend#122 owns it. Nor does it reach `gh api`'s merge endpoint,
+which no rule denies, so it meets what any un-granted command meets: a
+prompt, or the classifier under the user-level `auto` mode the #26 paragraph
+above records. **And the deny refuses the canonical spelling only**: any
+other prefix escapes it. A global option before the subcommand — `git`'s
+`-C`, `--git-dir` or `--work-tree` — is one; a leading environment
+assignment, a wrapper word such as `env` or `command`, an option of `gh`'s
+placed before `merge` and another spelling of either executable are others,
+which are unmeasured. `guard-git-argv.py` has no `worktree` rule to catch the
+first, so a wider pattern is a `settings.json` change, for its owner to make.
+Both denies are also `Bash` rules and the hook is registered for `Bash` only,
+so a PowerShell tool, if a session has one, meets neither — unmeasured, and a
+harness-wide gap rather than one of these two. **The
 third raw form #16 withdrew, `gh pr create`, is withdrawn and not denied**:
 the same argument reaches it, and no rule refuses a typed
 `gh pr create --repo …`; denying it is that same owner's change. Nor does any
