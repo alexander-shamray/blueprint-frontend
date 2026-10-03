@@ -9,11 +9,12 @@ import { AuthService } from '@core/auth/auth.service';
 import { CartPersistence } from '@core/cart/cart.persistence';
 import { CartStore } from '@core/cart/cart.store';
 import { CheckoutHandoff } from '@core/cart/checkout-handoff';
+import { CatalogAvailability } from '@core/catalog/catalog-availability';
 import { CartPage } from './cart.page';
 
 const product = (id: string) => ({
   productId: id, name: `Product ${id}`, thumbnailUrl: null,
-  amount: 10, currency: 'EUR', publishedAt: '2026-09-10T00:00:00Z',
+  amount: 10, currency: 'EUR', publishedAt: '2026-09-10T00:00:00Z', quantityAvailable: null,
 });
 
 /**
@@ -120,7 +121,8 @@ describe('CartPage', () => {
     expect(fixture.componentInstance.quote()?.total).toBe(99);
     // On screen, and labelled Total — asserting the signal alone would pass
     // with the template deleted, which is how the last relabelling was found.
-    expect(fixture.nativeElement.textContent).toContain('Total: 99 EUR');
+    // Through MoneyPipe under the default en-US locale: formatted, not recomputed.
+    expect(fixture.nativeElement.textContent).toContain('Total: €99.00');
   });
 
   it('renders each line total as the BFF computed it, rather than multiplying', async () => {
@@ -139,8 +141,8 @@ describe('CartPage', () => {
 
     const text = fixture.nativeElement.textContent.replace(/\s+/g, ' ');
 
-    expect(text).toContain('2 × 12.5 EUR = 7 EUR');
-    expect(text).not.toContain('= 25 EUR');
+    expect(text).toContain('2 × €12.50 = €7.00');
+    expect(text).not.toContain('= €25.00');
   });
 
   it('shows a quoted line whose price is zero', async () => {
@@ -158,7 +160,7 @@ describe('CartPage', () => {
     fixture.detectChanges();
 
     expect(fixture.componentInstance.quotedLines()['p1']).toBeDefined();
-    expect(fixture.nativeElement.textContent.replace(/\s+/g, ' ')).toContain('1 × 0 EUR = 0 EUR');
+    expect(fixture.nativeElement.textContent.replace(/\s+/g, ' ')).toContain('1 × €0.00 = €0.00');
   });
 
   it('marks unpriced lines rather than hiding them, and blocks checkout', async () => {
@@ -345,5 +347,97 @@ describe('CartPage', () => {
     // trusting a quote for a basket that no longer exists.
     fixture.componentInstance.setQuantity('p1', 5);
     expect(handoff.quote()).toBeNull();
+  });
+
+  describe('removing, the floor and the empty cart', () => {
+    const buttons = (label: string): (HTMLElement & { disabled: boolean })[] =>
+      [...fixture.nativeElement.querySelectorAll('ion-button')].filter(
+        (el: HTMLElement) => el.textContent?.trim() === label,
+      );
+
+    it('removes a line, and the quote with it', async () => {
+      fixture.componentInstance.getQuote();
+      controller.expectOne((r) => r.url.includes('/quote')).flush({
+        currency: 'EUR',
+        lines: [quoted('p1', 4, 1, 4), quoted('p2', 4, 1, 4)],
+        total: 8,
+        unpriced: [],
+      });
+      await fixture.whenStable();
+
+      fixture.componentInstance.remove('p1');
+
+      expect(store.lines().map((l) => l.productId)).toEqual(['p2']);
+      expect(fixture.componentInstance.quote()).toBeNull();
+    });
+
+    it('offers Remove as a button on the web', async () => {
+      fixture.detectChanges();
+
+      // One button per line, plus the swipe option, which is not an ion-button.
+      expect(buttons('Remove')).toHaveLength(2);
+    });
+
+    it('floors the quantity at one: − is disabled there and below one changes nothing', async () => {
+      fixture.detectChanges();
+
+      expect(buttons('−')[0].disabled).toBe(true);
+
+      fixture.componentInstance.setQuantity('p1', 0);
+      expect(store.lines()).toHaveLength(2);
+      expect(store.lines()[0].quantity).toBe(1);
+    });
+
+    it('shows an empty cart with a way back to Products', async () => {
+      store.clear();
+      fixture.detectChanges();
+      await fixture.whenStable();
+
+      expect(fixture.nativeElement.querySelector('app-empty-state')).not.toBeNull();
+      const browse: HTMLElement = buttons('Browse products')[0];
+      expect(browse.getAttribute('routerLink') ?? browse.getAttribute('ng-reflect-router-link'))
+        .toBe('/tabs/products');
+      expect(buttons('Get quote')).toHaveLength(0);
+    });
+  });
+
+  describe('availability the listing last showed', () => {
+    const level = (productId: string, quantityAvailable: number | null) => ({
+      ...product(productId),
+      quantityAvailable,
+    });
+    const warnings = (): string[] =>
+      [...fixture.nativeElement.querySelectorAll('[data-testid="availability-warning"]')].map(
+        (el: HTMLElement) => el.textContent?.trim() ?? '',
+      );
+
+    it('warns on a line that asks for more than the listing showed, and blocks nothing', async () => {
+      TestBed.inject(CatalogAvailability).record([level('p1', 1), level('p2', 0)]);
+      fixture.componentInstance.setQuantity('p1', 2);
+      fixture.detectChanges();
+
+      expect(warnings()).toEqual([
+        'Only 1 listed as available. The order may be refused for the rest.',
+        'Listed as out of stock. The order may be refused.',
+      ]);
+
+      fixture.componentInstance.getQuote();
+      controller.expectOne((r) => r.url.includes('/quote')).flush({
+        currency: 'EUR',
+        lines: [quoted('p1', 4, 2, 8), quoted('p2', 4, 1, 4)],
+        total: 12,
+        unpriced: [],
+      });
+      await fixture.whenStable();
+      expect(fixture.componentInstance.canCheckout()).toBe(true);
+    });
+
+    it('says nothing when the level was never reported or never seen', async () => {
+      TestBed.inject(CatalogAvailability).record([level('p1', null)]);
+      fixture.componentInstance.setQuantity('p1', 50);
+      fixture.detectChanges();
+
+      expect(warnings()).toEqual([]);
+    });
   });
 });

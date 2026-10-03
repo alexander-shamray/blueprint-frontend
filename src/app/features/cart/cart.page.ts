@@ -1,26 +1,31 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { HttpErrorResponse } from '@angular/common/http';
-import { Router } from '@angular/router';
+import { Router, RouterLink } from '@angular/router';
+import { Capacitor } from '@capacitor/core';
 import {
-  IonButton, IonContent, IonHeader, IonItem, IonLabel, IonList, IonNote, IonSelect,
-  IonSelectOption, IonTitle, IonToolbar,
+  IonButton, IonContent, IonHeader, IonItem, IonItemOption, IonItemOptions, IonItemSliding,
+  IonLabel, IonList, IonNote, IonSelect, IonSelectOption, IonTitle, IonToolbar,
 } from '@ionic/angular';
 import { CheckoutApi } from '@core/api/checkout.api';
 import { QuoteLine, QuoteResponse } from '@core/api/types';
 import { AuthService } from '@core/auth/auth.service';
-import { CartStore } from '@core/cart/cart.store';
+import { CartLine, CartStore } from '@core/cart/cart.store';
 import { CheckoutHandoff } from '@core/cart/checkout-handoff';
+import { CatalogAvailability } from '@core/catalog/catalog-availability';
 import { DisplayError, mapError } from '@core/errors/error-mapper';
 import { RateLimitWindows } from '@core/errors/rate-limit';
+import { EmptyStateComponent } from '@shared/empty-state.component';
 import { ErrorBannerComponent } from '@shared/error-banner.component';
+import { MoneyPipe } from '@shared/money.pipe';
 
 /** Spec §5.2. */
 @Component({
   selector: 'app-cart',
   standalone: true,
   imports: [
-    IonButton, IonContent, IonHeader, IonItem, IonLabel, IonList, IonNote, IonSelect,
-    IonSelectOption, IonTitle, IonToolbar, ErrorBannerComponent,
+    IonButton, IonContent, IonHeader, IonItem, IonItemOption, IonItemOptions, IonItemSliding,
+    IonLabel, IonList, IonNote, IonSelect, IonSelectOption, IonTitle, IonToolbar, RouterLink,
+    EmptyStateComponent, ErrorBannerComponent, MoneyPipe,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -29,84 +34,118 @@ import { ErrorBannerComponent } from '@shared/error-banner.component';
     <ion-content>
       <app-error-banner [error]="error() ?? rateLimit.refusal()" [retryInSeconds]="rateLimit.remaining()" />
 
-      <ion-list>
-        @for (line of lines(); track line.productId) {
+      @if (store.isEmpty()) {
+        <app-empty-state heading="Your cart is empty" icon="cart-outline"
+          message="Add something from Products and it will wait here, even across restarts.">
+          <ion-button routerLink="/tabs/products" fill="outline">Browse products</ion-button>
+        </app-empty-state>
+      } @else {
+        <ion-list>
+          @for (line of lines(); track line.productId) {
+            <!--
+              Swipe to remove on a device, where swiping a row is the
+              platform's own gesture for it; a Remove button on the web, where
+              a pointer has no swipe to discover. The sliding wrapper is there
+              on both, so a touch screen in a browser still has the gesture.
+            -->
+            <ion-item-sliding>
+              <ion-item>
+                <ion-label>
+                  <h2>{{ line.name }}</h2>
+                  <ion-note>
+                    Listing price {{ line.amount | money: line.currency }} — the quote is the price that counts
+                  </ion-note>
+                  @if (quotedLines()[line.productId]; as quoted) {
+                    <ion-note>
+                      {{ quoted.quantity }} × {{ quoted.amount | money: currency() }} =
+                      {{ quoted.lineTotal | money: currency() }}
+                    </ion-note>
+                  }
+                  @if (isUnpriced(line.productId)) {
+                    <ion-note color="warning">Not priced in {{ currency() }}</ion-note>
+                  }
+                  @if (availabilityWarning(line); as warning) {
+                    <ion-note color="warning" data-testid="availability-warning">{{ warning }}</ion-note>
+                  }
+                </ion-label>
+
+                <!--
+                  No client-side ceiling on the + button, and that is a
+                  decision rather than an omission. OrderLimits.MaxQuantity
+                  (999) and OrderLimits.MaxLines (100) are enforced twice on
+                  the platform — by QuoteRequestValidator before the quote and
+                  by PlaceOrderValidator before the order — from ONE constant
+                  in Common.Contracts, which exists precisely because "two
+                  literals are how daylight appears". A 999 typed into
+                  TypeScript would be a third copy, in the one place that
+                  cannot be kept honest: raise the bound on the platform and
+                  this stepper would go on refusing baskets the platform
+                  accepts, with no error anywhere — just a button that stops.
+                  A refusal the customer can see beats a limit the client
+                  invented.
+
+                  So the stepper reaches whatever the customer asks for, and
+                  the quote answers. The platform's refusal is a field-keyed
+                  400 and mapError renders the keys and messages as sent, on
+                  this screen, with the quantity still in front of them —
+                  which is where OrderLimits itself says the refusal belongs.
+
+                  Same shape as CheckoutEndpoints' own refusal to copy
+                  Catalog's product-count ceiling: "a second copy of THAT
+                  limit in this host would drift from the one actually
+                  enforced."
+
+                  The floor is the client's, and it is not a copy of anything:
+                  OrderLimits.MinQuantity is one, but what stops − at one here
+                  is that removing a line is its own act, with its own
+                  control, and a stepper that deletes on its last tap is a
+                  removal nobody asked for.
+                -->
+                <ion-button slot="end" fill="clear" [disabled]="line.quantity <= 1"
+                  (click)="setQuantity(line.productId, line.quantity - 1)">−</ion-button>
+                <ion-note slot="end">{{ line.quantity }}</ion-note>
+                <ion-button slot="end" fill="clear"
+                  (click)="setQuantity(line.productId, line.quantity + 1)">+</ion-button>
+                @if (!native) {
+                  <ion-button slot="end" fill="clear" color="danger"
+                    (click)="remove(line.productId)">Remove</ion-button>
+                }
+              </ion-item>
+
+              <ion-item-options side="end">
+                <ion-item-option color="danger" (click)="remove(line.productId)">Remove</ion-item-option>
+              </ion-item-options>
+            </ion-item-sliding>
+          }
+        </ion-list>
+
+        <ion-item>
+          <ion-select label="Currency" [value]="currency()"
+            (ionChange)="setCurrency($any($event).detail.value)">
+            @for (code of currencies; track code) {
+              <ion-select-option [value]="code">{{ code }}</ion-select-option>
+            }
+          </ion-select>
+        </ion-item>
+
+        <!--
+          Disabled while a 429 window is open as well as for an empty basket
+          (spec §6): the gateway has already said how long to wait, and the
+          banner above is counting it down.
+        -->
+        <ion-button expand="block" [disabled]="store.isEmpty() || rateLimit.blocked()"
+          (click)="getQuote()">Get quote</ion-button>
+
+        @if (quote(); as q) {
           <ion-item>
             <ion-label>
-              <h2>{{ line.name }}</h2>
-              <ion-note>
-                Listing price {{ line.amount }} {{ line.currency }} — the quote is the price that counts
-              </ion-note>
-              @if (quotedLines()[line.productId]; as quoted) {
-                <ion-note>
-                  {{ quoted.quantity }} × {{ quoted.amount }} {{ currency() }} =
-                  {{ quoted.lineTotal }} {{ currency() }}
-                </ion-note>
-              }
-              @if (isUnpriced(line.productId)) {
-                <ion-note color="warning">Not priced in {{ currency() }}</ion-note>
-              }
+              <strong>Total: {{ q.total | money: q.currency }}</strong>
             </ion-label>
-
-            <!--
-              No client-side ceiling on the + button, and that is a decision
-              rather than an omission. OrderLimits.MaxQuantity (999) and
-              OrderLimits.MaxLines (100) are enforced twice on the platform —
-              by QuoteRequestValidator before the quote and by
-              PlaceOrderValidator before the order — from ONE constant in
-              Common.Contracts, which exists precisely because "two literals
-              are how daylight appears". A 999 typed into TypeScript would be a
-              third copy, in the one place that cannot be kept honest: raise
-              the bound on the platform and this stepper would go on refusing
-              baskets the platform accepts, with no error anywhere — just a
-              button that stops. A refusal the customer can see beats a limit
-              the client invented.
-
-              So the stepper reaches whatever the customer asks for, and the
-              quote answers. The platform's refusal is a field-keyed 400 and
-              mapError renders the keys and messages as sent, on this screen,
-              with the quantity still in front of them — which is where
-              OrderLimits itself says the refusal belongs.
-
-              Same shape as CheckoutEndpoints' own refusal to copy Catalog's
-              product-count ceiling: "a second copy of THAT limit in this host
-              would drift from the one actually enforced."
-            -->
-            <ion-button slot="end" fill="clear"
-              (click)="setQuantity(line.productId, line.quantity - 1)">−</ion-button>
-            <ion-note slot="end">{{ line.quantity }}</ion-note>
-            <ion-button slot="end" fill="clear"
-              (click)="setQuantity(line.productId, line.quantity + 1)">+</ion-button>
           </ion-item>
         }
-      </ion-list>
 
-      <ion-item>
-        <ion-select label="Currency" [value]="currency()"
-          (ionChange)="setCurrency($any($event).detail.value)">
-          @for (code of currencies; track code) {
-            <ion-select-option [value]="code">{{ code }}</ion-select-option>
-          }
-        </ion-select>
-      </ion-item>
-
-      <!--
-        Disabled while a 429 window is open as well as for an empty basket
-        (spec §6): the gateway has already said how long to wait, and the
-        banner above is counting it down.
-      -->
-      <ion-button expand="block" [disabled]="store.isEmpty() || rateLimit.blocked()"
-        (click)="getQuote()">Get quote</ion-button>
-
-      @if (quote(); as q) {
-        <ion-item>
-          <ion-label>
-            <strong>Total: {{ q.total }} {{ q.currency }}</strong>
-          </ion-label>
-        </ion-item>
+        <ion-button expand="block" [disabled]="!canCheckout()" (click)="checkout()">Checkout</ion-button>
       }
-
-      <ion-button expand="block" [disabled]="!canCheckout()" (click)="checkout()">Checkout</ion-button>
     </ion-content>
   `,
 })
@@ -115,8 +154,11 @@ export class CartPage {
   private readonly auth = inject(AuthService);
   private readonly router = inject(Router);
   private readonly handoff = inject(CheckoutHandoff);
+  private readonly availability = inject(CatalogAvailability);
 
   protected readonly store = inject(CartStore);
+  /** Swipe on a device, a button on the web — see the template. */
+  protected readonly native = Capacitor.isNativePlatform();
   /**
    * A convenience selection, NOT a platform vocabulary — which is why it is
    * three codes and not a mirrored constant. The backend constrains currency
@@ -124,6 +166,9 @@ export class CartPage {
    * PlaceOrderValidator.cs): any three letters are legal. Listing three without
    * saying so would read as "the platform supports three currencies", which is
    * false, and the citation rule exists to keep those two apart.
+   *
+   * The one owner of every code this page offers: the default below is this
+   * list's first entry rather than a second literal beside it.
    */
   protected readonly currencies = ['EUR', 'GBP', 'USD'] as const;
 
@@ -151,7 +196,7 @@ export class CartPage {
   // is not to fend off a caller that exists: `quote` is what the PLATFORM
   // priced, and the only code entitled to say what the platform priced is the
   // code that read the response.
-  private readonly currencyState = signal<string>('EUR');
+  private readonly currencyState = signal<string>(this.currencies[0]);
   // The quote AND the cart version it was priced at, stored together for the
   // reason CheckoutHandoff stores them together: a quote is a statement about
   // one specific basket, and the two drifting apart is the whole defect. The
@@ -240,9 +285,35 @@ export class CartPage {
     return Object.fromEntries(lines.map((line) => [line.productId, line]));
   });
 
+  /**
+   * Floored at one: the store still reads zero as removal, and `remove()` is
+   * the one path on this page that asks for it.
+   */
   setQuantity(productId: string, quantity: number): void {
+    if (quantity < 1) return;
     this.store.setQuantity(productId, quantity);
     this.invalidateQuote();
+  }
+
+  remove(productId: string): void {
+    this.store.remove(productId);
+    this.invalidateQuote();
+  }
+
+  /**
+   * A line asking for more than the listing last showed, said in words, or
+   * null. Never a block: the level is Catalog's projection and the
+   * reservation is Inventory's verdict, which the order already has a path to
+   * refuse with. A product the listing has not shown this session, or whose
+   * level was never reported, gets no warning — there is nothing to compare.
+   */
+  availabilityWarning(line: CartLine): string | null {
+    const available = this.availability.of(line.productId);
+    if (available === null || available === undefined || line.quantity <= available) return null;
+
+    return available <= 0
+      ? 'Listed as out of stock. The order may be refused.'
+      : `Only ${available} listed as available. The order may be refused for the rest.`;
   }
 
   setCurrency(currency: string): void {
