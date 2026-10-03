@@ -1,4 +1,4 @@
-import { Component } from '@angular/core';
+import { ChangeDetectionStrategy, Component } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { describe, expect, it } from 'vitest';
 import { EmptyStateComponent } from './empty-state.component';
@@ -6,6 +6,7 @@ import { EmptyStateComponent } from './empty-state.component';
 @Component({
   standalone: true,
   imports: [EmptyStateComponent],
+  changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <app-empty-state heading="Nothing here" message="Try later.">
       <a href="/elsewhere">Go</a>

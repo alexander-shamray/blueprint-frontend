@@ -7,7 +7,8 @@ import { LOCALE_ID, Pipe, PipeTransform, inject } from '@angular/core';
  * the server's number and the currency the server's code, and both go to
  * `Intl.NumberFormat` as they arrived. `maximumFractionDigits` is lifted to
  * the format's ceiling so the formatter pads and never rounds — a currency's
- * own minor unit is a default, and applying it to a `decimal(19,4)` price
+ * own minor unit is a default, and applying it to a price at `PriceAmount`'s
+ * full scale (`client-architecture.md` §12, "A product may cost nothing")
  * would be the client rounding an amount the platform did not round. Padding
  * `12.5` to `12.50` changes how the number is written, not which number it is.
  *

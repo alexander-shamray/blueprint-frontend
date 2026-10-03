@@ -19,8 +19,9 @@ describe('MoneyPipe', () => {
   });
 
   it('pads to the minor unit and never rounds past it', () => {
-    // decimal(19,4) on the backend: four places are a real price, and the
-    // currency's two-place default would round this one to 12.35.
+    // At PriceAmount's full scale (client-architecture.md §12, "A product may
+    // cost nothing") four places are a real price, and the currency's
+    // two-place default would round this one to 12.35.
     expect(pipe.transform(12.3456, 'USD')).toBe('$12.3456');
   });
 
