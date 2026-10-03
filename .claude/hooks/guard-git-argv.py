@@ -112,13 +112,29 @@ import traceback
 #
 # `--no-ext-diff` is the safe direction and stays admitted: neither the
 # prefix test nor the abbreviation test matches it against these names.
+#
+# `--extcmd` is the eighth, and unlike the two above it carries its command
+# outright: `git difftool --extcmd=<cmd>` runs `<cmd>` on every changed file
+# (blueprint-frontend#122).
 FORBIDDEN_FLAGS = ("--output", "--upload-pack", "--receive-pack", "--exec",
-                   "--no-index", "--ext-diff", "--textconv")
+                   "--no-index", "--ext-diff", "--textconv", "--extcmd")
 
 # Judged against a whole element, and only on a subcommand that takes a
 # repository — a branch name, a path or a commit body may carry the sequence
 # without using it as a transport.
 FORBIDDEN_SUBSTRINGS = ("ext::",)
+
+# **The short spellings, and the two forms that take a command as an operand
+# (blueprint-frontend#122).** `FORBIDDEN_FLAGS` is matched on the long spelling
+# and its abbreviations, so `git rebase -x <cmd>` — `--exec`'s short form — and
+# `git difftool -x <cmd>` — `--extcmd`'s — walked past it. A letter means
+# something else on another subcommand (`cherry-pick -x` records a trailer), so
+# these are keyed by subcommand, and the letter counts bundled with others
+# (`-ix`) or carrying its value (`-x<cmd>`). `bisect run` and `submodule
+# foreach` take their command as an operand rather than a flag, which no flag
+# list reaches. Nothing in this repository runs any of them.
+EXECUTING_SHORT_FLAGS = {"rebase": "x", "difftool": "x"}
+EXECUTING_FORMS = {"bisect": "run", "submodule": "foreach"}
 
 # **The trees a redirection or a writing verb may not write into (#20, #26),
 # and the reason this list is here rather than read off the deny rules is that
@@ -2710,6 +2726,58 @@ def contains_gh_word(text):
     return False
 
 
+SUBSTITUTED_GIT_REFUSAL = (
+    "a command substitution runs a `git` subcommand that is not a read — "
+    "`worktree remove`, `checkout`, `reset`, `bisect run` and the like — and "
+    "it runs before the command that holds it is checked against its grant. "
+    "Run it as its own command, where the permission rules see it."
+)
+
+
+def substitution_tokens(text):
+    """`text` tokenised the way `_offence` tokenises a command, or `None`."""
+    stripped = strip_dollar_quotes(strip_redirections(separate_lines(
+        join_continuations(strip_comments(strip_heredocs(text))))))
+    try:
+        lexer = shlex.shlex(stripped, posix=True, punctuation_chars=True)
+        lexer.commenters = ""
+        lexer.whitespace_split = True
+        return list(lexer)
+    except ValueError:
+        return None
+
+
+def substituted_git_offence(inner):
+    """The reason to refuse a `git` subcommand in a substitution, or `None`.
+
+    **`git` is on `SUBSTITUTION_PROGRAMS`, and that used to admit every
+    subcommand** (blueprint-frontend#122): `$(git worktree remove -f …)`, a
+    `$(git checkout <ref> -- <protected path>)` that replaces a helper before
+    bash opens it, and `$(git bisect run ./tools/x)`, which runs a branch
+    script no check here reads. So each `git` the body runs is held to
+    `SUBSTITUTION_GIT_SUBCOMMANDS`, plus the reading forms of `branch` and
+    `worktree`. A body the tokeniser cannot read is refused if it names `git`
+    at all, the direction `substituted_gh_offence` fails in too.
+    """
+    tokens = substitution_tokens(inner)
+    if tokens is None:
+        if re.search(r"(?<![\w.-])git(?![\w.-])", inner):
+            return SUBSTITUTED_GIT_REFUSAL
+        return None
+    for segment in git_segments(tokens):
+        stripped = after_global_options(segment)
+        subcommand, rest = (stripped[0], stripped[1:]) if stripped else ("", [])
+        if subcommand in SUBSTITUTION_GIT_SUBCOMMANDS:
+            continue
+        if subcommand == "branch" and all(
+                word in SUBSTITUTION_BRANCH_FLAGS for word in rest):
+            continue
+        if subcommand == "worktree" and rest[:1] == ["list"]:
+            continue
+        return SUBSTITUTED_GIT_REFUSAL
+    return None
+
+
 def process_substitution_bodies(command):
     """The body of every `<(…)` and `>(…)` in `command`, by paren balance."""
     bodies = []
@@ -3743,13 +3811,45 @@ READING_COMMANDS = frozenset({
 # ledger included. Raised by Copilot, twice. So only programs whose effects
 # are modelled or harmless run here, each by bare name — a word with a `/` is
 # a file somebody chose, whatever it is called — and everything else,
-# `awk` and `sed` among it, is refused. `git` is on the list because every
-# `git` word is judged by the rest of this file.
+# `awk` and `sed` among it, is refused.
+#
+# **A name here is judged by its name alone, so a program earns its place only
+# if no option of it executes or writes (blueprint-frontend#122).** `rg
+# --pre=<cmd>` runs `<cmd>` per input file, `sort -o <file>` writes and `sort
+# --compress-program=<cmd>` executes, and `uniq <in> <out>` writes its second
+# operand — and only the first word was read, so each was admitted. Nothing in
+# this repository runs the three inside a substitution, so they are gone rather
+# than modelled. **`git` stays, and the reason it used to give was false**:
+# this file judges a `git` word for `push`, `-c`, the forbidden flags and
+# `ext::`, not for writing, so `$(git checkout <ref> -- <path>)` replaced a
+# helper before bash opened it. Inside a substitution `git` is now held to the
+# reading subcommands below.
 SUBSTITUTION_PROGRAMS = frozenset({
     "[", "basename", "cat", "cut", "date", "dirname", "echo", "expr", "false",
     "git", "grep", "head", "hostname", "id", "jq", "ls", "printf", "pwd",
-    "readlink", "realpath", "rg", "seq", "sort", "stat", "tail", "test", "tr",
-    "true", "uname", "uniq", "wc", "whoami",
+    "readlink", "realpath", "seq", "stat", "tail", "test", "tr", "true",
+    "uname", "wc", "whoami",
+})
+
+# **What `git` may do inside a substitution: read.** The subcommands this
+# repository's commands run there — `rev-parse`, `status`, `log`, `diff`,
+# `merge-base`, `ls-tree`, `branch --show-current`, `worktree list` — and a few
+# of the same kind. Everything else is refused, `worktree remove`, `checkout`,
+# `restore`, `reset`, `clean`, `bisect` and `rebase` among it. `grep` and
+# `cat-file` are left off for `--open-files-in-pager` and `--filters`, which
+# run a command; `symbolic-ref` for its writing form.
+SUBSTITUTION_GIT_SUBCOMMANDS = frozenset({
+    "describe", "diff", "for-each-ref", "log", "ls-files", "ls-tree",
+    "merge-base", "name-rev", "rev-list", "rev-parse", "show", "show-ref",
+    "status",
+})
+
+# `branch` and `worktree` read in one form and write in the others, so only the
+# reading form is admitted: these flags and nothing positional for `branch`,
+# `list` for `worktree`.
+SUBSTITUTION_BRANCH_FLAGS = frozenset({
+    "--show-current", "--list", "-l", "-a", "--all", "-r", "--remotes", "-v",
+    "-vv", "--verbose",
 })
 
 
@@ -4126,12 +4226,13 @@ def _offence(command, depth, judged):
                 return f"with {description}: {refusal}"
 
     if any(contains_gh_word(body) or runs_unmodelled_program(body)
+           or substituted_git_offence(body) is not None
            for body in process_substitution_bodies(strip_heredocs(command))):
         return (
-            "a process substitution runs `gh` or a program outside the short "
-            "list whose effects this guard models, and it executes before "
-            "the command holding it is checked against its grant. Run it as "
-            "its own command."
+            "a process substitution runs `gh`, a program outside the short "
+            "list whose effects this guard models, or a `git` subcommand that "
+            "is not a read, and it executes before the command holding it is "
+            "checked against its grant. Run it as its own command."
         )
 
     if substitution_fed_shells(command):
@@ -4179,6 +4280,9 @@ def _offence(command, depth, judged):
             if refusal is not None:
                 return f"inside a command substitution: {refusal}"
             refusal = substituted_gh_offence(inner)
+            if refusal is not None:
+                return refusal
+            refusal = substituted_git_offence(inner)
             if refusal is not None:
                 return refusal
 
@@ -4334,6 +4438,13 @@ def _offence(command, depth, judged):
                 )
 
         subcommand = subcommand_of(segment)
+        operand = EXECUTING_FORMS.get(subcommand)
+        if operand is not None and operand in after_global_options(segment)[1:]:
+            return (
+                f"`git {subcommand} {operand}` runs the command it is given, "
+                "which no flag check can see; nothing here runs it "
+                "(blueprint-frontend#122)."
+            )
         value_flags = VALUE_FLAGS_BY_SUBCOMMAND.get(subcommand, frozenset())
         skip = False
         for element in segment:
@@ -4369,6 +4480,14 @@ def _offence(command, depth, judged):
                         "the unquoted spelling. This hook compares the resolved "
                         "argv, and any unambiguous abbreviation of it."
                     )
+            letter = EXECUTING_SHORT_FLAGS.get(subcommand)
+            if (letter is not None and element.startswith("-")
+                    and not element.startswith("--") and letter in element[1:]):
+                return (
+                    f"`git {subcommand} -{letter}` is the short spelling of a "
+                    "flag that runs a command, bundled or not; the long "
+                    "spelling is refused too (blueprint-frontend#122)."
+                )
             if subcommand not in REPOSITORY_SUBCOMMANDS:
                 continue
             for substring in FORBIDDEN_SUBSTRINGS:
