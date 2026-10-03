@@ -36,6 +36,17 @@ describe('splitAddressErrors', () => {
     });
   });
 
+  it('keeps a key named __proto__ as an own key, as sent', () => {
+    // Parsed rather than written as a literal: in a literal, `__proto__` sets
+    // the prototype, while JSON.parse — which is how the body arrives — makes
+    // it an own key.
+    const errors = JSON.parse('{"__proto__": ["Not ours."]}') as Record<string, readonly string[]>;
+    const { rest } = splitAddressErrors(errors);
+
+    expect(Object.keys(rest)).toEqual(['__proto__']);
+    expect(Object.getOwnPropertyDescriptor(rest, '__proto__')?.value).toEqual(['Not ours.']);
+  });
+
   it('answers nothing for no errors', () => {
     expect(splitAddressErrors(undefined)).toEqual({ byField: {}, rest: {} });
   });

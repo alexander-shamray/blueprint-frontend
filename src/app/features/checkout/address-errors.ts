@@ -26,7 +26,9 @@ export function splitAddressErrors(
   errors: Readonly<Record<string, readonly string[]>> | undefined,
 ): AddressErrors {
   const byField: Partial<Record<AddressField, readonly string[]>> = {};
-  const rest: Record<string, readonly string[]> = {};
+  // No prototype, so a key the server sent as `__proto__` is an own key like
+  // any other rather than a call to the inherited setter that drops it.
+  const rest: Record<string, readonly string[]> = Object.create(null);
 
   for (const [key, messages] of Object.entries(errors ?? {})) {
     const field = ADDRESS_FIELDS.find((f) => key.toLowerCase() === `shippingaddress.${f.toLowerCase()}`);
