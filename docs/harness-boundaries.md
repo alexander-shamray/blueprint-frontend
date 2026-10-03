@@ -747,7 +747,9 @@ asserts that over every command — though both are still quoted as history.
 An allow is auto-approval and only a deny refuses, the argument the sweeps
 made when they withdrew `gh issue create` and denied it by name: with the
 allows gone, a directly typed `gh pr merge <n> --admin` or
-`git worktree remove -f <path>` met no rule and no hook. `.claude/settings.json`
+`git worktree remove -f <path>` met no rule in the tracked settings and no
+hook, and an allow in the local or user-level settings, which the tree does
+not carry, could approve it outright. `.claude/settings.json`
 denies `Bash(gh pr merge:*)` and `Bash(git worktree remove:*)` in every turn,
 which the helpers do not meet — a deny judges the typed command, never the
 commands inside a script. The deny sits there rather than in `ship.md`'s
@@ -768,7 +770,11 @@ canonical spelling**: a global option before the subcommand — `git`'s `-C`,
 a wrapper word such as `env` or `command`, an option of `gh`'s placed before
 `merge` and another spelling of either executable may escape it too, and are
 unmeasured. `guard-git-argv.py` has no `worktree` rule to catch the first, so
-a wider pattern is a `settings.json` change, for its owner to make.
+a wider pattern is a `settings.json` change, for its owner to make. A verb
+split by empty quotes, `gh pr me''rge` or `git worktree re''move`, escapes
+both denies as well, for the reason the `grok-review.sh` paragraph above
+records: the `settings.json` denies are substrings of the typed command, and
+that spelling holds neither, while no hook rule judges either verb.
 Both denies are also `Bash` rules and the hook is registered for `Bash` only,
 so a PowerShell tool, if a session has one, meets neither — unmeasured, and a
 harness-wide gap rather than one of these two. **The
@@ -846,9 +852,11 @@ declared once in `copilot-authors.sh` and each printing an admitted/dropped
 count. `Bash(gh pr view:*)` is gone from `review-copilot.md`'s frontmatter,
 which is the half that makes it enforcement rather than courtesy: that command
 used `gh pr view` for nothing but the two GraphQL feeds, and `settings.json`
-carries no `gh` allow, so no rule approves a raw call: it prompts — a stall in
-the unattended loop instead of a silent pass — or, under the user-level
-`auto` mode the #26 paragraph records, goes to the classifier.
+carries no `gh` allow, so no tracked rule approves a raw call: it prompts — a
+stall in the unattended loop instead of a silent pass — or, under the
+user-level `auto` mode the #26 paragraph records, goes to the classifier. An
+allow in the local or user-level settings, which the tree does not carry,
+turns that prompt into an automatic approval.
 
 **One file was not enough, and the review of the PR that closed this is what
 established it.** `/ship` invokes `/review-copilot` as a skill while holding
