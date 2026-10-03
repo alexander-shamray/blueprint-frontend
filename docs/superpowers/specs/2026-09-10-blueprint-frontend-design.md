@@ -334,7 +334,8 @@ introduces.
 
 - A mobile BFF, order history, a product detail *route*, search, images upload
   or any screen without an endpoint behind it.
-- **Product detail as a sheet is in scope, and needs no endpoint.** It opens
+- **Product detail as a sheet is in scope, and needs no endpoint of its own**,
+  because the listing's endpoint already supplies the row it shows. It opens
   over a row of the listing and shows only what that row's `ProductSummary`
   already carries — a larger image, the name, the price, the stock — with a
   quantity stepper that adds to the local cart. Nothing is fetched, so no `GET`
