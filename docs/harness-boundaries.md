@@ -276,9 +276,9 @@ nothing on any list. A word with a `/` is refused whatever its basename. `awk`
 and `sed` no longer count as reading commands either, since `system()` and
 `e` run a shell. A relative write after `source`, `.` or `eval`
 is refused like one after `cd`. The one helper that takes no argument,
-`gh-pr-create.sh`, is also granted exactly rather than by prefix. A run led by a reader — `grep`, `git`, `cat` and the rest of
-`READING_COMMANDS` — is inspecting those files rather than running them, and is
-admitted.
+`gh-pr-create.sh`, is also granted exactly rather than by prefix. A run led by
+a reader — `grep`, `git`, `cat` and the rest of `READING_COMMANDS` — is
+inspecting those files rather than running them, and is admitted.
 
 Three things about that rule are worth stating here rather than only in the
 hook. **A hook is handed a command and never the frontmatter that granted it**,
@@ -752,12 +752,15 @@ their two arguments, and neither argument may begin with `-`. What runs
 runs while bash builds the argv, which the hook paragraph on `gh` inside a
 substitution closes for `gh` and for anything off its allow-list. **It does not
 close it for `git`**, which is on that allow-list while `guard-git-argv.py`
-holds no rule for `worktree` at all, so a forced `git worktree remove` inside a
-substitution in this tail, or in any prefix grant's, runs before the helper
-checks anything — a standing residual whose fix is in `.claude/hooks/`, not
-here. And the script run is the checkout's copy — `Edit(.claude/scripts/**)`
-stops a session editing it, not a branch carrying an edited one, the class
-blueprint-frontend#115 records for the triager's method.
+judges a `git` word there only for `push`, the `-c` and `--config-env`
+options, its forbidden flags and the `ext::` transport. Every other mutating
+subcommand — a forced `git worktree remove` among them — runs inside a
+substitution in this tail, or in any prefix grant's, before the helper checks
+anything: a standing residual, as a class, whose fix is in `.claude/hooks/`,
+not here. And the script run is the checkout's copy —
+`Edit(.claude/scripts/**)` stops a session editing it, not a branch carrying
+an edited one, the class blueprint-frontend#115 records for the triager's
+method.
 What the worktree helper's branch binding still leaves is stated in
 `git-worktree-remove.sh`'s own header, which owns it.
 
