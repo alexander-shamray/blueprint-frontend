@@ -1,7 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { HttpErrorResponse } from '@angular/common/http';
 import { Router, RouterLink } from '@angular/router';
-import { Capacitor } from '@capacitor/core';
 import {
   IonButton, IonContent, IonHeader, IonItem, IonItemOption, IonItemOptions, IonItemSliding,
   IonLabel, IonList, IonNote, IonSelect, IonSelectOption, IonTitle, IonToolbar,
@@ -43,10 +42,13 @@ import { MoneyPipe } from '@shared/money.pipe';
         <ion-list>
           @for (line of lines(); track line.productId) {
             <!--
-              Swipe to remove on a device, where swiping a row is the
-              platform's own gesture for it; a Remove button on the web, where
-              a pointer has no swipe to discover. The sliding wrapper is there
-              on both, so a touch screen in a browser still has the gesture.
+              Swipe to remove where the screen is touched, and a Remove button
+              where a pointer hovers and has no swipe to discover. Both are
+              always rendered; the stylesheet's pointer query decides which
+              shows, so the page asks what input the customer has rather than
+              which platform it runs on — spec §1, property 3, keeps that
+              question in auth.providers.ts alone. A touch screen in a browser
+              gets the swipe, and a mouse on a device gets the button.
             -->
             <ion-item-sliding>
               <ion-item>
@@ -106,10 +108,8 @@ import { MoneyPipe } from '@shared/money.pipe';
                 <ion-note slot="end">{{ line.quantity }}</ion-note>
                 <ion-button slot="end" fill="clear"
                   (click)="setQuantity(line.productId, line.quantity + 1)">+</ion-button>
-                @if (!native) {
-                  <ion-button slot="end" fill="clear" color="danger"
-                    (click)="remove(line.productId)">Remove</ion-button>
-                }
+                <ion-button slot="end" fill="clear" color="danger" class="remove-button"
+                  (click)="remove(line.productId)">Remove</ion-button>
               </ion-item>
 
               <ion-item-options side="end">
@@ -148,6 +148,12 @@ import { MoneyPipe } from '@shared/money.pipe';
       }
     </ion-content>
   `,
+  styles: `
+    /* A touch-only screen has the swipe; the button is for a pointer that hovers. */
+    @media (hover: none) and (pointer: coarse) {
+      .remove-button { display: none; }
+    }
+  `,
 })
 export class CartPage {
   private readonly checkoutApi = inject(CheckoutApi);
@@ -157,8 +163,6 @@ export class CartPage {
   private readonly availability = inject(CatalogAvailability);
 
   protected readonly store = inject(CartStore);
-  /** Swipe on a device, a button on the web — see the template. */
-  protected readonly native = Capacitor.isNativePlatform();
   /**
    * A convenience selection, NOT a platform vocabulary — which is why it is
    * three codes and not a mirrored constant. The backend constrains currency
