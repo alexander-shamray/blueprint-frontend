@@ -74,7 +74,8 @@ platform said; a failure is what this attempt did. The error branch used to set
 `hasMore` false, which reads as "there is nothing more to fetch" — so one 429 or
 one 503 on page two ended pagination for the session, and no retry window
 closing could bring it back. Now the failure is recorded as an error,
-`canLoadMore` is `hasMore && no error && no open rate-limit window`, and a
+`ProductsPage.canLoadMore` keeps the scroll quiet while one stands — its doc
+comment names each reason it stops — and a
 **Try again** control resumes from the cursor that failed (on a first-page failure that cursor is null, so resuming
 and restarting are the same request). The control is itself disabled for the
 length of a 429's window, which is the other half of spec §6's 429 row — see
@@ -402,7 +403,8 @@ The rule now buys the screen a basket total rather than costing it one.
 `QuoteResponse.Total` is the sum of the line totals, `QuoteLine.LineTotal` is
 `Amount * Quantity`, and both arrive computed — so the cart renders
 "2 × 12.50 = 25.00" with all three of those numbers read off the reply, and its
-total as `Total: <total> <currency>`. The client multiplies nothing, which is
+total labelled `Total:`, every figure written by `MoneyPipe` rather than spelt
+out here. The client multiplies nothing, which is
 the same rule it followed when the arithmetic was not on offer. Section 12
 records what it did then, and why.
 
