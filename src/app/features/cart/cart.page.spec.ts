@@ -371,11 +371,16 @@ describe('CartPage', () => {
       expect(fixture.componentInstance.quote()).toBeNull();
     });
 
-    it('offers Remove as a button on the web', async () => {
+    it('renders both a swipe option and a button per line, whatever the platform', async () => {
       fixture.detectChanges();
 
-      // One button per line, plus the swipe option, which is not an ion-button.
+      // Which of the two shows is the stylesheet's pointer query, not a
+      // platform check: spec §1 property 3 keeps that question out of screens.
       expect(buttons('Remove')).toHaveLength(2);
+      expect(fixture.nativeElement.querySelectorAll('ion-item-option')).toHaveLength(2);
+
+      (fixture.nativeElement.querySelector('ion-item-option') as HTMLElement).click();
+      expect(store.lines().map((l) => l.productId)).toEqual(['p2']);
     });
 
     it('floors the quantity at one: − is disabled there and below one changes nothing', async () => {
