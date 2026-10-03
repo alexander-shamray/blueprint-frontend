@@ -46,8 +46,8 @@ import { MoneyPipe } from '@shared/money.pipe';
               where a pointer hovers and has no swipe to discover. Both are
               always rendered; the stylesheet's pointer query decides which
               shows, so the page asks what input the customer has rather than
-              which platform it runs on — spec §1, property 3, keeps that
-              question in auth.providers.ts alone. A touch screen in a browser
+              which platform it runs on: a screen never asks that (spec §1,
+              property 3). A touch screen in a browser
               gets the swipe, and a mouse on a device gets the button.
             -->
             <ion-item-sliding>
