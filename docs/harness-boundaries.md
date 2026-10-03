@@ -276,10 +276,12 @@ nothing on any list. A word with a `/` is refused whatever its basename.
 **A name on that list is judged by its name alone, so it holds only programs
 with no option that executes or writes**: `rg`, `sort` and `uniq` came off it
 for `--pre`, `-o` and `--compress-program`, and an output operand, and `git`
-stays on it held to its reading subcommands — `rev-parse`, `status`, `log`,
-`diff`, `merge-base`, `branch --show-current`, `worktree list` and a few more —
-since this file judges a `git` word for `push` and a handful of flags, not
-for writing (blueprint-frontend#122). `awk`
+stays on it held to the reading subcommands in `SUBSTITUTION_GIT_SUBCOMMANDS`,
+since the hook judges a `git` word for `push` and a handful of flags, not for
+writing (blueprint-frontend#122). **That hold is narrower than it reads**:
+a wrapper's option, an assignment or a global option in front of `git`, and a
+nested quoted substitution the scanner cannot close each still get past it,
+and blueprint-frontend#125 owns them. `awk`
 and `sed` no longer count as reading commands either, since `system()` and
 `e` run a shell. A relative write after `source`, `.` or `eval`
 is refused like one after `cd`. The one helper that takes no argument,
@@ -764,11 +766,11 @@ commands inside a script. The deny sits there rather than in `ship.md`'s
 that loaded it, and the test above reads a command's whole frontmatter, so a
 deny there would fail it. **What it does not close is the substitution
 route below**: a deny matches the typed command's prefix, not a `$(…)` inside
-another grant's tail. The hook closes that route instead: it refuses a `gh`
-word in a substitution, and holds a `git` there to its reading subcommands,
-so neither a `git worktree remove` nor an executing subcommand that would run
-a script holding `gh pr merge` gets through (blueprint-frontend#122). What is
-left of it is the substitution paragraph's below. Nor does it
+another grant's tail. The hook narrows that route instead: it refuses a `gh`
+word in a substitution, and holds a plain `git` there to its reading
+subcommands (blueprint-frontend#122). It does not close it — the routes the
+substitution paragraph below names, blueprint-frontend#125's, still reach a
+`git worktree remove` or a script holding `gh pr merge`. Nor does it
 reach `gh api`'s merge endpoint, which no rule denies, so it meets what any
 un-granted command meets: a prompt, or the classifier under the user-level
 `auto` mode the #26 paragraph above records. **And the deny names the
@@ -808,26 +810,26 @@ their two arguments, and neither argument may begin with `-`.
 
 **What runs *before* the script checks anything is outside it.** A
 substitution in the tail runs while bash builds the argv, and the hook
-paragraph on `gh` inside a substitution closes that route for `gh`, for
-anything off its allow-list, and — since blueprint-frontend#122 — for the
-writing and executing options and `git` subcommands that list used to admit.
-`rg`, `sort` and `uniq` are off it, `git` is held to reading subcommands
-there, and `git rebase -x`, `git difftool -x` and `--extcmd`, `git bisect run`
-and `git submodule … foreach` are refused wherever they stand. **What is left
-is a reading `git` that executes configuration**: `--git-dir` or
-`--work-tree` pointed at a branch-supplied directory brings that directory's
-config with it, and a read such as `status` or `diff` runs keys like
-`core.fsmonitor` or a `textconv` driver it names. The hook refuses setting
-config inline with `-c`, not reading it from a chosen directory; that is the
-residual, and its fix is in `.claude/hooks/`.
+paragraph on `gh` inside a substitution closes that route for `gh` and for
+anything off its allow-list. Since blueprint-frontend#122 it also refuses the
+plain spellings of the options and `git` subcommands that list used to admit:
+`rg`, `sort` and `uniq` are off it, a plain `git` is held to reading
+subcommands there, and `git rebase -x`, `git difftool -x` and `--extcmd`,
+`git bisect run` and `git submodule … foreach` are refused wherever they stand.
+**It is a standing residual still, and blueprint-frontend#125 owns what is
+left**: a wrapper's option can hide the program it launches, an assignment or
+a global option in front of an admitted read changes which configuration or
+external program `git` runs, and a nested quoted substitution the scanner
+cannot close stops it reading the rest of the command. Each fix is in
+`.claude/hooks/`.
 
 **And the script run is the checkout's copy, which `Edit(.claude/scripts/**)`
 protects from neither a branch nor the session.** A branch can carry an
 edited one — the class blueprint-frontend#115 records for the triager's
-method — and the deny binds the editing tools only. A substitution in the
-tail can no longer replace it with `git`, held to reads there, nor with a
-redirection or a writing verb the hook models; a writer it does not model
-would.
+method — and the deny binds the editing tools only, so a write run inside a
+substitution in the tail can replace it before bash opens it. A plain `git`
+there is now held to reads, but the routes blueprint-frontend#125 owns reach a
+writing one still.
 What the worktree helper's branch binding still leaves is stated in
 `git-worktree-remove.sh`'s own header, which owns it.
 
