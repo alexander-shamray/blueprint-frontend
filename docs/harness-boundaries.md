@@ -1724,27 +1724,32 @@ dies holding it, and the detached child end to end against a stub wrapper.
 (alexander-shamray/blueprint-frontend#128).** `codebase-index` deletes and
 reinserts a changed file's chunks on every `update`; FTS5 records each delete
 as a new segment, and SQLite puts the freed pages on a freelist that nothing
-returns while `auto_vacuum` is off. The main checkout's index reached 2.2 GB
-for 3 MB of source. After a `run-index` that exited 0, and while the worker
-still holds the root's lock, the hook runs FTS `optimize` and then `VACUUM`
-when free pages pass `FREE_SHARE` of the file or the full-text table passes
-`ROWS_PER_CHUNK` segment rows per chunk, both in `index-refresh.py`; a lean
-index is read and left as it was. On a copy of that index the two took
-2,358 MB to 9.6 MB in six seconds. A branch can force-track a crafted
-`index.sqlite`, so `compact` checks the whole cache path again for links, the
-file and the `-wal`, `-shm` and `-journal` sidecars SQLite opens beside it
-included, distrusts the file's schema functions, and interrupts itself at
-`COMPACT_TIMEOUT`, so a view or trigger written to run for ever cannot hold the
-worker's lock. Any SQLite error leaves a valid index, never a broken one —
+returns while `auto_vacuum` is off; the issue owns how large the main
+checkout's index grew, and what compacting a copy of it did. After a
+`run-index` that exited 0, and while the worker still holds the root's lock,
+the hook runs FTS `optimize` and then `VACUUM` when free pages pass
+`FREE_SHARE` of the file or the full-text table passes `ROWS_PER_CHUNK` segment
+rows per chunk, both in `index-refresh.py`; a lean index is read and left as
+it was. A branch can force-track a crafted `index.sqlite`, so `compact` checks
+the whole cache path again for links, the file and the `-wal`, `-shm` and
+`-journal` sidecars SQLite opens beside it included, distrusts the file's
+schema functions — compacting nothing where its SQLite cannot — and interrupts
+itself at `COMPACT_TIMEOUT`, so a view or trigger written to run for ever
+cannot hold the worker's lock. The link check still precedes SQLite's opens,
+and a checkout that puts a link on the path in between is left as a residual:
+SQLite's `nofollow` covers the database and not its sidecars, and the
+package's own `update` holds the same window with no check at all. Any SQLite
+error leaves a valid index, never a broken one —
 merged but not yet reclaimed if `VACUUM` fails after `optimize`, since each
 statement commits alone; `compact`'s docstring owns that argument. Defensive
 connection settings beyond `trusted_schema` were declined: the package parses
 the same file with its defaults on every `update` and query, so hardening this
 one connection would narrow nothing. `package-lock.json` is in
-`.codeindexignore` under the same issue: it was 70% of the chunks, a code
-lookup never wants it, and `update` drops a path the walk stops yielding, so
-no rebuild is needed to remove it. **The residual is upstream**: the package
-should compact its own index, and this hook's copy goes once it does.
+`.codeindexignore` under the same issue, which measured its share of the
+chunks: a code lookup never wants it, and `update` drops a path the walk
+stops yielding, so no rebuild is needed to remove it. **The residual is
+upstream**: the package should compact its own index, and this hook's copy
+goes once it does.
 
 **The lock and the marker live in the repository's git directory**, at
 `<common>/index-refresh/`, named by a hash of the target's filesystem

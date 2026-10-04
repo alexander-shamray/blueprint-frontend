@@ -57,8 +57,8 @@ can pull a lock out from under its holder.
 **And the worker compacts what it refreshed, because the package never does
 (alexander-shamray/blueprint-frontend#128).** `codebase-index` runs no FTS
 merge and no `VACUUM` on its index, so every `update` left segments and free
-pages behind and this checkout's reached 2.2 GB for 3 MB of source. `compact`
-says when and how.
+pages behind until the index outgrew its source many times over; the issue
+owns the measurement. `compact` says when and how.
 """
 
 import hashlib
@@ -86,8 +86,8 @@ CACHE = os.path.join(".claude", "cache", "codebase-index")
 RUN_TIMEOUT = 300
 
 # An index is compacted once its free pages pass this share of the file, or its
-# full-text table passes this many segment rows per chunk. A fresh build of
-# this repository measured about 0.04 rows per chunk.
+# full-text table passes this many segment rows per chunk — far above a fresh
+# build's, which alexander-shamray/blueprint-frontend#128 measured.
 FREE_SHARE = 0.5
 ROWS_PER_CHUNK = 10
 
@@ -597,8 +597,8 @@ def compact(root):
     changed file's chunks and inserts new ones; FTS5 records the deletes as
     new segments, SQLite puts the freed pages on its freelist, and with
     `auto_vacuum` off the file only grows. FTS `optimize` merges the
-    segments into one and `VACUUM` gives the pages back: on a copy of this
-    checkout's index, 2,358 MB to 9.6 MB in six seconds.
+    segments into one and `VACUUM` gives the pages back; the issue and the
+    pull request that closed it own what that did to this checkout's index.
 
     **Only past a threshold, because both rewrite the whole file**: free
     pages past `FREE_SHARE` of it, or more than `ROWS_PER_CHUNK` segment
@@ -612,10 +612,12 @@ def compact(root):
     **Through no link, and against whatever schema the file carries.** A
     branch can force-track a crafted `index.sqlite`, so the path is checked
     again here, component by component and with the sidecars SQLite opens
-    by name beside it, because the rewrite is this hook's own and runs up to
-    `RUN_TIMEOUT` after `target_root` checked the directory. The schema is
-    the file's too: a view or a trigger in it runs inside these statements,
-    so schema functions are not trusted and `COMPACT_TIMEOUT` interrupts
+    by name beside it, because the rewrite is this hook's own and may run
+    long after `target_root` checked the directory: a worker judges its root
+    once, then refreshes and compacts for as long as edits keep coming. The
+    schema is the file's too: a view or a trigger in it runs inside these
+    statements, so schema functions are not trusted — a SQLite too old to
+    distrust them compacts nothing — and `COMPACT_TIMEOUT` interrupts
     whatever does not finish.
 
     **Every SQLite error leaves a valid index, never a broken one.** Each
@@ -638,6 +640,9 @@ def compact(root):
     conn.set_progress_handler(lambda: time.monotonic() > deadline, 10000)
     try:
         conn.execute("PRAGMA trusted_schema=OFF")
+        # A SQLite older than 3.31 ignores the pragma without an error.
+        if conn.execute("PRAGMA trusted_schema").fetchone() != (0,):
+            return False
         if not bloated(conn):
             return False
         conn.execute("INSERT INTO fts_chunks(fts_chunks) VALUES('optimize')")
