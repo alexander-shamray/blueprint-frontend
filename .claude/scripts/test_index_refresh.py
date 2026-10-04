@@ -16,6 +16,7 @@ import io
 import json
 import os
 import shutil
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -715,6 +716,191 @@ class OneWorkerPerRootAndNoEditDropped(unittest.TestCase):
         with mock.patch.object(self.hook, "refresh"):
             self.hook.work(self.root, self.root)
         self.assertTrue(os.path.isfile(self.hook.lock_path(self.root, self.root)))
+
+
+class TheIndexIsCompactedAfterARefresh(unittest.TestCase):
+    """alexander-shamray/blueprint-frontend#128: the package never compacts.
+
+    Against a real SQLite file in the package's own full-text shape — a
+    `chunks` table and an external-content FTS5 table over it — because a
+    stand-in for SQLite would test the stand-in. The two kinds of bloat the
+    issue measured are built apart as well as together, and each case asserts
+    the other threshold is not met, so a measure that stopped being read fails
+    a case of its own. Automerge is off in the fixture and the crisis merge
+    raised: that is the quickest way to the segment count the issue measured,
+    not how the package reached it.
+    """
+
+    def setUp(self):
+        self.hook = load()
+        self.root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.root, ignore_errors=True)
+        # A real repository, because the worker's lock lives in its git
+        # directory.
+        git("init", "-q", cwd=self.root)
+        self.index = os.path.join(self.root, ".claude", "cache", "codebase-index",
+                                  "index.sqlite")
+        os.makedirs(os.path.dirname(self.index))
+
+    def build(self, *, segments=False, free=False):
+        conn = sqlite3.connect(self.index, isolation_level=None)
+        try:
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("CREATE TABLE chunks (id INTEGER PRIMARY KEY, content TEXT)")
+            conn.execute("CREATE VIRTUAL TABLE fts_chunks USING fts5("
+                         "content, content='chunks', content_rowid='id')")
+            conn.execute("INSERT INTO fts_chunks(fts_chunks, rank) VALUES('automerge', 0)")
+            conn.execute(
+                "INSERT INTO fts_chunks(fts_chunks, rank) VALUES('crisismerge', 1000)")
+            conn.execute("BEGIN")
+            for i in range(1, 11):
+                conn.execute("INSERT INTO chunks VALUES (?, ?)", (i, f"chunk {i} alpha"))
+                conn.execute("INSERT INTO fts_chunks(rowid, content) VALUES (?, ?)",
+                             (i, f"chunk {i} alpha"))
+            conn.execute("COMMIT")
+            if segments:
+                # A delete and an insert per transaction, each its own
+                # segment: an `update` re-indexing a file, two hundred times.
+                for n in range(200):
+                    i = n % 10 + 1
+                    old = conn.execute("SELECT content FROM chunks WHERE id = ?",
+                                       (i,)).fetchone()[0]
+                    new = f"chunk {i} alpha round {n}"
+                    conn.execute("INSERT INTO fts_chunks(fts_chunks, rowid, content) "
+                                 "VALUES('delete', ?, ?)", (i, old))
+                    conn.execute("UPDATE chunks SET content = ? WHERE id = ?", (new, i))
+                    conn.execute("INSERT INTO fts_chunks(rowid, content) VALUES (?, ?)",
+                                 (i, new))
+            if free:
+                # Pages a dropped table gave back, which nothing reclaims
+                # while `auto_vacuum` is off.
+                conn.execute("CREATE TABLE filler (b BLOB)")
+                conn.execute("INSERT INTO filler VALUES (zeroblob(2000000))")
+                conn.execute("DROP TABLE filler")
+        finally:
+            conn.close()
+
+    def measure(self):
+        conn = sqlite3.connect(self.index)
+        try:
+            return {
+                "pages": conn.execute("PRAGMA page_count").fetchone()[0],
+                "free": conn.execute("PRAGMA freelist_count").fetchone()[0],
+                "rows": conn.execute("SELECT count(*) FROM fts_chunks_data").fetchone()[0],
+                "hits": conn.execute("SELECT count(*) FROM fts_chunks "
+                                     "WHERE fts_chunks MATCH 'alpha'").fetchone()[0],
+            }
+        finally:
+            conn.close()
+
+    def snapshot(self):
+        with open(self.index, "rb") as handle:
+            return handle.read(), os.stat(self.index).st_mtime_ns
+
+    def test_a_bloated_index_is_compacted(self):
+        self.build(segments=True, free=True)
+        before = os.path.getsize(self.index)
+        self.assertTrue(self.hook.compact(self.root))
+        after = self.measure()
+        self.assertLess(os.path.getsize(self.index), before / 4)
+        self.assertEqual(0, after["free"])
+        self.assertLessEqual(after["rows"], 10)
+        # Merged, not lost: every chunk is still found, and FTS5 agrees.
+        self.assertEqual(10, after["hits"])
+        conn = sqlite3.connect(self.index)
+        try:
+            conn.execute("INSERT INTO fts_chunks(fts_chunks) VALUES('integrity-check')")
+        finally:
+            conn.close()
+
+    def test_free_pages_alone_are_enough(self):
+        self.build(free=True)
+        before = self.measure()
+        self.assertGreater(before["free"], before["pages"] * self.hook.FREE_SHARE)
+        self.assertLessEqual(before["rows"], self.hook.ROWS_PER_CHUNK * 10)
+        self.assertTrue(self.hook.compact(self.root))
+        self.assertEqual(0, self.measure()["free"])
+
+    def test_segment_rows_alone_are_enough(self):
+        self.build(segments=True)
+        before = self.measure()
+        self.assertLessEqual(before["free"], before["pages"] * self.hook.FREE_SHARE)
+        self.assertGreater(before["rows"], self.hook.ROWS_PER_CHUNK * 10)
+        self.assertTrue(self.hook.compact(self.root))
+        self.assertLessEqual(self.measure()["rows"], 10)
+
+    def test_a_lean_index_is_left_as_it_is(self):
+        self.build()
+        before = self.snapshot()
+        self.assertFalse(self.hook.compact(self.root))
+        self.assertEqual(before, self.snapshot())
+
+    def test_an_index_of_another_shape_is_left_as_it_is(self):
+        # A package release that renames these tables must cost a large
+        # index, never a broken one or a worker that dies.
+        conn = sqlite3.connect(self.index)
+        try:
+            conn.execute("CREATE TABLE other (x)")
+        finally:
+            conn.close()
+        before = self.snapshot()
+        self.assertFalse(self.hook.compact(self.root))
+        self.assertEqual(before, self.snapshot())
+
+    def test_no_index_is_not_created(self):
+        # `sqlite3.connect` creates what it cannot find.
+        self.assertFalse(self.hook.compact(self.root))
+        self.assertFalse(os.path.exists(self.index))
+
+    def test_a_linked_index_is_not_compacted(self):
+        self.build(segments=True, free=True)
+        aimed = os.path.join(self.root, "aimed-at.sqlite")
+        os.replace(self.index, aimed)
+        try:
+            os.symlink(aimed, self.index)
+        except (OSError, NotImplementedError):
+            self.skipTest("this platform grants no file symlink here")
+        size = os.path.getsize(aimed)
+        self.assertFalse(self.hook.compact(self.root))
+        self.assertEqual(size, os.path.getsize(aimed))
+
+    def refresh_exiting(self, wait):
+        child = mock.Mock(pid=4242)
+        child.wait.side_effect = wait
+        with mock.patch.object(self.hook.subprocess, "Popen", return_value=child), \
+                mock.patch.object(self.hook, "compact") as compact:
+            self.hook.refresh(self.root, self.root, mock.Mock())
+        return compact
+
+    def test_a_refresh_that_succeeded_is_compacted(self):
+        self.refresh_exiting(lambda timeout=None: 0).assert_called_once_with(self.root)
+
+    def test_a_failed_update_compacts_nothing(self):
+        self.refresh_exiting(lambda timeout=None: 1).assert_not_called()
+
+    def test_an_update_that_timed_out_compacts_nothing(self):
+        waits = []
+
+        def wait(timeout=None):
+            waits.append(timeout)
+            if len(waits) == 1:
+                raise subprocess.TimeoutExpired("run-index", 1)
+            return -9
+
+        self.refresh_exiting(wait).assert_not_called()
+
+    def test_compaction_runs_under_the_roots_lock(self):
+        # The worker's lock is what keeps this hook's next refresh off the
+        # file while it is rewritten, so the rewrite happens inside it.
+        seen = []
+        child = mock.Mock(pid=4242)
+        child.wait.return_value = 0
+        self.hook.mark_pending(self.root, self.root)
+        with mock.patch.object(self.hook.subprocess, "Popen", return_value=child), \
+                mock.patch.object(self.hook, "compact", side_effect=lambda root: seen.append(
+                    self.hook.held(self.root, root))):
+            self.hook.work(self.root, self.root)
+        self.assertEqual([True], seen)
 
 
 class TheDetachedWorkerReallyRuns(unittest.TestCase):

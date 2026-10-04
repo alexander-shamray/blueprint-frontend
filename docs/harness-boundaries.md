@@ -1720,6 +1720,24 @@ left a check-then-act a takeover could slip between.
 forged ones, the lock from a second handle and from a second process that
 dies holding it, and the detached child end to end against a stub wrapper.
 
+**The worker compacts what it refreshed, because the package never does
+(alexander-shamray/blueprint-frontend#128).** `codebase-index` deletes and
+reinserts a changed file's chunks on every `update`; FTS5 records each delete
+as a new segment, and SQLite puts the freed pages on a freelist that nothing
+returns while `auto_vacuum` is off. The main checkout's index reached 2.2 GB
+for 3 MB of source. After a `run-index` that exited 0, and while the worker
+still holds the root's lock, the hook runs FTS `optimize` and then `VACUUM`
+when free pages pass half the file or the full-text table passes ten segment
+rows per chunk; a lean index is read and left as it was. On a copy of that
+index the two took 2,358 MB to 9.6 MB in six seconds. A link at
+`index.sqlite` is refused as one along the cache path above it is, and any
+SQLite error leaves the file untouched — a large index, the cost before this
+existed, rather than a broken one. `package-lock.json` is in
+`.codeindexignore` under the same issue: it was 70% of the chunks, a code
+lookup never wants it, and `update` drops a path the walk stops yielding, so
+no rebuild is needed to remove it. **The residual is upstream**: the package
+should compact its own index, and this hook's copy goes once it does.
+
 **The lock and the marker live in the repository's git directory**, at
 `<common>/index-refresh/`, named by a hash of the target's filesystem
 identity — its device and inode, not a spelling, so two spellings of one
