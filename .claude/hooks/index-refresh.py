@@ -91,6 +91,13 @@ RUN_TIMEOUT = 300
 FREE_SHARE = 0.5
 ROWS_PER_CHUNK = 10
 
+# A compaction that has not finished by now is interrupted, so an index whose
+# schema a branch wrote cannot hold the worker, and the root's lock, for ever.
+COMPACT_TIMEOUT = RUN_TIMEOUT
+
+# The files SQLite opens by name beside a database.
+SIDECARS = ("-wal", "-shm", "-journal")
+
 # Every git call one event makes shares this many seconds, well inside the
 # five `settings.json` gives the hook.
 GIT_BUDGET = 3
@@ -601,19 +608,36 @@ def compact(root):
     lock**, so no refresh of this hook's writes the file while it is
     rewritten, and a failed `update` — which may be a package that cannot
     read this index at all — is not followed by a rewrite of it.
-    `target_root` checked the cache directory for links; the file itself is
-    checked here, because the rewrite is this hook's own. Every SQLite error
-    leaves the file as it was: the cost is a large index, which is the cost
-    before this existed, never a broken one.
+
+    **Through no link, and against whatever schema the file carries.** A
+    branch can force-track a crafted `index.sqlite`, so the path is checked
+    again here, component by component and with the sidecars SQLite opens
+    by name beside it, because the rewrite is this hook's own and runs up to
+    `RUN_TIMEOUT` after `target_root` checked the directory. The schema is
+    the file's too: a view or a trigger in it runs inside these statements,
+    so schema functions are not trusted and `COMPACT_TIMEOUT` interrupts
+    whatever does not finish.
+
+    **Every SQLite error leaves a valid index, never a broken one.** Each
+    statement commits alone — `VACUUM` cannot share a transaction — so an
+    error after `optimize` leaves the segments merged and the pages not yet
+    reclaimed. The worst cost is a large index, which is the cost before
+    this existed.
     """
     path = os.path.join(root, CACHE, "index.sqlite")
-    if os.path.islink(path) or os.path.isjunction(path) or not os.path.isfile(path):
+    if not unlinked(path, root) or not os.path.isfile(path):
         return False
+    for suffix in SIDECARS:
+        if os.path.islink(path + suffix) or os.path.isjunction(path + suffix):
+            return False
     try:
         conn = sqlite3.connect(path, timeout=30, isolation_level=None)
     except sqlite3.Error:
         return False
+    deadline = time.monotonic() + COMPACT_TIMEOUT
+    conn.set_progress_handler(lambda: time.monotonic() > deadline, 10000)
     try:
+        conn.execute("PRAGMA trusted_schema=OFF")
         if not bloated(conn):
             return False
         conn.execute("INSERT INTO fts_chunks(fts_chunks) VALUES('optimize')")
