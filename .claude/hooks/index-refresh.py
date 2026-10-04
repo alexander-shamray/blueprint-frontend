@@ -345,14 +345,17 @@ def index_unlinked(root):
 def index_openable(root):
     """Whether the root's index may be opened at all, by the wrapper or by `compact`.
 
-    No link on its path, and at rest in WAL mode. The first connection to a
-    rollback-mode database replays a `-journal` it finds beside it, and that
-    replay acts on what the journal says, which a branch that force-tracks
-    the file writes (alexander-shamray/blueprint-frontend#128). A WAL-mode
-    index at rest leaves no journal, so a journal of any kind, or a database
-    whose header is not WAL, refuses the root. A root with no index yet is
-    admitted, because the wrapper builds one. The cost of a refusal is a
-    stale index, never a write.
+    No link on its path, no rollback journal beside it, and a header in WAL
+    mode. The first connection to a rollback-mode database replays a
+    `-journal` it finds beside it, and that replay acts on what the journal
+    says, which a branch that force-tracks the file writes
+    (alexander-shamray/blueprint-frontend#128). A WAL-mode index never makes
+    a rollback journal, so one beside it, or a header that is not WAL,
+    refuses the root. A `-wal` is admitted, and has to be: every open reader
+    of the index keeps one, and WAL recovery writes only into the database,
+    whose path was just checked. A root with no index yet is admitted,
+    because the wrapper builds one. The cost of a refusal is a stale index,
+    never a write.
     """
     if not index_unlinked(root):
         return False
@@ -632,24 +635,32 @@ def refresh(owner, root, lock):
 
 
 def shaped(conn):
-    """Whether the three tables `compact` touches are the package's, and nothing else.
+    """Whether the tables `compact` touches are the package's, and carry no trigger.
 
-    Read from `sqlite_master`, which runs none of the file's schema: the
-    full-text table must be an FTS5 virtual table, which takes no trigger,
-    and the two it counts must be plain tables, never views. A file written
-    to run code when this hook counts or merges is refused before it can.
+    Judged from the parsed schema, never from its text: `PRAGMA table_list`
+    reports what SQLite built, so a plain table whose definition only
+    mentions FTS5 is reported as a table. Every `fts_chunks_` table must be
+    a shadow table, which SQLite makes only for the virtual table it belongs
+    to, so a plain table or a view among them is refused, and the
+    `fts_chunks_data` that `bloated` counts can only be FTS5's own; `chunks`
+    must be a plain table. No trigger may sit on `fts_chunks` or any of its
+    shadows, because `optimize` writes them through FTS5's own statements;
+    the package's own triggers sit on `chunks`, which compaction never
+    writes. A file lacking one of these tables fails in `bloated` and is
+    left alone. Reading the schema runs none of it. A SQLite without
+    `table_list`, before 3.37, reports nothing, and nothing is compacted.
     """
-    kinds = {name: (kind, sql or "") for kind, name, sql in conn.execute(
-        "SELECT type, name, sql FROM sqlite_master"
-        " WHERE name IN ('chunks', 'fts_chunks', 'fts_chunks_data')")}
-    fts = kinds.get("fts_chunks", ("", ""))
-    if fts[0] != "table" or "using fts5" not in " ".join(fts[1].lower().split()):
+    kinds = {row[1]: row[2] for row in conn.execute("PRAGMA main.table_list")}
+    if kinds.get("chunks") != "table":
         return False
-    for name in ("chunks", "fts_chunks_data"):
-        kind, sql = kinds.get(name, ("", ""))
-        if kind != "table" or sql.lstrip().upper().startswith("CREATE VIRTUAL"):
-            return False
-    return True
+    shadows = [name for name in kinds if name.startswith("fts_chunks_")]
+    if any(kinds[name] != "shadow" for name in shadows):
+        return False
+    watched = ["fts_chunks", *shadows]
+    triggers = conn.execute(
+        "SELECT count(*) FROM sqlite_master WHERE type = 'trigger' AND tbl_name IN ("
+        + ", ".join("?" * len(watched)) + ")", watched).fetchone()[0]
+    return triggers == 0
 
 
 def bloated(conn):
