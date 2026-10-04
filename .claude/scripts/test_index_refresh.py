@@ -196,6 +196,33 @@ class TheRootFollowsTheActiveWorktree(unittest.TestCase):
         # The unredirected worktree beside it is still refreshed.
         self.assertIsNotNone(self.hook.target_root(self.main, self.main))
 
+    def test_a_target_whose_index_or_sidecar_is_a_link_is_refused(self):
+        # The wrapper opens the index, and SQLite its sidecars by name, before
+        # `compact` could look, so a link at any of them refuses the root and
+        # not only the compaction (alexander-shamray/blueprint-frontend#128).
+        # Each call gets a fresh git budget, so a refusal here is the link's
+        # and never a spent deadline's.
+        aimed = os.path.join(self.base, "aimed-at-file")
+        Path(aimed).write_bytes(b"keep")
+        cache = os.path.join(self.sibling, ".claude", "cache", "codebase-index")
+        os.makedirs(cache)
+        for name in ("index.sqlite", "index.sqlite-wal", "index.sqlite-shm",
+                     "index.sqlite-journal"):
+            with self.subTest(name=name):
+                try:
+                    os.symlink(aimed, os.path.join(cache, name))
+                except (OSError, NotImplementedError):
+                    self.skipTest("this platform grants no file symlink here")
+                try:
+                    self.hook._DEADLINE = None
+                    self.assertIsNone(self.hook.target_root(self.sibling, self.main))
+                finally:
+                    os.remove(os.path.join(cache, name))
+        self.assertEqual(b"keep", Path(aimed).read_bytes())
+        # With no link left, the same worktree is refreshed.
+        self.hook._DEADLINE = None
+        self.assertIsNotNone(self.hook.target_root(self.sibling, self.main))
+
     def test_a_sweep_worktree_reached_through_an_alias_is_refused(self):
         # Copilot, round 10: through a link, git reports the alias, whose
         # name carries no reserved prefix while the directory it opens does.

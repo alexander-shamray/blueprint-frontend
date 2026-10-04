@@ -276,13 +276,15 @@ def target_root(cwd, owner):
         return None
     if swept(toplevel):
         return None
-    if not unlinked(os.path.join(toplevel, CACHE), toplevel):
+    if not index_unlinked(toplevel):
         # **The indexer writes into the tree it indexes**, at
         # `<root>/.claude/cache/codebase-index`, and a branch can force-track
         # any component of that path as a link. The hook's own state moved
         # out of reach, but the wrapper's writes would still follow it, so a
         # target whose cache path is redirected is not refreshed at all.
-        # Raised by Copilot.
+        # Raised by Copilot. The index and the sidecars SQLite opens beside it
+        # are on that path too, and the wrapper opens them before `compact`
+        # could look (alexander-shamray/blueprint-frontend#128).
         return None
     return os.path.normpath(toplevel)
 
@@ -318,6 +320,22 @@ def unlinked(path, base):
             return False
         current = os.path.join(current, part)
         if os.path.islink(current) or os.path.isjunction(current):
+            return False
+    return True
+
+
+def index_unlinked(root):
+    """Whether the root's index, and each file SQLite opens beside it, is free of links.
+
+    The whole cache path, the database and its `-wal`, `-shm` and `-journal`
+    sidecars: SQLite opens each by name, so a link at any one of them aims a
+    write wherever the branch that tracked it chose.
+    """
+    path = os.path.join(root, CACHE, "index.sqlite")
+    if not unlinked(path, root):
+        return False
+    for suffix in SIDECARS:
+        if os.path.islink(path + suffix) or os.path.isjunction(path + suffix):
             return False
     return True
 
@@ -597,8 +615,8 @@ def compact(root):
     changed file's chunks and inserts new ones; FTS5 records the deletes as
     new segments, SQLite puts the freed pages on its freelist, and with
     `auto_vacuum` off the file only grows. FTS `optimize` merges the
-    segments into one and `VACUUM` gives the pages back; the issue and the
-    pull request that closed it own what that did to this checkout's index.
+    segments into one and `VACUUM` gives the pages back; the issue owns what
+    that did to a copy of this checkout's index.
 
     **Only past a threshold, because both rewrite the whole file**: free
     pages past `FREE_SHARE` of it, or more than `ROWS_PER_CHUNK` segment
@@ -627,11 +645,8 @@ def compact(root):
     this existed.
     """
     path = os.path.join(root, CACHE, "index.sqlite")
-    if not unlinked(path, root) or not os.path.isfile(path):
+    if not index_unlinked(root) or not os.path.isfile(path):
         return False
-    for suffix in SIDECARS:
-        if os.path.islink(path + suffix) or os.path.isjunction(path + suffix):
-            return False
     try:
         conn = sqlite3.connect(path, timeout=30, isolation_level=None)
     except sqlite3.Error:

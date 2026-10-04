@@ -1735,10 +1735,12 @@ the whole cache path again for links, the file and the `-wal`, `-shm` and
 `-journal` sidecars SQLite opens beside it included, distrusts the file's
 schema functions — compacting nothing where its SQLite cannot — and interrupts
 itself at `COMPACT_TIMEOUT`, so a view or trigger written to run for ever
-cannot hold the worker's lock. The link check still precedes SQLite's opens,
-and a checkout that puts a link on the path in between is left as a residual:
-SQLite's `nofollow` covers the database and not its sidecars, and the
-package's own `update` holds the same window with no check at all. Any SQLite
+cannot hold the worker's lock. The same check, file and sidecars included,
+runs in `target_root` before the wrapper is started, because the package's own
+`update` opens them first and would write through a link before `compact`
+could look. The check still precedes SQLite's opens, and a checkout that puts
+a link on the path in between is left as a residual: SQLite's `nofollow`
+covers the database and not its sidecars. Any SQLite
 error leaves a valid index, never a broken one —
 merged but not yet reclaimed if `VACUUM` fails after `optimize`, since each
 statement commits alone; `compact`'s docstring owns that argument. Defensive
