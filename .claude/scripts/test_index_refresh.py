@@ -1103,6 +1103,23 @@ class TheIndexIsCompactedAfterARefresh(unittest.TestCase):
                 finally:
                     conn.close()
 
+    def test_triggers_that_will_not_switch_off_compact_nothing(self):
+        # The switch is read back with `getconfig`, because `setconfig`
+        # returns nothing. Played by a connection whose `setconfig` takes no
+        # effect, which leaves triggers on as SQLite's default has them.
+        self.build(segments=True, free=True)
+        before = self.snapshot()
+        real_connect = sqlite3.connect
+
+        class Stuck(sqlite3.Connection):
+            def setconfig(self, *args):
+                return None
+
+        with mock.patch.object(self.hook.sqlite3, "connect",
+                               lambda *a, **k: real_connect(*a, factory=Stuck, **k)):
+            self.assertFalse(self.hook.compact(self.root))
+        self.assertEqual(before, self.snapshot())
+
     def test_a_plain_table_named_in_capitals_is_refused(self):
         # SQLite resolves names folded, so `FTS_CHUNKS_DATA` is the table
         # `bloated` counts; the shape check folds them the same way, and a

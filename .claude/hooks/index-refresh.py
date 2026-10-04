@@ -658,8 +658,8 @@ def shaped(conn):
     `bloated` counts can only be FTS5's own; `chunks` must be a plain table.
     Triggers are not judged here: `compact` switches them off on its own
     connection, which no spelling of a name and no edit to `sqlite_master`
-    gets round. A file lacking one of these tables fails in `bloated` and is
-    left alone. Reading the schema runs none of it. A SQLite without
+    gets round. A file lacking `chunks` is refused here, and one lacking
+    `fts_chunks_data` fails in `bloated`; either is left alone. Reading the schema runs none of it. A SQLite without
     `table_list`, before 3.37, reports nothing, and nothing is compacted.
     """
     rows = conn.execute("PRAGMA main.table_list").fetchall()
@@ -736,9 +736,11 @@ def compact(root):
         if conn.execute("PRAGMA trusted_schema").fetchone() != (0,):
             return False
         # Off on this connection, whatever the file's schema calls them, and
-        # confirmed: `setconfig` returns the setting it leaves in place.
-        if not hasattr(conn, "setconfig") or conn.setconfig(
-                sqlite3.SQLITE_DBCONFIG_ENABLE_TRIGGER, False):
+        # read back: `setconfig` returns nothing, and a set that fails raises.
+        if not hasattr(conn, "setconfig"):
+            return False
+        conn.setconfig(sqlite3.SQLITE_DBCONFIG_ENABLE_TRIGGER, False)
+        if conn.getconfig(sqlite3.SQLITE_DBCONFIG_ENABLE_TRIGGER):
             return False
         if not shaped(conn) or not bloated(conn):
             return False
