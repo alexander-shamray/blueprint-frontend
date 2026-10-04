@@ -113,7 +113,7 @@ import traceback
 # `--no-ext-diff` is the safe direction and stays admitted: neither the
 # prefix test nor the abbreviation test matches it against these names.
 #
-# `--extcmd` is the eighth, and unlike the two above it carries its command
+# `--extcmd` joins them, and unlike the two above it carries its command
 # outright: `git difftool --extcmd=<cmd>` runs `<cmd>` on every changed file
 # (blueprint-frontend#122).
 FORBIDDEN_FLAGS = ("--output", "--upload-pack", "--receive-pack", "--exec",
@@ -132,9 +132,16 @@ FORBIDDEN_SUBSTRINGS = ("ext::",)
 # these are keyed by subcommand, and the letter counts bundled with others
 # (`-ix`) or carrying its value (`-x<cmd>`). `bisect run` and `submodule
 # foreach` take their command as an operand rather than a flag, which no flag
-# list reaches. Nothing in this repository runs any of them.
-EXECUTING_SHORT_FLAGS = {"rebase": "x", "difftool": "x"}
-EXECUTING_FORMS = {"bisect": "run", "submodule": "foreach"}
+# list reaches. Nothing in this repository runs any of them. The same holds
+# for `--upload-pack`'s `-u` on `clone` and `ls-remote`, `--output`'s `-o` on
+# `archive` and `format-patch`, and `submodule--helper`, the builtin
+# `submodule foreach` calls, typed directly (blueprint-frontend#124's review).
+EXECUTING_SHORT_FLAGS = {
+    "rebase": "x", "difftool": "x", "clone": "u", "ls-remote": "u",
+    "archive": "o", "format-patch": "o",
+}
+EXECUTING_FORMS = {"bisect": "run", "submodule": "foreach",
+                   "submodule--helper": "foreach"}
 
 # **The trees a redirection or a writing verb may not write into (#20, #26),
 # and the reason this list is here rather than read off the deny rules is that
@@ -2759,7 +2766,9 @@ def substituted_git_offence(inner):
     script no check here reads. So each `git` the body runs is held to
     `SUBSTITUTION_GIT_SUBCOMMANDS`, plus the reading forms of `branch` and
     `worktree`. A body the tokeniser cannot read is refused if it names `git`
-    at all, the direction `substituted_gh_offence` fails in too.
+    at all, the direction `substituted_gh_offence` fails in too. A string
+    `env -S` splits and runs is held to the same reads, since every scan
+    here sees it as one word (blueprint-frontend#124's review).
     """
     tokens = substitution_tokens(inner)
     if tokens is None:
@@ -2777,6 +2786,10 @@ def substituted_git_offence(inner):
         if subcommand == "worktree" and rest[:1] == ["list"]:
             continue
         return SUBSTITUTED_GIT_REFUSAL
+    for payload in split_string_payloads(tokens):
+        refusal = substituted_git_offence(payload)
+        if refusal is not None:
+            return refusal
     return None
 
 
@@ -4026,44 +4039,83 @@ def git_segments(tokens):
 
     The test is the run's LEADING word, not where `git` sits inside it, because
     a wrapper puts the real command in the middle — which is why the scan still
-    covers the whole run.
+    covers the whole run. A word is compared as the pattern or brace
+    expansion bash would make `git`, as `names_gh` compares `gh`:
+    `/usr/bin/gi[t] push origin +HEAD:main` named no `git` and pushed
+    (blueprint-frontend#124's review).
     """
     for run in command_runs(tokens):
         if not run or program_name(run[0]) in DATA_ONLY_COMMANDS:
             continue
         for index, token in enumerate(run):
-            if program_name(token) != "git":
+            if not names_program(token, "git"):
                 continue
             yield run[index + 1:]
 
 
-def xargs_git_offence(tokens):
-    """The reason to refuse a `git` run behind `xargs`, or `None`.
+def names_program(word, name):
+    """Whether `word` is `name`, or a pattern or brace expansion bash makes it.
 
-    **`xargs` appends what it reads on stdin to the argv it was given, and
-    `-I` substitutes it into any word**, so the `git` argv this file judges is
-    not the one that runs. `echo +HEAD:main | xargs git push origin <branch>`
-    passed the push allow-list on one refspec and force-updated `main` on
-    two, and `echo checkout | xargs -Ilog git log …` ran a `checkout` judged
-    as a `log` (blueprint-frontend#124's review). `writing_verb_offence`
-    refuses `xargs` before a writing verb for the same reason; this is the
-    `git` half. A run led by a printer is data, as in `git_segments`.
+    `names_gh`'s comparison for any program: `/usr/bin/gi[t]` holds no `git`
+    and bash runs `git` (blueprint-frontend#124's review).
+    """
+    for candidate in brace_alternatives(program_name(word)):
+        if candidate == name or (any(char in candidate for char in "*?[")
+                                 and fnmatch.fnmatchcase(name, candidate)):
+            return True
+    return False
+
+
+# **What `xargs` may launch: programs that read their operands and print**, so
+# a name or a flag stdin supplies changes what is printed and nothing else.
+# Matched as the literal word, so a path or a pattern is refused with the rest.
+XARGS_PROGRAMS = frozenset({
+    "basename", "cat", "dirname", "echo", "file", "grep", "head", "ls",
+    "printf", "stat", "tail", "wc",
+})
+
+# `xargs`'s options that take their value as the next word. Reading one too few
+# makes a value the program, which is refused — the direction to be wrong in.
+XARGS_VALUE_FLAGS = frozenset({
+    "-a", "-d", "-E", "-I", "-L", "-n", "-P", "-s", "--arg-file", "--delimiter",
+    "--max-args", "--max-chars", "--max-procs", "--process-slot-var",
+})
+
+
+def xargs_offence(tokens):
+    """The reason to refuse what `xargs` launches, or `None`.
+
+    **`xargs` runs the program it is given with arguments it reads from
+    stdin, and `-I` substitutes them into any word**, so the argv this file
+    judges is not the one that runs. Recognising `git` behind it was not
+    enough: `echo +HEAD:main | xargs git push origin <branch>` force-updated
+    `main` past the push allow-list, and once that was refused, `echo git
+    push origin +HEAD:main | xargs env` did it with no `git` word to find
+    (blueprint-frontend#124's review). So the program `xargs` launches is held
+    to `XARGS_PROGRAMS`; with none it runs `echo`, which is admitted. A run
+    led by a reader or a printer names `xargs` as data, as in
+    `writing_verb_offence`.
     """
     for run in command_runs(tokens):
-        if not run or program_name(run[0]) in DATA_ONLY_COMMANDS:
+        lead = next((token for token in run if not ASSIGNMENT.match(token)),
+                    None)
+        if lead is None or program_name(lead) in (
+                READING_COMMANDS | DATA_ONLY_COMMANDS):
             continue
-        behind_xargs = False
-        for token in run:
-            name = program_name(token)
-            if name == "xargs":
-                behind_xargs = True
-            elif name == "git" and behind_xargs:
-                return (
-                    "`xargs` hands `git` arguments it reads from stdin, so the "
-                    "subcommand, flags and refspecs that run are not the ones in "
-                    "this command; run `git` with its whole argv typed "
-                    "(blueprint-frontend#124)."
-                )
+        for index, token in enumerate(run):
+            if not names_program(token, "xargs"):
+                continue
+            rest = run[index + 1:]
+            position = 0
+            while position < len(rest) and rest[position].startswith("-"):
+                position += 2 if rest[position] in XARGS_VALUE_FLAGS else 1
+            if position >= len(rest) or rest[position] in XARGS_PROGRAMS:
+                continue
+            return (
+                f"`xargs` launches `{rest[position]}` with arguments it reads "
+                "from stdin, so what runs is not in this command; it may launch "
+                "only a reader on `XARGS_PROGRAMS` (blueprint-frontend#124)."
+            )
     return None
 
 
@@ -4445,7 +4497,7 @@ def _offence(command, depth, judged):
     if refusal is not None:
         return refusal
 
-    refusal = xargs_git_offence(tokens)
+    refusal = xargs_offence(tokens)
     if refusal is not None:
         return refusal
 
@@ -4510,18 +4562,19 @@ def _offence(command, depth, judged):
                     return (
                         f"`git ... {flag}` is refused: it reaches outside the "
                         "repository this grant was for — writing, executing a "
-                        "configured command (--ext-diff, --textconv), or in "
-                        "--no-index's case reading a path git would not "
-                        "otherwise open — and the settings deny it matches only "
-                        "the unquoted spelling. This hook compares the resolved "
-                        "argv, and any unambiguous abbreviation of it."
+                        "command it carries or one configured (--ext-diff, "
+                        "--textconv), or in --no-index's case reading a path "
+                        "git would not otherwise open — and a settings deny, "
+                        "where one names it, matches only the unquoted "
+                        "spelling. This hook compares the resolved argv, and "
+                        "any unambiguous abbreviation of it."
                     )
             letter = EXECUTING_SHORT_FLAGS.get(subcommand)
             if (letter is not None and element.startswith("-")
                     and not element.startswith("--") and letter in element[1:]):
                 return (
                     f"`git {subcommand} -{letter}` is the short spelling of a "
-                    "flag that runs a command, bundled or not; the long "
+                    "flag that runs a command or writes, bundled or not; the long "
                     "spelling is refused too (blueprint-frontend#122)."
                 )
             if subcommand not in REPOSITORY_SUBCOMMANDS:
