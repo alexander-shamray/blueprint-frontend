@@ -976,6 +976,22 @@ class TheIndexIsCompactedAfterARefresh(unittest.TestCase):
             self.hook.refresh(self.root, self.root, mock.Mock())
         return compact
 
+    def test_a_wrapper_run_is_judged_again_after_the_root_was(self):
+        # A worker judges its root once and then refreshes for as long as
+        # edits keep coming, so a checkout that links the cache path between
+        # two runs must stop the second one before the wrapper writes.
+        with mock.patch.object(self.hook.subprocess, "Popen") as popen:
+            popen.return_value.wait.return_value = 1
+            self.hook.refresh(self.root, self.root, mock.Mock())
+        popen.assert_called_once()
+        cache = os.path.join(self.root, ".claude", "cache")
+        moved = os.path.join(self.root, "moved-cache")
+        os.replace(cache, moved)
+        self.link(cache, moved)
+        with mock.patch.object(self.hook.subprocess, "Popen") as popen:
+            self.hook.refresh(self.root, self.root, mock.Mock())
+        popen.assert_not_called()
+
     def test_a_refresh_that_succeeded_is_compacted(self):
         self.refresh_exiting(lambda timeout=None: 0).assert_called_once_with(self.root)
 

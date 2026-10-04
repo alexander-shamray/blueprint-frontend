@@ -1736,17 +1736,21 @@ the whole cache path again for links, the file and the `-wal`, `-shm` and
 schema functions — compacting nothing where its SQLite cannot — and interrupts
 itself at `COMPACT_TIMEOUT`, so a view or trigger written to run for ever
 cannot hold the worker's lock. The same check, file and sidecars included,
-runs in `target_root` before the wrapper is started, because the package's own
-`update` opens them first and would write through a link before `compact`
-could look. The check still precedes SQLite's opens, and a checkout that puts
-a link on the path in between is left as a residual: SQLite's `nofollow`
-covers the database and not its sidecars. Any SQLite
-error leaves a valid index, never a broken one —
-merged but not yet reclaimed if `VACUUM` fails after `optimize`, since each
-statement commits alone; `compact`'s docstring owns that argument. Defensive
-connection settings beyond `trusted_schema` were declined: the package parses
-the same file with its defaults on every `update` and query, so hardening this
-one connection would narrow nothing. `package-lock.json` is in
+runs in `target_root` and again in `refresh` before every start of the
+wrapper, because the package's own `update` opens them first and would write
+through a link before `compact` could look, and a worker judges its root once
+and then refreshes for as long as edits keep coming. Each check still precedes
+SQLite's opens, and a checkout that puts a link on the path in between is left
+as a residual: SQLite's `nofollow` covers the database and not its sidecars.
+Any SQLite error leaves a valid index, never a broken one — merged but not yet
+reclaimed if `VACUUM` fails after `optimize`, since each statement commits
+alone; `compact`'s docstring owns that argument. `trusted_schema` is kept
+because it governs what the statements only this hook runs may call — the view
+it counts, the trigger its `optimize` would fire — which nothing the package
+does protects. Settings against a corrupt file were declined, for the opposite
+reason: the package parses the same file with its defaults on every `update`
+and query, so hardening the parser on this one connection would narrow
+nothing. `package-lock.json` is in
 `.codeindexignore` under the same issue, which measured its share of the
 chunks: a code lookup never wants it, and `update` drops a path the walk
 stops yielding, so no rebuild is needed to remove it. **The residual is
