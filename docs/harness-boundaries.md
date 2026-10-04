@@ -1730,25 +1730,30 @@ checkout's index grew, and what compacting a copy of it did. After a
 the hook runs FTS `optimize` and then `VACUUM` when free pages pass
 `FREE_SHARE` of the file or the full-text table passes `ROWS_PER_CHUNK` segment
 rows per chunk, both in `index-refresh.py`; a lean index is read and left as
-it was. A branch can force-track a crafted `index.sqlite`, so `compact` checks
-the whole cache path again for links, the file and the `-wal`, `-shm` and
-`-journal` sidecars SQLite opens beside it included, distrusts the file's
-schema functions — compacting nothing where its SQLite cannot — and interrupts
-itself at `COMPACT_TIMEOUT`, so a view or trigger written to run for ever
-cannot hold the worker's lock. The same check, file and sidecars included,
-runs in `target_root` and again in `refresh` before every start of the
-wrapper, because the package's own `update` opens them first and would write
-through a link before `compact` could look, and a worker judges its root once
-and then refreshes for as long as edits keep coming. Each check still precedes
+it was. A branch can force-track a crafted `index.sqlite`, so `index_openable`
+judges it before anything opens it: no link on the cache path, the file and
+the `-wal`, `-shm` and `-journal` sidecars SQLite opens beside it included,
+and an index at rest in WAL mode. A rollback journal of any kind, or a header
+that is not WAL, refuses the root, because the first connection to a
+rollback-mode database replays the journal it finds, and that replay acts on
+what a branch wrote; a WAL-mode index at rest leaves none, and the function's
+docstring owns the argument. `compact` then refuses a file whose three tables
+are not the package's shape, read from `sqlite_master` without running any of
+its schema, distrusts schema functions — compacting nothing where its SQLite
+cannot — and interrupts itself at `COMPACT_TIMEOUT`. The same judgement runs
+in `target_root`, again in `refresh` before every start of the wrapper, and
+again in `compact`, because the package's own `update` opens the file first,
+and a worker judges its root once and then refreshes for as long as edits keep
+coming. Each check still precedes
 SQLite's opens, and a checkout that puts a link on the path in between is left
 as a residual for the database and its sidecars alike. `nofollow` is not used:
 SQLite applies it to the database alone, and the sidecars are where the window
 is. A compaction into a file the hook owns, renamed over the index, would close
 it and is not taken for a window that needs two branches checked out in turn
 inside it. `compact`'s docstring owns what a failed compaction leaves behind.
-`trusted_schema` is kept because it governs what the statements only this hook
-runs may call — the view it counts, the trigger its `optimize` would fire —
-which nothing the package does protects. Settings against a corrupt file were
+`trusted_schema` is kept beside the shape check because it governs what the
+statements only this hook runs may call, which nothing the package does
+protects. Settings against a corrupt file were
 declined, for the opposite reason: the package parses the same file with its
 defaults on every `update` and query, so hardening the parser on this one
 connection would narrow nothing. `package-lock.json` is in
