@@ -816,10 +816,13 @@ not on the list (blueprint-frontend#122). Wherever they stand, the hook refuses
 the operand forms in `EXECUTING_FORMS` (`git bisect run`, `git submodule …
 foreach`), the short flags in `EXECUTING_SHORT_FLAGS` (`git rebase -x`,
 `git difftool -x`, `--upload-pack`'s and `--output`'s short spellings) and
-`--extcmd`. It holds what `xargs` launches to the readers in `XARGS_PROGRAMS`,
-since `xargs` hands its program a subcommand, flags or a whole command line
-the typed argv does not carry (`xargs_offence`); it matches `git` and `xargs`
-as the patterns and brace expansions bash would make them (`names_program`);
+`--extcmd`. It holds what `xargs` launches to the readers in `XARGS_PROGRAMS`
+and its options to `XARGS_FLAGS`, since `xargs` hands its program a
+subcommand, flags or a whole command line the typed argv does not carry, and
+a replace string, a bundle or an abbreviation can make a value pass for that
+program (`xargs_offence`); it matches `git` and `xargs` as the patterns and
+brace expansions bash would make them, `[^…]` and `[:class:]` included
+(`names_program`);
 inside a substitution it holds a string `env -S` splits and runs to the same
 reads; and it reads `--shallow-file` as taking a value, so that option cannot
 hide the subcommand it skips to.
