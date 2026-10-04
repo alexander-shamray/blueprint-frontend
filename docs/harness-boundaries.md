@@ -1731,26 +1731,32 @@ the hook runs FTS `optimize` and then `VACUUM` when free pages pass
 `FREE_SHARE` of the file or the full-text table passes `ROWS_PER_CHUNK` segment
 rows per chunk, both in `index-refresh.py`; a lean index is read and left as
 it was. A branch can force-track a crafted `index.sqlite`, so `index_openable`
-judges it before anything opens it: no link on the cache path, the file and
-the `-wal`, `-shm` and `-journal` sidecars SQLite opens beside it included,
-and an index at rest in WAL mode. A rollback journal of any kind, or a header
-that is not WAL, refuses the root, because the first connection to a
-rollback-mode database replays the journal it finds, and that replay acts on
-what a branch wrote; a WAL-mode index at rest leaves none, and the function's
-docstring owns the argument. `compact` then refuses a file whose three tables
-are not the package's shape, read from `sqlite_master` without running any of
-its schema, distrusts schema functions — compacting nothing where its SQLite
-cannot — and interrupts itself at `COMPACT_TIMEOUT`. The same judgement runs
-in `target_root`, again in `refresh` before every start of the wrapper, and
-again in `compact`, because the package's own `update` opens the file first,
-and a worker judges its root once and then refreshes for as long as edits keep
-coming. Each check still precedes
-SQLite's opens, and a checkout that puts a link on the path in between is left
-as a residual for the database and its sidecars alike. `nofollow` is not used:
-SQLite applies it to the database alone, and the sidecars are where the window
-is. A compaction into a file the hook owns, renamed over the index, would close
-it and is not taken for a window that needs two branches checked out in turn
-inside it. `compact`'s docstring owns what a failed compaction leaves behind.
+judges it before each open the hook makes: no link on the cache path, the
+file and the `-wal`, `-shm` and `-journal` sidecars SQLite opens beside it
+included, no rollback journal beside it, and a header in WAL mode. A
+`-journal` or a header that is not WAL refuses the root, because the first
+connection to a rollback-mode database replays the journal it finds, and that
+replay acts on what a branch wrote; a WAL-mode index never makes one. A `-wal`
+is admitted, since every open reader keeps one, and the function's docstring
+owns the argument. `compact` then refuses a file whose tables are not the
+package's shape, or that carries a trigger on the full-text table or its
+shadows, judged from the parsed schema without running any of it; it
+distrusts schema functions — compacting nothing where its SQLite cannot — and
+interrupts itself at `COMPACT_TIMEOUT`. The same judgement runs in
+`target_root`, again in `refresh` before every start of the wrapper, and again
+in `compact`, because the package's own `update` opens the file first, and a
+worker judges its root once and then refreshes for as long as edits keep
+coming. Each check still precedes SQLite's opens, and a checkout that puts a
+link, an ordinary `-journal` or a rollback-mode database on the path in
+between is left as a residual for the database and its sidecars alike.
+`nofollow` is not used: SQLite applies it to the database alone, and the
+sidecars are where the window is. A compaction into a file the hook owns,
+renamed over the index, would close it and is not taken for a window that
+needs two branches checked out in turn inside it. The MCP server and the
+skill's direct `run-index` route open the same index with no such judgement, a
+residual of its own: these checks bound the hook's opens, not every reader of
+the file. `compact`'s docstring owns
+what a failed compaction leaves behind.
 `trusted_schema` is kept beside the shape check because it governs what the
 statements only this hook runs may call, which nothing the package does
 protects. Settings against a corrupt file were

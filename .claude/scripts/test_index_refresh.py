@@ -216,8 +216,16 @@ class TheRootFollowsTheActiveWorktree(unittest.TestCase):
         # not only the compaction (alexander-shamray/blueprint-frontend#128).
         # Each call gets a fresh git budget, so a refusal here is the link's
         # and never a spent deadline's.
+        # A real WAL-mode database, so for `index.sqlite` only the link check
+        # can refuse it and never the header check.
         aimed = os.path.join(self.base, "aimed-at-file")
-        Path(aimed).write_bytes(b"keep")
+        conn = sqlite3.connect(aimed)
+        try:
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("CREATE TABLE kept (x)")
+        finally:
+            conn.close()
+        kept = Path(aimed).read_bytes()
         cache = os.path.join(self.sibling, ".claude", "cache", "codebase-index")
         os.makedirs(cache)
         for name in ("index.sqlite", "index.sqlite-wal", "index.sqlite-shm",
@@ -232,7 +240,7 @@ class TheRootFollowsTheActiveWorktree(unittest.TestCase):
                     self.assertIsNone(self.hook.target_root(self.sibling, self.main))
                 finally:
                     os.remove(os.path.join(cache, name))
-        self.assertEqual(b"keep", Path(aimed).read_bytes())
+        self.assertEqual(kept, Path(aimed).read_bytes())
         # With no link left, the same worktree is refreshed.
         self.hook._DEADLINE = None
         self.assertIsNotNone(self.hook.target_root(self.sibling, self.main))
@@ -878,9 +886,11 @@ class TheIndexIsCompactedAfterARefresh(unittest.TestCase):
 
     def test_an_index_of_another_shape_is_left_as_it_is(self):
         # A package release that renames these tables must cost a large
-        # index, never a broken one or a worker that dies.
+        # index, never a broken one or a worker that dies. In WAL mode, so
+        # the shape check and not the header check is what refuses it.
         conn = sqlite3.connect(self.index)
         try:
+            conn.execute("PRAGMA journal_mode=WAL")
             conn.execute("CREATE TABLE other (x)")
         finally:
             conn.close()
@@ -1039,7 +1049,9 @@ class TheIndexIsCompactedAfterARefresh(unittest.TestCase):
             conn.execute("PRAGMA journal_mode=WAL")
             conn.execute("CREATE TABLE chunks (id INTEGER PRIMARY KEY, content TEXT)")
             conn.execute("CREATE TABLE fts_chunks_data (id INTEGER PRIMARY KEY, block BLOB)")
-            conn.execute("CREATE TABLE fts_chunks (fts_chunks TEXT)")
+            # The comment is stored in `sqlite_master.sql`, so a check of the
+            # text would take this plain table for FTS5.
+            conn.execute("CREATE TABLE fts_chunks (fts_chunks TEXT /* using fts5 */)")
             conn.execute("CREATE TABLE fired (n INTEGER)")
             conn.execute("CREATE TRIGGER planted AFTER INSERT ON fts_chunks "
                          "BEGIN INSERT INTO fired VALUES (1); END")
@@ -1054,6 +1066,52 @@ class TheIndexIsCompactedAfterARefresh(unittest.TestCase):
             self.assertEqual(0, conn.execute("SELECT count(*) FROM fired").fetchone()[0])
         finally:
             conn.close()
+
+    def test_a_trigger_on_a_shadow_table_runs_nothing(self):
+        # `optimize` writes `fts_chunks_data` through FTS5's own statements,
+        # so a trigger planted there would fire on an index of the real
+        # shape; the shape check refuses the file before it can.
+        self.build(segments=True, free=True)
+        conn = sqlite3.connect(self.index, isolation_level=None)
+        try:
+            conn.execute("CREATE TABLE fired (n INTEGER)")
+            conn.execute("CREATE TRIGGER planted AFTER INSERT ON fts_chunks_data "
+                         "BEGIN INSERT INTO fired VALUES (1); END")
+        finally:
+            conn.close()
+        self.assertFalse(self.hook.compact(self.root))
+        conn = sqlite3.connect(self.index)
+        try:
+            self.assertEqual(0, conn.execute("SELECT count(*) FROM fired").fetchone()[0])
+        finally:
+            conn.close()
+
+    def test_a_view_in_place_of_chunks_is_refused(self):
+        # `bloated` counts `chunks`, and a view runs its query when counted,
+        # so it must be a plain table.
+        self.build(segments=True, free=True)
+        conn = sqlite3.connect(self.index, isolation_level=None)
+        try:
+            conn.execute("DROP TABLE chunks")
+            conn.execute("CREATE VIEW chunks AS SELECT 1 AS id")
+        finally:
+            conn.close()
+        before = self.snapshot()
+        self.assertFalse(self.hook.compact(self.root))
+        self.assertEqual(before, self.snapshot())
+
+    def test_a_view_among_the_shadow_names_is_refused(self):
+        # Every `fts_chunks_` name must be FTS5's own shadow table; a view
+        # there is something the file's author wrote, not the package.
+        self.build(segments=True, free=True)
+        conn = sqlite3.connect(self.index, isolation_level=None)
+        try:
+            conn.execute("CREATE VIEW fts_chunks_extra AS SELECT 1 AS x")
+        finally:
+            conn.close()
+        before = self.snapshot()
+        self.assertFalse(self.hook.compact(self.root))
+        self.assertEqual(before, self.snapshot())
 
     def test_a_wrapper_run_is_judged_again_after_the_root_was(self):
         # A worker judges its root once and then refreshes for as long as
