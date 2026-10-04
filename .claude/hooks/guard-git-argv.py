@@ -2700,12 +2700,7 @@ def runs_unmodelled_program(text):
 
 def names_gh(word):
     """Whether `word` is `gh`, or a pattern or brace expansion bash makes `gh`."""
-    name = program_name(word)
-    for candidate in brace_alternatives(name):
-        if candidate == "gh" or (any(char in candidate for char in "*?[")
-                                 and fnmatch.fnmatchcase("gh", candidate)):
-            return True
-    return False
+    return names_program(word, "gh")
 
 
 def contains_gh_word(text):
@@ -4039,16 +4034,18 @@ def git_segments(tokens):
 
     The test is the run's LEADING word, not where `git` sits inside it, because
     a wrapper puts the real command in the middle — which is why the scan still
-    covers the whole run. A word is compared as the pattern or brace
-    expansion bash would make `git`, as `names_gh` compares `gh`:
-    `/usr/bin/gi[t] push origin +HEAD:main` named no `git` and pushed
-    (blueprint-frontend#124's review).
+    covers the whole run. A word where a program is launched is also
+    compared as the pattern or brace expansion bash would make `git`:
+    `/usr/bin/gi[t] push origin +HEAD:main` named no `git` and pushed. Only
+    there, because an argument such as `src/*` matches `git` as well and is
+    not run (blueprint-frontend#124's review).
     """
     for run in command_runs(tokens):
         if not run or program_name(run[0]) in DATA_ONLY_COMMANDS:
             continue
         for index, token in enumerate(run):
-            if not names_program(token, "git"):
+            if program_name(token) != "git" and not (
+                    launched(run, index) and names_program(token, "git")):
                 continue
             yield run[index + 1:]
 
@@ -4070,7 +4067,11 @@ def names_program(word, name):
         # (blueprint-frontend#124's review).
         if re.search(r"\[[:=.]", candidate):
             return True
-        if fnmatch.fnmatchcase(name, candidate.replace("[^", "[!")):
+        pattern = candidate.replace("[^", "[!")
+        # `program_name` strips `.exe` only where it is spelled, so a pattern
+        # over the suffix (`git.ex?`) is compared with each suffix too.
+        if any(fnmatch.fnmatchcase(target, pattern) for target in (
+                name, *(name + suffix for suffix in EXECUTABLE_SUFFIXES))):
             return True
     return False
 
@@ -4079,8 +4080,8 @@ def names_program(word, name):
 # a name or a flag stdin supplies changes what is printed and nothing else.
 # Matched as the literal word, so a path or a pattern is refused with the rest.
 XARGS_PROGRAMS = frozenset({
-    "basename", "cat", "dirname", "echo", "file", "grep", "head", "ls",
-    "printf", "stat", "tail", "wc",
+    "basename", "cat", "dirname", "echo", "grep", "head", "ls", "printf",
+    "stat", "tail", "wc",
 })
 
 # **`xargs`'s options are an allow-list, each a whole word**, because its
@@ -4094,7 +4095,8 @@ XARGS_FLAGS = frozenset({
     "-0", "-r", "-t", "--null", "--no-run-if-empty", "--verbose",
 })
 
-# These take a number, glued (`-n1`) or as the next word (`-n 1`).
+# The one parsed exception: these take a number, glued (`-n1`) or as the
+# next word (`-n 1`), and nothing else.
 XARGS_COUNT_FLAGS = frozenset({"-n", "-L", "-P"})
 
 
@@ -4120,7 +4122,8 @@ def xargs_offence(tokens):
                 READING_COMMANDS | DATA_ONLY_COMMANDS):
             continue
         for index, token in enumerate(run):
-            if not names_program(token, "xargs"):
+            if program_name(token) != "xargs" and not (
+                    launched(run, index) and names_program(token, "xargs")):
                 continue
             rest = run[index + 1:]
             position = 0
@@ -4137,7 +4140,8 @@ def xargs_offence(tokens):
                         f"`xargs {word}` is not an option this guard reads: "
                         "its bundles, abbreviations and replace strings can "
                         "turn a value into the program it launches; it admits "
-                        "only `XARGS_FLAGS` (blueprint-frontend#124)."
+                        "only `XARGS_FLAGS`, and `XARGS_COUNT_FLAGS` with a "
+                        "number (blueprint-frontend#124)."
                     )
             if position >= len(rest) or rest[position] in XARGS_PROGRAMS:
                 continue
