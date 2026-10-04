@@ -1741,16 +1741,17 @@ wrapper, because the package's own `update` opens them first and would write
 through a link before `compact` could look, and a worker judges its root once
 and then refreshes for as long as edits keep coming. Each check still precedes
 SQLite's opens, and a checkout that puts a link on the path in between is left
-as a residual: SQLite's `nofollow` covers the database and not its sidecars.
-Any SQLite error leaves a valid index, never a broken one — merged but not yet
-reclaimed if `VACUUM` fails after `optimize`, since each statement commits
-alone; `compact`'s docstring owns that argument. `trusted_schema` is kept
-because it governs what the statements only this hook runs may call — the view
-it counts, the trigger its `optimize` would fire — which nothing the package
-does protects. Settings against a corrupt file were declined, for the opposite
-reason: the package parses the same file with its defaults on every `update`
-and query, so hardening the parser on this one connection would narrow
-nothing. `package-lock.json` is in
+as a residual for the database and its sidecars alike. `nofollow` is not used:
+SQLite applies it to the database alone, and the sidecars are where the window
+is. A compaction into a file the hook owns, renamed over the index, would close
+it and is not taken for a window that needs two branches checked out in turn
+inside it. `compact`'s docstring owns what a failed compaction leaves behind.
+`trusted_schema` is kept because it governs what the statements only this hook
+runs may call — the view it counts, the trigger its `optimize` would fire —
+which nothing the package does protects. Settings against a corrupt file were
+declined, for the opposite reason: the package parses the same file with its
+defaults on every `update` and query, so hardening the parser on this one
+connection would narrow nothing. `package-lock.json` is in
 `.codeindexignore` under the same issue, which measured its share of the
 chunks: a code lookup never wants it, and `update` drops a path the walk
 stops yielding, so no rebuild is needed to remove it. **The residual is
