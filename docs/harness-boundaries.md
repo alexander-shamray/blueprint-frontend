@@ -820,9 +820,9 @@ foreach`), the short flags in `EXECUTING_SHORT_FLAGS` (`git rebase -x`,
 and its options to `XARGS_FLAGS`, since `xargs` hands its program a
 subcommand, flags or a whole command line the typed argv does not carry, and
 a replace string, a bundle or an abbreviation can make a value pass for that
-program (`xargs_offence`); it matches `git` and `xargs` as the patterns and
-brace expansions bash would make them, `[^…]` and `[:class:]` included
-(`names_program`);
+program (`xargs_offence`); where a program is launched it matches `git` and
+`xargs` as the patterns and brace expansions bash would make them, `[^…]`,
+`[:class:]` and a pattern over the `.exe` suffix included (`names_program`);
 inside a substitution it holds a string `env -S` splits and runs to the same
 reads; and it reads `--shallow-file` as taking a value, so that option cannot
 hide the subcommand it skips to.
