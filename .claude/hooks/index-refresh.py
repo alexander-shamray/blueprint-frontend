@@ -652,15 +652,18 @@ def shaped(conn):
     only, and a file with any table name outside ASCII is refused: Python's
     `lower()` would fold a KELVIN SIGN onto `k` where SQLite does not, and
     two objects would meet on one key. The package's names are all ASCII.
-    Every `fts_chunks_` table must be a shadow table, which
-    SQLite makes only for the virtual table it belongs to, so a plain table
-    or a view among them is refused, and the `fts_chunks_data` that
-    `bloated` counts can only be FTS5's own; `chunks` must be a plain table.
+    Every `fts_chunks_` table must be a shadow table, so a plain table or a
+    view among them is refused. SQLite marks a shadow from its name alone,
+    asking the module of `fts_chunks` whether the suffix is one of its own,
+    so this pins which module is present — only FTS5 claims `data` — and
+    which kinds of object, not how the tables are declared or what they
+    hold; `chunks` must be a plain table.
     Triggers are not judged here: `compact` switches them off on its own
     connection, which no spelling of a name and no edit to `sqlite_master`
     gets round. A file lacking `chunks` is refused here, and one lacking
-    `fts_chunks_data` fails in `bloated`; either is left alone. Reading the schema runs none of it. A SQLite without
-    `table_list`, before 3.37, reports nothing, and nothing is compacted.
+    `fts_chunks_data` fails in `bloated`; either is left alone. Reading the
+    schema runs none of it. A SQLite without `table_list`, before 3.37,
+    reports nothing, and nothing is compacted.
     """
     rows = conn.execute("PRAGMA main.table_list").fetchall()
     if not all(row[1].isascii() for row in rows):
@@ -746,9 +749,11 @@ def compact(root):
             return False
         conn.execute("INSERT INTO fts_chunks(fts_chunks) VALUES('optimize')")
         conn.execute("VACUUM")
-        # The index is in WAL mode, so the file shrinks at the checkpoint.
-        conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-        return True
+        # The index is in WAL mode, so the file shrinks at the checkpoint;
+        # a reader holding a snapshot makes it report busy instead of raising,
+        # and the rewrite waits in the `-wal` for a later one.
+        busy = conn.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()[0]
+        return busy == 0
     except sqlite3.Error:
         return False
     finally:
