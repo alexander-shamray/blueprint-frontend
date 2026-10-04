@@ -6964,11 +6964,44 @@ class TheGitArgvGuard(unittest.TestCase):
         for command in (
                 "ls | xargs",
                 "ls | xargs -n1 wc -l",
-                "ls | xargs -I x cat x",
                 "git ls-files | xargs grep -l foo",
                 "grep -rn xargs docs",
                 "echo xargs env",
                 "git archive --format=tar HEAD",
+        ):
+            with self.subTest(command=command):
+                self.assertAdmitted(command)
+
+    def test_xargs_options_are_an_allow_list(self):
+        # **A value `xargs` reads could pass for the program it launches**:
+        # `-I cat cat` rewrites the program word from stdin, `-rE cat env`
+        # makes `cat` the end-of-file string and runs `env`, and `--p` is an
+        # abbreviation of an option that takes a value. So its options are an
+        # allow-list; and `[^x]` and `[[:alpha:]]` are read as bash reads them
+        # (blueprint-frontend#124's review).
+        for command in (
+                "echo git | xargs -I cat cat push origin +HEAD:main",
+                "echo git | xargs -icat cat push origin +HEAD:main",
+                "echo git | xargs --replace=cat cat push origin +HEAD:main",
+                'ls "$(echo git | xargs -I cat cat push origin +HEAD:main)"',
+                "echo git push origin +HEAD:main | xargs -rE cat env",
+                "echo git push origin +HEAD:main | xargs -E cat env",
+                "echo git push origin +HEAD:main | xargs --p cat env",
+                "ls | xargs -n x cat",
+                "ls | xargs -I x cat x",
+                "/usr/bin/gi[^x] push origin +HEAD:main",
+                "/usr/bin/gi[[:alpha:]] push origin +HEAD:main",
+                "echo +HEAD:main | /usr/bin/xarg[^a] git push origin some-branch",
+        ):
+            with self.subTest(command=command):
+                self.assertRefused(command)
+        for command in (
+                "ls | xargs",
+                "ls | xargs -0 wc -l",
+                "ls | xargs -r -n 1 cat",
+                "ls | xargs -n1 -P4 wc -l",
+                "ls | xargs --null --no-run-if-empty grep -l foo",
+                "ls src/*.ts",
         ):
             with self.subTest(command=command):
                 self.assertAdmitted(command)

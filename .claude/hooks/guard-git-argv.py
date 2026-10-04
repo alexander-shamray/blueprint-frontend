@@ -4060,8 +4060,17 @@ def names_program(word, name):
     and bash runs `git` (blueprint-frontend#124's review).
     """
     for candidate in brace_alternatives(program_name(word)):
-        if candidate == name or (any(char in candidate for char in "*?[")
-                                 and fnmatch.fnmatchcase(name, candidate)):
+        if candidate == name:
+            return True
+        if not any(char in candidate for char in "*?["):
+            continue
+        # `fnmatch`'s dialect is not bash's: `[^x]` is a set holding `^` there
+        # and a negation here, and it does not read a `[:class:]` at all. So
+        # `[^` is spelled `[!`, and a class is taken to match
+        # (blueprint-frontend#124's review).
+        if re.search(r"\[[:=.]", candidate):
+            return True
+        if fnmatch.fnmatchcase(name, candidate.replace("[^", "[!")):
             return True
     return False
 
@@ -4074,12 +4083,19 @@ XARGS_PROGRAMS = frozenset({
     "printf", "stat", "tail", "wc",
 })
 
-# `xargs`'s options that take their value as the next word. Reading one too few
-# makes a value the program, which is refused — the direction to be wrong in.
-XARGS_VALUE_FLAGS = frozenset({
-    "-a", "-d", "-E", "-I", "-L", "-n", "-P", "-s", "--arg-file", "--delimiter",
-    "--max-args", "--max-chars", "--max-procs", "--process-slot-var",
+# **`xargs`'s options are an allow-list, each a whole word**, because its
+# grammar let a value pass for the program: a bundle (`-rE <eof>`), an
+# abbreviation (`--p` for `--process-slot-var`), and a replace string, which
+# rewrites the program word itself (`-I cat cat` runs what stdin says). Each
+# was modelled once and each model was wrong (blueprint-frontend#124's
+# review), so anything beginning with `-` that is not here is refused rather
+# than parsed. Nothing in this repository runs `xargs` with an option at all.
+XARGS_FLAGS = frozenset({
+    "-0", "-r", "-t", "--null", "--no-run-if-empty", "--verbose",
 })
+
+# These take a number, glued (`-n1`) or as the next word (`-n 1`).
+XARGS_COUNT_FLAGS = frozenset({"-n", "-L", "-P"})
 
 
 def xargs_offence(tokens):
@@ -4092,7 +4108,8 @@ def xargs_offence(tokens):
     `main` past the push allow-list, and once that was refused, `echo git
     push origin +HEAD:main | xargs env` did it with no `git` word to find
     (blueprint-frontend#124's review). So the program `xargs` launches is held
-    to `XARGS_PROGRAMS`; with none it runs `echo`, which is admitted. A run
+    to `XARGS_PROGRAMS` and its options to `XARGS_FLAGS`; with no program it
+    runs `echo`, which is admitted. A run
     led by a reader or a printer names `xargs` as data, as in
     `writing_verb_offence`.
     """
@@ -4108,7 +4125,20 @@ def xargs_offence(tokens):
             rest = run[index + 1:]
             position = 0
             while position < len(rest) and rest[position].startswith("-"):
-                position += 2 if rest[position] in XARGS_VALUE_FLAGS else 1
+                word = rest[position]
+                if word in XARGS_FLAGS or (
+                        word[:2] in XARGS_COUNT_FLAGS and word[2:].isdigit()):
+                    position += 1
+                elif (word in XARGS_COUNT_FLAGS and position + 1 < len(rest)
+                        and rest[position + 1].isdigit()):
+                    position += 2
+                else:
+                    return (
+                        f"`xargs {word}` is not an option this guard reads: "
+                        "its bundles, abbreviations and replace strings can "
+                        "turn a value into the program it launches; it admits "
+                        "only `XARGS_FLAGS` (blueprint-frontend#124)."
+                    )
             if position >= len(rest) or rest[position] in XARGS_PROGRAMS:
                 continue
             return (
