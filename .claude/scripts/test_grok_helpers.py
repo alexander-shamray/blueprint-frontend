@@ -6894,6 +6894,43 @@ class TheGitArgvGuard(unittest.TestCase):
             with self.subTest(command=command):
                 self.assertAdmitted(command)
 
+    def test_xargs_cannot_supply_a_git_argv(self):
+        # **`xargs` appends stdin to the argv it runs, and `-I` substitutes it
+        # into any word**, so the `git` argv judged here is not the one that
+        # runs: the first of these force-updated `main` past the push
+        # allow-list (blueprint-frontend#124's review).
+        for command in (
+                "echo +HEAD:main | xargs git push origin some-branch",
+                "echo +HEAD:main | xargs -n9 git push origin some-branch",
+                "echo -x ./tools/m | xargs git rebase HEAD~1",
+                "ls | xargs env git log",
+                "ls $(printf -- --output=x | xargs git log -1)",
+                ("ls $(echo checkout | xargs -Ilog git log HEAD~5 -- "
+                 ".claude/scripts/gh-pr-merge.sh)"),
+        ):
+            with self.subTest(command=command):
+                self.assertRefused(command)
+        # `xargs` running something other than `git`, and a printer naming
+        # both, are untouched.
+        for command in ("git ls-files | xargs wc -l",
+                        "git log --oneline | xargs echo",
+                        "echo xargs git push origin +HEAD:main"):
+            with self.subTest(command=command):
+                self.assertAdmitted(command)
+
+    def test_a_value_taking_global_option_hides_no_subcommand(self):
+        # `--shallow-file` takes a value, and while the hook skipped it as a
+        # bare flag it judged that value as the subcommand and git ran the
+        # next word (blueprint-frontend#124's review).
+        for command in (
+                "ls $(git --shallow-file status worktree remove -f x)",
+                "git --shallow-file x bisect run ./tools/m",
+                "git --shallow-file x rebase -x ./tools/m HEAD~1",
+        ):
+            with self.subTest(command=command):
+                self.assertRefused(command)
+        self.assertAdmitted("echo $(git --shallow-file x status)")
+
     def test_process_substitution_is_a_command(self):
         # `<(…)` and `>(…)` are executed by the shell, and the guard reaches
         # them through the tokeniser rather than through `substitutions` —

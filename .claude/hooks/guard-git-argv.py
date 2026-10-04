@@ -226,12 +226,14 @@ REPOSITORY_SUBCOMMANDS = {
 # Git's own options, which sit before the subcommand. Taken from git's synopsis
 # rather than from the options this file happened to hit — which is how `-C` was
 # missed, and then `--attr-source` in the fix for it. **This list still trails
-# git's globals and that is stated rather than implied**; it is load-bearing
-# only for locating a subcommand, never for the push check, which no longer asks
-# where the subcommand is.
+# git's globals and that is stated rather than implied**. It locates the
+# subcommand and never the push check's target, which no longer asks where the
+# subcommand is — but the substitution allow-list and the operand checks judge
+# the word it locates, so a value-taking option missing here hides the
+# subcommand that runs. `--shallow-file` did (blueprint-frontend#124's review).
 GLOBAL_VALUE_FLAGS = {
     "-C", "-c", "--git-dir", "--work-tree", "--namespace", "--config-env",
-    "--attr-source",
+    "--attr-source", "--shallow-file",
 }
 
 # Per subcommand, because arity is not a property of a flag name: `-m` is a
@@ -4035,6 +4037,36 @@ def git_segments(tokens):
             yield run[index + 1:]
 
 
+def xargs_git_offence(tokens):
+    """The reason to refuse a `git` run behind `xargs`, or `None`.
+
+    **`xargs` appends what it reads on stdin to the argv it was given, and
+    `-I` substitutes it into any word**, so the `git` argv this file judges is
+    not the one that runs. `echo +HEAD:main | xargs git push origin <branch>`
+    passed the push allow-list on one refspec and force-updated `main` on
+    two, and `echo checkout | xargs -Ilog git log …` ran a `checkout` judged
+    as a `log` (blueprint-frontend#124's review). `writing_verb_offence`
+    refuses `xargs` before a writing verb for the same reason; this is the
+    `git` half. A run led by a printer is data, as in `git_segments`.
+    """
+    for run in command_runs(tokens):
+        if not run or program_name(run[0]) in DATA_ONLY_COMMANDS:
+            continue
+        behind_xargs = False
+        for token in run:
+            name = program_name(token)
+            if name == "xargs":
+                behind_xargs = True
+            elif name == "git" and behind_xargs:
+                return (
+                    "`xargs` hands `git` arguments it reads from stdin, so the "
+                    "subcommand, flags and refspecs that run are not the ones in "
+                    "this command; run `git` with its whole argv typed "
+                    "(blueprint-frontend#124)."
+                )
+    return None
+
+
 def after_global_options(segment):
     """`segment` from its subcommand onward, with git's global options dropped."""
     index = 0
@@ -4410,6 +4442,10 @@ def _offence(command, depth, judged):
             return f"inside `env -S`: {refusal}"
 
     refusal = review_helper_offence(tokens)
+    if refusal is not None:
+        return refusal
+
+    refusal = xargs_git_offence(tokens)
     if refusal is not None:
         return refusal
 
