@@ -864,6 +864,63 @@ class TheIndexIsCompactedAfterARefresh(unittest.TestCase):
         self.assertFalse(self.hook.compact(self.root))
         self.assertEqual(size, os.path.getsize(aimed))
 
+    # The directory-link primitive the root cases use.
+    link = TheRootFollowsTheActiveWorktree.link
+
+    def test_a_linked_sidecar_is_refused(self):
+        # SQLite opens these by name beside the database, so a link at one
+        # aims the checkpoint's write and truncation where the branch chose.
+        # Named here rather than read from the hook, so the case judges what
+        # SQLite opens and not what the hook says it checks.
+        self.build(segments=True, free=True)
+        aimed = os.path.join(self.root, "aimed-at")
+        Path(aimed).write_bytes(b"keep")
+        for suffix in ("-wal", "-shm", "-journal"):
+            with self.subTest(suffix=suffix):
+                try:
+                    os.symlink(aimed, self.index + suffix)
+                except (OSError, NotImplementedError):
+                    self.skipTest("this platform grants no file symlink here")
+                try:
+                    with mock.patch.object(self.hook.sqlite3, "connect") as connect:
+                        self.assertFalse(self.hook.compact(self.root))
+                    connect.assert_not_called()
+                finally:
+                    os.remove(self.index + suffix)
+        self.assertEqual(b"keep", Path(aimed).read_bytes())
+
+    def test_a_cache_directory_linked_since_the_root_was_judged_is_refused(self):
+        # `target_root` checked the cache path up to `RUN_TIMEOUT` before the
+        # rewrite, and a checkout in between can put a link on it.
+        self.build(segments=True, free=True)
+        cache = os.path.join(self.root, ".claude", "cache")
+        moved = os.path.join(self.root, "moved-cache")
+        os.replace(cache, moved)
+        self.link(cache, moved)
+        with mock.patch.object(self.hook.sqlite3, "connect") as connect:
+            self.assertFalse(self.hook.compact(self.root))
+        connect.assert_not_called()
+
+    def test_a_schema_that_never_finishes_is_interrupted(self):
+        # A branch can commit an index whose `fts_chunks_data` is a view over
+        # an endless query, and it runs inside the worker's lock. In a thread,
+        # so a regression fails this case rather than hanging the suite.
+        conn = sqlite3.connect(self.index)
+        try:
+            conn.execute("CREATE TABLE chunks (id INTEGER PRIMARY KEY, content TEXT)")
+            conn.execute("CREATE VIEW fts_chunks_data AS WITH RECURSIVE r(n) AS "
+                         "(SELECT 1 UNION ALL SELECT n + 1 FROM r) SELECT n FROM r")
+        finally:
+            conn.close()
+        result = []
+        worker = threading.Thread(
+            target=lambda: result.append(self.hook.compact(self.root)), daemon=True)
+        with mock.patch.object(self.hook, "COMPACT_TIMEOUT", 1):
+            worker.start()
+            worker.join(timeout=30)
+        self.assertFalse(worker.is_alive(), "compaction ran past its deadline")
+        self.assertEqual([False], result)
+
     def refresh_exiting(self, wait):
         child = mock.Mock(pid=4242)
         child.wait.side_effect = wait

@@ -1727,12 +1727,20 @@ as a new segment, and SQLite puts the freed pages on a freelist that nothing
 returns while `auto_vacuum` is off. The main checkout's index reached 2.2 GB
 for 3 MB of source. After a `run-index` that exited 0, and while the worker
 still holds the root's lock, the hook runs FTS `optimize` and then `VACUUM`
-when free pages pass half the file or the full-text table passes ten segment
-rows per chunk; a lean index is read and left as it was. On a copy of that
-index the two took 2,358 MB to 9.6 MB in six seconds. A link at
-`index.sqlite` is refused as one along the cache path above it is, and any
-SQLite error leaves the file untouched — a large index, the cost before this
-existed, rather than a broken one. `package-lock.json` is in
+when free pages pass `FREE_SHARE` of the file or the full-text table passes
+`ROWS_PER_CHUNK` segment rows per chunk, both in `index-refresh.py`; a lean
+index is read and left as it was. On a copy of that index the two took
+2,358 MB to 9.6 MB in six seconds. A branch can force-track a crafted
+`index.sqlite`, so `compact` checks the whole cache path again for links, the
+file and the `-wal`, `-shm` and `-journal` sidecars SQLite opens beside it
+included, distrusts the file's schema functions, and interrupts itself at
+`COMPACT_TIMEOUT`, so a view or trigger written to run for ever cannot hold the
+worker's lock. Any SQLite error leaves a valid index, never a broken one —
+merged but not yet reclaimed if `VACUUM` fails after `optimize`, since each
+statement commits alone; `compact`'s docstring owns that argument. Defensive
+connection settings beyond `trusted_schema` were declined: the package parses
+the same file with its defaults on every `update` and query, so hardening this
+one connection would narrow nothing. `package-lock.json` is in
 `.codeindexignore` under the same issue: it was 70% of the chunks, a code
 lookup never wants it, and `update` drops a path the walk stops yielding, so
 no rebuild is needed to remove it. **The residual is upstream**: the package
