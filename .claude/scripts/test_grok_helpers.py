@@ -6931,6 +6931,48 @@ class TheGitArgvGuard(unittest.TestCase):
                 self.assertRefused(command)
         self.assertAdmitted("echo $(git --shallow-file x status)")
 
+    def test_xargs_launches_only_a_reader(self):
+        # **`xargs` runs whatever program it is given, with arguments from
+        # stdin**, so recognising `git` behind it missed a `git` that arrived
+        # on stdin too: `… | xargs env` ran a force push nothing judged. So
+        # what it launches is held to `XARGS_PROGRAMS`, `git` and `xargs` are
+        # matched as the patterns bash expands, an `env -S` string in a
+        # substitution is held to reads, and the short spellings the first
+        # cut missed are refused (blueprint-frontend#124's review).
+        for command in (
+                "echo git push origin +HEAD:main | xargs env",
+                "echo git push origin +HEAD:main | xargs nohup",
+                "echo git push origin +HEAD:main | xargs sh",
+                "ls | xargs -- git log",
+                "ls | xargs --max-args 1 env",
+                "ls | xargs ./tools/m",
+                "ls | env xargs rm",
+                "echo +HEAD:main | /usr/bin/xarg[s] git push origin some-branch",
+                "/usr/bin/gi[t] push origin +HEAD:main",
+                "/usr/bin/{git,x} push origin +HEAD:main",
+                "ls $(env -S 'git checkout HEAD -- .claude/scripts/x.sh')",
+                "git ls-remote -u ./tools/m .",
+                "git clone -u ./tools/m file:///tmp/r d",
+                "git archive -o .claude/settings.json HEAD",
+                "git format-patch -o .claude/scripts HEAD~1",
+                "git submodule--helper foreach ./tools/m",
+        ):
+            with self.subTest(command=command):
+                self.assertRefused(command)
+        # A reader behind `xargs`, `xargs` with no program, and a reader or
+        # printer that names `xargs` are untouched.
+        for command in (
+                "ls | xargs",
+                "ls | xargs -n1 wc -l",
+                "ls | xargs -I x cat x",
+                "git ls-files | xargs grep -l foo",
+                "grep -rn xargs docs",
+                "echo xargs env",
+                "git archive --format=tar HEAD",
+        ):
+            with self.subTest(command=command):
+                self.assertAdmitted(command)
+
     def test_process_substitution_is_a_command(self):
         # `<(…)` and `>(…)` are executed by the shell, and the guard reaches
         # them through the tokeniser rather than through `substitutions` —
