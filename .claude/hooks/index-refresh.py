@@ -299,10 +299,16 @@ def subcommand(root):
     PR, so following the active worktree with `update` alone would have moved
     the refresh to a tree it can never refresh. A full build of this repository
     took about five seconds and eight megabytes when measured, and it runs
-    detached, so the first edit in a worktree pays for it once.
+    detached, so the first edit in a worktree pays for it once. A file shorter
+    than SQLite's 100-byte header is one a first build created and never
+    wrote, so it is built again rather than updated.
     """
     built = os.path.join(root, CACHE, "index.sqlite")
-    return "update" if os.path.isfile(built) else "index"
+    try:
+        written = os.path.getsize(built) >= 100
+    except OSError:
+        written = False
+    return "update" if written else "index"
 
 
 def unlinked(path, base):
@@ -354,8 +360,10 @@ def index_openable(root):
     refuses the root. A `-wal` is admitted, and has to be: every open reader
     of the index keeps one, and WAL recovery writes only into the database,
     whose path was just checked. A root with no index yet is admitted,
-    because the wrapper builds one. The cost of a refusal is a stale index,
-    never a write.
+    because the wrapper builds one, and so is a file shorter than SQLite's
+    100-byte header, which a first build creates before it writes anything:
+    there is no database in it to replay into. The cost of a refusal is a
+    stale index, never a write.
     """
     if not index_unlinked(root):
         return False
@@ -364,11 +372,13 @@ def index_openable(root):
         return False
     try:
         with open(path, "rb") as handle:
-            header = handle.read(20)
+            header = handle.read(100)
     except FileNotFoundError:
         return True
     except OSError:
         return False
+    if len(header) < 100:
+        return True
     # Bytes 18 and 19 are the file format's write and read versions; 2 is WAL.
     return header[18:20] == b"\x02\x02"
 
@@ -635,32 +645,25 @@ def refresh(owner, root, lock):
 
 
 def shaped(conn):
-    """Whether the tables `compact` touches are the package's, and carry no trigger.
+    """Whether the tables `compact` counts and merges are the package's.
 
     Judged from the parsed schema, never from its text: `PRAGMA table_list`
-    reports what SQLite built, so a plain table whose definition only
-    mentions FTS5 is reported as a table. Every `fts_chunks_` table must be
-    a shadow table, which SQLite makes only for the virtual table it belongs
-    to, so a plain table or a view among them is refused, and the
-    `fts_chunks_data` that `bloated` counts can only be FTS5's own; `chunks`
-    must be a plain table. No trigger may sit on `fts_chunks` or any of its
-    shadows, because `optimize` writes them through FTS5's own statements;
-    the package's own triggers sit on `chunks`, which compaction never
-    writes. A file lacking one of these tables fails in `bloated` and is
+    reports what SQLite built, and names are compared folded, as SQLite
+    resolves them. Every `fts_chunks_` table must be a shadow table, which
+    SQLite makes only for the virtual table it belongs to, so a plain table
+    or a view among them is refused, and the `fts_chunks_data` that
+    `bloated` counts can only be FTS5's own; `chunks` must be a plain table.
+    Triggers are not judged here: `compact` switches them off on its own
+    connection, which no spelling of a name and no edit to `sqlite_master`
+    gets round. A file lacking one of these tables fails in `bloated` and is
     left alone. Reading the schema runs none of it. A SQLite without
     `table_list`, before 3.37, reports nothing, and nothing is compacted.
     """
-    kinds = {row[1]: row[2] for row in conn.execute("PRAGMA main.table_list")}
+    kinds = {row[1].lower(): row[2] for row in conn.execute("PRAGMA main.table_list")}
     if kinds.get("chunks") != "table":
         return False
-    shadows = [name for name in kinds if name.startswith("fts_chunks_")]
-    if any(kinds[name] != "shadow" for name in shadows):
-        return False
-    watched = ["fts_chunks", *shadows]
-    triggers = conn.execute(
-        "SELECT count(*) FROM sqlite_master WHERE type = 'trigger' AND tbl_name IN ("
-        + ", ".join("?" * len(watched)) + ")", watched).fetchone()[0]
-    return triggers == 0
+    return all(kind == "shadow" for name, kind in kinds.items()
+               if name.startswith("fts_chunks_"))
 
 
 def bloated(conn):
@@ -699,10 +702,12 @@ def compact(root):
     once, then refreshes and compacts for as long as edits keep coming. A
     link placed between that check and SQLite's opens is the residual
     `docs/harness-boundaries.md` records. The schema is the file's too: a
-    file whose three tables are not the package's shape is left alone, so
-    no planted trigger runs; schema functions are not trusted — a SQLite too
-    old to distrust them compacts nothing — and `COMPACT_TIMEOUT` interrupts
-    whatever does not finish.
+    file whose tables are not the package's shape is left alone, which
+    refuses a view at every name compaction reads; triggers are switched off
+    on this connection, so none the file carries runs, whatever its names'
+    case; schema functions are not trusted; and a SQLite that cannot do all
+    of these compacts nothing. `COMPACT_TIMEOUT` interrupts whatever does
+    not finish.
 
     **Every SQLite error leaves a valid index, never a broken one.** Each
     statement commits alone — `VACUUM` cannot share a transaction — so an
@@ -723,6 +728,11 @@ def compact(root):
         conn.execute("PRAGMA trusted_schema=OFF")
         # A SQLite older than 3.31 ignores the pragma without an error.
         if conn.execute("PRAGMA trusted_schema").fetchone() != (0,):
+            return False
+        # Off on this connection, whatever the file's schema calls them, and
+        # confirmed: `setconfig` returns the setting it leaves in place.
+        if not hasattr(conn, "setconfig") or conn.setconfig(
+                sqlite3.SQLITE_DBCONFIG_ENABLE_TRIGGER, False):
             return False
         if not shaped(conn) or not bloated(conn):
             return False

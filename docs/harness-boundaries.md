@@ -1739,10 +1739,12 @@ connection to a rollback-mode database replays the journal it finds, and that
 replay acts on what a branch wrote; a WAL-mode index never makes one. A `-wal`
 is admitted, since every open reader keeps one, and the function's docstring
 owns the argument. `compact` then refuses a file whose tables are not the
-package's shape, or that carries a trigger on the full-text table or its
-shadows, judged from the parsed schema without running any of it; it
-distrusts schema functions — compacting nothing where its SQLite cannot — and
-interrupts itself at `COMPACT_TIMEOUT`. The same judgement runs in
+package's shape, judged from the parsed schema with names folded as SQLite
+folds them, which refuses a view at every name it reads; switches triggers off
+on its own connection, so none the file carries runs whatever its names' case;
+distrusts schema functions; and
+interrupts itself at `COMPACT_TIMEOUT`. A SQLite that cannot do all of these
+compacts nothing. `index_openable` runs in
 `target_root`, again in `refresh` before every start of the wrapper, and again
 in `compact`, because the package's own `update` opens the file first, and a
 worker judges its root once and then refreshes for as long as edits keep

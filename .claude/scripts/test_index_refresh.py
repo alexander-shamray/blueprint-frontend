@@ -365,7 +365,10 @@ class TheRootFollowsTheActiveWorktree(unittest.TestCase):
         self.assertEqual("index", self.hook.subcommand(self.sibling))
         cache = os.path.join(self.sibling, ".claude", "cache", "codebase-index")
         os.makedirs(cache)
+        # Created and not yet written by a first build: built, not updated.
         Path(cache, "index.sqlite").write_bytes(b"")
+        self.assertEqual("index", self.hook.subcommand(self.sibling))
+        Path(cache, "index.sqlite").write_bytes(b"\0" * 100)
         self.assertEqual("update", self.hook.subcommand(self.sibling))
 
     def test_a_refused_root_spawns_nothing(self):
@@ -790,6 +793,11 @@ class TheIndexIsCompactedAfterARefresh(unittest.TestCase):
         self.index = os.path.join(self.root, ".claude", "cache", "codebase-index",
                                   "index.sqlite")
         os.makedirs(os.path.dirname(self.index))
+        # The cases build FTS5 tables and `shaped` reads `PRAGMA table_list`,
+        # so a Python linked to an older SQLite fails here, saying why,
+        # rather than case by case with no named cause.
+        self.assertGreaterEqual(sqlite3.sqlite_version_info, (3, 37, 0),
+                                "the compaction cases need SQLite 3.37 or later")
 
     def build(self, *, segments=False, free=False):
         conn = sqlite3.connect(self.index, isolation_level=None)
@@ -1067,24 +1075,60 @@ class TheIndexIsCompactedAfterARefresh(unittest.TestCase):
         finally:
             conn.close()
 
-    def test_a_trigger_on_a_shadow_table_runs_nothing(self):
+    def test_a_trigger_in_the_file_never_runs(self):
         # `optimize` writes `fts_chunks_data` through FTS5's own statements,
         # so a trigger planted there would fire on an index of the real
-        # shape; the shape check refuses the file before it can.
-        self.build(segments=True, free=True)
+        # shape. Triggers are off on the compaction's connection, so none
+        # runs however its table is spelled: `sqlite_master` keeps the case a
+        # trigger was declared with, and SQLite resolves it folded.
+        for spelling in ("fts_chunks_data", "FTS_CHUNKS_DATA"):
+            with self.subTest(spelling=spelling):
+                for suffix in ("", "-wal", "-shm"):
+                    if os.path.exists(self.index + suffix):
+                        os.remove(self.index + suffix)
+                self.build(segments=True, free=True)
+                conn = sqlite3.connect(self.index, isolation_level=None)
+                try:
+                    conn.execute("CREATE TABLE fired (n INTEGER)")
+                    conn.execute(f"CREATE TRIGGER planted AFTER INSERT ON {spelling} "
+                                 "BEGIN INSERT INTO fired VALUES (1); END")
+                finally:
+                    conn.close()
+                self.assertTrue(self.hook.compact(self.root))
+                conn = sqlite3.connect(self.index)
+                try:
+                    self.assertEqual(
+                        0, conn.execute("SELECT count(*) FROM fired").fetchone()[0])
+                finally:
+                    conn.close()
+
+    def test_a_plain_table_named_in_capitals_is_refused(self):
+        # SQLite resolves names folded, so `FTS_CHUNKS_DATA` is the table
+        # `bloated` counts; the shape check folds them the same way, and a
+        # plain table under that name is refused.
         conn = sqlite3.connect(self.index, isolation_level=None)
         try:
-            conn.execute("CREATE TABLE fired (n INTEGER)")
-            conn.execute("CREATE TRIGGER planted AFTER INSERT ON fts_chunks_data "
-                         "BEGIN INSERT INTO fired VALUES (1); END")
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("CREATE TABLE chunks (id INTEGER PRIMARY KEY, content TEXT)")
+            conn.execute("CREATE TABLE FTS_CHUNKS_DATA (id INTEGER PRIMARY KEY, block BLOB)")
+            conn.execute("CREATE TABLE fts_chunks (fts_chunks TEXT)")
+            conn.execute("INSERT INTO FTS_CHUNKS_DATA SELECT value, NULL FROM "
+                         "(WITH RECURSIVE r(value) AS (SELECT 1 UNION ALL "
+                         "SELECT value + 1 FROM r LIMIT 50) SELECT value FROM r)")
         finally:
             conn.close()
+        before = self.snapshot()
         self.assertFalse(self.hook.compact(self.root))
-        conn = sqlite3.connect(self.index)
-        try:
-            self.assertEqual(0, conn.execute("SELECT count(*) FROM fired").fetchone()[0])
-        finally:
-            conn.close()
+        self.assertEqual(before, self.snapshot())
+
+    def test_an_index_a_first_build_has_not_written_is_admitted(self):
+        # A first build creates the file before it writes the header, and a
+        # build that dies there must not refuse the root for good.
+        Path(self.index).write_bytes(b"")
+        self.assertTrue(self.hook.index_openable(self.root))
+        self.assertEqual("index", self.hook.subcommand(self.root))
+        Path(self.index + "-journal").write_bytes(b"")
+        self.assertFalse(self.hook.index_openable(self.root))
 
     def test_a_view_in_place_of_chunks_is_refused(self):
         # `bloated` counts `chunks`, and a view runs its query when counted,
@@ -1098,6 +1142,25 @@ class TheIndexIsCompactedAfterARefresh(unittest.TestCase):
             conn.close()
         before = self.snapshot()
         self.assertFalse(self.hook.compact(self.root))
+        self.assertEqual(before, self.snapshot())
+
+    def test_a_sqlite_without_table_list_compacts_nothing(self):
+        # SQLite before 3.37 has no `table_list` and answers it with no row,
+        # which the shape check must read as unknown and never as clean.
+        # Played by a connection that answers the pragma the same way.
+        self.build(segments=True, free=True)
+        before = self.snapshot()
+        real_connect = sqlite3.connect
+
+        class Old(sqlite3.Connection):
+            def execute(self, sql, *args):
+                if sql == "PRAGMA main.table_list":
+                    return super().execute("SELECT 1 WHERE 0")
+                return super().execute(sql, *args)
+
+        with mock.patch.object(self.hook.sqlite3, "connect",
+                               lambda *a, **k: real_connect(*a, factory=Old, **k)):
+            self.assertFalse(self.hook.compact(self.root))
         self.assertEqual(before, self.snapshot())
 
     def test_a_view_among_the_shadow_names_is_refused(self):
