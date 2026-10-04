@@ -815,10 +815,14 @@ subcommands in `SUBSTITUTION_GIT_SUBCOMMANDS`, and `rg`, `sort` and `uniq` are
 not on the list (blueprint-frontend#122). Wherever they stand, the hook refuses
 the operand forms in `EXECUTING_FORMS` (`git bisect run`, `git submodule …
 foreach`), the short flags in `EXECUTING_SHORT_FLAGS` (`git rebase -x`,
-`git difftool -x`) and `--extcmd`; it refuses a `git` run behind `xargs`,
-which hands `git` a subcommand, flags or refspecs the typed argv does not
-carry (`xargs_git_offence`); and it reads `--shallow-file` as taking a value,
-so that option cannot hide the subcommand it skips to.
+`git difftool -x`, `--upload-pack`'s and `--output`'s short spellings) and
+`--extcmd`. It holds what `xargs` launches to the readers in `XARGS_PROGRAMS`,
+since `xargs` hands its program a subcommand, flags or a whole command line
+the typed argv does not carry (`xargs_offence`); it matches `git` and `xargs`
+as the patterns and brace expansions bash would make them (`names_program`);
+inside a substitution it holds a string `env -S` splits and runs to the same
+reads; and it reads `--shallow-file` as taking a value, so that option cannot
+hide the subcommand it skips to.
 **It is a standing residual still, and blueprint-frontend#125 owns what is
 left**: a wrapper's option can hide the program it launches, an assignment or
 a global option in front of an admitted read changes which configuration or
