@@ -7006,6 +7006,29 @@ class TheGitArgvGuard(unittest.TestCase):
             with self.subTest(command=command):
                 self.assertAdmitted(command)
 
+    def test_a_pattern_counts_only_where_it_is_launched(self):
+        # **A pattern is `git` or `xargs` only where bash runs it**, so an
+        # argument such as `src/*` stays an argument; and a pattern over the
+        # executable suffix is compared with it, since `program_name` strips
+        # `.exe` only where it is spelled (blueprint-frontend#124's review).
+        for command in (
+                "/mingw64/bin/git.ex? push origin +HEAD:main",
+                "/usr/bin/gi[t].exe push origin +HEAD:main",
+                "env /usr/bin/gi[t] push origin +HEAD:main",
+                "echo +HEAD:main | /usr/bin/xargs.ex? git push origin some-branch",
+                "ls | xargs file",
+        ):
+            with self.subTest(command=command):
+                self.assertRefused(command)
+        for command in (
+                "ls src/* -c",
+                "grep -n foo src/* --text",
+                "cp x* dest/",
+                "wc -l src/* package.json",
+        ):
+            with self.subTest(command=command):
+                self.assertAdmitted(command)
+
     def test_process_substitution_is_a_command(self):
         # `<(…)` and `>(…)` are executed by the shell, and the guard reaches
         # them through the tokeniser rather than through `substitutions` —
