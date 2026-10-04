@@ -962,8 +962,9 @@ class TheIndexIsCompactedAfterARefresh(unittest.TestCase):
         connect.assert_not_called()
 
     def test_a_compaction_past_its_deadline_is_interrupted(self):
-        # The shape check keeps a planted view or trigger out, so what the
-        # deadline still bounds is the package's own tables, however large.
+        # The shape check keeps a view out and the connection switches
+        # triggers off, so what the deadline still bounds is the package's
+        # own tables, however large.
         # A deadline already spent must interrupt the first statement: a
         # bloated index of the real shape then compacts nothing. In a thread,
         # so a regression fails this case rather than hanging the suite.
@@ -1115,6 +1116,21 @@ class TheIndexIsCompactedAfterARefresh(unittest.TestCase):
             conn.execute("INSERT INTO FTS_CHUNKS_DATA SELECT value, NULL FROM "
                          "(WITH RECURSIVE r(value) AS (SELECT 1 UNION ALL "
                          "SELECT value + 1 FROM r LIMIT 50) SELECT value FROM r)")
+        finally:
+            conn.close()
+        before = self.snapshot()
+        self.assertFalse(self.hook.compact(self.root))
+        self.assertEqual(before, self.snapshot())
+
+    def test_a_table_named_outside_ascii_is_refused(self):
+        # SQLite folds ASCII only, and Python's `lower()` folds a KELVIN SIGN
+        # onto `k`, so a name outside ASCII could meet a real one on a key.
+        # Any such name refuses the file, wherever it sits in the listing: an
+        # index otherwise of the real shape is left alone.
+        self.build(segments=True, free=True)
+        conn = sqlite3.connect(self.index, isolation_level=None)
+        try:
+            conn.execute('CREATE TABLE "chun\u212as_elsewhere" (x)')
         finally:
             conn.close()
         before = self.snapshot()

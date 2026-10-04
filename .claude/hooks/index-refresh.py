@@ -648,8 +648,11 @@ def shaped(conn):
     """Whether the tables `compact` counts and merges are the package's.
 
     Judged from the parsed schema, never from its text: `PRAGMA table_list`
-    reports what SQLite built, and names are compared folded, as SQLite
-    resolves them. Every `fts_chunks_` table must be a shadow table, which
+    reports what SQLite built. Names are folded as SQLite folds them, ASCII
+    only, and a file with any table name outside ASCII is refused: Python's
+    `lower()` would fold a KELVIN SIGN onto `k` where SQLite does not, and
+    two objects would meet on one key. The package's names are all ASCII.
+    Every `fts_chunks_` table must be a shadow table, which
     SQLite makes only for the virtual table it belongs to, so a plain table
     or a view among them is refused, and the `fts_chunks_data` that
     `bloated` counts can only be FTS5's own; `chunks` must be a plain table.
@@ -659,7 +662,10 @@ def shaped(conn):
     left alone. Reading the schema runs none of it. A SQLite without
     `table_list`, before 3.37, reports nothing, and nothing is compacted.
     """
-    kinds = {row[1].lower(): row[2] for row in conn.execute("PRAGMA main.table_list")}
+    rows = conn.execute("PRAGMA main.table_list").fetchall()
+    if not all(row[1].isascii() for row in rows):
+        return False
+    kinds = {row[1].lower(): row[2] for row in rows}
     if kinds.get("chunks") != "table":
         return False
     return all(kind == "shadow" for name, kind in kinds.items()
