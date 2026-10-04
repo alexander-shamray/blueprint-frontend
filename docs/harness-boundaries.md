@@ -1737,10 +1737,11 @@ included, no rollback journal beside it, and a header in WAL mode. A
 `-journal` or a header that is not WAL refuses the root, because the first
 connection to a rollback-mode database replays the journal it finds, and that
 replay acts on what a branch wrote; a WAL-mode index never makes one. A `-wal`
-is admitted, since every open reader keeps one, and the function's docstring
+is admitted, and so is an index with no header to read; the function's docstring
 owns the argument. `compact` then refuses a file whose tables are not the
 package's shape, judged from the parsed schema with names folded as SQLite
-folds them, which refuses a view at every name it reads; switches triggers off
+folds them, ASCII only, and any other name refused, which refuses a view at
+every name it reads; switches triggers off
 on its own connection, so none the file carries runs whatever its names' case;
 distrusts schema functions; and
 interrupts itself at `COMPACT_TIMEOUT`. A SQLite that cannot do all of these
