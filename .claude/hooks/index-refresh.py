@@ -284,7 +284,8 @@ def target_root(cwd, owner):
         # target whose cache path is redirected is not refreshed at all.
         # Raised by Copilot. The index and the sidecars SQLite opens beside it
         # are on that path too, and the wrapper opens them before `compact`
-        # could look (alexander-shamray/blueprint-frontend#128).
+        # could look (alexander-shamray/blueprint-frontend#128); `refresh`
+        # asks again before every run, since this is asked once per worker.
         return None
     return os.path.normpath(toplevel)
 
@@ -568,7 +569,10 @@ def running_indexer(lock):
 def refresh(owner, root, lock):
     """Run the owner's wrapper against `root` once, synchronously."""
     bash = shutil.which("bash")
-    if bash is None:
+    if bash is None or not index_unlinked(root):
+        # Judged on every run and not once per worker: a worker refreshes for
+        # as long as edits keep coming, and a checkout in between can put a
+        # link where the wrapper is about to write.
         return
     child = None
     # Claimed before the child exists, so a worker killed while starting one
