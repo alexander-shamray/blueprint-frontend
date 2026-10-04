@@ -276,7 +276,7 @@ def target_root(cwd, owner):
         return None
     if swept(toplevel):
         return None
-    if not index_unlinked(toplevel):
+    if not index_openable(toplevel):
         # **The indexer writes into the tree it indexes**, at
         # `<root>/.claude/cache/codebase-index`, and a branch can force-track
         # any component of that path as a link. The hook's own state moved
@@ -285,7 +285,8 @@ def target_root(cwd, owner):
         # Raised by Copilot. The index and the sidecars SQLite opens beside it
         # are on that path too, and the wrapper opens them before `compact`
         # could look (alexander-shamray/blueprint-frontend#128); `refresh`
-        # asks again before every run, since this is asked once per worker.
+        # asks again before every run, since this is asked once per worker. A
+        # rollback journal beside the index refuses it too: `index_openable`.
         return None
     return os.path.normpath(toplevel)
 
@@ -339,6 +340,34 @@ def index_unlinked(root):
         if os.path.islink(path + suffix) or os.path.isjunction(path + suffix):
             return False
     return True
+
+
+def index_openable(root):
+    """Whether the root's index may be opened at all, by the wrapper or by `compact`.
+
+    No link on its path, and at rest in WAL mode. The first connection to a
+    rollback-mode database replays a `-journal` it finds beside it, and that
+    replay acts on what the journal says, which a branch that force-tracks
+    the file writes (alexander-shamray/blueprint-frontend#128). A WAL-mode
+    index at rest leaves no journal, so a journal of any kind, or a database
+    whose header is not WAL, refuses the root. A root with no index yet is
+    admitted, because the wrapper builds one. The cost of a refusal is a
+    stale index, never a write.
+    """
+    if not index_unlinked(root):
+        return False
+    path = os.path.join(root, CACHE, "index.sqlite")
+    if os.path.lexists(path + "-journal"):
+        return False
+    try:
+        with open(path, "rb") as handle:
+            header = handle.read(20)
+    except FileNotFoundError:
+        return True
+    except OSError:
+        return False
+    # Bytes 18 and 19 are the file format's write and read versions; 2 is WAL.
+    return header[18:20] == b"\x02\x02"
 
 
 _STATE_DIRS = {}
@@ -569,10 +598,10 @@ def running_indexer(lock):
 def refresh(owner, root, lock):
     """Run the owner's wrapper against `root` once, synchronously."""
     bash = shutil.which("bash")
-    if bash is None or not index_unlinked(root):
+    if bash is None or not index_openable(root):
         # Judged on every run and not once per worker: a worker refreshes for
         # as long as edits keep coming, and a checkout in between can put a
-        # link where the wrapper is about to write.
+        # link, or a journal, where the wrapper is about to open the index.
         return
     child = None
     # Claimed before the child exists, so a worker killed while starting one
@@ -600,6 +629,27 @@ def refresh(owner, root, lock):
             except (OSError, subprocess.SubprocessError):
                 pass
         lock.write("")
+
+
+def shaped(conn):
+    """Whether the three tables `compact` touches are the package's, and nothing else.
+
+    Read from `sqlite_master`, which runs none of the file's schema: the
+    full-text table must be an FTS5 virtual table, which takes no trigger,
+    and the two it counts must be plain tables, never views. A file written
+    to run code when this hook counts or merges is refused before it can.
+    """
+    kinds = {name: (kind, sql or "") for kind, name, sql in conn.execute(
+        "SELECT type, name, sql FROM sqlite_master"
+        " WHERE name IN ('chunks', 'fts_chunks', 'fts_chunks_data')")}
+    fts = kinds.get("fts_chunks", ("", ""))
+    if fts[0] != "table" or "using fts5" not in " ".join(fts[1].lower().split()):
+        return False
+    for name in ("chunks", "fts_chunks_data"):
+        kind, sql = kinds.get(name, ("", ""))
+        if kind != "table" or sql.lstrip().upper().startswith("CREATE VIRTUAL"):
+            return False
+    return True
 
 
 def bloated(conn):
@@ -631,15 +681,16 @@ def compact(root):
     rewritten, and a failed `update` — which may be a package that cannot
     read this index at all — is not followed by a rewrite of it.
 
-    **Through no link, and against whatever schema the file carries.** A
-    branch can force-track a crafted `index.sqlite`, so the path is checked
-    again here, component by component and with the sidecars SQLite opens
-    by name beside it, because the rewrite is this hook's own and may run
-    long after `target_root` checked the directory: a worker judges its root
-    once, then refreshes and compacts for as long as edits keep coming. The
-    schema is the file's too: a view or a trigger in it runs inside these
-    statements, so schema functions are not trusted — a SQLite too old to
-    distrust them compacts nothing — and `COMPACT_TIMEOUT` interrupts
+    **Judged again just before the open, and against whatever schema the
+    file carries.** A branch can force-track a crafted `index.sqlite`, so
+    `index_openable` runs again here, because the rewrite is this hook's own
+    and may run long after `target_root` judged the root: a worker judges it
+    once, then refreshes and compacts for as long as edits keep coming. A
+    link placed between that check and SQLite's opens is the residual
+    `docs/harness-boundaries.md` records. The schema is the file's too: a
+    file whose three tables are not the package's shape is left alone, so
+    no planted trigger runs; schema functions are not trusted — a SQLite too
+    old to distrust them compacts nothing — and `COMPACT_TIMEOUT` interrupts
     whatever does not finish.
 
     **Every SQLite error leaves a valid index, never a broken one.** Each
@@ -649,7 +700,7 @@ def compact(root):
     this existed.
     """
     path = os.path.join(root, CACHE, "index.sqlite")
-    if not index_unlinked(root) or not os.path.isfile(path):
+    if not index_openable(root) or not os.path.isfile(path):
         return False
     try:
         conn = sqlite3.connect(path, timeout=30, isolation_level=None)
@@ -662,7 +713,7 @@ def compact(root):
         # A SQLite older than 3.31 ignores the pragma without an error.
         if conn.execute("PRAGMA trusted_schema").fetchone() != (0,):
             return False
-        if not bloated(conn):
+        if not shaped(conn) or not bloated(conn):
             return False
         conn.execute("INSERT INTO fts_chunks(fts_chunks) VALUES('optimize')")
         conn.execute("VACUUM")

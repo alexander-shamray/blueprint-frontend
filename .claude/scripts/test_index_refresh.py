@@ -196,6 +196,20 @@ class TheRootFollowsTheActiveWorktree(unittest.TestCase):
         # The unredirected worktree beside it is still refreshed.
         self.assertIsNotNone(self.hook.target_root(self.main, self.main))
 
+    def test_a_target_with_a_rollback_journal_is_refused(self):
+        # A WAL-mode index at rest leaves no journal, and the first connection
+        # to a rollback-mode one replays whatever journal it finds, so an
+        # ordinary file at that name refuses the root as a link would.
+        cache = os.path.join(self.sibling, ".claude", "cache", "codebase-index")
+        os.makedirs(cache)
+        journal = os.path.join(cache, "index.sqlite-journal")
+        Path(journal).write_bytes(b"")
+        self.hook._DEADLINE = None
+        self.assertIsNone(self.hook.target_root(self.sibling, self.main))
+        os.remove(journal)
+        self.hook._DEADLINE = None
+        self.assertIsNotNone(self.hook.target_root(self.sibling, self.main))
+
     def test_a_target_whose_index_or_sidecar_is_a_link_is_refused(self):
         # The wrapper opens the index, and SQLite its sidecars by name, before
         # `compact` could look, so a link at any of them refuses the root and
@@ -929,25 +943,41 @@ class TheIndexIsCompactedAfterARefresh(unittest.TestCase):
             self.assertFalse(self.hook.compact(self.root))
         connect.assert_not_called()
 
-    def test_a_schema_that_never_finishes_is_interrupted(self):
-        # A branch can commit an index whose `fts_chunks_data` is a view over
-        # an endless query, and it runs inside the worker's lock. In a thread,
+    def test_a_compaction_past_its_deadline_is_interrupted(self):
+        # The shape check keeps a planted view or trigger out, so what the
+        # deadline still bounds is the package's own tables, however large.
+        # A deadline already spent must interrupt the first statement: a
+        # bloated index of the real shape then compacts nothing. In a thread,
         # so a regression fails this case rather than hanging the suite.
-        conn = sqlite3.connect(self.index)
+        self.build(segments=True, free=True)
+        conn = sqlite3.connect(self.index, isolation_level=None)
         try:
-            conn.execute("CREATE TABLE chunks (id INTEGER PRIMARY KEY, content TEXT)")
-            conn.execute("CREATE VIEW fts_chunks_data AS WITH RECURSIVE r(n) AS "
-                         "(SELECT 1 UNION ALL SELECT n + 1 FROM r) SELECT n FROM r")
+            # Enough rows that `VACUUM` outlasts the handler's interval; a
+            # fixture this small otherwise finishes between two of its calls.
+            conn.execute("INSERT INTO chunks(content) SELECT 'padding ' || value FROM "
+                         "(WITH RECURSIVE r(value) AS (SELECT 1 UNION ALL "
+                         "SELECT value + 1 FROM r LIMIT 5000) SELECT value FROM r)")
         finally:
             conn.close()
+        measured = self.measure()
+        self.assertGreater(measured["free"], measured["pages"] * self.hook.FREE_SHARE)
         result = []
         worker = threading.Thread(
             target=lambda: result.append(self.hook.compact(self.root)), daemon=True)
-        with mock.patch.object(self.hook, "COMPACT_TIMEOUT", 1):
+        with mock.patch.object(self.hook, "COMPACT_TIMEOUT", -1):
             worker.start()
             worker.join(timeout=30)
         self.assertFalse(worker.is_alive(), "compaction ran past its deadline")
         self.assertEqual([False], result)
+        # `optimize` may already have committed — the docstring's valid index,
+        # merged and not yet reclaimed — but the interrupted `VACUUM` gave no
+        # page back, and the index is whole.
+        self.assertGreater(self.measure()["free"], 0)
+        conn = sqlite3.connect(self.index)
+        try:
+            conn.execute("INSERT INTO fts_chunks(fts_chunks) VALUES('integrity-check')")
+        finally:
+            conn.close()
 
     def test_a_sqlite_that_cannot_distrust_the_schema_compacts_nothing(self):
         # SQLite before 3.31 ignores `trusted_schema` without an error, so the
@@ -975,6 +1005,55 @@ class TheIndexIsCompactedAfterARefresh(unittest.TestCase):
                 mock.patch.object(self.hook, "compact") as compact:
             self.hook.refresh(self.root, self.root, mock.Mock())
         return compact
+
+    def test_only_an_index_at_rest_in_wal_mode_may_be_opened(self):
+        # No index yet is admitted, since the wrapper builds one; a WAL-mode
+        # index is admitted; a journal beside it, or a rollback-mode header,
+        # refuses it at every point that opens it.
+        self.assertTrue(self.hook.index_openable(self.root))
+        self.build(segments=True, free=True)
+        self.assertTrue(self.hook.index_openable(self.root))
+        journal = self.index + "-journal"
+        Path(journal).write_bytes(b"")
+        self.assertFalse(self.hook.index_openable(self.root))
+        with mock.patch.object(self.hook.subprocess, "Popen") as popen:
+            self.hook.refresh(self.root, self.root, mock.Mock())
+        popen.assert_not_called()
+        with mock.patch.object(self.hook.sqlite3, "connect") as connect:
+            self.assertFalse(self.hook.compact(self.root))
+        connect.assert_not_called()
+        os.remove(journal)
+        conn = sqlite3.connect(self.index, isolation_level=None)
+        try:
+            conn.execute("PRAGMA journal_mode=DELETE")
+        finally:
+            conn.close()
+        self.assertFalse(self.hook.index_openable(self.root))
+
+    def test_a_file_of_another_shape_runs_none_of_its_schema(self):
+        # A plain `fts_chunks` table can carry a trigger the `optimize` insert
+        # would fire; the shape check refuses it before any statement reads
+        # a table, so the trigger's write never happens.
+        conn = sqlite3.connect(self.index, isolation_level=None)
+        try:
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("CREATE TABLE chunks (id INTEGER PRIMARY KEY, content TEXT)")
+            conn.execute("CREATE TABLE fts_chunks_data (id INTEGER PRIMARY KEY, block BLOB)")
+            conn.execute("CREATE TABLE fts_chunks (fts_chunks TEXT)")
+            conn.execute("CREATE TABLE fired (n INTEGER)")
+            conn.execute("CREATE TRIGGER planted AFTER INSERT ON fts_chunks "
+                         "BEGIN INSERT INTO fired VALUES (1); END")
+            conn.execute("INSERT INTO fts_chunks_data SELECT value, NULL FROM "
+                         "(WITH RECURSIVE r(value) AS (SELECT 1 UNION ALL "
+                         "SELECT value + 1 FROM r LIMIT 50) SELECT value FROM r)")
+        finally:
+            conn.close()
+        self.assertFalse(self.hook.compact(self.root))
+        conn = sqlite3.connect(self.index)
+        try:
+            self.assertEqual(0, conn.execute("SELECT count(*) FROM fired").fetchone()[0])
+        finally:
+            conn.close()
 
     def test_a_wrapper_run_is_judged_again_after_the_root_was(self):
         # A worker judges its root once and then refreshes for as long as
