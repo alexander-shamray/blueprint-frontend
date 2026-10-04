@@ -53,12 +53,19 @@ handle (`flock` on POSIX, `msvcrt.locking` on Windows) has none of that: the
 kernel grants it to one process, and releases it the moment that process
 exits, crashed or not. The file itself is never removed, so no path operation
 can pull a lock out from under its holder.
+
+**And the worker compacts what it refreshed, because the package never does
+(alexander-shamray/blueprint-frontend#128).** `codebase-index` runs no FTS
+merge and no `VACUUM` on its index, so every `update` left segments and free
+pages behind and this checkout's reached 2.2 GB for 3 MB of source. `compact`
+says when and how.
 """
 
 import hashlib
 import json
 import os
 import shutil
+import sqlite3
 import subprocess
 import sys
 import time
@@ -77,6 +84,12 @@ CACHE = os.path.join(".claude", "cache", "codebase-index")
 
 # A refresh that has not finished by now is killed, so a worker never hangs.
 RUN_TIMEOUT = 300
+
+# An index is compacted once its free pages pass this share of the file, or its
+# full-text table passes this many segment rows per chunk. A fresh build of
+# this repository measured about 0.04 rows per chunk.
+FREE_SHARE = 0.5
+ROWS_PER_CHUNK = 10
 
 # Every git call one event makes shares this many seconds, well inside the
 # five `settings.json` gives the hook.
@@ -543,7 +556,8 @@ def refresh(owner, root, lock):
             cwd=owner, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL)
         lock.write(str(child.pid))
-        child.wait(timeout=RUN_TIMEOUT)
+        if child.wait(timeout=RUN_TIMEOUT) == 0:
+            compact(root)
     except (OSError, subprocess.SubprocessError):
         if child is not None:
             child.kill()
@@ -557,6 +571,60 @@ def refresh(owner, root, lock):
             except (OSError, subprocess.SubprocessError):
                 pass
         lock.write("")
+
+
+def bloated(conn):
+    """Whether the index behind `conn` has outgrown its data by either measure."""
+    pages = conn.execute("PRAGMA page_count").fetchone()[0]
+    free = conn.execute("PRAGMA freelist_count").fetchone()[0]
+    rows = conn.execute("SELECT count(*) FROM fts_chunks_data").fetchone()[0]
+    chunks = conn.execute("SELECT count(*) FROM chunks").fetchone()[0]
+    return free > pages * FREE_SHARE or rows > ROWS_PER_CHUNK * max(chunks, 1)
+
+
+def compact(root):
+    """Merge the root's full-text index and reclaim its free pages, when needed.
+
+    **`codebase-index` never compacts the file it writes
+    (alexander-shamray/blueprint-frontend#128).** Each `update` deletes a
+    changed file's chunks and inserts new ones; FTS5 records the deletes as
+    new segments, SQLite puts the freed pages on its freelist, and with
+    `auto_vacuum` off the file only grows. FTS `optimize` merges the
+    segments into one and `VACUUM` gives the pages back: on a copy of this
+    checkout's index, 2,358 MB to 9.6 MB in six seconds.
+
+    **Only past a threshold, because both rewrite the whole file**: free
+    pages past `FREE_SHARE` of it, or more than `ROWS_PER_CHUNK` segment
+    rows per chunk. A lean index is read and left as it was.
+
+    **Called only after `run-index` exited 0, and inside the worker's
+    lock**, so no refresh of this hook's writes the file while it is
+    rewritten, and a failed `update` — which may be a package that cannot
+    read this index at all — is not followed by a rewrite of it.
+    `target_root` checked the cache directory for links; the file itself is
+    checked here, because the rewrite is this hook's own. Every SQLite error
+    leaves the file as it was: the cost is a large index, which is the cost
+    before this existed, never a broken one.
+    """
+    path = os.path.join(root, CACHE, "index.sqlite")
+    if os.path.islink(path) or os.path.isjunction(path) or not os.path.isfile(path):
+        return False
+    try:
+        conn = sqlite3.connect(path, timeout=30, isolation_level=None)
+    except sqlite3.Error:
+        return False
+    try:
+        if not bloated(conn):
+            return False
+        conn.execute("INSERT INTO fts_chunks(fts_chunks) VALUES('optimize')")
+        conn.execute("VACUUM")
+        # The index is in WAL mode, so the file shrinks at the checkpoint.
+        conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        return True
+    except sqlite3.Error:
+        return False
+    finally:
+        conn.close()
 
 
 def work(owner, root):
