@@ -274,8 +274,8 @@ allow-list** — `SUBSTITUTION_PROGRAMS`: `git`, `echo`, `printf`, `cat`, `jq`,
 was walked around by a branch-controlled `ls "$(./tools/run)"`, which names
 nothing on any list. A word with a `/` is refused whatever its basename.
 **A name on that list is judged by its name alone, so it holds only programs
-with no option that executes or writes**: `rg`, `sort` and `uniq` came off it
-for `--pre`, `-o` and `--compress-program`, and an output operand, and `git`
+with no option that executes or writes**: `rg`, `sort` and `uniq` are not on
+it, for `--pre`, `-o` and `--compress-program`, and an output operand, and `git`
 stays on it held to the reading subcommands in `SUBSTITUTION_GIT_SUBCOMMANDS`,
 since the hook judges a `git` word for `push` and a handful of flags, not for
 writing (blueprint-frontend#122). **That hold is narrower than it reads**,
@@ -810,27 +810,21 @@ their two arguments, and neither argument may begin with `-`.
 **What runs *before* the script checks anything is outside it.** A
 substitution in the tail runs while bash builds the argv, and the hook
 paragraph on `gh` inside a substitution closes that route for `gh` and for
-anything off its allow-list. Since blueprint-frontend#122 it also refuses the
-plain spellings of the options and `git` subcommands that list used to admit:
-`rg`, `sort` and `uniq` are off it, a plain `git` is held to reading
-subcommands there, and `git rebase -x`, `git difftool -x` and `--extcmd`,
-`git bisect run` and `git submodule … foreach` are refused wherever they stand,
-short of the global-option skip named below.
+anything off its allow-list. Inside one, a plain `git` is held to the reading
+subcommands in `SUBSTITUTION_GIT_SUBCOMMANDS`, and `rg`, `sort` and `uniq` are
+not on the list (blueprint-frontend#122). Wherever they stand, the hook refuses
+the operand forms in `EXECUTING_FORMS` (`git bisect run`, `git submodule …
+foreach`), the short flags in `EXECUTING_SHORT_FLAGS` (`git rebase -x`,
+`git difftool -x`) and `--extcmd`; it refuses a `git` run behind `xargs`,
+which hands `git` a subcommand, flags or refspecs the typed argv does not
+carry (`xargs_git_offence`); and it reads `--shallow-file` as taking a value,
+so that option cannot hide the subcommand it skips to.
 **It is a standing residual still, and blueprint-frontend#125 owns what is
 left**: a wrapper's option can hide the program it launches, an assignment or
 a global option in front of an admitted read changes which configuration or
 external program `git` runs, and a nested quoted substitution the scanner
-cannot close stops it reading the rest of the command. **Two more routes
-reach a writing `git` there, and no issue tracks them yet.** The hook finds
-the subcommand by skipping global options, one word for any it does not list
-as taking a value, so `git --shallow-file <path> <subcommand>` makes it judge
-`<path>` as the subcommand while git runs the next word: `$(git
---shallow-file status worktree remove -f <dir>)` passes as a `status`, and
-the same skip lets `git --shallow-file <path> bisect run` past the operand
-check at the top level. And `xargs` is transparent to the substitution check,
-so an admitted read fed its flags on stdin, `$(printf -- --output=<path> |
-xargs git log -1)`, carries a forbidden flag the hook never sees in the argv.
-Each fix is in `.claude/hooks/`.
+cannot close stops it reading the rest of the command. Each fix is in
+`.claude/hooks/`.
 
 **And the script run is the checkout's copy, which `Edit(.claude/scripts/**)`
 protects from neither a branch nor the session.** A branch can carry an
