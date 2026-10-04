@@ -890,8 +890,9 @@ class TheIndexIsCompactedAfterARefresh(unittest.TestCase):
         self.assertEqual(b"keep", Path(aimed).read_bytes())
 
     def test_a_cache_directory_linked_since_the_root_was_judged_is_refused(self):
-        # `target_root` checked the cache path up to `RUN_TIMEOUT` before the
-        # rewrite, and a checkout in between can put a link on it.
+        # `target_root` judged the cache path long before the rewrite — the
+        # `compact` docstring says why — and a checkout in between can put a
+        # link on it.
         self.build(segments=True, free=True)
         cache = os.path.join(self.root, ".claude", "cache")
         moved = os.path.join(self.root, "moved-cache")
@@ -920,6 +921,25 @@ class TheIndexIsCompactedAfterARefresh(unittest.TestCase):
             worker.join(timeout=30)
         self.assertFalse(worker.is_alive(), "compaction ran past its deadline")
         self.assertEqual([False], result)
+
+    def test_a_sqlite_that_cannot_distrust_the_schema_compacts_nothing(self):
+        # SQLite before 3.31 ignores `trusted_schema` without an error, so the
+        # pragma is read back rather than assumed. The old library is played
+        # by a connection that answers the read-back with no row, as it would.
+        self.build(segments=True, free=True)
+        before = self.snapshot()
+        real_connect = sqlite3.connect
+
+        class Old(sqlite3.Connection):
+            def execute(self, sql, *args):
+                if sql == "PRAGMA trusted_schema":
+                    return super().execute("SELECT 1 WHERE 0")
+                return super().execute(sql, *args)
+
+        with mock.patch.object(self.hook.sqlite3, "connect",
+                               lambda *a, **k: real_connect(*a, factory=Old, **k)):
+            self.assertFalse(self.hook.compact(self.root))
+        self.assertEqual(before, self.snapshot())
 
     def refresh_exiting(self, wait):
         child = mock.Mock(pid=4242)
