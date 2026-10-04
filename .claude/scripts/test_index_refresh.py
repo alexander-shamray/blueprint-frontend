@@ -965,9 +965,11 @@ class TheIndexIsCompactedAfterARefresh(unittest.TestCase):
         # The shape check keeps a view out and the connection switches
         # triggers off, so what the deadline still bounds is the package's
         # own tables, however large.
-        # A deadline already spent must interrupt the first statement: a
-        # bloated index of the real shape then compacts nothing. In a thread,
-        # so a regression fails this case rather than hanging the suite.
+        # A deadline already spent stops the compaction before `VACUUM` gives
+        # any page back, so a bloated index of the real shape is not
+        # compacted; the short statements before it run inside one interval
+        # of the handler. In a thread, so a regression fails this case rather
+        # than hanging the suite.
         self.build(segments=True, free=True)
         conn = sqlite3.connect(self.index, isolation_level=None)
         try:
@@ -1119,6 +1121,21 @@ class TheIndexIsCompactedAfterARefresh(unittest.TestCase):
                                lambda *a, **k: real_connect(*a, factory=Stuck, **k)):
             self.assertFalse(self.hook.compact(self.root))
         self.assertEqual(before, self.snapshot())
+
+    def test_a_checkpoint_held_back_by_a_reader_is_not_reported_done(self):
+        # A reader holding a snapshot makes `wal_checkpoint(TRUNCATE)` report
+        # busy rather than raise, and the rewritten file then waits in the
+        # `-wal`; `compact` must not report that as a finished compaction.
+        self.build(segments=True, free=True)
+        reader = sqlite3.connect(self.index, isolation_level=None)
+        self.addCleanup(reader.close)
+        reader.execute("BEGIN")
+        reader.execute("SELECT count(*) FROM chunks").fetchone()
+        with mock.patch.object(self.hook.sqlite3, "connect",
+                               lambda *a, **k: sqlite3.Connection(
+                                   *a, **{**k, "timeout": 0.1})):
+            self.assertFalse(self.hook.compact(self.root))
+        reader.execute("COMMIT")
 
     def test_a_plain_table_named_in_capitals_is_refused(self):
         # SQLite resolves names folded, so `FTS_CHUNKS_DATA` is the table
