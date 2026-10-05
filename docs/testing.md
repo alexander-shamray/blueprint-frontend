@@ -57,7 +57,12 @@ reach that interpreter is a local choice: `py -3.12` works on Windows and
 exists nowhere else, `python` or `python3` elsewhere. **CI does not make that
 choice** — `actions/setup-python` puts 3.12 on PATH and the `harness` job runs
 `python -m unittest` on all three runners, Windows included, so a developer
-reproducing CI runs `python` whatever their platform. The hooks use
+reproducing CI runs `python` whatever their platform. **That Python's SQLite
+must be 3.37 or later, built with FTS5** (#140): the index-refresh cases build
+full-text tables and read `PRAGMA table_list`, and a 3.12 on Linux can be
+linked against an older system SQLite. Those cases assert the version in their
+set-up, so such a host fails once and says why; `python -c "import sqlite3;
+print(sqlite3.sqlite_version)"` answers before you run anything. The hooks use
 `.claude/hooks/run-guard.sh` to select a compatible launcher. **The harness
 suite's `setUpModule` fails rather than skips when a tool is missing** — a
 skip on a missing tool reports a pass, which is the fail-open it exists to
