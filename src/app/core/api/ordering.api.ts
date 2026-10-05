@@ -39,6 +39,9 @@ export class OrderingApi {
     // Angular has already percent-decoded. A raw '/', '?' or '%' in it would
     // otherwise land in this template literal unescaped and turn into a
     // different path plus a query string rather than a single path segment.
+    // It leaves '.' and '..' as they are, which the URL parser still resolves
+    // as path segments. That stays on the gateway origin, and the ids are the
+    // platform's own, so their shape is not this client's to police.
     return this.http.post<void>(`${this.base}/${encodeURIComponent(orderId)}/cancel`, body);
   }
 }

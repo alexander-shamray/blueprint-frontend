@@ -75,8 +75,9 @@ export function timelineOf(order: OrderDetail): readonly TimelineStep[] {
 /**
  * The tracking detail, `GET /bff/v1/orders/{id}`, pushed on the History tab's
  * stack. Cancel lives here now (#95): it moved from Order placed with its
- * reason, its in-flight guard, its stale-response check and its sign-in
- * replay, each unchanged and each argued where it stands below.
+ * reason and its in-flight guard unchanged, and with its stale-response check
+ * and its sign-in replay, both of which now also require the same signed-in
+ * subject (spec §5.7). Each is argued where it stands below.
  *
  * What it offers is decided by the read's `cancellable`, which §10.7 calls a
  * hint and not an authority: it is computed from a projection that lags
@@ -362,13 +363,16 @@ export class OrderDetailPage {
    * Ionic's entry hook. A detail left on History's stack is shown again from
    * its cache when the tab is revisited, and the order may have moved since —
    * a despatch, a cancellation — so every entry after the first reads it
-   * again. The first is skipped because the id effect has just read it.
+   * again. The first is skipped because the id effect has just read it, and
+   * so is any entry while the `authenticated` window is open, for the reason
+   * `OrdersPage.ionViewWillEnter` gives.
    */
   ionViewWillEnter(): void {
     if (!this.enteredBefore) {
       this.enteredBefore = true;
       return;
     }
+    if (this.rateLimit.blocked()) return;
     this.load();
   }
 

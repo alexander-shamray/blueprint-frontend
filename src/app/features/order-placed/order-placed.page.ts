@@ -69,6 +69,17 @@ import { OrderStatusComponent } from '@shared/order-status.component';
         </ion-item>
 
         <ion-button expand="block" fill="outline" routerLink="/tabs/orders">Open History</ion-button>
+      } @else if (foreign()) {
+        <!--
+          The id, its status and its tracking link belong to the buyer who
+          placed it, and they are not the one signed in now.
+        -->
+        <ion-item data-testid="foreign">
+          <ion-note>
+            This order was placed under another sign-in, so it is not shown here. Sign in as the
+            account that placed it to follow it.
+          </ion-note>
+        </ion-item>
       } @else if (orderId() !== '') {
         <ion-item>
           <ion-label>
@@ -115,6 +126,23 @@ export class OrderPlacedPage {
 
   readonly alreadyCommitted = computed(() => this.orderId() === ALREADY_COMMITTED);
 
+  /**
+   * The buyer this page is for: whoever was signed in when it was handed its
+   * id, since only they could have placed it. Null until somebody is.
+   */
+  private readonly ownerState = signal<string | null>(null);
+
+  /**
+   * Signed in as somebody other than that buyer, or signed out. The page then
+   * shows nothing of the order and polls nothing: the id is the first buyer's,
+   * and the read would answer anyone else 404 for as long as the page stood,
+   * on their own budget.
+   */
+  readonly foreign = computed(() => {
+    const owner = this.ownerState();
+    return owner !== null && (this.user()?.subject ?? null) !== owner;
+  });
+
   /** What the order read last said, for `orderId` and no other. */
   private readonly statusState = signal<string | null>(null);
   /** Whether the read has answered 404 and nothing better since. */
@@ -156,24 +184,36 @@ export class OrderPlacedPage {
     // Each id this instance is handed starts its own poll from the first
     // interval, having dropped everything the previous id left: a status, a
     // note or a timer belonging to order A must never be shown or fired
-    // under order B. The first run is this construction's own id.
+    // under order B. The first run is this construction's own id. A new id
+    // is a new placement, so it belongs to whoever is signed in now.
     effect(() => {
       this.orderId();
-      untracked(() => this.restart());
+      untracked(() => {
+        this.ownerState.set(this.user()?.subject ?? null);
+        this.restart();
+      });
     });
 
     // A different subject restarts the poll from nothing, for the reason a
     // different id does: on native this page stands on the Cart tab's stack
-    // across a sign-out and somebody else's sign-in, and one buyer's status,
-    // note or banner must never be shown to the next. Compared with the last
-    // subject seen, because a subject can come back; the first run is the
-    // construction's own and does nothing, since the id effect has started it.
+    // across a sign-out and somebody else's sign-in, and one buyer's order,
+    // status, note or banner must never be shown to the next. The restart
+    // polls only for the buyer the page is for (`foreign`), so it is a stop
+    // under anyone else and a fresh start when that buyer is back. Compared
+    // with the last subject seen, because a subject can come back; the first
+    // run is the construction's own and does nothing, since the id effect
+    // has started it.
     let lastSeen = untracked(() => this.user()?.subject ?? null);
     effect(() => {
       const subject = this.user()?.subject ?? null;
       if (subject === lastSeen) return;
       lastSeen = subject;
-      untracked(() => this.restart());
+      untracked(() => {
+        // Built while nobody was signed in: the first buyer to sign in is
+        // the one whose session the page has been waiting for.
+        if (this.ownerState() === null) this.ownerState.set(subject);
+        this.restart();
+      });
     });
 
     const onVisibility = (): void => {
@@ -235,6 +275,7 @@ export class OrderPlacedPage {
       this.document.visibilityState !== 'hidden' &&
       this.orderId() !== '' &&
       !this.alreadyCommitted() &&
+      !this.foreign() &&
       this.errorState() === null &&
       !(status !== null && isTerminal(status))
     );

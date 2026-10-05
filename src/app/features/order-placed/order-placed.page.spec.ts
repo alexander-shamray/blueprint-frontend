@@ -7,6 +7,7 @@ import { BehaviorSubject, map } from 'rxjs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { OrderDetail } from '@core/api/types';
 import { AuthService, CurrentUser } from '@core/auth/auth.service';
+import { RateLimitWindows } from '@core/errors/rate-limit';
 import { rateLimitInterceptor } from '@core/errors/rate-limit.interceptor';
 import { OrderPlacedPage } from './order-placed.page';
 
@@ -209,7 +210,7 @@ describe('OrderPlacedPage', () => {
     expect(pending.cancelled).toBe(true);
   });
 
-  it('sends no poll while the authenticated window is blocked, and stretches rather than banners a 429', () => {
+  it('stretches the interval on a 429 to a poll rather than raising a banner', () => {
     const mounted = mount(GUID_A);
     controller = mounted.controller;
     reads(controller)[0].flush(
@@ -228,6 +229,34 @@ describe('OrderPlacedPage', () => {
 
     vi.advanceTimersByTime(2_000);
     reads(controller)[0].flush(detail(GUID_A, 'placed'));
+    mounted.fixture.destroy();
+  });
+
+  it('sends no poll into an authenticated window another request opened', () => {
+    const mounted = mount(GUID_A);
+    controller = mounted.controller;
+    reads(controller)[0].flush(detail(GUID_A, 'placed'));
+
+    // Opened by somebody else's 429 — quote, checkout, History — so the poll's
+    // own stretch plays no part, and only the page's guard can hold it.
+    const windows = TestBed.inject(RateLimitWindows);
+    windows.forPartition('authenticated').open({
+      kind: 'rateLimited',
+      title: 'Too many requests',
+      detail: null,
+      retryAfterSeconds: 30,
+    });
+    expect(mounted.fixture.componentInstance.rateLimit.blocked()).toBe(true);
+
+    // The 3-second poll falls due inside the window and is held.
+    vi.advanceTimersByTime(29_000);
+    expect(reads(controller)).toEqual([]);
+
+    // And it goes once the window is over, rather than never.
+    vi.advanceTimersByTime(8_000);
+    const after = reads(controller);
+    expect(after.length).toBe(1);
+    after[0].flush(detail(GUID_A, 'placed'));
     mounted.fixture.destroy();
   });
 
@@ -294,7 +323,7 @@ describe('OrderPlacedPage', () => {
     expect(text).not.toContain('already-committed');
   });
 
-  it('restarts the poll from nothing when somebody else signs in under the page', () => {
+  it('shows and polls nothing of the order while somebody else is signed in', () => {
     const mounted = mount(GUID_A);
     controller = mounted.controller;
     reads(controller)[0].flush(detail(GUID_A, 'placed'));
@@ -302,15 +331,42 @@ describe('OrderPlacedPage', () => {
 
     mounted.user.set(other);
     mounted.fixture.detectChanges();
-    expect(mounted.fixture.componentInstance.status()).toBeNull();
 
-    // At once rather than on the old back-off, and 404: the order is not theirs.
-    const [forOther] = reads(controller);
-    forOther.flush({ title: 'Not Found', status: 404 }, { status: 404, statusText: 'Not Found' });
+    const text: string = mounted.fixture.nativeElement.textContent;
+    expect(mounted.fixture.componentInstance.status()).toBeNull();
+    expect(text).not.toContain(GUID_A);
+    expect(text).not.toContain('Track this order');
+    expect(mounted.fixture.nativeElement.querySelector('[data-testid="foreign"]')).not.toBeNull();
+
+    // Not a 404 at the back-off cap on their budget: no read at all.
+    vi.advanceTimersByTime(120_000);
+    expect(reads(controller)).toEqual([]);
+    mounted.fixture.destroy();
+  });
+
+  it('starts the poll from nothing when the buyer it is for signs in again', () => {
+    const mounted = mount(GUID_A);
+    controller = mounted.controller;
+    reads(controller)[0].flush(detail(GUID_A, 'confirmed'));
+
+    // Signed out, then somebody else, then the first buyer back.
+    mounted.user.set(null);
     mounted.fixture.detectChanges();
+    expect(mounted.fixture.nativeElement.textContent).not.toContain(GUID_A);
+    mounted.user.set(other);
+    mounted.fixture.detectChanges();
+    vi.advanceTimersByTime(60_000);
+    expect(reads(controller)).toEqual([]);
 
+    mounted.user.set(demo);
+    mounted.fixture.detectChanges();
     expect(mounted.fixture.componentInstance.status()).toBeNull();
-    expect(mounted.fixture.nativeElement.textContent).toContain('has not recorded this order yet');
+
+    // At once rather than on the old back-off.
+    reads(controller)[0].flush(detail(GUID_A, 'placed'));
+    mounted.fixture.detectChanges();
+    expect(mounted.fixture.componentInstance.status()).toBe('placed');
+    expect(mounted.fixture.nativeElement.textContent).toContain(GUID_A);
     mounted.fixture.destroy();
   });
 
