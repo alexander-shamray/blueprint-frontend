@@ -317,6 +317,15 @@ export class OrderDetailPage {
   /** Ionic reports the first entry too, and the id effect has already read the order for it. */
   private enteredBefore = false;
 
+  /**
+   * Which read is the latest, as `OrdersPage` counts its own. An entry, a pull
+   * to refresh, Try again and the read after a cancel can all be out at once
+   * for the same order and subject, and only the last one issued may land: an
+   * older failure would otherwise raise Try again beside a newer success, and
+   * an older success overwrite a newer order.
+   */
+  private readGeneration = 0;
+
   constructor() {
     // Every id this instance is handed, the first included, is read once;
     // a later id also drops what the previous one left, as
@@ -347,6 +356,7 @@ export class OrderDetailPage {
       if (subject === lastSeen) return;
       lastSeen = subject;
       untracked(() => {
+        this.readGeneration++;
         this.orderState.set(null);
         this.cancelledState.set(false);
         this.cancelErrorState.set(null);
@@ -377,10 +387,12 @@ export class OrderDetailPage {
   }
 
   /**
-   * Reads the order again. A reply for an id this page has since left, or
-   * one issued under a subject that has since signed out, is dropped.
+   * Reads the order again. A reply for an id this page has since left, one
+   * issued under a subject that has since signed out, or one a later read
+   * has overtaken, is dropped.
    */
   load(done?: () => void): void {
+    const generation = ++this.readGeneration;
     const issuedForId = this.orderId();
     if (issuedForId === '') return;
     const issuedForSubject = this.subject();
@@ -391,13 +403,14 @@ export class OrderDetailPage {
     this.orders.get(issuedForId).subscribe({
       next: (order) => {
         done?.();
-        if (!this.stillFor(issuedForId, issuedForSubject)) return;
+        if (!this.latestFor(generation, issuedForId, issuedForSubject)) return;
         this.loadingState.set(false);
+        this.loadErrorState.set(null);
         this.orderState.set(order);
       },
       error: (failure: HttpErrorResponse) => {
         done?.();
-        if (!this.stillFor(issuedForId, issuedForSubject)) return;
+        if (!this.latestFor(generation, issuedForId, issuedForSubject)) return;
         this.loadingState.set(false);
         this.loadErrorState.set(mapError(failure));
       },
@@ -499,5 +512,10 @@ export class OrderDetailPage {
   /** Whether a reply issued for this order, under this subject, still belongs on screen. */
   private stillFor(orderId: string, subject: string | null): boolean {
     return this.orderId() === orderId && this.subject() === subject;
+  }
+
+  /** `stillFor()`, and no read has been issued since this one. */
+  private latestFor(generation: number, orderId: string, subject: string | null): boolean {
+    return generation === this.readGeneration && this.stillFor(orderId, subject);
   }
 }

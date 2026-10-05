@@ -1,5 +1,5 @@
 import {
-  ChangeDetectionStrategy, Component, LOCALE_ID, computed, inject, signal,
+  ChangeDetectionStrategy, Component, LOCALE_ID, computed, effect, inject, signal, untracked,
 } from '@angular/core';
 import { HttpErrorResponse } from '@angular/common/http';
 import { FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
@@ -187,9 +187,9 @@ export class CheckoutPage {
 
   /**
    * Minted when the page is entered and held with the form. Every submission
-   * uses it; only a success, or an edit after a validation failure, mints a
-   * new one. This is the one place the client holds state across requests on
-   * purpose (spec §5.3).
+   * uses it; only a success, an edit after a validation failure, or a change
+   * of signed-in subject mints a new one. This is the one place the client
+   * holds state across requests on purpose (spec §5.3).
    */
   readonly identity = new CommandIdentity();
 
@@ -254,6 +254,9 @@ export class CheckoutPage {
    */
   private replayedAfterSignIn = false;
 
+  /** Bumped each time the effect below clears the page for a different subject. */
+  private subjectChanges = 0;
+
   /**
    * Carried from the quote, with no fallback — quoteGuard guarantees a quote
    * exists before this page is reachable. A `?? 'EUR'` here would be a guess
@@ -275,6 +278,34 @@ export class CheckoutPage {
         });
       });
     }
+
+    // A different subject — a sign-out, or a sign-out and somebody else's
+    // sign-in — starts the form again, as the order pages forget an order.
+    // Checkout is pushed on the Cart tab and survives a native sign-out, so
+    // without this the next buyer on the device would find the last one's
+    // address filled in under a live Place order, and one tap would send it
+    // as an order on their own account. The banner, the field messages and
+    // the id go with the address: each was about a request the previous
+    // buyer made. Compared with the last subject seen rather than the one
+    // this page was built for, because a subject can come back; the first
+    // run is the construction's own and does nothing.
+    const user = this.auth.user();
+    let lastSeen = untracked(() => user()?.subject ?? null);
+    effect(() => {
+      const subject = user()?.subject ?? null;
+      if (subject === lastSeen) return;
+      lastSeen = subject;
+      untracked(() => {
+        this.subjectChanges++;
+        this.form.reset();
+        this.errorState.set(null);
+        this.fieldErrorsState.set({});
+        this.replayedAfterSignIn = false;
+        // A new form entry, as after a success: the old id was the previous
+        // buyer's command, and idempotency keys on the subject anyway.
+        this.identity.onSuccess();
+      });
+    });
   }
 
   placeOrder(): void {
@@ -413,18 +444,24 @@ export class CheckoutPage {
    * idempotency keys on the subject too — so a native sign-in that someone
    * else completes would otherwise place this basket, to this address, as
    * an order on their account that they never pressed Place order for. A
-   * different subject, or none, leaves the banner and the form for whoever
-   * is now signed in to submit or not.
+   * different subject, or none, finds the form started again by the
+   * constructor's subject effect, and nothing is sent in their name. Nor is
+   * anything replayed when that effect has cleared the form in between, even
+   * for the same subject coming back: what it would send is no longer the
+   * order that was refused.
    */
   private signInAndReplay(): void {
     const replay = !this.replayedAfterSignIn;
     this.replayedAfterSignIn = true;
     const refusedSubject = this.auth.user()()?.subject ?? null;
+    const changesAtRefusal = this.subjectChanges;
 
     this.auth.signIn().then(
       () => {
         const sameSubject =
-          refusedSubject !== null && this.auth.user()()?.subject === refusedSubject;
+          refusedSubject !== null &&
+          this.auth.user()()?.subject === refusedSubject &&
+          this.subjectChanges === changesAtRefusal;
         if (replay && sameSubject) this.placeOrder();
       },
       (failure: unknown) => this.errorState.set(mapError(failure)),

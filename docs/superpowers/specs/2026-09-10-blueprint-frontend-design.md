@@ -237,7 +237,10 @@ with the form. Every submission uses that id. A network failure or a 5xx keeps
 the id so the retry is a replay. A 409 means the earlier submission won; the
 client treats it as success pending confirmation and moves to Order placed
 with a note that the id was already committed. A success or any edit to the
-form after a failed validation mints a new id. This is the one place the
+form after a failed validation mints a new id. So does a change of signed-in
+subject, which also empties the form, its field messages and the banner: on
+native the page outlives a sign-out, and each of them was the previous
+buyer's. This is the one place the
 client holds state across requests on purpose, and `client-architecture.md`
 explains why in terms of `IdempotencyBehavior`.
 
@@ -347,8 +350,8 @@ something a screen shows. It returns a display model
 
 No banner text is authored on the client beyond the six generic banners for
 `signIn`, `forbidden`, `alreadyCommitted`, `rateLimited`, `unavailable` and
-`retry`. The only other error text the client writes is a note a page's own
-section in §5 describes, such as §5.4's poll notes. Where the backend sends
+`retry`. Any other error text the client writes is a note on the page it
+concerns, such as §5.4's poll notes. Where the backend sends
 `title` and `detail`, they are shown as sent.
 
 ## 7. Testing

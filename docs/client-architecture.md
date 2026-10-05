@@ -367,7 +367,9 @@ maps `GET /v1/orders` and `GET /v1/orders/{id}` behind `RequireAuthorization()`
 and calls nothing, answering from rows the BFF's own handlers write as
 Ordering's, Payments' and Shipping's events arrive. This client speaks it
 through `core/api/orders.api.ts`, and the four facts below are why the screens
-over it are shaped as they are.
+over it are shaped as they are. They were checked against the backend as
+blueprint-backend#501 merged it, which is later than the commit that *What it
+was checked against*, at the top of this document, names for the rest.
 
 **It asks for a session, not a permission.** The group requires an
 authenticated principal and binds the subject from it, and there is still no
