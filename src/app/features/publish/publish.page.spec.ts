@@ -332,6 +332,81 @@ describe('PublishPage', () => {
     expect(fixture.componentInstance.publishedId()).toBeNull();
   });
 
+  it('starts the form again when a different buyer signs in: draft, banner and id', async () => {
+    const page = fixture.componentInstance;
+    page.publish();
+    const first = controller.expectOne('http://localhost:5000/api/v1/catalog/products');
+    const firstId = first.request.body.commandId;
+    // A 503 holds the id, so a new one below can only be the subject change's.
+    first.flush({ title: 'Service Unavailable', status: 503 }, { status: 503, statusText: '' });
+    await fixture.whenStable();
+    expect(page.error()).not.toBeNull();
+
+    user.set(null);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    user.set({ username: 'other', subject: 'subject-other', permissions: [], expiresAt: 0 });
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    expect(page.form.controls.name.value).toBe('');
+    expect(page.error()).toBeNull();
+    expect(page.identity.current()).not.toBe(firstId);
+  });
+
+  it("drops the previous buyer's published note when a different buyer signs in", async () => {
+    const page = fixture.componentInstance;
+    page.publish();
+    controller
+      .expectOne('http://localhost:5000/api/v1/catalog/products')
+      .flush('55555555-5555-5555-5555-555555555555', { status: 200, statusText: 'OK' });
+    await fixture.whenStable();
+    expect(page.publishedId()).not.toBeNull();
+
+    user.set({ username: 'other', subject: 'subject-other', permissions: [], expiresAt: 0 });
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    expect(page.publishedId()).toBeNull();
+  });
+
+  it("shows a different buyer nothing of the previous buyer's late reply", async () => {
+    const page = fixture.componentInstance;
+    page.publish();
+    const first = controller.expectOne('http://localhost:5000/api/v1/catalog/products');
+
+    user.set({ username: 'other', subject: 'subject-other', permissions: [], expiresAt: 0 });
+    fixture.detectChanges();
+    await fixture.whenStable();
+    first.flush('55555555-5555-5555-5555-555555555555', { status: 200, statusText: 'OK' });
+    await fixture.whenStable();
+
+    expect(page.publishedId()).toBeNull();
+  });
+
+  it('keeps the draft and the held id when the same buyer signs out and back in', async () => {
+    const page = fixture.componentInstance;
+    page.publish();
+    const first = controller.expectOne('http://localhost:5000/api/v1/catalog/products');
+    const firstId = first.request.body.commandId;
+    first.flush({ title: 'Service Unavailable', status: 503 }, { status: 503, statusText: '' });
+    await fixture.whenStable();
+
+    user.set(null);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    user.set({ username: 'demo', subject: 'subject-demo', permissions: [], expiresAt: 1 });
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    expect(page.form.controls.name.value).toBe('A widget');
+    page.publish();
+    const retry = controller.expectOne('http://localhost:5000/api/v1/catalog/products');
+    expect(retry.request.body.commandId).toBe(firstId);
+    retry.flush('55555555-5555-5555-5555-555555555555', { status: 200, statusText: 'OK' });
+    await fixture.whenStable();
+  });
+
   it('does not loop when the replay is refused with another 401', async () => {
     fixture.componentInstance.publish();
     controller

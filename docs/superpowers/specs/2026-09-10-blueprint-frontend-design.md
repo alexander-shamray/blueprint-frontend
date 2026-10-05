@@ -237,10 +237,14 @@ with the form. Every submission uses that id. A network failure or a 5xx keeps
 the id so the retry is a replay. A 409 means the earlier submission won; the
 client treats it as success pending confirmation and moves to Order placed
 with a note that the id was already committed. A success or any edit to the
-form after a failed validation mints a new id. So does a change of signed-in
-subject, which also empties the form, its field messages and the banner: on
-native the page outlives a sign-out, and each of them was the previous
-buyer's. This is the one place the
+form after a failed validation mints a new id. The form and its id belong to
+the buyer signed in when the page was entered, or to the first to sign in if
+nobody was. A different buyer signing in mints a new id too, and empties the
+form, its field messages and the banner: on native the page outlives a
+sign-out, and each of them was the previous buyer's. A sign-out alone, or the
+same buyer signing back in, changes nothing, so a held id is still the
+retry's; a reply that lands while its buyer is not the one signed in is
+dropped, and spends nothing. This is the one place the
 client holds state across requests on purpose, and `client-architecture.md`
 explains why in terms of `IdempotencyBehavior`.
 
@@ -279,7 +283,9 @@ History, where the order is listed.
 
 Form for `name`, `thumbnailUrl` (optional), `amount` and `currency`, submitted
 as `PublishProductCommand` with the same command-id lifecycle as checkout. On
-success the products tab refreshes from the first page.
+success the products tab refreshes from the first page. A different buyer
+signing in also clears the published note, as checkout's rule clears the
+banner.
 
 ### 5.6 Account
 

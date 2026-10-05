@@ -838,8 +838,8 @@ has to start the poll.
 History is the second tab root whose content changes behind it, and it answers
 differently from Products, because nothing can ask it to: a placement, a
 cancellation and the platform's own progress all change the list, and the last
-has no caller. So `OrdersPage` reloads from `ionViewWillEnter`, every arrival
-included (§7, *What replaced it*).
+has no caller. So `OrdersPage` reloads from `ionViewWillEnter`, on every
+arrival but one into a blocked rate-limit window (spec §5.7).
 
 ### `provideIonicAngular()` does not install `IonicRouteStrategy`
 
