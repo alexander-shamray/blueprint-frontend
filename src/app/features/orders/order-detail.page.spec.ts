@@ -7,6 +7,7 @@ import { BehaviorSubject, map } from 'rxjs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { OrderDetail } from '@core/api/types';
 import { AuthService, CurrentUser } from '@core/auth/auth.service';
+import { RateLimitWindows } from '@core/errors/rate-limit';
 import { rateLimitInterceptor } from '@core/errors/rate-limit.interceptor';
 import { OrderDetailPage, timelineOf } from './order-detail.page';
 
@@ -487,6 +488,31 @@ describe('OrderDetailPage', () => {
       .expectOne(`${READ}${GUID_A}`)
       .flush(order({ status: 'dispatched', cancellable: false }));
     expect(mounted.fixture.componentInstance.order()?.status).toBe('dispatched');
+  });
+
+  it('reads nothing on an entry inside an open authenticated window', async () => {
+    const mounted = await mountWith(order());
+    controller = mounted.controller;
+    const page = mounted.fixture.componentInstance;
+    page.ionViewWillEnter();
+
+    // Opened by another request on the same bucket, as a cancel's 429 would.
+    const authenticated = TestBed.inject(RateLimitWindows).forPartition('authenticated');
+    authenticated.open({
+      kind: 'rateLimited',
+      title: 'Too many requests',
+      detail: null,
+      retryAfterSeconds: 30,
+    });
+
+    page.ionViewWillEnter();
+    controller.expectNone((r) => r.url.startsWith(READ));
+    expect(page.order()?.orderId).toBe(GUID_A);
+
+    // Once it closes, arriving reads again.
+    authenticated.close();
+    page.ionViewWillEnter();
+    controller.expectOne(`${READ}${GUID_A}`).flush(order());
   });
 
   it('does not replay a cancellation when somebody else completes the sign-in', async () => {

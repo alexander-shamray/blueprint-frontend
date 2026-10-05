@@ -34,7 +34,8 @@ import { SkeletonListComponent } from '@shared/skeleton-list.component';
  *   otherwise not appear until a restart. Products answers the same fact with
  *   `CatalogRefresh`, because only a publish changes the catalogue; here a
  *   placement, a cancellation and the platform's own progress all do, and
- *   the last has no caller to ask for a refresh. So arriving is the trigger.
+ *   the last has no caller to ask for a refresh. So arriving is the trigger,
+ *   except into an open rate-limit window, which `ionViewWillEnter` says.
  * - **It forgets on a change of subject.** A cached page that signed-out A
  *   left would otherwise show A's history to B until B pulled to refresh.
  */
@@ -167,8 +168,15 @@ export class OrdersPage {
     });
   }
 
-  /** Ionic's own entry hook: every arrival at the tab, including the first. */
+  /**
+   * Ionic's own entry hook: every arrival at the tab, including the first.
+   * Not while the `authenticated` window is open: the read would go into a
+   * limiter the gateway has said is refusing, and clearing first would take
+   * away the list the buyer could still see. The banner says why; pull to
+   * refresh and Try again come back when the window ends.
+   */
   ionViewWillEnter(): void {
+    if (this.rateLimit.blocked()) return;
     this.reload();
   }
 

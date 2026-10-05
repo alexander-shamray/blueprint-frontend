@@ -193,8 +193,10 @@ application asks which platform it is on.
   starts with the gateway base URL, and to nothing else. A request to the
   Keycloak host never carries the platform's token.
 - `current-user.ts` decodes the access token's `preferred_username`, `sub` and
-  `permission` claims into a signal. Route guards and button visibility read
-  `hasPermission`. The guard hides; the backend decides. A 403 that reaches
+  `permission` claims into a signal. Permission-gated routes and controls
+  read `hasPermission`; a route or tab that needs only a principal, which is
+  the order read's (§5.7), checks for a signed-in user instead. Either way
+  the guard hides; the backend decides. A 403 that reaches
   the client is rendered as a banner naming the permission the route needed,
   because a hidden button and a refused call are two different facts.
 - The demo user in the realm export holds `catalog:write`, `orders:write` and
@@ -253,8 +255,10 @@ sent while the `authenticated` rate-limit window is blocked, and a 429 on a
 poll stretches the interval rather than raising a banner for a request the
 buyer did not make. A 404 straight after placing is the projection not having
 absorbed `OrderPlaced` yet, so it reads as "not recorded yet" and the poll
-carries on. A reply for an id the page has since left is dropped, and a change
-of signed-in subject restarts the poll from nothing.
+carries on. A reply for an id the page has since left is dropped. The page is
+for the buyer who was signed in when it was handed the id: while anyone else
+is signed in, or nobody is, it shows neither the id nor a status and polls
+nothing, and when that buyer is back the poll starts again from nothing.
 
 Some of §6's rows read differently on a poll, for the same reason. A 401 or a
 403 stops it and shows the banner without calling `AuthService.signIn()`; a
@@ -288,7 +292,8 @@ ordinary — its total through the money pipe, when it was placed, and a status
 chip. The chip's words name the BFF's closed vocabulary and nothing else: the
 client maps no saga state. History is a tab root, so it reloads on every entry
 (`ionViewWillEnter`) and forgets a list the moment the signed-in subject
-changes. A signed-out navigation to it is refused to Account with a stated
+changes. An entry while the `authenticated` rate-limit window is blocked reads
+nothing and keeps what is shown, as Order placed holds its poll. A signed-out navigation to it is refused to Account with a stated
 reason.
 
 The **tracking detail**, `GET /bff/v1/orders/{id}`, is pushed from a row. It
@@ -300,7 +305,8 @@ their quantity and unit price, the total, the payment outcome where there is
 one, the carrier's tracking number where one is stored, and the time the
 platform last recorded anything (`asOf`). It does no date arithmetic and
 derives no step from another. Like History, it reads the order again on every
-entry after the first and forgets it the moment the signed-in subject changes.
+entry after the first, except into a blocked window, and forgets it the moment
+the signed-in subject changes.
 
 A 401 on the History list or on the tracking detail's read shows §6's sign-in
 banner but neither calls `AuthService.signIn()` nor replays, because a read is

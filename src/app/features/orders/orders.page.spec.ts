@@ -6,6 +6,7 @@ import { WritableSignal, signal } from '@angular/core';
 import { afterEach, describe, expect, it } from 'vitest';
 import { OrderSummary } from '@core/api/types';
 import { AuthService, CurrentUser } from '@core/auth/auth.service';
+import { RateLimitWindows } from '@core/errors/rate-limit';
 import { rateLimitInterceptor } from '@core/errors/rate-limit.interceptor';
 import { OrdersPage } from './orders.page';
 
@@ -180,14 +181,50 @@ describe('OrdersPage', () => {
   it('shows a failed load with Try again, which resumes at the page that failed', () => {
     const mounted = mount();
     controller = mounted.controller;
+    const page = mounted.fixture.componentInstance;
 
-    mounted.fixture.componentInstance.ionViewWillEnter();
+    // The second page fails, so a retry that started over from page one is
+    // told apart by its cursor and by the rows it would have dropped.
+    page.ionViewWillEnter();
+    list(controller).flush({ items: [summary('o1')], nextCursor: 'c1' });
+    page.loadMore();
     list(controller).flush(null, { status: 503, statusText: 'Service Unavailable' });
     mounted.fixture.detectChanges();
     expect(mounted.fixture.nativeElement.textContent).toContain('Try again');
 
-    mounted.fixture.componentInstance.retryLoad();
+    page.retryLoad();
+    const retried = list(controller);
+    expect(retried.request.params.get('cursor')).toBe('c1');
+    retried.flush({ items: [summary('o2')], nextCursor: null });
+
+    expect(page.orders().map((o) => o.orderId)).toEqual(['o1', 'o2']);
+    expect(page.error()).toBeNull();
+  });
+
+  it('reads nothing on an entry inside an open authenticated window, and keeps its list', () => {
+    const mounted = mount();
+    controller = mounted.controller;
+    const page = mounted.fixture.componentInstance;
+
+    page.ionViewWillEnter();
     list(controller).flush({ items: [summary('o1')], nextCursor: null });
-    expect(mounted.fixture.componentInstance.error()).toBeNull();
+
+    // Opened by another request on the same bucket, as a quote's 429 would.
+    const authenticated = TestBed.inject(RateLimitWindows).forPartition('authenticated');
+    authenticated.open({
+      kind: 'rateLimited',
+      title: 'Too many requests',
+      detail: null,
+      retryAfterSeconds: 30,
+    });
+
+    page.ionViewWillEnter();
+    controller.expectNone((r) => r.url === LIST);
+    expect(page.orders().map((o) => o.orderId)).toEqual(['o1']);
+
+    // Once it closes, arriving reads again.
+    authenticated.close();
+    page.ionViewWillEnter();
+    list(controller).flush({ items: [summary('o1')], nextCursor: null });
   });
 });

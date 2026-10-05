@@ -828,8 +828,10 @@ construction's own work. A version counter never repeats, so the value it was
 built with is the only one it needs. `OrdersPage`'s `lastSeen` starts from the
 subject it was built for in the same way but moves with every change, because
 a subject can come back — A, then B, then A again — and the return has to
-clear B's list too. `OrderPlacedPage` held the idiom's other watcher until its
-effect began restarting a poll, which the first run has to do as well.
+clear B's list too. The subject effects of `OrderPlacedPage` and
+`OrderDetailPage` take the same `lastSeen` form, for the same reason. What
+`OrderPlacedPage` gave up is the idiom on its order-id effect, whose first run
+has to start the poll.
 
 History is the second tab root whose content changes behind it, and it answers
 differently from Products, because nothing can ask it to: a placement, a
