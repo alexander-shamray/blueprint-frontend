@@ -86,6 +86,19 @@ import urllib.parse
 
 if os.name == "nt":
     import msvcrt
+    # **Never the working directory first.** On Windows, `shutil.which` and
+    # CreateProcess both look in the current directory before `PATH` for a
+    # bare name, and this hook runs `bash`, `git` and `tasklist` by bare name
+    # from the owner checkout's root, where a session can write a `bash.cmd`
+    # or a `git.exe`; that file would then run in place of the real one,
+    # unprompted. Measured on this repository's workstation: with the variable
+    # unset, `shutil.which("bash")` answered `.\bash.CMD` and a planted
+    # `git.exe` ran in place of git; with it set, neither did. Claude Code
+    # passes it down today, which is why nothing had happened; set here so
+    # the hook does not depend on its launcher for it, and inherited by the
+    # worker and everything it starts. Raised by the in-house review of
+    # alexander-shamray/blueprint-frontend#144, round 3.
+    os.environ["NoDefaultCurrentDirectoryInExePath"] = "1"
 else:
     import fcntl
 

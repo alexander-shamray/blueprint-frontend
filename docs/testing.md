@@ -61,7 +61,8 @@ reproducing CI runs `python` whatever their platform. **That Python's SQLite
 must be 3.37 or later, built with FTS5** (#140): the index-refresh cases build
 full-text tables and read `PRAGMA table_list`, and a 3.12 on Linux can be
 linked against an older system SQLite. Those cases assert the version in their
-set-up, so such a host fails once and says why; `python -c "import sqlite3;
+set-up, so on such a host every one of them fails there, naming the cause
+rather than failing on a missing table; `python -c "import sqlite3;
 print(sqlite3.sqlite_version)"` answers before you run anything. The hooks use
 `.claude/hooks/run-guard.sh` to select a compatible launcher. **The harness
 suite's `setUpModule` fails rather than skips when a tool is missing** — a

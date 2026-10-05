@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Fork /branch step 5's worktree under .claude/worktrees/, and nothing else.
+# Fork /branch step 5's worktree under .claude/worktrees/ and start its index
+# refresh, and nothing else.
 #
 # The whole command is fixed here: `git worktree add --no-track -b <branch>
 # <path> origin/main`. A `Bash(git worktree add:*)` grant would buy that and

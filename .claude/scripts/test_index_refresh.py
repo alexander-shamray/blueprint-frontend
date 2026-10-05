@@ -593,6 +593,32 @@ class TheRootFollowsTheActiveWorktree(unittest.TestCase):
         self.assertEqual(self.sibling, self.hook.named(event))
         self.assertEqual(self.main, self.hook.named({"cwd": self.main}))
 
+    @unittest.skipUnless(os.name == "nt", "only Windows searches the working "
+                         "directory for a bare name; POSIX searches PATH alone")
+    def test_a_program_planted_in_the_working_directory_is_never_run(self):
+        # A `bash.cmd` at the owner's root, where the worker runs, must not be
+        # found in place of the real one, whatever the launcher passed down.
+        planted = Path(self.base, "bash.cmd")
+        planted.write_text("@echo planted\r\n", encoding="ascii")
+        saved = os.environ.pop("NoDefaultCurrentDirectoryInExePath", None)
+        here = os.getcwd()
+        try:
+            os.chdir(self.base)
+            # The control: unset, Windows does find it.
+            self.assertTrue(real(self.hook.shutil.which("bash") or "").startswith(
+                real(self.base)), "no planted file to refuse")
+            hook = load()
+            found = hook.shutil.which("bash")
+            self.assertEqual("1", os.environ.get("NoDefaultCurrentDirectoryInExePath"))
+            self.assertIsNotNone(found, "bash is required: the hook runs nothing without it")
+            self.assertFalse(real(found).startswith(real(self.base)), found)
+        finally:
+            os.chdir(here)
+            if saved is None:
+                os.environ.pop("NoDefaultCurrentDirectoryInExePath", None)
+            else:
+                os.environ["NoDefaultCurrentDirectoryInExePath"] = saved
+
     def test_the_event_is_decoded_as_utf_8(self):
         # A Windows pipe reads in the ANSI code page; the bytes are UTF-8.
         payload = json.dumps({"cwd": "C:/\u0141\u00f3d\u017a"}, ensure_ascii=False)
