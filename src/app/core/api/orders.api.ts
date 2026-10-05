@@ -2,6 +2,7 @@ import { HttpClient, HttpParams } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 import { environment } from '@core/config/environment';
+import { noSuchOrder, orderPathSegment } from './order-path';
 import { CursorPage, OrderDetail, OrderSummary } from './types';
 
 /**
@@ -41,8 +42,10 @@ export class OrdersApi {
    * projection lags.
    */
   get(orderId: string): Observable<OrderDetail> {
-    // encodeURIComponent for the reason OrderingApi.cancel() gives: the id
-    // arrives from a route param Angular has already percent-decoded.
-    return this.http.get<OrderDetail>(`${this.base}/${encodeURIComponent(orderId)}`);
+    // One path segment or no request at all: `orderPathSegment` says why.
+    const segment = orderPathSegment(orderId);
+    if (segment === null) return noSuchOrder();
+
+    return this.http.get<OrderDetail>(`${this.base}/${segment}`);
   }
 }

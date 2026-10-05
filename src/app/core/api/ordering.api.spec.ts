@@ -59,6 +59,18 @@ describe('OrderingApi', () => {
     request.flush('33333333-3333-3333-3333-333333333333', { status: 200, statusText: 'OK' });
   });
 
+  it('cancels nothing for an id that is not one path segment, and answers 404', () => {
+    // '..' would make the POST /api/v1/cancel with the bearer attached.
+    for (const id of ['', '.', '..']) {
+      const failed = vi.fn();
+      api.cancel(id, 'customer_request').subscribe({ error: failed });
+
+      expect(failed).toHaveBeenCalledOnce();
+      expect(failed.mock.calls[0][0]).toMatchObject({ status: 404 });
+    }
+    controller.expectNone(() => true);
+  });
+
   it('cancels with the reason in the body and accepts a 204', () => {
     const done = vi.fn();
     api.cancel('33333333-3333-3333-3333-333333333333', 'customer_request').subscribe({ complete: done });

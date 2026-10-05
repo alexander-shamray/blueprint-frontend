@@ -49,6 +49,18 @@ describe('OrdersApi', () => {
     request.flush({ items: [], nextCursor: null });
   });
 
+  it('sends nothing for an id that is not one path segment, and answers 404', () => {
+    // '..' would resolve to /bff/v1/ with the bearer attached; '' is the list.
+    for (const id of ['', '.', '..']) {
+      const failed = vi.fn();
+      api.get(id).subscribe({ error: failed });
+
+      expect(failed).toHaveBeenCalledOnce();
+      expect(failed.mock.calls[0][0]).toMatchObject({ status: 404 });
+    }
+    controller.expectNone(() => true);
+  });
+
   it('reads one order by id, encoded as a single path segment', () => {
     api.get('a/b?c').subscribe();
 
