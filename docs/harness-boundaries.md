@@ -1885,7 +1885,17 @@ there. What is lost is the wrapper's fallback to `py -3.12 -m codebase_index`,
 so a host without the CLI on `PATH` gets no server — the state every Windows
 host was in before. The skill's Bash route keeps the wrapper, because the Bash
 tool does run inside Git Bash. `test_the_mcp_server_starts_without_a_shell`
-refuses a stdio server whose command is `bash` or `sh`.
+refuses a stdio server whose command is `bash` or `sh`. **A bare command name
+is resolved by the launcher, and on Windows that searches the working
+directory before `PATH`**, so a branch that commits a `codebase-index.exe` at
+the root of the checkout a session starts in would be run in the CLI's place.
+That is a residual, and not a new one: the entry it replaces was the bare
+name `bash`, open to the same lookup, and it then ran
+`.claude/skills/codebase-index/scripts/run-index`, a tracked script any
+branch can edit. An absolute path would close it and cannot be committed,
+because the CLI's install location is the host's; what stands in its place
+is Claude Code's approval of a project's MCP servers before it starts them,
+and a planted binary being a tracked file a diff shows.
 
 **`settings.json` raises `MCP_TIMEOUT` to 120 s for this repository's sessions
 (alexander-shamray/blueprint-frontend#141).** A server that runs past the
