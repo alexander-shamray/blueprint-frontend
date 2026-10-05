@@ -1838,7 +1838,15 @@ worktree reached through an alias is refused on the same principle — the
 reserved prefix is read from the resolved path as well as the reported
 one.
 
-**The hook never looks in the working directory for a program.** On Windows,
+**The hook never looks in the working directory for a program or a Python
+module.** The module half first: `run-index` falls back to
+`python -m codebase_index` when the CLI is not on `PATH`, and the worker
+starts it from the owner checkout's root, which a session can write; `-m` and
+`-c` put that directory first on `sys.path`, so a `codebase_index.py` there
+would have been imported in the package's place on every refresh. The worker
+passes `PYTHONSAFEPATH=1` to the wrapper, which Python 3.11 and later honour,
+and the round-5 review of alexander-shamray/blueprint-frontend#144 raised it.
+Then the program half. On Windows,
 `shutil.which` and CreateProcess both search the current directory before
 `PATH` for a bare name, and the hook runs `bash`, `git` and `tasklist` by bare
 name. The worker runs from the owner checkout's root, where a session can
