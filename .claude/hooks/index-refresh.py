@@ -279,7 +279,8 @@ def named(event):
     """The directory an event's change landed in: the edited file's, else `cwd`.
 
     **The edited file decides, not the session's directory
-    (alexander-shamray/blueprint-frontend#137).** #48 followed `cwd`, which
+    (alexander-shamray/blueprint-frontend#137).**
+    alexander-shamray/blueprint-frontend#48 followed `cwd`, which
     covers a session that `/branch` moved into a worktree. A session that
     stays in the main checkout and edits `.claude/worktrees/<name>/…` by
     absolute path changed the worktree while its `cwd` names the main
@@ -468,8 +469,14 @@ def seed_source(owner, root):
     root's own index gets: `index_openable`, and a written database. A main
     checkout with no index seeds nothing, itself included, and nothing is
     built in its place; one with an index is written, and asks for no seed.
+
+    **Only into an empty path.** A file shorter than a header is no index,
+    but it may be one a branch force-tracked there, and renaming the main
+    checkout's index over it would leave a tracked file holding the main
+    checkout's text for an unscoped commit to sweep up. A root with anything
+    at its index path is left to `update`, or to a person.
     """
-    if written(root):
+    if written(root) or os.path.lexists(os.path.join(root, CACHE, "index.sqlite")):
         return None
     main = main_checkout(owner)
     if main is None:
@@ -504,9 +511,13 @@ def seed(owner, root):
     (alexander-shamray/blueprint-frontend#127).** `.claude/cache/codebase-index/`
     is ignored, so every forked worktree begins with no index, and this hook
     used to run a full
-    `index` there. blueprint-backend measured that build at 230 s, against
-    0.1 s to copy the main checkout's index and 5.1 s for the `update` after
-    it, which re-reads only what the branch changed. So the hook never
+    `index` there. On this repository that build took about five seconds and
+    eight megabytes when measured; on blueprint-backend's larger tree the same
+    build took 230 s, against 0.1 s to copy the main checkout's index and
+    5.1 s for the `update` after it, which re-reads only what the branch
+    changed. A build grows with the corpus and a seed with the branch's
+    changes, so the seed is the shape that holds as either grows. So the
+    hook never
     builds: a worktree is seeded from the main checkout and then updated, and
     a checkout with neither is left alone.
 
@@ -569,6 +580,9 @@ def seed(owner, root):
         with open(partial, "rb") as handle:
             if handle.read(100)[18:20] != b"\x02\x02":
                 return False
+        # Asked again at the last moment: the path must still be empty.
+        if os.path.lexists(index):
+            return False
         for suffix in ("-wal", "-shm"):
             try:
                 os.remove(index + suffix)
