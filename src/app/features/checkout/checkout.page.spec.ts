@@ -337,7 +337,69 @@ describe('CheckoutPage', () => {
 
     expect(signIn).toHaveBeenCalledOnce();
     controller.expectNone('http://localhost:5000/api/v1/orders');
-    expect(fixture.componentInstance.error()).toMatchObject({ kind: 'signIn' });
+    // And the refused buyer's banner and address are not left for them either.
+    fixture.detectChanges();
+    expect(fixture.componentInstance.error()).toBeNull();
+    expect(fixture.componentInstance.form.controls.line1.value).toBe('');
+  });
+
+  it('starts the form again for a different subject: address, banner and id', async () => {
+    const page = fixture.componentInstance;
+    page.placeOrder();
+    const first = controller.expectOne('http://localhost:5000/api/v1/orders');
+    const firstId = first.request.body.commandId;
+    // A 5xx, after which the id is held: an edit alone would not mint a new
+    // one, so a new id below can only be the subject change's.
+    first.flush({ title: 'Server error', status: 500 }, { status: 500, statusText: 'Error' });
+    await fixture.whenStable();
+    expect(page.error()).not.toBeNull();
+
+    // A native sign-out and somebody else's sign-in, with this page still on
+    // the Cart tab's stack.
+    user.set({ username: 'other', subject: 'subject-other', permissions: [], expiresAt: 0 });
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(page.form.getRawValue()).toEqual({
+      line1: '', line2: '', city: '', postalCode: '', country: '',
+    });
+    expect(page.error()).toBeNull();
+    expect(page.identity.current()).not.toBe(firstId);
+
+    const place = [...fixture.nativeElement.querySelectorAll('ion-button')].find(
+      (el: HTMLElement) => el.textContent?.trim() === 'Place order',
+    );
+    expect(place.disabled).toBe(true);
+  });
+
+  it("drops the previous subject's field messages", async () => {
+    const page = fixture.componentInstance;
+    page.placeOrder();
+    controller.expectOne('http://localhost:5000/api/v1/orders').flush(
+      {
+        title: 'One or more validation errors occurred.',
+        status: 400,
+        errors: { 'ShippingAddress.City': ['City is required.'] },
+      },
+      { status: 400, statusText: 'Bad Request' },
+    );
+    await fixture.whenStable();
+    expect(page.fieldErrors().city).toEqual(['City is required.']);
+
+    user.set(null);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    expect(page.fieldErrors()).toEqual({});
+  });
+
+  it('keeps the form while the same subject stays signed in', async () => {
+    user.set({ username: 'demo', subject: 'subject-demo', permissions: [], expiresAt: 1 });
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    expect(fixture.componentInstance.form.getRawValue()).toEqual(validAddress);
   });
 
   it('does not loop when the replay is refused with another 401', async () => {

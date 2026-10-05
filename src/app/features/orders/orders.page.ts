@@ -124,7 +124,7 @@ export class OrdersPage {
   /** An entry fell inside a blocked window and read nothing; the next load clears it. */
   private readonly skippedSignal = signal(false);
 
-  readonly orders:Signal<readonly OrderSummary[]> = this.ordersSignal.asReadonly();
+  readonly orders: Signal<readonly OrderSummary[]> = this.ordersSignal.asReadonly();
   readonly error: Signal<DisplayError | null> = this.errorSignal.asReadonly();
   readonly loading: Signal<boolean> = this.loadingSignal.asReadonly();
 

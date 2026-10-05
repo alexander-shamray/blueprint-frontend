@@ -428,6 +428,45 @@ describe('OrderDetailPage', () => {
     expect(mounted.fixture.componentInstance.order()?.orderId).toBe(GUID_B);
   });
 
+  it('drops an older read failure that lands after a newer success', async () => {
+    const mounted = await mountWith(order());
+    controller = mounted.controller;
+    const page = mounted.fixture.componentInstance;
+
+    // Two reads of one order, for one subject, out at once: a pull to refresh
+    // and Try again, say. Only the id and the subject told them apart before.
+    page.refresh();
+    page.refresh();
+    const [older, newer] = controller.match(`${READ}${GUID_A}`);
+    expect(newer).toBeDefined();
+
+    newer.flush(order({ status: 'confirmed' }));
+    older.flush({ title: 'Server error', status: 500 }, { status: 500, statusText: 'Error' });
+    await mounted.fixture.whenStable();
+    mounted.fixture.detectChanges();
+
+    expect(page.loadError()).toBeNull();
+    expect(page.error()).toBeNull();
+    expect(page.order()?.status).toBe('confirmed');
+  });
+
+  it('drops an older read success that lands after a newer one', async () => {
+    const mounted = await mountWith(order());
+    controller = mounted.controller;
+    const page = mounted.fixture.componentInstance;
+
+    page.refresh();
+    page.refresh();
+    const [older, newer] = controller.match(`${READ}${GUID_A}`);
+    expect(newer).toBeDefined();
+
+    newer.flush(order({ status: 'dispatched', cancellable: false }));
+    older.flush(order());
+
+    expect(page.order()?.status).toBe('dispatched');
+    expect(page.loading()).toBe(false);
+  });
+
   it("forgets one buyer's order when the subject changes, and reads it for the next", async () => {
     const mounted = await mountWith(order());
     controller = mounted.controller;
