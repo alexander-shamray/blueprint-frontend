@@ -162,7 +162,8 @@ import { countryOptions } from './countries';
           <ion-note>
             This order was already placed by an earlier submission from this page, so any changes
             you made since were not applied, and nothing was sent again. Its id cannot be shown
-            here: the platform exposes no endpoint that reads an order back.
+            here, because the platform no longer holds that submission's result; History lists
+            every order this account has placed, this one included.
           </ion-note>
         </ion-item>
       }
@@ -345,7 +346,7 @@ export class CheckoutPage {
         // command.already_committed: the earlier submission won. Treat it as
         // success pending confirmation and move to the placed page with a note
         // — there is no order id to show, because the platform no longer holds
-        // the result and exposes no endpoint to read it back.
+        // the result. The placed page points at History, which lists it.
         if (displayed.kind === 'alreadyCommitted') {
           this.spendQuote();
           void this.router.navigate(['/tabs/cart/placed', ALREADY_COMMITTED]);
@@ -359,8 +360,8 @@ export class CheckoutPage {
         // not move: the placed page would tell the customer that the order
         // they just sent was placed, which is the one thing this response
         // rules out. Nor does it offer the edited order again under a new
-        // id: that order is certainly a second one, and the customer cannot
-        // check the first from here (no order read, §7). onFailure() has
+        // id: that order is certainly a second one, and the first can be
+        // checked on History before a deliberate second is made. onFailure() has
         // spent the identity, so Place order stays disabled; leaving and
         // coming back through the cart is how a deliberate second order is
         // made.

@@ -55,8 +55,9 @@ import { ErrorBannerComponent } from '@shared/error-banner.component';
  * without running. So a new entry starts and the catalogue refreshes, as on
  * already_committed, but the form KEEPS the edited values: they are what was
  * not applied, and the note under the form says so and points at Products,
- * where the product that does exist can be read. Checkout cannot point
- * anywhere (there is no order read) and makes the opposite choice.
+ * where the product that does exist can be read. Checkout points at History
+ * and still makes the opposite choice: an edited order is a second order,
+ * where an edited product is only the next entry.
  *
  * The gateway routes this POST through `catalog-write`, which matches POST
  * and requires authentication, rather than through `catalog-public`, which
