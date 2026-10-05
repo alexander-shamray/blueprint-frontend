@@ -77,10 +77,14 @@ trap 'exit 2' EXIT
 trap 'exit 2' PIPE
 
 [ "$#" -eq 1 ] ||
-  { echo "usage: run-guard.sh <guard-git-argv.py|guard-edit-target.py|guard-triager-dispatch.py|guard-triager-edit.py|index-refresh.py>" >&2; exit 2; }
+  { echo "usage: run-guard.sh <guard-git-argv.py|guard-edit-target.py|guard-triager-dispatch.py|guard-triager-edit.py|index-refresh.py|index-query-hint.py>" >&2; exit 2; }
 
+# Two of these guard nothing: the index refresh and the query hint
+# (alexander-shamray/blueprint-frontend#126). The hint's wiring ends `|| :`,
+# because under `UserPromptSubmit` the 2 this file leaves with on every
+# failure would erase the prompt rather than refuse a tool.
 case "$1" in
-  guard-git-argv.py|guard-edit-target.py|guard-triager-dispatch.py|guard-triager-edit.py|index-refresh.py) ;;
+  guard-git-argv.py|guard-edit-target.py|guard-triager-dispatch.py|guard-triager-edit.py|index-refresh.py|index-query-hint.py) ;;
   *) echo "run-guard.sh: not a hook this launcher runs: $1" >&2; exit 2 ;;
 esac
 
