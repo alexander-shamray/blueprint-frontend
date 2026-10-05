@@ -52,10 +52,8 @@ segment before forwarding.
 Ordering still exposes no endpoint that reads an order back. The buyer's order
 read is the BFF's — a projection it owns (backend ADR-051, §10.7 of its
 `10-api-gateway.md`, built in blueprint-backend#501) — and it binds the
-subject from the principal, so it asks for a session and no permission. This
-section said there was no order read at all until that landed;
-`client-architecture.md` §7 keeps the claim and its last subsection says what
-replaced it.
+subject from the principal, so it asks for a session and no permission.
+`client-architecture.md` §7 owns how this client reads it.
 
 Owners, for the citation rule in §1: `ProductSummaryDto` and
 `PublishProductCommand` in `Catalog.Application`; `CursorPage<T>` in
@@ -248,20 +246,17 @@ and a link to the order's tracking detail (§5.7). **Cancel is not here**: it
 moved to the tracking detail, so there is one cancel button and not two.
 
 The status is polled, because the read is a projection and nothing pushes: at
-once, then every 3 seconds, backing off to 15, stopping on a terminal status
-(`delivered`, `cancelled`, `out_of_stock`, `declined`), while the page is
-hidden, and when Ionic reports the page is being left. The intervals are
-named constants in `core/orders/order-poll.ts`. No poll is sent while the
-`authenticated` rate-limit window is blocked, and a 429 on a poll stretches
-the interval rather than raising a banner for a request the buyer did not
-make. A 404 straight after placing is the projection not having absorbed
+once, then on the back-off `ORDER_POLL` in `core/orders/order-poll.ts`
+defines, stopping on a terminal status (`isTerminal` in the same file), while
+the page is hidden, and when Ionic reports the page is being left. No poll is
+sent while the `authenticated` rate-limit window is blocked, and a 429 on a
+poll stretches the interval rather than raising a banner for a request the
+buyer did not make. A 404 straight after placing is the projection not having absorbed
 `OrderPlaced` yet, so it reads as "not recorded yet" and the poll carries on.
 A reply for an id the page has since left is dropped.
 
-Until the BFF's read landed this page stated, in one sentence, that the
-platform exposed no order read, and did not poll; `client-architecture.md` §7
-keeps that claim. The `already-committed` sentinel still has no id to show,
-and the page now points at History, where the order is listed.
+The `already-committed` sentinel has no id to show, so the page points at
+History, where the order is listed.
 
 ### 5.5 Publish
 
@@ -392,8 +387,7 @@ introduces.
 ## 10. Out of scope
 
 - A mobile BFF, a product detail *route*, search, images upload or any screen
-  without an endpoint behind it. Order history was on this list until the
-  BFF's order read gave it one (§5.7).
+  without an endpoint behind it.
 - **Product detail as a sheet is in scope, and needs no endpoint of its own**,
   because the listing's endpoint already supplies the row it shows. It opens
   over a row of the listing and shows only what that row's `ProductSummary`
