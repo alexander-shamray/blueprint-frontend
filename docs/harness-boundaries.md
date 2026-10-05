@@ -1835,6 +1835,19 @@ worktree reached through an alias is refused on the same principle — the
 reserved prefix is read from the resolved path as well as the reported
 one.
 
+**The hook never looks in the working directory for a program.** On Windows,
+`shutil.which` and CreateProcess both search the current directory before
+`PATH` for a bare name, and the hook runs `bash`, `git` and `tasklist` by bare
+name from the owner checkout's root, where a session can write a `bash.cmd`
+or a `git.exe` that would run in place of the real one, with no prompt.
+Measured here: with `NoDefaultCurrentDirectoryInExePath` unset,
+`shutil.which("bash")` answered a planted `.\bash.CMD` and a planted
+`git.exe` ran in place of git. Claude Code passes the variable down, which is
+why it had not happened; `index-refresh.py` now sets it itself, so the hook
+does not depend on its launcher for it, and the worker inherits it. The
+in-house review's third round on alexander-shamray/blueprint-frontend#144
+raised it, against code older than that branch.
+
 **The worker records its indexer's pid in the lock file**, because the lock
 is the worker's and not the child's: a worker killed mid-run leaves
 `run-index` behind, and the next edit would otherwise start a second one
