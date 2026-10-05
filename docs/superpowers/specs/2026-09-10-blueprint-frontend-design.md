@@ -251,9 +251,17 @@ defines, stopping on a terminal status (`isTerminal` in the same file), while
 the page is hidden, and when Ionic reports the page is being left. No poll is
 sent while the `authenticated` rate-limit window is blocked, and a 429 on a
 poll stretches the interval rather than raising a banner for a request the
-buyer did not make. A 404 straight after placing is the projection not having absorbed
-`OrderPlaced` yet, so it reads as "not recorded yet" and the poll carries on.
-A reply for an id the page has since left is dropped.
+buyer did not make. A 404 straight after placing is the projection not having
+absorbed `OrderPlaced` yet, so it reads as "not recorded yet" and the poll
+carries on. A reply for an id the page has since left is dropped, and a change
+of signed-in subject restarts the poll from nothing.
+
+Some of §6's rows read differently on a poll, for the same reason. A 401 or a
+403 stops it and shows the banner without calling `AuthService.signIn()`; a
+401 stops it only until a session is back, when the next entry to the page
+resumes it, while a 403 stays a stop. A 5xx, a network failure or a timeout
+is a note under the status while the poll keeps trying, not §6's retry
+banner.
 
 The `already-committed` sentinel has no id to show, so the page points at
 History, where the order is listed.
@@ -291,17 +299,24 @@ error. A refund is a further step beside the status. It shows the lines with
 their quantity and unit price, the total, the payment outcome where there is
 one, the carrier's tracking number where one is stored, and the time the
 platform last recorded anything (`asOf`). It does no date arithmetic and
-derives no step from another.
+derives no step from another. Like History, it reads the order again on every
+entry after the first and forgets it the moment the signed-in subject changes.
+
+A 401 on the History list or on the tracking detail's read shows §6's sign-in
+banner but neither calls `AuthService.signIn()` nor replays, because a read is
+not an action the buyer started. Cancel's replay, below, is the one §6
+describes.
 
 **Cancel lives here.** It is offered while the read's `cancellable` is true,
 which backend §10.7 calls a hint and not an authority, so the command's own
-422 is still handled and shown as sent. After despatch the button is absent and a
-sentence says why. Cancel posts `{ reason: 'customer_request' }`, the only
-reason a customer can truthfully carry (`client-architecture.md` §12, *A
+422 is still handled and shown as sent. After despatch the button is absent
+and a sentence says why. Cancel posts `{ reason: 'customer_request' }`, the
+only reason a customer can truthfully carry (`client-architecture.md` §12, *A
 customer may not name the platform's reasons*), with an in-flight guard, a
-reply dropped if it belongs to an order the page has since left, and one
-replay after a sign-in on a 401. After a 204 the page reads the order again
-and says the progress follows once the read records it.
+reply dropped if it belongs to an order or a buyer the page has since left,
+and one replay after a sign-in on a 401, sent only when the same buyer is
+signed in afterwards. After a 204 the page reads the order again and says the
+progress follows once the read records it.
 
 ## 6. Error handling
 

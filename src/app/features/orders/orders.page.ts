@@ -152,14 +152,17 @@ export class OrdersPage {
   constructor() {
     // A different subject — a sign-out, or a sign-out and somebody else's
     // sign-in — empties the list before anything else can render it. The
-    // first run is this construction's own subject, and nothing has loaded
-    // yet, so it is skipped by the same captured-value idiom ProductsPage
-    // uses.
+    // comparison is with the last subject seen, not with the one this page
+    // was built for: a subject can come back — A, then B, then A again, which
+    // on native need not pass through a sign-out — and the return has to
+    // clear B's list too. The first run sees this construction's own subject,
+    // and nothing has loaded yet, so it does nothing.
     const user = this.auth.user();
-    const constructedFor = untracked(() => user()?.subject ?? null);
+    let lastSeen = untracked(() => user()?.subject ?? null);
     effect(() => {
       const subject = user()?.subject ?? null;
-      if (subject === constructedFor) return;
+      if (subject === lastSeen) return;
+      lastSeen = subject;
       untracked(() => this.clear());
     });
   }

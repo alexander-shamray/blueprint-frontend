@@ -144,6 +144,22 @@ describe('OrdersPage', () => {
     expect(mounted.fixture.componentInstance.orders()).toEqual([]);
   });
 
+  it("forgets the other buyer's history when the first one comes back", () => {
+    const mounted = mount();
+    controller = mounted.controller;
+
+    mounted.user.set({ ...demo, username: 'other', subject: 'b' });
+    mounted.fixture.detectChanges();
+    mounted.fixture.componentInstance.ionViewWillEnter();
+    list(controller).flush({ items: [summary('theirs')], nextCursor: null });
+    expect(mounted.fixture.componentInstance.orders().map((o) => o.orderId)).toEqual(['theirs']);
+
+    // Back to the subject this page was built for, without passing through null.
+    mounted.user.set(demo);
+    mounted.fixture.detectChanges();
+    expect(mounted.fixture.componentInstance.orders()).toEqual([]);
+  });
+
   it('names an unresolved product and an order with no priced lines yet', () => {
     const mounted = mount();
     controller = mounted.controller;

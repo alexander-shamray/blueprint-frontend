@@ -223,7 +223,7 @@ One deliberate non-guard is worth naming. `CheckoutPage.placeOrder()` does not
 block a double-click while a request is in flight. Two requests under one id is
 the platform answering `request.in_progress` to the second, which is the
 mechanism working as designed; suppressing it client-side would hide the thing
-this client exists to demonstrate. `OrderPlacedPage.cancel()` makes the opposite
+this client exists to demonstrate. `OrderDetailPage.cancel()` makes the opposite
 choice for a reason specific to it: `CancelOrderRequest` carries no command id
 at all — the wire body is `{ reason }` alone — so a second tap replays nothing,
 it is a second uncorrelated write that can surface EF's
@@ -382,11 +382,13 @@ absorbed an Ordering event, and an order nobody has attributed is invisible to
 everyone, with the same 404 as one that does not exist. Order placed reads the
 order the moment it arrives, which is exactly when the projection is most
 likely to be behind, so `OrderPlacedPage` treats a 404 as "not recorded yet"
-and keeps polling. The poll's intervals and its terminal statuses live in
-`core/orders/order-poll.ts` and nowhere else; it never sends inside a blocked
-`authenticated` window, and a 429 on a poll lengthens the next wait instead of
-raising a banner for a request the buyer did not make. There is no stream, so
-polling is the honest mechanism, and it is deleted when one exists.
+and keeps polling. The poll's intervals are `ORDER_POLL` in
+`core/orders/order-poll.ts`, and the statuses it stops on are
+`TERMINAL_STATUSES` in `core/api/types.ts`, read through `isTerminal` beside
+the intervals. It never sends inside a blocked `authenticated` window, and a
+429 on a poll lengthens the next wait instead of raising a banner for a
+request the buyer did not make. There is no stream, so polling is the honest
+mechanism, and it is deleted when one exists.
 
 **`cancellable` is a hint.** The backend says so in as many words: the field
 is computed from a projection that lags `Order.Cancel`, so it can read true
@@ -819,12 +821,15 @@ reload; nothing about arriving there does it. The smoke proves the mechanism
 rather than the outcome: the new product appears after a tab click, with no
 `page.reload()` anywhere in the test.
 
-Both watchers of that idiom — `ProductsPage`'s `constructedAtVersion` and
-`OrdersPage`'s `constructedFor` — capture the value they were built with and
-compare against it, because an `effect()` runs once immediately over every
-signal it reads and that first run is the construction's own work.
-`OrderPlacedPage` held the other one until its effect began restarting a poll,
-which the first run has to do as well.
+`ProductsPage`'s `constructedAtVersion` watches through that idiom: it captures
+the value it was built with and compares against it, because an `effect()`
+runs once immediately over every signal it reads and that first run is the
+construction's own work. A version counter never repeats, so the value it was
+built with is the only one it needs. `OrdersPage`'s `lastSeen` starts from the
+subject it was built for in the same way but moves with every change, because
+a subject can come back — A, then B, then A again — and the return has to
+clear B's list too. `OrderPlacedPage` held the idiom's other watcher until its
+effect began restarting a poll, which the first run has to do as well.
 
 History is the second tab root whose content changes behind it, and it answers
 differently from Products, because nothing can ask it to: a placement, a

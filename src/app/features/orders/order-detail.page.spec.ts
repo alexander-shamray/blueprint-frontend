@@ -2,11 +2,11 @@ import { provideHttpClient, withInterceptors } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { ActivatedRoute, convertToParamMap, provideRouter } from '@angular/router';
-import { signal } from '@angular/core';
+import { WritableSignal, signal } from '@angular/core';
 import { BehaviorSubject, map } from 'rxjs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { OrderDetail } from '@core/api/types';
-import { AuthService } from '@core/auth/auth.service';
+import { AuthService, CurrentUser } from '@core/auth/auth.service';
 import { rateLimitInterceptor } from '@core/errors/rate-limit.interceptor';
 import { OrderDetailPage, timelineOf } from './order-detail.page';
 
@@ -39,11 +39,17 @@ function order(overrides: Partial<OrderDetail> = {}): OrderDetail {
   };
 }
 
+const demo: CurrentUser = { username: 'demo', subject: 'a', permissions: [], expiresAt: 0 };
+const other: CurrentUser = { username: 'other', subject: 'b', permissions: [], expiresAt: 0 };
+
 let signIn: ReturnType<typeof vi.fn>;
 
 function mount(id: string) {
   TestBed.resetTestingModule();
   const paramMap = new BehaviorSubject(id);
+  // One writable signal for the whole mount, as the real service holds one,
+  // so a test can sign somebody else in under the page.
+  const user: WritableSignal<CurrentUser | null> = signal(demo);
   signIn = vi.fn(async () => undefined);
 
   TestBed.configureTestingModule({
@@ -54,7 +60,7 @@ function mount(id: string) {
       provideHttpClientTesting(),
       {
         provide: AuthService,
-        useValue: { signIn, user: () => signal({ username: 'demo' }), accessToken: () => 't' },
+        useValue: { signIn, user: () => user, accessToken: () => 't' },
       },
       {
         provide: ActivatedRoute,
@@ -69,7 +75,7 @@ function mount(id: string) {
   const fixture: ComponentFixture<OrderDetailPage> = TestBed.createComponent(OrderDetailPage);
   fixture.detectChanges();
   const controller = TestBed.inject(HttpTestingController);
-  return { fixture, paramMap, controller };
+  return { fixture, paramMap, user, controller };
 }
 
 /** Mounts, answers the first read with `body`, and renders. */
@@ -419,5 +425,87 @@ describe('OrderDetailPage', () => {
 
     forB.flush(order({ orderId: GUID_B }));
     expect(mounted.fixture.componentInstance.order()?.orderId).toBe(GUID_B);
+  });
+
+  it("forgets one buyer's order when the subject changes, and reads it for the next", async () => {
+    const mounted = await mountWith(order());
+    controller = mounted.controller;
+    expect(cancelButton(mounted.fixture)).toBeDefined();
+
+    mounted.user.set(other);
+    mounted.fixture.detectChanges();
+    expect(mounted.fixture.componentInstance.order()).toBeNull();
+
+    // Somebody else's order answers 404 (§10.7), and nothing of the first buyer's is left.
+    controller
+      .expectOne(`${READ}${GUID_A}`)
+      .flush({ title: 'Not Found', status: 404 }, { status: 404, statusText: 'Not Found' });
+    await mounted.fixture.whenStable();
+    mounted.fixture.detectChanges();
+
+    expect(mounted.fixture.componentInstance.order()).toBeNull();
+    expect(cancelButton(mounted.fixture)).toBeUndefined();
+  });
+
+  it('reads nothing once the buyer signs out, and drops what they were shown', async () => {
+    const mounted = await mountWith(order());
+    controller = mounted.controller;
+
+    mounted.user.set(null);
+    mounted.fixture.detectChanges();
+
+    expect(mounted.fixture.componentInstance.order()).toBeNull();
+    controller.expectNone((r) => r.url.startsWith(READ));
+  });
+
+  it('drops a read reply issued for the previous subject', () => {
+    const mounted = mount(GUID_A);
+    controller = mounted.controller;
+    const forA = controller.expectOne(`${READ}${GUID_A}`);
+
+    mounted.user.set(other);
+    mounted.fixture.detectChanges();
+    const forB = controller.expectOne(`${READ}${GUID_A}`);
+
+    forA.flush(order());
+    expect(mounted.fixture.componentInstance.order()).toBeNull();
+
+    forB.flush({ title: 'Not Found', status: 404 }, { status: 404, statusText: 'Not Found' });
+    expect(mounted.fixture.componentInstance.order()).toBeNull();
+  });
+
+  it('reads again on every entry but the first, which the id effect has covered', async () => {
+    const mounted = await mountWith(order());
+    controller = mounted.controller;
+
+    mounted.fixture.componentInstance.ionViewWillEnter();
+    controller.expectNone((r) => r.url.startsWith(READ));
+
+    // A cached detail revisited from the tab: the order may have moved since.
+    mounted.fixture.componentInstance.ionViewWillEnter();
+    controller
+      .expectOne(`${READ}${GUID_A}`)
+      .flush(order({ status: 'dispatched', cancellable: false }));
+    expect(mounted.fixture.componentInstance.order()?.status).toBe('dispatched');
+  });
+
+  it('does not replay a cancellation when somebody else completes the sign-in', async () => {
+    const mounted = await mountWith(order());
+    controller = mounted.controller;
+    signIn.mockImplementation(async () => mounted.user.set(other));
+
+    mounted.fixture.componentInstance.cancel();
+    controller
+      .expectOne((r) => r.url.endsWith('/cancel'))
+      .flush({ title: 'Unauthorized', status: 401 }, { status: 401, statusText: 'Unauthorized' });
+    await mounted.fixture.whenStable();
+    mounted.fixture.detectChanges();
+
+    expect(signIn).toHaveBeenCalledOnce();
+    controller.expectNone((r) => r.url.endsWith('/cancel'));
+    // The page reads the order for whoever is signed in now, and sends nothing in their name.
+    controller
+      .expectOne(`${READ}${GUID_A}`)
+      .flush({ title: 'Not Found', status: 404 }, { status: 404, statusText: 'Not Found' });
   });
 });

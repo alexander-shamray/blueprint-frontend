@@ -2,10 +2,11 @@ import { provideHttpClient, withInterceptors } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { ActivatedRoute, convertToParamMap, provideRouter } from '@angular/router';
-import { DOCUMENT } from '@angular/core';
+import { DOCUMENT, WritableSignal, signal } from '@angular/core';
 import { BehaviorSubject, map } from 'rxjs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { OrderDetail } from '@core/api/types';
+import { AuthService, CurrentUser } from '@core/auth/auth.service';
 import { rateLimitInterceptor } from '@core/errors/rate-limit.interceptor';
 import { OrderPlacedPage } from './order-placed.page';
 
@@ -30,9 +31,13 @@ function detail(orderId: string, status: string): OrderDetail {
   };
 }
 
+const demo: CurrentUser = { username: 'demo', subject: 'a', permissions: [], expiresAt: 0 };
+const other: CurrentUser = { username: 'other', subject: 'b', permissions: [], expiresAt: 0 };
+
 function mount(id: string): {
   fixture: ComponentFixture<OrderPlacedPage>;
   paramMap: BehaviorSubject<string>;
+  user: WritableSignal<CurrentUser | null>;
   controller: HttpTestingController;
 } {
   TestBed.resetTestingModule();
@@ -41,6 +46,8 @@ function mount(id: string): {
   // through the SAME ActivatedRoute, the way Angular's advanceActivatedRoute
   // does on a reused route.
   const paramMap = new BehaviorSubject(id);
+  // One writable signal for the mount, so a test can sign somebody else in.
+  const user: WritableSignal<CurrentUser | null> = signal(demo);
 
   TestBed.configureTestingModule({
     imports: [OrderPlacedPage],
@@ -50,6 +57,7 @@ function mount(id: string): {
       // window it opens.
       provideHttpClient(withInterceptors([rateLimitInterceptor])),
       provideHttpClientTesting(),
+      { provide: AuthService, useValue: { user: () => user } },
       {
         provide: ActivatedRoute,
         useValue: {
@@ -62,7 +70,7 @@ function mount(id: string): {
 
   const fixture = TestBed.createComponent(OrderPlacedPage);
   fixture.detectChanges();
-  return { fixture, paramMap, controller: TestBed.inject(HttpTestingController) };
+  return { fixture, paramMap, user, controller: TestBed.inject(HttpTestingController) };
 }
 
 /** Every read outstanding right now, which is how a test counts polls. */
@@ -284,5 +292,85 @@ describe('OrderPlacedPage', () => {
     expect(text).toContain('Open History');
     // No order id came back, so neither the sentinel nor a real id belongs on screen.
     expect(text).not.toContain('already-committed');
+  });
+
+  it('restarts the poll from nothing when somebody else signs in under the page', () => {
+    const mounted = mount(GUID_A);
+    controller = mounted.controller;
+    reads(controller)[0].flush(detail(GUID_A, 'placed'));
+    expect(mounted.fixture.componentInstance.status()).toBe('placed');
+
+    mounted.user.set(other);
+    mounted.fixture.detectChanges();
+    expect(mounted.fixture.componentInstance.status()).toBeNull();
+
+    // At once rather than on the old back-off, and 404: the order is not theirs.
+    const [forOther] = reads(controller);
+    forOther.flush({ title: 'Not Found', status: 404 }, { status: 404, statusText: 'Not Found' });
+    mounted.fixture.detectChanges();
+
+    expect(mounted.fixture.componentInstance.status()).toBeNull();
+    expect(mounted.fixture.nativeElement.textContent).toContain('has not recorded this order yet');
+    mounted.fixture.destroy();
+  });
+
+  it('lets a 404 clear a status an earlier read reported, rather than stand beside it', () => {
+    const mounted = mount(GUID_A);
+    controller = mounted.controller;
+    reads(controller)[0].flush(detail(GUID_A, 'placed'));
+
+    vi.advanceTimersByTime(3_000);
+    reads(controller)[0].flush(
+      { title: 'Not Found', status: 404 },
+      { status: 404, statusText: 'Not Found' },
+    );
+
+    expect(mounted.fixture.componentInstance.status()).toBeNull();
+    mounted.fixture.destroy();
+  });
+
+  it('lets the latest answer decide the note: a 404 after a failed read says not recorded', () => {
+    const mounted = mount(GUID_A);
+    controller = mounted.controller;
+    reads(controller)[0].flush(null, { status: 503, statusText: 'Service Unavailable' });
+    mounted.fixture.detectChanges();
+    expect(mounted.fixture.nativeElement.textContent).toContain('could not be read just now');
+
+    vi.advanceTimersByTime(3_000);
+    reads(controller)[0].flush(
+      { title: 'Not Found', status: 404 },
+      { status: 404, statusText: 'Not Found' },
+    );
+    mounted.fixture.detectChanges();
+
+    expect(mounted.fixture.nativeElement.textContent).not.toContain('could not be read just now');
+    expect(mounted.fixture.nativeElement.textContent).toContain('has not recorded this order yet');
+    mounted.fixture.destroy();
+  });
+
+  it('resumes after a 401 on the next entry once a session is back, and not after a 403', () => {
+    const mounted = mount(GUID_A);
+    controller = mounted.controller;
+    reads(controller)[0].flush(
+      { title: 'Unauthorized', status: 401 },
+      { status: 401, statusText: 'Unauthorized' },
+    );
+    vi.advanceTimersByTime(120_000);
+    expect(reads(controller)).toEqual([]);
+
+    // Away to sign in on Account and back: the same buyer, with a session again.
+    mounted.fixture.componentInstance.ionViewWillLeave();
+    mounted.fixture.componentInstance.ionViewWillEnter();
+    expect(mounted.fixture.componentInstance.error()).toBeNull();
+
+    reads(controller)[0].flush(
+      { title: 'Forbidden', status: 403 },
+      { status: 403, statusText: 'Forbidden' },
+    );
+    mounted.fixture.componentInstance.ionViewWillLeave();
+    mounted.fixture.componentInstance.ionViewWillEnter();
+
+    expect(reads(controller)).toEqual([]);
+    expect(mounted.fixture.componentInstance.error()).toMatchObject({ kind: 'forbidden' });
   });
 });

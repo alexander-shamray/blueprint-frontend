@@ -12,7 +12,7 @@ import {
 } from '@ionic/angular';
 import { OrderingApi } from '@core/api/ordering.api';
 import { OrdersApi } from '@core/api/orders.api';
-import { CancelReason, OrderDetail, PERMISSIONS } from '@core/api/types';
+import { CANCELLATION_STATUSES, CancelReason, OrderDetail, PERMISSIONS } from '@core/api/types';
 import { AuthService } from '@core/auth/auth.service';
 import { DisplayError, mapError } from '@core/errors/error-mapper';
 import { RateLimitWindows } from '@core/errors/rate-limit';
@@ -30,9 +30,6 @@ export interface TimelineStep {
   /** An unhappy ending, drawn as the last step of a finished timeline rather than as an error. */
   readonly ending: boolean;
 }
-
-/** The three members one `OrderCancelled` decides between (§10.7). */
-const ENDINGS: readonly string[] = ['cancelled', 'out_of_stock', 'declined'];
 
 /** The forward steps, in the BFF's rank order. Keyed by name, as `OrderTimeline` is. */
 const FORWARD = [
@@ -54,7 +51,7 @@ const FORWARD = [
  * status (§10.7's `refunded`), so it is appended after the ending it followed.
  */
 export function timelineOf(order: OrderDetail): readonly TimelineStep[] {
-  const ended = ENDINGS.includes(order.status);
+  const ended = (CANCELLATION_STATUSES as readonly string[]).includes(order.status);
   const steps: TimelineStep[] = FORWARD.filter(
     (step) => !ended || order.timeline[step.key] !== null,
   ).map((step) => ({ ...step, at: order.timeline[step.key], ending: false }));
@@ -243,6 +240,7 @@ export class OrderDetailPage {
   private readonly ordering = inject(OrderingApi);
   private readonly route = inject(ActivatedRoute);
   private readonly auth = inject(AuthService);
+  private readonly user = this.auth.user();
 
   /**
    * The ONLY reason a cancellation from this screen can truthfully carry.
@@ -315,6 +313,9 @@ export class OrderDetailPage {
   /** True while a `cancel()` request is outstanding. See `cancel()` below. */
   private readonly cancelling = signal(false);
 
+  /** Ionic reports the first entry too, and the id effect has already read the order for it. */
+  private enteredBefore = false;
+
   constructor() {
     // Every id this instance is handed, the first included, is read once;
     // a later id also drops what the previous one left, as
@@ -330,12 +331,55 @@ export class OrderDetailPage {
         this.load();
       });
     });
+
+    // A different subject drops everything the previous one left — the
+    // order, a cancel note, a banner, the in-flight guard, a spent replay —
+    // and reads again for the new one. This page stays on History's stack
+    // across a native sign-out and sign-in, and the tab button restores it,
+    // so without this the next buyer on the device would be shown the last
+    // one's order with its Cancel button. Compared with the last subject
+    // seen rather than the one this page was built for, because a subject
+    // can come back; the first run is the construction's own and does nothing.
+    let lastSeen = untracked(() => this.subject());
+    effect(() => {
+      const subject = this.user()?.subject ?? null;
+      if (subject === lastSeen) return;
+      lastSeen = subject;
+      untracked(() => {
+        this.orderState.set(null);
+        this.cancelledState.set(false);
+        this.cancelErrorState.set(null);
+        this.loadErrorState.set(null);
+        this.loadingState.set(false);
+        this.cancelling.set(false);
+        this.replayedAfterSignIn = false;
+        if (subject !== null) this.load();
+      });
+    });
   }
 
-  /** Reads the order again. A reply for an id this page has since left is dropped. */
+  /**
+   * Ionic's entry hook. A detail left on History's stack is shown again from
+   * its cache when the tab is revisited, and the order may have moved since —
+   * a despatch, a cancellation — so every entry after the first reads it
+   * again. The first is skipped because the id effect has just read it.
+   */
+  ionViewWillEnter(): void {
+    if (!this.enteredBefore) {
+      this.enteredBefore = true;
+      return;
+    }
+    this.load();
+  }
+
+  /**
+   * Reads the order again. A reply for an id this page has since left, or
+   * one issued under a subject that has since signed out, is dropped.
+   */
   load(done?: () => void): void {
     const issuedForId = this.orderId();
     if (issuedForId === '') return;
+    const issuedForSubject = this.subject();
 
     this.loadingState.set(true);
     this.loadErrorState.set(null);
@@ -343,13 +387,13 @@ export class OrderDetailPage {
     this.orders.get(issuedForId).subscribe({
       next: (order) => {
         done?.();
-        if (this.orderId() !== issuedForId) return;
+        if (!this.stillFor(issuedForId, issuedForSubject)) return;
         this.loadingState.set(false);
         this.orderState.set(order);
       },
       error: (failure: HttpErrorResponse) => {
         done?.();
-        if (this.orderId() !== issuedForId) return;
+        if (!this.stillFor(issuedForId, issuedForSubject)) return;
         this.loadingState.set(false);
         this.loadErrorState.set(mapError(failure));
       },
@@ -372,11 +416,14 @@ export class OrderDetailPage {
     // A landing after the route handed this instance order B is dropped rather
     // than put under B — and dropped BEFORE `cancelling` is released, so a
     // cancel the user has since started for B keeps its guard.
+    // The subject is captured beside it for the same reason: a reply for the
+    // buyer who has since signed out never lands under the one who followed.
     const issuedForId = this.orderId();
+    const issuedForSubject = this.subject();
 
     this.ordering.cancel(issuedForId, OrderDetailPage.USER_REASON).subscribe({
       next: () => {
-        if (this.orderId() !== issuedForId) return;
+        if (!this.stillFor(issuedForId, issuedForSubject)) return;
         this.cancelling.set(false);
         this.replayedAfterSignIn = false;
         this.cancelErrorState.set(null);
@@ -386,7 +433,7 @@ export class OrderDetailPage {
         this.load();
       },
       error: (failure: HttpErrorResponse) => {
-        if (this.orderId() !== issuedForId) return;
+        if (!this.stillFor(issuedForId, issuedForSubject)) return;
         this.cancelling.set(false);
         // The permission comes from the route's own knowledge of what it
         // needs, not from the response — the 403 deliberately names none.
@@ -396,7 +443,10 @@ export class OrderDetailPage {
         // Spec §6's 401 row. A 401 is a refusal at the edge, before the
         // handler ever runs, so no cancellation was recorded and sending the
         // same one again after re-authenticating is the first one, arriving
-        // with a token this time. Replayed for `issuedForId` alone.
+        // with a token this time. Replayed for `issuedForId` alone, and only
+        // while the same subject is signed in: it is the same request only
+        // for the same principal, and a sign-in that hands the device to
+        // somebody else must not send a cancellation they never pressed.
         if (displayed.kind === 'signIn') this.signInAndReplay(issuedForId);
       },
     });
@@ -417,14 +467,33 @@ export class OrderDetailPage {
   private signInAndReplay(issuedForId: string): void {
     const replay = !this.replayedAfterSignIn;
     this.replayedAfterSignIn = true;
+    // Who was refused. With nobody signed in there is no principal to hold
+    // the replay to, so the buyer presses Cancel again instead.
+    const refusedSubject = this.subject();
 
     this.auth.signIn().then(
       () => {
-        if (replay && this.orderId() === issuedForId && !this.cancelled()) this.cancel();
+        if (
+          replay &&
+          refusedSubject !== null &&
+          this.stillFor(issuedForId, refusedSubject) &&
+          !this.cancelled()
+        ) {
+          this.cancel();
+        }
       },
       // `unknown`, not HttpErrorResponse: signIn() can reject with a bare
       // string when discovery fails (see CartPage.getQuote()).
       (failure: unknown) => this.cancelErrorState.set(mapError(failure)),
     );
+  }
+
+  private subject(): string | null {
+    return this.user()?.subject ?? null;
+  }
+
+  /** Whether a reply issued for this order, under this subject, still belongs on screen. */
+  private stillFor(orderId: string, subject: string | null): boolean {
+    return this.orderId() === orderId && this.subject() === subject;
   }
 }
