@@ -121,6 +121,17 @@
           }
         ]
       }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${CLAUDE_PROJECT_DIR}/.claude/hooks/run-guard.sh\" index-query-hint.py || :",
+            "timeout": 5
+          }
+        ]
+      }
     ]
   }
 }

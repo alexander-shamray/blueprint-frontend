@@ -10510,10 +10510,10 @@ class ALauncherCheckout:
         if guards:
             for path in source.glob("guard-*.py"):
                 shutil.copy2(path, self.hooks / path.name)
-            # The index refresh is the one hook here that guards nothing,
-            # and the closed set admits it beside the guards.
-            shutil.copy2(source / "index-refresh.py",
-                         self.hooks / "index-refresh.py")
+            # The index refresh and the query hint are the hooks here that
+            # guard nothing, and the closed set admits them beside the guards.
+            for name in ("index-refresh.py", "index-query-hint.py"):
+                shutil.copy2(source / name, self.hooks / name)
             # `guard-triager-edit.py` reads its deny list out of `ship.md`.
             (self.root / ".claude" / "commands").mkdir()
             shutil.copy2(COMMANDS / "ship.md",
@@ -11211,6 +11211,10 @@ class ARememberedGuardAnswersAsAProbedOne(LauncherMarkCases, unittest.TestCase):
         # An event the refresh cannot read is one it ignores, which is also
         # the only one a case may hand it: a readable one starts a worker.
         ("index-refresh.py", "not json"),
+        # The hint reads a prompt and starts nothing, so a readable event is
+        # as safe to hand it as an unreadable one.
+        ("index-query-hint.py", {"prompt": "where is the cart store"}),
+        ("index-query-hint.py", "not json"),
     )
 
     def both(self, box, guard="guard-git-argv.py", event="{}"):
