@@ -7,11 +7,11 @@ import { CancelOrderRequest, CancelReason, PlaceOrderCommand } from './types';
 /**
  * Ordering.Api/Endpoints/OrderEndpoints.cs, through the gateway.
  *
- * There is no read here, and the omission is the platform's rather than this
- * file's: Ordering exposes no endpoint that reads an order back, and
+ * There is no read here, and the omission is still the platform's rather than
+ * this file's: Ordering exposes no endpoint that reads an order back, and
  * OrderingPermissions.cs says why there is no `orders:read` to require. The
- * order-placed screen states the consequence instead of inventing a status
- * (spec §5.4).
+ * buyer's order read is the BFF's projection (backend ADR-051), so it lives
+ * on `OrdersApi`, beside this file rather than in it.
  */
 @Injectable({ providedIn: 'root' })
 export class OrderingApi {
