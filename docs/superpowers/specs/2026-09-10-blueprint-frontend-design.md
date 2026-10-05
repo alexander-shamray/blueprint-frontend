@@ -354,11 +354,15 @@ No error text is authored on the client beyond the six generic banners for
   test utilities, driving the page through the mapped errors.
 - **End-to-end** (Playwright, `e2e/`): one smoke against the backend's Compose
   stack — sign in as `demo`, browse a page of products, add two, quote, place,
-  cancel with `customer_request`; then sign in as `browser` and assert the
-  publish tab is absent and a direct navigation to it is refused. Requires
-  Docker and the backend checkout. It is never skipped silently: without the
-  stack it fails on connection, matching the backend's rule that a skip fails
-  open.
+  follow the order read to the status the platform ends it at and the tracking
+  detail that draws it; then sign in as `browser` and assert the publish tab
+  is absent, History is present, and a direct navigation to either guarded
+  route is refused once the session has gone. The order's products are never
+  stocked, so the saga ends it `out_of_stock` and no Cancel is offered: the
+  smoke cannot press Cancel on this stack, and the unit suite covers it.
+  Requires Docker and the backend checkout. It is never skipped silently:
+  without the stack it fails on connection, matching the backend's rule that a
+  skip fails open.
 - **Import boundaries**: the ESLint rule in §3 runs in `lint`.
 
 ## 8. Continuous integration
