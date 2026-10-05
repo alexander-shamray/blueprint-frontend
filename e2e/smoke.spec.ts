@@ -130,15 +130,25 @@ test('demo browses, quotes, orders and cancels', async ({ page }) => {
   await expect(page.locator('app-order-placed code')).toHaveText(
     /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
   );
-  await expect(
-    page.getByText('The platform exposes no endpoint that reads an order back'),
-  ).toBeVisible();
+  // The BFF's order read (backend §10.7, built in blueprint-backend#501). The
+  // page polls it, and its first answers are usually 404 — the projection has
+  // not absorbed OrderPlaced yet — so the chip appearing is the evidence that
+  // the read found this order, through the gateway, for this buyer. The
+  // timeout covers the projection's lag plus the poll's first back-off steps.
+  await expect(page.locator('app-order-placed app-order-status')).toBeVisible({
+    timeout: 30_000,
+  });
+
+  // Cancel lives on the tracking detail now (spec §5.7), one tab over. The
+  // read already holds the order, so the detail loads on its first request.
+  await page.getByRole('button', { name: 'Track this order' }).click();
+  await expect(page.locator('app-order-detail [data-testid="timeline"]')).toBeVisible();
 
   // The page sends customer_request and offers no choice of reason: the
   // other four codes in CANCEL_REASONS are facts the platform discovers,
   // and this route stamps CommandOrigin.User regardless of the code sent.
-  await page.getByRole('button', { name: 'Cancel order' }).click();
-  await expect(page.getByText('The platform answered 204.')).toBeVisible();
+  await page.locator('app-order-detail').getByRole('button', { name: 'Cancel order' }).click();
+  await expect(page.getByText('the platform answered 204')).toBeVisible();
 });
 
 test('a published product reaches the catalogue without a reload', async ({ page }) => {
@@ -192,6 +202,9 @@ test('browser holds no permissions: the publish tab is absent, and a direct navi
 
   // The tab hides…
   await expect(page.getByRole('tab', { name: 'Publish' })).toHaveCount(0);
+  // …while History, which asks for a session and no permission (spec §5.7),
+  // is there for a user holding none.
+  await expect(page.getByRole('tab', { name: 'History' })).toHaveCount(1);
 
   // …and a direct navigation is refused, which is the other half. A hidden
   // button and a refused route are two different facts.
@@ -211,4 +224,10 @@ test('browser holds no permissions: the publish tab is absent, and a direct navi
   // be wrong about what ends up in the address bar.
   await expect(page).toHaveURL(/denied=catalog:write/);
   await expect(page.getByText('That page needs')).toBeVisible();
+
+  // The same reload has signed the caller out, so History's guard refuses
+  // too, and Account says why rather than showing an empty list.
+  await page.goto('/tabs/orders');
+  await expect(page).toHaveURL(/signIn=required/);
+  await expect(page.getByText('needs you to be signed in')).toBeVisible();
 });
