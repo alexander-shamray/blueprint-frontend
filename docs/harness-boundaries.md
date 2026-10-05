@@ -1657,8 +1657,13 @@ splits the two things the anchor had fused:
 - **The wrapper still comes from `CLAUDE_PROJECT_DIR`**, where
   `.claude/hooks/**` and `.claude/skills/**` are edit-denied, so no tree the
   session stands in chooses the code that runs.
-- **The root comes from the event's `cwd`**, walked up to its checkout and
-  passed as `--root` — accepted only when its `git rev-parse --git-common-dir`
+- **The root comes from the edited file, or from the event's `cwd` when it
+  names none** (alexander-shamray/blueprint-frontend#137), walked up to its
+  checkout and passed as `--root`. `cwd` alone missed a session that stays in
+  the main checkout and edits a worktree's file by absolute path; a relative
+  path is resolved against `cwd` before it is walked, and an event naming a
+  file that cannot be placed refreshes nothing rather than `cwd`'s tree. The
+  root is accepted only when its `git rev-parse --git-common-dir`
   is this repository's **and git made it**: a `.git` file must be one its
   admin directory points back at, from under this repository's
   `<common>/worktrees/`; a `.git` directory is only ever the repository's
@@ -1692,21 +1697,44 @@ well have moved since the first. What the marker buys is that two events
 inside one refresh cost one more between them, not that the second is free.
 Raised by Copilot.
 
-**A tree that moves mid-session is the residual the second trigger leaves.**
-A `git pull` or a merge run from `Bash` fires neither event, so the index goes
-on describing the tree it replaced until the next edit — and that is the
-staleness a person is present for, which is why it is left rather than
-watched. Registering the hook on `PostToolUse` for `Bash` as well would fire
-it on every command in the session to catch the few that rewrite the tree.
+**A tree that moved mid-session through `Bash` was the residual the second
+trigger left, and it is closed (alexander-shamray/blueprint-frontend#136).**
+This paragraph used to leave it, on the ground that firing on every command to
+catch the few that rewrite the tree cost too much. Measured, it was not the
+few: commits, pulls, rebases and edit scripts made up dozens of calls a day,
+and each left the index answering from the old text while its recorded commit
+lagged HEAD. `PostToolUse` now matches `Bash` beside the four edit tools. A
+Bash event names no file, so its `cwd` decides, and that follows the shell
+into a worktree. A call that wrote nothing costs one detached `update` that
+changes nothing, coalesced behind the lock below, and a checkout with no index
+and none to seed starts no worker at all. **The PowerShell tool is not in the
+matcher**: its name as hook events report it is unconfirmed, and an
+alternative naming no real tool is silently inert
+(alexander-shamray/blueprint-frontend#142).
 
 **Every git call one event makes shares one deadline**, because the hook
 is synchronous and `settings.json` gives it five seconds: validation and
 the state directory each taking their own three-second budget could
 together outlast that and be killed before anything was scheduled.
 
-**A fresh worktree has no index, and `update` there does nothing**, so the
-hook builds one (`index`) on the first edit and updates it afterwards; a full
-build of this repository measured about five seconds, detached. **One
+**A fresh worktree has no index, and it is seeded rather than built
+(alexander-shamray/blueprint-frontend#127).** `update` there does nothing, so
+the hook used to run a full `index` on the first edit; blueprint-backend
+measured that build at 230 s against 0.1 s to copy the main checkout's index
+and 5.1 s for the `update` after it. The worker now copies the main
+checkout's `index.sqlite` in through SQLite's backup, which reads one
+consistent snapshot where a file copy can tear; refuses the copy unless it
+carries the WAL header a backup of a WAL database does, since
+`index_openable` would refuse it next; renames it over
+the index path, so `update` never opens a partial file; and then runs
+`update`. The source is judged as a root's own index is, and only
+`index.sqlite` crosses. A checkout with no index and none to seed — the main
+checkout itself, or a worktree whose main checkout has none — is left alone,
+and nothing is ever built. `git-worktree-fork.sh` starts the new worktree's
+own refresh, because `/branch` enters it mid-session, where no
+`SessionStart` fires. **A seeded index whose `update` keeps failing stays in
+place**: it is a consistent copy of the main checkout's, so the worktree
+answers from `main`'s state until an `update` succeeds. **One
 worker runs per root**: every edit leaves a marker beside the index, and the
 worker holding the root's lock refreshes for as long as it finds one, so
 edits made during a run cost one more `update` between them. A detached
@@ -1754,14 +1782,17 @@ in `compact`, because the package's own `update` opens the file first, and a
 worker judges its root once and then refreshes for as long as edits keep
 coming. Each check still precedes SQLite's opens, and a checkout that puts a
 link, an ordinary `-journal` or a rollback-mode database on the path in
-between is left as a residual for the database and its sidecars alike.
+between is left as a residual for the database and its sidecars alike
+(alexander-shamray/blueprint-frontend#139); the seed's copy is judged the
+same way, before it opens the main checkout's index and again after it
+renames its copy in.
 `nofollow` is not used: SQLite applies it to the database alone, and the
 sidecars are where the window is. A compaction into a file the hook owns,
 renamed over the index, would close it and is not taken for a window that
 needs two branches checked out in turn inside it. The MCP server and the
 skill's direct `run-index` route open the same index with no such judgement, a
-residual of its own: these checks bound the hook's opens, not every reader of
-the file. `compact`'s docstring owns
+residual of its own (alexander-shamray/blueprint-frontend#138): these checks
+bound the hook's opens, not every reader of the file. `compact`'s docstring owns
 what a failed compaction leaves behind.
 `trusted_schema` is kept beside the shape check because it governs what the
 statements only this hook runs may call, which nothing the package does
@@ -1841,6 +1872,52 @@ route, `bash .claude/skills/codebase-index/scripts/run-index <subcommand>`,
 resolves its root from the working directory and so reads the worktree's
 index, which the hook now keeps fresh. Inside a worktree, query through the
 skill; a session launched *in* the worktree gets an MCP server rooted there.
+
+**The server is started as the `codebase-index` CLI itself, never through a
+shell (alexander-shamray/blueprint-frontend#134).** `.mcp.json` used to start
+it as `bash .claude/skills/codebase-index/scripts/run-index mcp`. Claude Code
+starts a stdio server with the Windows `PATH`, not inside Git Bash, and the
+first `bash` there is `C:\Windows\System32\bash.exe`, WSL's launcher, which
+exits at once on a host with no distribution: every session here ran without
+the server, which is why no session had ever called its tools. The wrapper's
+`CBX_NO_SKILL_AUTO_UPDATE=1` was already in the server's own `env`, and stays
+there. What is lost is the wrapper's fallback to `py -3.12 -m codebase_index`,
+so a host without the CLI on `PATH` gets no server — the state every Windows
+host was in before. The skill's Bash route keeps the wrapper, because the Bash
+tool does run inside Git Bash. `test_the_mcp_server_starts_without_a_shell`
+refuses a stdio server whose command is `bash` or `sh`.
+
+**`settings.json` raises `MCP_TIMEOUT` to 120 s for this repository's sessions
+(alexander-shamray/blueprint-frontend#141).** A server that runs past the
+startup timeout fails, and Claude Code caches the failure for 15 minutes
+user-wide, so one slow start emptied every session opened in that window of
+its `playwright` and `chrome-devtools` servers. blueprint-backend measured the
+starts on this workstation: 28 of 132 timed out under the 30 s default, the
+starts that connected reached 29.7 s with a 95th percentile of 28.3 s, and
+three `claude mcp list` runs started at once each connected every server
+within 6 s. **The key covers sessions started here only**: the failure cache
+is user-wide, so the same key in the user's own settings is what closes it
+everywhere, and the owner's carries it.
+
+**A prompt that asks where something is, how it works, who calls it or what
+breaks gets one line pointing at the index
+(alexander-shamray/blueprint-frontend#126).** No session here had run the
+skill since the day it was tuned: the hooks refreshed the index, and whether
+to query it was left to the skill's `description`. `index-query-hint.py` runs
+on `UserPromptSubmit` and answers a matching prompt with `additionalContext`
+naming the route-table row for it and the session-tag rule; every other
+prompt, and every slash command but `/ship` and `/branch`, gets nothing. It
+reads the `prompt` string alone and starts nothing, and
+`test_index_query_hint.py` holds every command it names to a row of the
+skill's route table and a prefix its `allowed-tools` approves. **Its command
+ends `|| :`, and that is the one hook here allowed to swallow a status.**
+`run-guard.sh` leaves with 2 whenever it cannot prove it ran the hook, which
+blocks a tool under `PreToolUse` and under `UserPromptSubmit` erases the
+prompt, so a missing interpreter or a hook file gone from a worktree would
+otherwise eat every prompt typed. A hint that fails says nothing, which is the
+failure it is allowed. **What no test can show is a session taking the hint**:
+it is advice in the context, and the issue's measure is `cbx stats` over a
+week of use.
 
 **The twelfth is `/ship`'s review dispatch, and calling it a widening would be
 the comfortable half of the truth.** Step 5's loop is this repository's own
