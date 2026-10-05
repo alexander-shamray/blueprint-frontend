@@ -387,11 +387,98 @@ describe('CheckoutPage', () => {
     await fixture.whenStable();
     expect(page.fieldErrors().city).toEqual(['City is required.']);
 
-    user.set(null);
+    user.set({ username: 'other', subject: 'subject-other', permissions: [], expiresAt: 0 });
     fixture.detectChanges();
     await fixture.whenStable();
 
     expect(page.fieldErrors()).toEqual({});
+  });
+
+  it('keeps the form and the held id when the same buyer signs out and back in', async () => {
+    const page = fixture.componentInstance;
+    page.placeOrder();
+    const first = controller.expectOne('http://localhost:5000/api/v1/orders');
+    const firstId = first.request.body.commandId;
+    // A 5xx: the order may have been placed, so the id is held and the retry
+    // has to carry it.
+    first.flush({ title: 'Server error', status: 500 }, { status: 500, statusText: 'Error' });
+    await fixture.whenStable();
+
+    user.set(null);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    user.set({ username: 'demo', subject: 'subject-demo', permissions: [], expiresAt: 1 });
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    expect(page.form.getRawValue()).toEqual(validAddress);
+    page.placeOrder();
+    const retry = controller.expectOne('http://localhost:5000/api/v1/orders');
+    expect(retry.request.body.commandId).toBe(firstId);
+    retry.flush('44444444-4444-4444-4444-444444444444', { status: 200, statusText: 'OK' });
+    await fixture.whenStable();
+  });
+
+  it('starts the form again when a different buyer signs in after a sign-out', async () => {
+    const page = fixture.componentInstance;
+    const firstId = page.identity.current();
+
+    user.set(null);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(page.form.getRawValue()).toEqual(validAddress);
+
+    user.set({ username: 'other', subject: 'subject-other', permissions: [], expiresAt: 0 });
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    expect(page.form.controls.line1.value).toBe('');
+    expect(page.identity.current()).not.toBe(firstId);
+  });
+
+  it('drops a reply that lands once its buyer has signed out, and keeps their id', async () => {
+    const page = fixture.componentInstance;
+    page.placeOrder();
+    const first = controller.expectOne('http://localhost:5000/api/v1/orders');
+    const firstId = first.request.body.commandId;
+
+    user.set(null);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    first.flush('44444444-4444-4444-4444-444444444444', { status: 200, statusText: 'OK' });
+    await fixture.whenStable();
+
+    // Nobody is taken to the order, the basket is not spent, and the busy
+    // state still ends.
+    expect(navigate).not.toHaveBeenCalled();
+    expect(TestBed.inject(CartStore).isEmpty()).toBe(false);
+    expect(page.submitting()).toBe(false);
+
+    user.set({ username: 'demo', subject: 'subject-demo', permissions: [], expiresAt: 1 });
+    fixture.detectChanges();
+    await fixture.whenStable();
+    page.placeOrder();
+    const retry = controller.expectOne('http://localhost:5000/api/v1/orders');
+    expect(retry.request.body.commandId).toBe(firstId);
+    retry.flush('44444444-4444-4444-4444-444444444444', { status: 200, statusText: 'OK' });
+    await fixture.whenStable();
+  });
+
+  it("does not take another buyer's sign-in for a late 401's refused subject", async () => {
+    const page = fixture.componentInstance;
+    page.placeOrder();
+    const first = controller.expectOne('http://localhost:5000/api/v1/orders');
+
+    user.set({ username: 'other', subject: 'subject-other', permissions: [], expiresAt: 0 });
+    fixture.detectChanges();
+    await fixture.whenStable();
+    first.flush({ title: 'Unauthorized', status: 401 }, { status: 401, statusText: 'Unauthorized' });
+    await fixture.whenStable();
+
+    expect(signIn).not.toHaveBeenCalled();
+    expect(page.error()).toBeNull();
+    expect(page.submitting()).toBe(false);
+    controller.expectNone('http://localhost:5000/api/v1/orders');
   });
 
   it('keeps the form while the same subject stays signed in', async () => {

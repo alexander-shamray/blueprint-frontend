@@ -187,8 +187,8 @@ export class CheckoutPage {
 
   /**
    * Minted when the page is entered and held with the form. Every submission
-   * uses it; only a success, an edit after a validation failure, or a change
-   * of signed-in subject mints a new one. This is the one place the client
+   * uses it; only a success, an edit after a validation failure, or a
+   * different buyer signing in mints a new one. This is the one place the client
    * holds state across requests on purpose (spec §5.3).
    */
   readonly identity = new CommandIdentity();
@@ -254,7 +254,7 @@ export class CheckoutPage {
    */
   private replayedAfterSignIn = false;
 
-  /** Bumped each time the effect below clears the page for a different subject. */
+  /** Bumped each time the effect below starts the form again for a new owner. */
   private subjectChanges = 0;
 
   /**
@@ -279,22 +279,28 @@ export class CheckoutPage {
       });
     }
 
-    // A different subject — a sign-out, or a sign-out and somebody else's
-    // sign-in — starts the form again, as the order pages forget an order.
-    // Checkout is pushed on the Cart tab and survives a native sign-out, so
-    // without this the next buyer on the device would find the last one's
-    // address filled in under a live Place order, and one tap would send it
-    // as an order on their own account. The banner, the field messages and
-    // the id go with the address: each was about a request the previous
-    // buyer made. Compared with the last subject seen rather than the one
-    // this page was built for, because a subject can come back; the first
-    // run is the construction's own and does nothing.
+    // The form and its id belong to an owner: whoever was signed in when the
+    // page was built, or the first to sign in after it if nobody was. A
+    // different buyer signing in starts the form again, as the order pages
+    // forget an order. Checkout is pushed on the Cart tab and survives a
+    // native sign-out, so without this the next buyer on the device would
+    // find the last one's address filled in under a live Place order, and
+    // one tap would send it as an order on their own account. The banner, the
+    // field messages and the id go with the address: each was about a request
+    // the previous buyer made. A sign-out alone, or the owner signing back
+    // in, changes nothing: after a 5xx or a network failure the id is held
+    // because the order may have been placed, and a fresh one for the same
+    // buyer is the second order the id exists to prevent. The first run is
+    // the construction's own and does nothing.
     const user = this.auth.user();
-    let lastSeen = untracked(() => user()?.subject ?? null);
+    let owner = untracked(() => user()?.subject ?? null);
     effect(() => {
       const subject = user()?.subject ?? null;
-      if (subject === lastSeen) return;
-      lastSeen = subject;
+      if (subject === null || subject === owner) return;
+      const previous = owner;
+      owner = subject;
+      // Built while nobody was signed in: the form is the first buyer's.
+      if (previous === null) return;
       untracked(() => {
         this.subjectChanges++;
         this.form.reset();
@@ -352,9 +358,22 @@ export class CheckoutPage {
 
     this.inFlightState.update((count) => count + 1);
 
+    // A reply belongs on screen only while the buyer who sent it is the one
+    // signed in and still owns the form, as `OrderDetailPage.cancel()` drops
+    // its own. Anyone else would otherwise be taken to that buyer's order, or
+    // have their own form replayed under the refused buyer's sign-in. A reply
+    // dropped this way spends nothing: the id is held, so the owner's next
+    // Place order is a replay of the same order.
+    const issuedFor = this.auth.user()()?.subject ?? null;
+    const changesAtIssue = this.subjectChanges;
+    const stillFor = (): boolean =>
+      this.subjectChanges === changesAtIssue &&
+      (this.auth.user()()?.subject ?? null) === issuedFor;
+
     this.ordering.place(command).subscribe({
       next: (orderId) => {
         this.inFlightState.update((count) => count - 1);
+        if (!stillFor()) return;
         this.replayedAfterSignIn = false;
         this.errorState.set(null);
         this.fieldErrorsState.set({});
@@ -364,6 +383,7 @@ export class CheckoutPage {
       },
       error: (failure: HttpErrorResponse) => {
         this.inFlightState.update((count) => count - 1);
+        if (!stillFor()) return;
         const displayed = mapError(failure, { permission: PERMISSIONS.ordersWrite });
         this.errorState.set(displayed);
         // Replaced, not merged: every response is the whole of what the
@@ -444,11 +464,11 @@ export class CheckoutPage {
    * idempotency keys on the subject too — so a native sign-in that someone
    * else completes would otherwise place this basket, to this address, as
    * an order on their account that they never pressed Place order for. A
-   * different subject, or none, finds the form started again by the
-   * constructor's subject effect, and nothing is sent in their name. Nor is
-   * anything replayed when that effect has cleared the form in between, even
-   * for the same subject coming back: what it would send is no longer the
-   * order that was refused.
+   * different subject finds the form started again by the constructor's
+   * subject effect, nobody signed in is sent nothing, and nothing is sent in
+   * anyone else's name. Nor is anything replayed when that effect has started
+   * the form again in between, even for the refused subject coming back: what
+   * it would send is no longer the order that was refused.
    */
   private signInAndReplay(): void {
     const replay = !this.replayedAfterSignIn;

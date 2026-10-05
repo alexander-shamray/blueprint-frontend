@@ -1,4 +1,6 @@
-import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy, Component, effect, inject, signal, untracked,
+} from '@angular/core';
 import { FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
 import {
   IonButton, IonContent, IonHeader, IonInput, IonItem, IonNote, IonTitle, IonToolbar,
@@ -169,8 +171,35 @@ export class PublishPage {
    */
   private replayedAfterSignIn = false;
 
+  /** Bumped each time the effect below starts the form again for a new owner. */
+  private subjectChanges = 0;
+
   constructor() {
     this.form.valueChanges.subscribe(() => this.identity.onEdit());
+
+    // The owner rule `CheckoutPage`'s subject effect argues, for the same
+    // reason: this tab root is cached for the app session and survives a
+    // native sign-out, so the next buyer would otherwise find the last one's
+    // draft under a live Publish, with their note and banner beside it. Only
+    // a different buyer signing in starts the form again; a sign-out alone,
+    // or the owner signing back in, keeps the draft and its held id.
+    const user = this.auth.user();
+    let owner = untracked(() => user()?.subject ?? null);
+    effect(() => {
+      const subject = user()?.subject ?? null;
+      if (subject === null || subject === owner) return;
+      const previous = owner;
+      owner = subject;
+      if (previous === null) return;
+      untracked(() => {
+        this.subjectChanges++;
+        this.form.reset({ name: '', thumbnailUrl: '', amount: null, currency: '' });
+        this.errorState.set(null);
+        this.publishedIdState.set(null);
+        this.replayedAfterSignIn = false;
+        this.identity.onSuccess();
+      });
+    });
   }
 
   publish(): void {
@@ -201,8 +230,17 @@ export class PublishPage {
       currency: value.currency,
     };
 
+    // Held to the buyer who sent it, as `CheckoutPage.placeOrder()` holds its
+    // reply: anyone else signed in is shown nothing of it.
+    const issuedFor = this.auth.user()()?.subject ?? null;
+    const changesAtIssue = this.subjectChanges;
+    const stillFor = (): boolean =>
+      this.subjectChanges === changesAtIssue &&
+      (this.auth.user()()?.subject ?? null) === issuedFor;
+
     this.catalog.publish(command).subscribe({
       next: (productId) => {
+        if (!stillFor()) return;
         this.replayedAfterSignIn = false;
         this.errorState.set(null);
         this.publishedIdState.set(productId);
@@ -233,6 +271,7 @@ export class PublishPage {
       // never trusts the annotation either way — but it is still a claim
       // this call site cannot back, which is reason enough not to make it.
       error: (failure: unknown) => {
+        if (!stillFor()) return;
         const displayed = mapError(failure, { permission: PERMISSIONS.catalogWrite });
         this.identity.onFailure(displayed);
 
