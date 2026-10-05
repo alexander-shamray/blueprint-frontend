@@ -336,7 +336,7 @@ something a screen shows. It returns a display model
 |---|---|
 | 400 with `errors` object | `kind: validation`; each key becomes a field message. Bodies from `Results.ValidationProblem` and from FluentValidation both carry `errors` keyed by field |
 | 400 without `errors` | `kind: banner` with the backend's `title` and `detail` |
-| 401 | `kind: signIn`; the caller invokes `AuthService.signIn()` and replays after |
+| 401 | `kind: signIn`; the caller invokes `AuthService.signIn()` and replays after, only when the subject that was refused is the one signed in |
 | 403 | `kind: forbidden`; the banner names the permission the route needed, taken from the route's own metadata, not from the response |
 | 404 | `kind: banner` with the backend's text |
 | 409 | `kind: alreadyCommitted`; see §5.3. Never resubmitted with a new id automatically |

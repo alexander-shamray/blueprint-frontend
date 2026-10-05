@@ -406,14 +406,26 @@ export class CheckoutPage {
    * The rejection path is the one `CartPage.getQuote()` documents:
    * `signIn()` rejects with a bare string when discovery fails, which is
    * why `mapError` takes `unknown`.
+   *
+   * The replay goes out only when the subject that was refused is the one
+   * signed in afterwards, as `OrderDetailPage`'s Cancel replay does. The
+   * same commandId is the same command only for the same principal —
+   * idempotency keys on the subject too — so a native sign-in that someone
+   * else completes would otherwise place this basket, to this address, as
+   * an order on their account that they never pressed Place order for. A
+   * different subject, or none, leaves the banner and the form for whoever
+   * is now signed in to submit or not.
    */
   private signInAndReplay(): void {
     const replay = !this.replayedAfterSignIn;
     this.replayedAfterSignIn = true;
+    const refusedSubject = this.auth.user()()?.subject ?? null;
 
     this.auth.signIn().then(
       () => {
-        if (replay) this.placeOrder();
+        const sameSubject =
+          refusedSubject !== null && this.auth.user()()?.subject === refusedSubject;
+        if (replay && sameSubject) this.placeOrder();
       },
       (failure: unknown) => this.errorState.set(mapError(failure)),
     );

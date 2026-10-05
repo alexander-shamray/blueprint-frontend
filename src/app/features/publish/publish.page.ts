@@ -288,14 +288,23 @@ export class PublishPage {
     });
   }
 
-  /** See the 401 branch above; `CartPage.getQuote()` documents why mapError takes `unknown` here. */
+  /**
+   * See the 401 branch above; `CartPage.getQuote()` documents why mapError
+   * takes `unknown` here. The replay is held to the subject that was refused,
+   * for the reason `CheckoutPage.signInAndReplay()` gives: under another
+   * principal the same commandId is a new command, and they never pressed
+   * Publish.
+   */
   private signInAndReplay(): void {
     const replay = !this.replayedAfterSignIn;
     this.replayedAfterSignIn = true;
+    const refusedSubject = this.auth.user()()?.subject ?? null;
 
     this.auth.signIn().then(
       () => {
-        if (replay) this.publish();
+        const sameSubject =
+          refusedSubject !== null && this.auth.user()()?.subject === refusedSubject;
+        if (replay && sameSubject) this.publish();
       },
       (failure: unknown) => this.errorState.set(mapError(failure)),
     );
