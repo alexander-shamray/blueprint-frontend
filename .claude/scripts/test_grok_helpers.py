@@ -11540,17 +11540,30 @@ class TestCodebaseIndexSkillGrants(unittest.TestCase):
                     self.assertIn(f"Edit(./{f})", fm)
         self.assertGreater(seen, 3)
 
-    def test_mcp_and_the_hook_example_go_through_run_index(self):
-        # Direct `codebase-index` skips the Python-module fallback and the
-        # auto-update disable that run-index always exports.
+    def test_the_mcp_server_starts_without_a_shell(self):
+        # alexander-shamray/blueprint-frontend#134: Claude Code starts a stdio
+        # server with the Windows PATH, not inside Git Bash, and the first
+        # `bash` there is WSL's launcher, which exits at once on a host with
+        # no distribution, so every session ran without the server. The
+        # server is the CLI itself now, and the one thing the wrapper added
+        # that a server needs, the auto-update disable, is in its own
+        # environment. Every stdio server here is held to no shell.
         mcp = json.loads(
             (SCRIPTS.parent.parent / ".mcp.json").read_text(encoding="utf-8"))
-        server = mcp["mcpServers"]["codebase-index"]
-        self.assertEqual("bash", server["command"])
-        self.assertEqual(
-            ".claude/skills/codebase-index/scripts/run-index",
-            server["args"][0])
-        self.assertEqual("mcp", server["args"][1])
+        servers = mcp["mcpServers"]
+        self.assertTrue(servers)
+        for name, server in servers.items():
+            with self.subTest(server=name):
+                command = os.path.basename(server.get("command", "")).lower()
+                self.assertNotIn(command, {"bash", "bash.exe", "sh", "sh.exe"})
+        server = servers["codebase-index"]
+        self.assertEqual("codebase-index", server["command"])
+        self.assertEqual(["mcp", "--root", "."], server["args"])
+        self.assertEqual({"CBX_NO_SKILL_AUTO_UPDATE": "1"}, server["env"])
+
+    def test_the_hook_example_goes_through_run_index(self):
+        # Direct `codebase-index` skips the Python-module fallback and the
+        # auto-update disable that run-index always exports.
         example = json.loads(
             (SCRIPTS.parent / "skills" / "codebase-index" / "examples"
              / "hooks" / "settings.json").read_text(encoding="utf-8"))
