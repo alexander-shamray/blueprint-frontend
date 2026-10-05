@@ -11615,8 +11615,11 @@ class TestCodebaseIndexSkillGrants(unittest.TestCase):
                     if "Edit" in e.get("matcher", "").split("|")]
                 self.assertTrue(
                     matched, "no PostToolUse hook refreshes the index")
+                # And after every Bash call, which changes tracked files as
+                # often as the edit tools do
+                # (alexander-shamray/blueprint-frontend#136).
                 self.assertEqual(
-                    {"Edit", "Write", "MultiEdit", "NotebookEdit"},
+                    {"Edit", "Write", "MultiEdit", "NotebookEdit", "Bash"},
                     set(matched[0]["matcher"].split("|")))
                 # A hook of any other type is text Claude Code never runs.
                 self.assertEqual("command", matched[0]["hooks"][0]["type"])

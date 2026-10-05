@@ -15,6 +15,7 @@ Needs bash and git on PATH, and nothing else: every case drives a real
 repository.
 """
 
+import json
 import os
 import shutil
 import subprocess
@@ -72,6 +73,15 @@ set -e
 root=$(mktemp -d)
 git init -q -b main "$root/origin"
 git -C "$root/origin" -c user.name=t -c user.email=t@t commit -q --allow-empty -m base
+if [ "$HOOK" = yes ]; then
+  # A launcher that records what it was asked, where, and with which event.
+  mkdir -p "$root/origin/.claude/hooks"
+  cat > "$root/origin/.claude/hooks/run-guard.sh" <<'STUB'
+{ printf '%s\\n' "$1"; pwd; cat; } > hook-ran.part && mv hook-ran.part hook-ran
+STUB
+  git -C "$root/origin" add .claude
+  git -C "$root/origin" -c user.name=t -c user.email=t@t commit -q -m hook
+fi
 git clone -q "$root/origin" "$root/checkout"
 if [ "$IGNORE" = yes ]; then printf '.claude/worktrees/\\n' > "$root/checkout/.gitignore"; fi
 mkdir -p "$root/checkout/src"
@@ -82,8 +92,8 @@ printf '%s\\n' "$root"
 class ForkShape(unittest.TestCase):
     """The helper forks `.claude/worktrees/<name>` from the main checkout only."""
 
-    def fixture(self, ignore="yes"):
-        made = run_bash(FIXTURE, IGNORE=ignore)
+    def fixture(self, ignore="yes", hook="no"):
+        made = run_bash(FIXTURE, IGNORE=ignore, HOOK=hook)
         self.assertEqual(0, made.returncode, made.stderr)
         root = made.stdout.strip()
         self.addCleanup(lambda: run_bash('rm -rf "$TARGET"', TARGET=root))
@@ -113,6 +123,35 @@ class ForkShape(unittest.TestCase):
                           C=checkout)
         self.assertEqual(0, status.returncode, status.stderr)
         self.assertNotIn(".claude", status.stdout)
+
+    def test_the_new_worktree_runs_its_own_index_refresh(self):
+        # blueprint-frontend#127: /branch enters the worktree mid-session, where no
+        # `SessionStart` fires, so the fork starts the refresh that hook would
+        # have — the worktree's own launcher, from inside the worktree, with
+        # an event naming it. The stub is committed on origin/main, so the
+        # copy that runs is the worktree's.
+        root = self.fixture(hook="yes")
+        result = self.fork(f"{root}/checkout", ".claude/worktrees/probe")
+        self.assertEqual(0, result.returncode, result.stderr)
+        ran = run_bash(
+            'for _ in $(seq 300); do '
+            '[ -s "$W/hook-ran" ] && exec cat "$W/hook-ran"; sleep 0.1; '
+            'done; exit 1',
+            W=f"{root}/checkout/.claude/worktrees/probe")
+        self.assertEqual(0, ran.returncode, "the fork never ran the refresh")
+        hook, where, event = ran.stdout.splitlines()
+        self.assertEqual("index-refresh.py", hook)
+        self.assertTrue(where.endswith("/.claude/worktrees/probe"), where)
+        self.assertEqual({"cwd": "."}, json.loads(event))
+
+    def test_a_worktree_without_the_hook_still_forks(self):
+        # A base that predates the hook has no launcher to run, and the fork
+        # is no less a fork for it.
+        root = self.fixture()
+        result = self.fork(f"{root}/checkout", ".claude/worktrees/probe")
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertFalse(
+            Path(root, "checkout", ".claude", "worktrees", "probe", "hook-ran").exists())
 
     def test_any_other_path_is_refused(self):
         root = self.fixture()
