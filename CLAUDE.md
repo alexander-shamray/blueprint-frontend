@@ -212,7 +212,8 @@ rather than here. Three rules reach every session, so they stay:
 - **`.claude/settings.json` self-locks, not instantaneously** — a change to it
   lands complete and goes last, and a restore is verified by reading the file,
   never by trying what it forbids.
-- **Every hook uses `run-guard.sh`** — the four scripts `settings.json` names
+- **Every hook uses `run-guard.sh`** — the scripts `settings.json`'s
+  `hooks` name
   and the `review-grok-triager` profile's own — which locates a compatible
   Python launcher before invoking the hook. Two are not guards. The index
   refresh refreshes the checkout a change landed in — the edited file's, or
@@ -226,8 +227,9 @@ rather than here. Three rules reach every session, so they stay:
   harness's own suite** — it covers the deny lists, the frontmatter grants,
   the helper shapes and the hooks. It reads `git ls-files`, so a new tracked
   root file or top-level tree fails it until somebody decides which side of
-  the boundary it is on. Run it after any change under `.claude/`. Any Python
-  3.12 will do — `py -3.12` on Windows, `python` elsewhere — and CI's
+  the boundary it is on. Run it after any change under `.claude/`. A Python
+  3.12 meeting `docs/testing.md`'s prerequisites will do — `py -3.12` on
+  Windows, `python` elsewhere — and CI's
   `harness` job runs `python` on all three platforms, Windows included, so
   that is the spelling to use when reproducing it. `docs/testing.md` owns the
   prerequisite; which interpreter the hooks' launcher picks is a different

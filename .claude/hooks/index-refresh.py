@@ -88,10 +88,13 @@ if os.name == "nt":
     import msvcrt
     # **Never the working directory first.** On Windows, `shutil.which` and
     # CreateProcess both look in the current directory before `PATH` for a
-    # bare name, and this hook runs `bash`, `git` and `tasklist` by bare name
-    # from the owner checkout's root, where a session can write a `bash.cmd`
-    # or a `git.exe`; that file would then run in place of the real one,
-    # unprompted. Measured on this repository's workstation: with the variable
+    # bare name, and this hook runs `bash`, `git` and `tasklist` by bare name.
+    # The worker runs from the owner checkout's root, where a session can
+    # write a `bash.cmd`; the hook itself runs in whatever directory it was
+    # started in, which after `/branch` may be the branch's own worktree,
+    # where a tracked `git.exe` would sit. Either file would then run in
+    # place of the real one, unprompted. Measured on this repository's
+    # workstation: with the variable
     # unset, `shutil.which("bash")` answered `.\bash.CMD` and a planted
     # `git.exe` ran in place of git; with it set, neither did. Claude Code
     # passes it down today, which is why nothing had happened; set here so
@@ -185,7 +188,15 @@ def git_paths(directory, deadline):
     try:
         out = subprocess.run(
             ["git", "-C", directory, "rev-parse", "--show-toplevel", "--git-common-dir"],
-            capture_output=True, text=True, timeout=remaining, env=env, check=False,
+            capture_output=True, timeout=remaining, env=env, check=False,
+            # Git writes its paths as UTF-8 whatever the console's code page,
+            # and `text=True` read them in the ANSI one: under a path holding
+            # `Ł` the decode failed inside subprocess's reader thread, where
+            # nothing can catch it, and `stdout` came back None. Measured on
+            # this workstation. `replace` rather than `strict` for the same
+            # reason: an undecodable byte becomes a path that does not exist,
+            # which every check below refuses.
+            encoding="utf-8", errors="replace",
         )
     except (OSError, subprocess.SubprocessError):
         return None
