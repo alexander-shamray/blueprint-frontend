@@ -491,6 +491,18 @@ class TheRootFollowsTheActiveWorktree(unittest.TestCase):
         self.assertEqual([], [name for name in os.listdir(os.path.dirname(index_path(
             self.sibling))) if ".seed." in name])
 
+    def test_a_file_already_at_the_index_path_is_never_replaced(self):
+        # Shorter than a header, so no index, and possibly a file a branch
+        # tracks: the main checkout's index never lands on top of it.
+        write_index(self.main)
+        placeholder = index_path(self.sibling)
+        os.makedirs(os.path.dirname(placeholder))
+        Path(placeholder).write_bytes(b"placeholder")
+        self.assertIsNone(self.hook.seed_source(self.main, self.sibling))
+        self.assertFalse(self.hook.refreshable(self.main, self.sibling))
+        self.assertFalse(self.hook.seed(self.main, self.sibling))
+        self.assertEqual(b"placeholder", Path(placeholder).read_bytes())
+
     def test_a_killed_workers_partial_is_removed_by_the_next_seed(self):
         # The partial is named for the worker that made it, so one left by a
         # worker killed mid-copy would never be met by a later pid; the next
@@ -540,7 +552,12 @@ class TheRootFollowsTheActiveWorktree(unittest.TestCase):
         # main checkout, whose worktree is among that path's lexical parents.
         nested = os.path.join(self.main, ".claude", "worktrees", "nested")
         git("worktree", "add", "-q", "-b", "nested", nested, cwd=self.main)
-        event = self.edit_event(os.path.join("..", "..", "..", "README.md"), nested)
+        # Through a directory that does not exist: the kernel cannot resolve
+        # `missing/..`, so a walk of the unresolved text strips one component
+        # at a time and stops in the worktree. Windows resolves `..` as text,
+        # so there the case holds either way; POSIX is where it bites.
+        event = self.edit_event(
+            os.path.join("missing", "..", "..", "..", "..", "README.md"), nested)
         self.assertEqual(real(self.main),
                          real(self.hook.target_root(self.hook.named(event), self.main)))
 
@@ -1622,7 +1639,12 @@ class TheRefreshIsWiredThroughTheLauncher(unittest.TestCase):
     def test_the_launcher_admits_it(self):
         launcher = (SCRIPTS.parent / "hooks" / "run-guard.sh").read_text(
             encoding="utf-8")
-        self.assertRegex(launcher, r"\|index-refresh\.py[|)]")
+        # The `case` line itself, split into its names: the usage line names
+        # every hook too, so a pattern over the whole file is satisfied by it.
+        [case] = [line for line in launcher.splitlines()
+                  if "guard-git-argv.py|" in line and line.rstrip().endswith(") ;;")]
+        self.assertIn("index-refresh.py",
+                      case.strip().removesuffix(") ;;").split("|"))
 
 
 if __name__ == "__main__":

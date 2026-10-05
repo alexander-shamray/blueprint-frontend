@@ -1719,9 +1719,12 @@ together outlast that and be killed before anything was scheduled.
 
 **A fresh worktree has no index, and it is seeded rather than built
 (alexander-shamray/blueprint-frontend#127).** `update` there does nothing, so
-the hook used to run a full `index` on the first edit; blueprint-backend
-measured that build at 230 s against 0.1 s to copy the main checkout's index
-and 5.1 s for the `update` after it. The worker now copies the main
+the hook used to run a full `index` on the first edit. On this repository
+that build measured about five seconds, detached; on blueprint-backend's
+larger tree the same build measured 230 s, against 0.1 s to copy the main
+checkout's index and 5.1 s for the `update` after it. A build's cost grows
+with the corpus and a seed's with what the branch changed, which is why the
+seed is the shape that holds as either grows. The worker now copies the main
 checkout's `index.sqlite` in through SQLite's backup, which reads one
 consistent snapshot where a file copy can tear; refuses the copy unless it
 carries the WAL header a backup of a WAL database does, since
@@ -1743,8 +1746,9 @@ answers from `main`'s state until an `update` succeeds. **One
 worker runs per root**: every edit leaves a marker beside the index, and the
 worker holding the root's lock refreshes for as long as it finds one, so
 edits made during a run cost one more `update` between them. A detached
-refresh per edit raced two full builds against one SQLite cache inside
-those five seconds. The lock is an OS advisory lock held on an open handle
+refresh per edit raced two full builds against one SQLite cache inside a
+first build's five seconds, when the hook still built one. The lock is an OS
+advisory lock held on an open handle
 (`flock`, `msvcrt.locking`) for the worker's lifetime and released by the
 kernel when the worker exits, crashed or not. A lock *file* whose existence
 was the lock needed an age, then a token, then a renewal, and each still
@@ -1877,6 +1881,12 @@ route, `bash .claude/skills/codebase-index/scripts/run-index <subcommand>`,
 resolves its root from the working directory and so reads the worktree's
 index, which the hook now keeps fresh. Inside a worktree, query through the
 skill; a session launched *in* the worktree gets an MCP server rooted there.
+**That route runs the worktree's own `run-index`, unprompted**, because the
+path is relative and the skill's `allowed-tools` approves it, so it does not
+hold the rule the hook keeps — that no tree the session stands in chooses the
+code that runs. The query hint points sessions at it more often than they
+went before. Anchoring the route to `CLAUDE_PROJECT_DIR` is
+alexander-shamray/blueprint-frontend#146.
 
 **The server is started as the `codebase-index` CLI itself, never through a
 shell (alexander-shamray/blueprint-frontend#134).** `.mcp.json` used to start
