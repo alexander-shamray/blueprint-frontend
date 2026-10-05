@@ -1395,8 +1395,9 @@ order:
    unit tests — whether `CLOSE_EVENT_BOUND_MS` really outlasts the plugin's
    `browserFinished` after a close is decided by Android's activity ordering,
    which the source does not settle.
-4. Browse, quote, order, cancel — the same path `e2e/smoke.spec.ts` drives on
-   the web.
+4. Browse, quote, order and follow the order to its tracking detail — the path
+   `e2e/smoke.spec.ts` drives on the web — then cancel an order that is still
+   cancellable, which the smoke cannot (§7, *What replaced it*).
 5. Force-stop the app and relaunch: the cart must survive (Capacitor
    Preferences) and the session must survive too (the refresh token in secure
    storage), which is the one behaviour that differs from the web by design

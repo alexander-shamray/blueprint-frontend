@@ -2,6 +2,7 @@ import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 import { environment } from '@core/config/environment';
+import { noSuchOrder, orderPathSegment } from './order-path';
 import { CancelOrderRequest, CancelReason, PlaceOrderCommand } from './types';
 
 /**
@@ -35,13 +36,11 @@ export class OrderingApi {
   cancel(orderId: string, reason: CancelReason): Observable<void> {
     const body: CancelOrderRequest = { reason };
 
-    // encodeURIComponent: orderId reaches here from a route param, which
-    // Angular has already percent-decoded. A raw '/', '?' or '%' in it would
-    // otherwise land in this template literal unescaped and turn into a
-    // different path plus a query string rather than a single path segment.
-    // It leaves '.' and '..' as they are, which the URL parser still resolves
-    // as path segments. That stays on the gateway origin, and the ids are the
-    // platform's own, so their shape is not this client's to police.
-    return this.http.post<void>(`${this.base}/${encodeURIComponent(orderId)}/cancel`, body);
+    // One path segment or no request at all: `orderPathSegment` says why a
+    // '.' or '..' id is refused rather than encoded.
+    const segment = orderPathSegment(orderId);
+    if (segment === null) return noSuchOrder();
+
+    return this.http.post<void>(`${this.base}/${segment}/cancel`, body);
   }
 }
