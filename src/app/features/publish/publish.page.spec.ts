@@ -3,9 +3,9 @@ import { rateLimitInterceptor } from '@core/errors/rate-limit.interceptor';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { Router, provideRouter } from '@angular/router';
-import { signal } from '@angular/core';
+import { WritableSignal, signal } from '@angular/core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { AuthService } from '@core/auth/auth.service';
+import { AuthService, CurrentUser } from '@core/auth/auth.service';
 import { ALREADY_COMMITTED } from '@core/commands/command-id';
 import { CatalogRefresh } from '@core/catalog/catalog-refresh';
 import { PublishPage } from './publish.page';
@@ -37,9 +37,14 @@ describe('PublishPage', () => {
   let controller: HttpTestingController;
   let navigate: ReturnType<typeof vi.fn>;
   let signIn: ReturnType<typeof vi.fn>;
+  /** Writable, so a test can hand the session to somebody else mid-sign-in. */
+  let user: WritableSignal<CurrentUser | null>;
 
   beforeEach(async () => {
     signIn = vi.fn(async () => undefined);
+    user = signal<CurrentUser | null>({
+      username: 'demo', subject: 'subject-demo', permissions: ['catalog:write'], expiresAt: 0,
+    });
 
     TestBed.configureTestingModule({
       imports: [PublishPage],
@@ -55,7 +60,7 @@ describe('PublishPage', () => {
         provideHttpClientTesting(),
         {
           provide: AuthService,
-          useValue: { signIn, user: () => signal({ username: 'demo' }), accessToken: () => 't' },
+          useValue: { signIn, user: () => user, accessToken: () => 't' },
         },
       ],
     });
@@ -306,6 +311,25 @@ describe('PublishPage', () => {
     // page never navigates — so the publish they asked for is the publish
     // that happened.
     expect(fixture.componentInstance.publishedId()).toBe('55555555-5555-5555-5555-555555555555');
+  });
+
+  it('does not replay when somebody else completes the sign-in', async () => {
+    // Under another subject the same commandId is a new command: a replay
+    // would publish this form as a product of an account that never pressed
+    // Publish.
+    signIn.mockImplementation(async () => {
+      user.set({ username: 'other', subject: 'subject-other', permissions: [], expiresAt: 0 });
+    });
+
+    fixture.componentInstance.publish();
+    controller
+      .expectOne('http://localhost:5000/api/v1/catalog/products')
+      .flush({ title: 'Unauthorized', status: 401 }, { status: 401, statusText: 'Unauthorized' });
+    await fixture.whenStable();
+
+    expect(signIn).toHaveBeenCalledOnce();
+    controller.expectNone('http://localhost:5000/api/v1/catalog/products');
+    expect(fixture.componentInstance.publishedId()).toBeNull();
   });
 
   it('does not loop when the replay is refused with another 401', async () => {

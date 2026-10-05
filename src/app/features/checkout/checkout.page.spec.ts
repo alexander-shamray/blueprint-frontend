@@ -3,9 +3,9 @@ import { rateLimitInterceptor } from '@core/errors/rate-limit.interceptor';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { Router, provideRouter } from '@angular/router';
-import { signal } from '@angular/core';
+import { WritableSignal, signal } from '@angular/core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { AuthService } from '@core/auth/auth.service';
+import { AuthService, CurrentUser } from '@core/auth/auth.service';
 import { CartPersistence } from '@core/cart/cart.persistence';
 import { CartStore } from '@core/cart/cart.store';
 import { CheckoutHandoff } from '@core/cart/checkout-handoff';
@@ -20,9 +20,14 @@ describe('CheckoutPage', () => {
   let controller: HttpTestingController;
   let navigate: ReturnType<typeof vi.fn>;
   let signIn: ReturnType<typeof vi.fn>;
+  /** Writable, so a test can hand the session to somebody else mid-sign-in. */
+  let user: WritableSignal<CurrentUser | null>;
 
   beforeEach(async () => {
     signIn = vi.fn(async () => undefined);
+    user = signal<CurrentUser | null>({
+      username: 'demo', subject: 'subject-demo', permissions: ['orders:write'], expiresAt: 0,
+    });
     TestBed.configureTestingModule({
       imports: [CheckoutPage],
       providers: [
@@ -39,7 +44,7 @@ describe('CheckoutPage', () => {
         { provide: CartPersistence, useValue: { read: async () => [], write: async () => undefined } },
         {
           provide: AuthService,
-          useValue: { signIn, user: () => signal({ username: 'demo' }), accessToken: () => 't' },
+          useValue: { signIn, user: () => user, accessToken: () => 't' },
         },
       ],
     });
@@ -313,6 +318,26 @@ describe('CheckoutPage', () => {
 
     replay.flush('44444444-4444-4444-4444-444444444444', { status: 200, statusText: 'OK' });
     await fixture.whenStable();
+  });
+
+  it('does not replay when somebody else completes the sign-in', async () => {
+    // A native sign-in finished by another account — a shared device, or a
+    // system browser whose Keycloak session is somebody else's. Under that
+    // subject the same commandId is a new command, so a replay would place
+    // this basket as an order on their account that they never pressed for.
+    signIn.mockImplementation(async () => {
+      user.set({ username: 'other', subject: 'subject-other', permissions: [], expiresAt: 0 });
+    });
+
+    fixture.componentInstance.placeOrder();
+    controller
+      .expectOne('http://localhost:5000/api/v1/orders')
+      .flush({ title: 'Unauthorized', status: 401 }, { status: 401, statusText: 'Unauthorized' });
+    await fixture.whenStable();
+
+    expect(signIn).toHaveBeenCalledOnce();
+    controller.expectNone('http://localhost:5000/api/v1/orders');
+    expect(fixture.componentInstance.error()).toMatchObject({ kind: 'signIn' });
   });
 
   it('does not loop when the replay is refused with another 401', async () => {
