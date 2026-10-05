@@ -215,8 +215,9 @@ rather than here. Three rules reach every session, so they stay:
 - **Every hook uses `run-guard.sh`** — the scripts `settings.json`'s
   `hooks` name
   and the `review-grok-triager` profile's own — which locates a compatible
-  Python launcher before invoking the hook. Two are not guards. The index
-  refresh refreshes the checkout a change landed in — the edited file's, or
+  Python launcher before invoking the hook. The index refresh and the query
+  hint are not guards. The refresh covers the checkout a change landed in —
+  the edited file's, or
   the event's `cwd` for a Bash call — after an edit, after every Bash call and
   on a session start, seeding a worktree's index from the main checkout's,
   while the MCP server stays on the startup checkout. The query hint points a

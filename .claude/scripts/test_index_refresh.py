@@ -391,6 +391,10 @@ class TheRootFollowsTheActiveWorktree(unittest.TestCase):
                               "scripts", "run-index")),
             real(argv[1]))
         self.assertEqual(["--quiet", "--root", self.sibling], argv[2:5])
+        # The wrapper's Python fallback runs `-m` from the owner's root; with
+        # this set, no module the session wrote there is imported in its
+        # place.
+        self.assertEqual("1", popen.call_args.kwargs["env"]["PYTHONSAFEPATH"])
         # The new worktree had no index: it was seeded from the main
         # checkout's and is updated, never built (blueprint-frontend#127).
         self.assertEqual(["update"], argv[5:])
@@ -658,6 +662,20 @@ class TheRootFollowsTheActiveWorktree(unittest.TestCase):
                     mock.patch.object(self.hook, "work") as work:
                 self.assertEqual(0, self.hook.main(argv))
                 work.assert_not_called()
+
+    def test_a_relative_backlink_is_read_from_the_admin_directory(self):
+        # `worktree.useRelativePaths` (git 2.48) writes the admin directory's
+        # backlink relative to that directory. Written here by hand, because
+        # the git on some hosts predates the option.
+        admin = os.path.join(self.common, "worktrees", os.path.basename(self.sibling))
+        with open(os.path.join(admin, "gitdir"), encoding="utf-8") as handle:
+            absolute = handle.read().strip()
+        relative = os.path.relpath(os.path.join(self.sibling, ".git"), admin)
+        with open(os.path.join(admin, "gitdir"), "w", encoding="utf-8") as handle:
+            handle.write(relative + "\n")
+        self.assertTrue(os.path.samefile(absolute, os.path.join(admin, relative)))
+        self.assertEqual(real(self.sibling),
+                         real(self.hook.target_root(self.sibling, self.main)))
 
     def test_a_forged_git_file_is_refused(self):
         # Copilot, round 2: a directory whose `.git` file names this

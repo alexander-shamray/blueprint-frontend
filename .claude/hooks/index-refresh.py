@@ -276,7 +276,12 @@ def registered(toplevel, owner_toplevel, owner_common):
             backlink = handle.read().strip()
     except OSError:
         return False
-    return same(backlink, marker)
+    # Relative to the admin directory under `worktree.useRelativePaths`
+    # (git 2.48 and later), and an absolute path is unchanged by the join.
+    # Resolved against anything else, every worktree was refused. Joined to
+    # the resolved admin directory, the one checked above. Raised by the
+    # in-house review of alexander-shamray/blueprint-frontend#144, round 5.
+    return same(os.path.join(admin, backlink), marker)
 
 
 def swept(toplevel):
@@ -866,10 +871,17 @@ def refresh(owner, root, lock):
     # is still a live pid to the next worker rather than a silent orphan.
     lock.write(str(os.getpid()))
     try:
+        # `PYTHONSAFEPATH`, because the wrapper falls back to
+        # `python -m codebase_index` when the CLI is not on PATH, and `-m` and
+        # `-c` put the working directory — the owner's root, which a session
+        # can write — first on `sys.path`: a `codebase_index.py` there would be
+        # imported in the package's place. Python 3.11 and later honour it.
+        # Raised by the in-house review of
+        # alexander-shamray/blueprint-frontend#144, round 5.
         child = subprocess.Popen(
             [bash, os.path.join(owner, WRAPPER), "--quiet", "--root", root, "update"],
             cwd=owner, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL)
+            stderr=subprocess.DEVNULL, env=dict(os.environ, PYTHONSAFEPATH="1"))
         lock.write(str(child.pid))
         if child.wait(timeout=RUN_TIMEOUT) == 0:
             compact(root)

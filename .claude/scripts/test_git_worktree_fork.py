@@ -148,8 +148,11 @@ class ForkShape(unittest.TestCase):
         self.assertEqual("index-refresh.py", hook)
         self.assertTrue(where.endswith("/checkout"), where)
         self.assertEqual({"cwd": ".claude/worktrees/probe"}, json.loads(event))
-        self.assertFalse(
-            Path(root, "checkout", ".claude", "worktrees", "probe", "hook-ran").exists())
+        # Asked through bash: `root` is bash's spelling of the temp directory,
+        # which native Windows Python reads as a path that never exists.
+        absent = run_bash('[ ! -e "$P" ]',
+                          P=f"{root}/checkout/.claude/worktrees/probe/hook-ran")
+        self.assertEqual(0, absent.returncode, "the launcher ran inside the worktree")
 
     def test_a_checkout_without_the_hook_still_forks_and_starts_nothing(self):
         # A base that predates the hook has a launcher with nothing to run,
@@ -159,9 +162,10 @@ class ForkShape(unittest.TestCase):
                 root = self.fixture(hook=hook)
                 result = self.fork(f"{root}/checkout", ".claude/worktrees/probe")
                 self.assertEqual(0, result.returncode, result.stderr)
-                # Long enough for a backgrounded launcher to have written.
-                run_bash("sleep 2")
-                self.assertFalse(Path(root, "checkout", "hook-ran").exists())
+                # Long enough for a backgrounded launcher to have written, and
+                # asked through bash, which spells `root` the way it was made.
+                absent = run_bash('sleep 2; [ ! -e "$P" ]', P=f"{root}/checkout/hook-ran")
+                self.assertEqual(0, absent.returncode, "a launcher ran with no hook to run")
 
     def test_any_other_path_is_refused(self):
         root = self.fixture()
