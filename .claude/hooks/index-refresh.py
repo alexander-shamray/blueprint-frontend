@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Refresh the index of the checkout an edit landed in, not the one the session started in.
+"""Refresh the index of the checkout a change landed in, not the one the session started in.
 
 **The refresh followed `CLAUDE_PROJECT_DIR`, and `/branch` moves the session
 away from it (alexander-shamray/blueprint-frontend#48).** The `PostToolUse`
@@ -13,18 +13,31 @@ out to remove.
 file's own checkout — the one `settings.json` names through
 `CLAUDE_PROJECT_DIR`, where `.claude/skills/**` and `.claude/hooks/**` are
 edit-denied — so no tree the session is standing in chooses the code that runs.
-The *root* now comes from the event's `cwd`, walked up to its checkout, and is
-handed to that trusted wrapper as `--root`.
+The *root* comes from the file the event edited, or from the event's `cwd`
+when it names none, walked up to its checkout, and is handed to that trusted
+wrapper as `--root`. `named` says why the file comes first.
+
+**It runs after every Bash call as well as every edit
+(alexander-shamray/blueprint-frontend#136).** Commits, pulls, rebases,
+formatters and edit scripts change tracked files through the shell, and each
+left the index answering from the old text, with its recorded commit behind
+HEAD, while it reported itself fresh. A Bash event names no file, so its `cwd`
+decides, and that follows the shell into a worktree. A call that wrote nothing
+costs one `update` that changes nothing, detached and coalesced behind the
+lock below.
 
 **The root is taken only when it is this repository's own worktree, and never
 a sweep's.** `git rev-parse --git-common-dir` there must resolve to this
-checkout's common directory, so a `cwd` in an unrelated repository — or in no
+checkout's common directory, so a change in an unrelated repository — or in no
 repository — refreshes nothing. And a checkout whose directory starts
 `secsweep-` is refused by name: `/security-sweep` and `/bug-sweep` detach their
 worktrees under that prefix, `docs/harness-boundaries.md` calls the tree they
 hold prompt-injection input, and indexing it would read that tree's
 `.codeindexignore` and config with this checkout's tooling. It is the same
 prefix `git-worktree-detach.sh` and `git-worktree-drop.sh` bind to.
+
+**A checkout with no index is seeded, never built
+(alexander-shamray/blueprint-frontend#127).** `seed` says how and why.
 
 **Silent, detached and always exit 0.** The command this replaces backgrounded
 itself and discarded its output, because a refresh that fails is a stale index
@@ -69,6 +82,7 @@ import sqlite3
 import subprocess
 import sys
 import time
+import urllib.parse
 
 if os.name == "nt":
     import msvcrt
@@ -261,8 +275,54 @@ def swept(toplevel):
     return False
 
 
+def named(event):
+    """The directory an event's change landed in: the edited file's, else `cwd`.
+
+    **The edited file decides, not the session's directory
+    (alexander-shamray/blueprint-frontend#137).** #48 followed `cwd`, which
+    covers a session that `/branch` moved into a worktree. A session that
+    stays in the main checkout and edits `.claude/worktrees/<name>/…` by
+    absolute path changed the worktree while its `cwd` names the main
+    checkout, so the main checkout was refreshed and the worktree went stale.
+
+    A relative path is relative to `cwd`, and it is resolved before anything
+    walks it: `../../../src/app/x.ts` from a worktree under
+    `.claude/worktrees/` lands in the main checkout, and the worktree is among
+    that path's lexical parents. The nearest directory that exists at or above
+    the file is the answer, so a file an edit removed still names its
+    checkout. **An event that names a file is never answered with `cwd`**: a
+    file that cannot be placed refreshes nothing rather than the tree it did
+    not touch. An event naming no file — a Bash call, a session start —
+    is answered with `cwd`. `target_root` judges either answer the same way.
+    """
+    cwd = event.get("cwd")
+    given = event.get("tool_input")
+    if not isinstance(given, dict):
+        return cwd
+    for key in ("file_path", "notebook_path"):
+        value = given.get(key)
+        if not isinstance(value, str) or not value.strip():
+            continue
+        path = value.strip()
+        if not os.path.isabs(path):
+            if not isinstance(cwd, str) or not cwd:
+                return None
+            path = os.path.join(cwd, path)
+        try:
+            directory = os.path.dirname(os.path.realpath(path))
+        except (OSError, ValueError):
+            return None
+        while not os.path.isdir(directory):
+            parent = os.path.dirname(directory)
+            if parent == directory:
+                return None
+            directory = parent
+        return directory
+    return cwd
+
+
 def target_root(cwd, owner):
-    """The root to refresh for an edit made from `cwd`, or None to refresh nothing."""
+    """The root to refresh for a change in directory `cwd`, or None to refresh nothing."""
     if not isinstance(cwd, str) or not cwd or not os.path.isdir(cwd):
         return None
     target = git_paths(cwd, deadline())
@@ -291,24 +351,16 @@ def target_root(cwd, owner):
     return os.path.normpath(toplevel)
 
 
-def subcommand(root):
-    """`update` where an index exists, `index` where none has been built yet.
+def written(root):
+    """Whether the root holds an index a build has written, not merely created.
 
-    **A fresh worktree has no index, and `update` there does nothing** — it
-    prints *No index found* and exits. `/branch` forks a new worktree for every
-    PR, so following the active worktree with `update` alone would have moved
-    the refresh to a tree it can never refresh. A full build of this repository
-    took about five seconds and eight megabytes when measured, and it runs
-    detached, so the first edit in a worktree pays for it once. A file shorter
-    than SQLite's 100-byte header is one a first build created and never
-    wrote, so it is built again rather than updated.
+    A file shorter than SQLite's 100-byte header is one a first build created
+    and never wrote, which `update` cannot open: it is no index at all.
     """
-    built = os.path.join(root, CACHE, "index.sqlite")
     try:
-        written = os.path.getsize(built) >= 100
+        return os.path.getsize(os.path.join(root, CACHE, "index.sqlite")) >= 100
     except OSError:
-        written = False
-    return "update" if written else "index"
+        return False
 
 
 def unlinked(path, base):
@@ -349,7 +401,7 @@ def index_unlinked(root):
 
 
 def index_openable(root):
-    """Whether the root's index may be opened at all, by the wrapper or by `compact`.
+    """Whether the root's index may be opened at all, by the wrapper, `seed` or `compact`.
 
     No link on its path, no rollback journal beside it, and a header in WAL
     mode. The first connection to a rollback-mode database replays a
@@ -360,7 +412,7 @@ def index_openable(root):
     refuses the root. A `-wal` is admitted, and has to be: every open reader
     of the index keeps one, and WAL recovery writes only into the database,
     whose path was just checked. A root with no index yet is admitted,
-    because the wrapper builds one, and so is a file shorter than SQLite's
+    because the worker seeds one, and so is a file shorter than SQLite's
     100-byte header, which a first build creates before it writes anything:
     there is no database in it to replay into. The cost of a refusal is a
     stale index, never a write.
@@ -381,6 +433,143 @@ def index_openable(root):
         return True
     # Bytes 18 and 19 are the file format's write and read versions; 2 is WAL.
     return header[18:20] == b"\x02\x02"
+
+
+_MAIN_CHECKOUTS = {}
+
+
+def main_checkout(owner):
+    """The repository's main checkout, or None: the directory its common `.git` sits in.
+
+    Asked of git once per process and remembered, as `state_dir` is, because
+    the worker asks again long after the event's git budget is spent. A
+    common directory not named `.git` — a bare repository, or a submodule's
+    under `.git/modules/` — has no main checkout to seed from, and the answer
+    is judged as any root is: registered, and not a sweep's.
+    """
+    if owner in _MAIN_CHECKOUTS:
+        return _MAIN_CHECKOUTS[owner]
+    paths = git_paths(owner, deadline())
+    found = None
+    if paths is not None:
+        common = os.path.realpath(paths[1])
+        if os.path.basename(common).casefold() == ".git":
+            candidate = os.path.dirname(common)
+            if registered(candidate, paths[0], paths[1]) and not swept(candidate):
+                found = os.path.normpath(candidate)
+    _MAIN_CHECKOUTS[owner] = found
+    return found
+
+
+def seed_source(owner, root):
+    """The index a root with none is seeded from, or None.
+
+    The main checkout's own and nothing else, and only past the judgement the
+    root's own index gets: `index_openable`, and a written database. A main
+    checkout with no index seeds nothing, itself included, and nothing is
+    built in its place; one with an index is written, and asks for no seed.
+    """
+    if written(root):
+        return None
+    main = main_checkout(owner)
+    if main is None:
+        return None
+    if not index_openable(main) or not written(main):
+        return None
+    source = os.path.join(main, CACHE, "index.sqlite")
+    return source if os.path.isfile(source) else None
+
+
+def refreshable(owner, root):
+    """Whether a worker for `root` would have anything to do: an index, or one to seed."""
+    return written(root) or seed_source(owner, root) is not None
+
+
+def sqlite_uri(path, mode):
+    """A `file:` URI for `path`, with an empty authority.
+
+    Built by hand because `Path.as_uri()` puts a UNC server or a `?` of an
+    extended-length path in the authority, and SQLite refuses both. Measured
+    in blueprint-backend#513, round 5.
+    """
+    posix = path.replace(os.sep, "/")
+    lead = "" if posix.startswith("/") else "/"
+    return f"file://{lead}{urllib.parse.quote(posix)}?mode={mode}"
+
+
+def seed(owner, root):
+    """Give a root with no index its main checkout's; True when it now holds one.
+
+    **A `/branch` worktree starts with no index
+    (alexander-shamray/blueprint-frontend#127).** `.claude/cache/` is ignored,
+    so every forked worktree begins empty, and this hook used to run a full
+    `index` there. blueprint-backend measured that build at 230 s, against
+    0.1 s to copy the main checkout's index and 5.1 s for the `update` after
+    it, which re-reads only what the branch changed. So the hook never
+    builds: a worktree is seeded from the main checkout and then updated, and
+    a checkout with neither is left alone.
+
+    **Through SQLite's backup, not a file copy**: the main checkout's own
+    refresh may be writing, and a copied file can tear where a backup reads
+    one consistent snapshot. Into a file beside the index named for this
+    process; a backup of a WAL database carries its WAL header, and the copy
+    is refused unless it does, since `index_openable` would refuse it next.
+    Then renamed over the index path, so `update` never opens a partial
+    file. A `-wal` or `-shm` left at that path is removed
+    first, since a stale log would be replayed into the seed. Only
+    `index.sqlite` crosses: the session memory, the config and the lock are
+    the worktree's own.
+
+    **The source is opened `mode=rw`**: `ro` cannot open a WAL database whose
+    `-shm` is absent, and a plain connect would create an empty file at a
+    path gone since `seed_source` looked. Called inside the worker's lock,
+    after the root was judged. Every failure leaves no index and no partial
+    file, so the next change tries again.
+    """
+    if written(root):
+        return True
+    source = seed_source(owner, root)
+    if source is None or not index_openable(root):
+        return False
+    cache = os.path.join(root, CACHE)
+    index = os.path.join(cache, "index.sqlite")
+    partial = f"{index}.seed.{os.getpid()}"
+    try:
+        os.makedirs(cache, exist_ok=True)
+        # Asked again now the directory exists: `makedirs` creates what was
+        # missing, and only an unlinked path may receive the copy.
+        if not index_openable(root):
+            return False
+        for suffix in ("",) + SIDECARS:
+            if os.path.lexists(partial + suffix):
+                return False
+        reading = sqlite3.connect(sqlite_uri(source, "rw"), uri=True, timeout=30)
+        try:
+            writing = sqlite3.connect(partial, timeout=30)
+            try:
+                reading.backup(writing)
+            finally:
+                writing.close()
+        finally:
+            reading.close()
+        with open(partial, "rb") as handle:
+            if handle.read(100)[18:20] != b"\x02\x02":
+                return False
+        for suffix in ("-wal", "-shm"):
+            try:
+                os.remove(index + suffix)
+            except FileNotFoundError:
+                pass
+        os.replace(partial, index)
+    except (OSError, sqlite3.Error):
+        return False
+    finally:
+        for suffix in ("",) + SIDECARS:
+            try:
+                os.remove(partial + suffix)
+            except OSError:
+                pass
+    return written(root) and index_openable(root)
 
 
 _STATE_DIRS = {}
@@ -609,12 +798,15 @@ def running_indexer(lock):
 
 
 def refresh(owner, root, lock):
-    """Run the owner's wrapper against `root` once, synchronously."""
+    """Seed the root if it has no index, then run the owner's wrapper's `update` once."""
     bash = shutil.which("bash")
     if bash is None or not index_openable(root):
         # Judged on every run and not once per worker: a worker refreshes for
         # as long as edits keep coming, and a checkout in between can put a
         # link, or a journal, where the wrapper is about to open the index.
+        return
+    if not seed(owner, root):
+        # No index and none to seed from: nothing is built in its place.
         return
     child = None
     # Claimed before the child exists, so a worker killed while starting one
@@ -622,8 +814,7 @@ def refresh(owner, root, lock):
     lock.write(str(os.getpid()))
     try:
         child = subprocess.Popen(
-            [bash, os.path.join(owner, WRAPPER), "--quiet", "--root", root,
-             subcommand(root)],
+            [bash, os.path.join(owner, WRAPPER), "--quiet", "--root", root, "update"],
             cwd=owner, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL)
         lock.write(str(child.pid))
@@ -766,10 +957,15 @@ def work(owner, root):
     A second worker for the same root finds the lock held and returns at
     once. After letting go the worker looks for a marker once more: an edit
     that marked while it still held the lock saw it held and started nothing,
-    so this look is what serves it.
+    so this look is what serves it. A root with no index finds its main
+    checkout before the first refresh, inside the git budget the worker
+    started with, because `seed` asks for it after that budget is spent; a
+    root with one never needs it.
     """
     if state_dir(owner) is None:
         return
+    if not written(root):
+        main_checkout(owner)
     lock = Lock(owner, root)
     while lock.acquire():
         try:
@@ -823,6 +1019,24 @@ def start(owner, root):
         spawn([sys.executable, os.path.abspath(__file__), "--worker", root], owner)
 
 
+def read_event(stream):
+    """The event on `stream`, decoded as UTF-8 from its bytes where it has them.
+
+    Python reads a Windows pipe in the ANSI code page, which turns a
+    non-ASCII path in the event into one that does not exist. Measured in
+    blueprint-backend#513, round 1. None when it is not a JSON object.
+    """
+    raw = getattr(stream, "buffer", None)
+    try:
+        if raw is not None:
+            event = json.loads(raw.read().decode("utf-8", "replace") or "null")
+        else:
+            event = json.load(stream)
+    except (ValueError, UnicodeDecodeError, OSError):
+        return None
+    return event if isinstance(event, dict) else None
+
+
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
     owner = home()
@@ -833,17 +1047,18 @@ def main(argv=None):
         if root is not None:
             work(owner, root)
         return 0
-    try:
-        event = json.load(sys.stdin)
-    except (ValueError, UnicodeDecodeError):
+    event = read_event(sys.stdin)
+    if event is None:
         return 0
-    if not isinstance(event, dict):
-        return 0
-    root = target_root(event.get("cwd"), owner)
+    root = target_root(named(event), owner)
     if root is None or shutil.which("bash") is None:
         return 0
     try:
-        start(owner, root)
+        # A checkout with no index and nothing to seed it from gets no worker:
+        # most Bash calls land here when nothing is indexed, and each would
+        # otherwise start a process that finds nothing to do.
+        if refreshable(owner, root):
+            start(owner, root)
     except OSError:
         pass
     return 0

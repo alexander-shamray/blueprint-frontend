@@ -61,3 +61,14 @@ esac
 git show-ref --verify --quiet refs/remotes/origin/main ||
   { echo "no refs/remotes/origin/main — fetch first (step 1)" >&2; exit 4; }
 git worktree add --no-track -b "$branch" "$path" origin/main
+# Seed the new worktree's code index now (alexander-shamray/blueprint-frontend#127):
+# /branch enters it mid-session, where no `SessionStart` fires. The worktree's
+# own hook does the work through its own launcher, handed an event whose `cwd`
+# is the worktree, and detaches its own refresh, so the `&` only spares a wait.
+# Silenced as its hook entries are, and never a failure of the fork, which has
+# already happened.
+launcher=.claude/hooks/run-guard.sh
+if [ -f "$path/$launcher" ]; then
+  (cd "$path" && printf '{"cwd": "."}' | sh "$launcher" index-refresh.py) \
+    </dev/null >/dev/null 2>&1 &
+fi

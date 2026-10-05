@@ -47,6 +47,32 @@ def real(path):
     return os.path.normcase(os.path.realpath(path))
 
 
+def index_path(root):
+    return os.path.join(root, ".claude", "cache", "codebase-index", "index.sqlite")
+
+
+def write_index(root, text="main"):
+    """A small WAL-mode index at the root's cache path, as the package leaves one."""
+    path = index_path(root)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    conn = sqlite3.connect(path, isolation_level=None)
+    try:
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("CREATE TABLE chunks (id INTEGER PRIMARY KEY, content TEXT)")
+        conn.execute("INSERT INTO chunks (content) VALUES (?)", (text,))
+    finally:
+        conn.close()
+    return path
+
+
+def read_index(path):
+    conn = sqlite3.connect(path)
+    try:
+        return [row[0] for row in conn.execute("SELECT content FROM chunks")]
+    finally:
+        conn.close()
+
+
 class TheRootFollowsTheActiveWorktree(unittest.TestCase):
 
     def setUp(self):
@@ -269,6 +295,9 @@ class TheRootFollowsTheActiveWorktree(unittest.TestCase):
         # was scheduled. Every git call in the process shares one deadline.
         self.hook._DEADLINE = None
         self.hook._STATE_DIRS.clear()
+        # Seedable, so the event goes on to the state directory and every
+        # git call the hook makes is on the path.
+        write_index(self.main)
         deadlines = []
         real_git_paths = self.hook.git_paths
 
@@ -324,7 +353,10 @@ class TheRootFollowsTheActiveWorktree(unittest.TestCase):
     def test_the_event_starts_a_worker_for_the_active_worktree(self):
         # The #48 case end to end: `cwd` differs from the checkout that owns
         # the hook, and the worker is started for the worktree, from the
-        # owner. The spawn is replaced, not the decision.
+        # owner. The spawn is replaced, not the decision. The main checkout
+        # has an index, so the worktree is seedable and worth a worker
+        # (blueprint-frontend#127).
+        write_index(self.main)
         event = json.dumps({"cwd": self.sibling, "hook_event_name": "PostToolUse"})
         with mock.patch.object(self.hook, "home", return_value=self.main), \
                 mock.patch.object(self.hook, "spawn") as spawn, \
@@ -339,6 +371,10 @@ class TheRootFollowsTheActiveWorktree(unittest.TestCase):
         self.assertTrue(os.path.isfile(self.hook.pending_path(self.main, argv[3])))
 
     def test_the_refresh_runs_the_owners_wrapper_against_the_worktree(self):
+        write_index(self.main)
+        # Found before `Popen` is replaced, as the worker finds it before its
+        # first refresh: `git` itself is started through `Popen`.
+        self.hook.main_checkout(self.main)
         lock = mock.Mock()
         with mock.patch.object(self.hook.subprocess, "Popen") as popen:
             popen.return_value.pid = 4242
@@ -355,21 +391,185 @@ class TheRootFollowsTheActiveWorktree(unittest.TestCase):
                               "scripts", "run-index")),
             real(argv[1]))
         self.assertEqual(["--quiet", "--root", self.sibling], argv[2:5])
-        # No index has been built in the new worktree, so this is the build.
-        self.assertEqual(["index"], argv[5:])
+        # The new worktree had no index: it was seeded from the main
+        # checkout's and is updated, never built (blueprint-frontend#127).
+        self.assertEqual(["update"], argv[5:])
+        self.assertEqual(["main"], read_index(index_path(self.sibling)))
 
-    def test_a_worktree_with_an_index_is_updated_not_rebuilt(self):
-        # `update` against a worktree with no index prints *No index found*
-        # and exits, so choosing it unconditionally refreshed nothing in the
-        # fresh worktree every `/branch` creates.
-        self.assertEqual("index", self.hook.subcommand(self.sibling))
-        cache = os.path.join(self.sibling, ".claude", "cache", "codebase-index")
+    def test_only_a_written_index_counts_as_one(self):
+        # A first build creates the file before it writes SQLite's header,
+        # and `update` cannot open what that leaves.
+        self.assertFalse(self.hook.written(self.sibling))
+        cache = os.path.dirname(index_path(self.sibling))
         os.makedirs(cache)
-        # Created and not yet written by a first build: built, not updated.
         Path(cache, "index.sqlite").write_bytes(b"")
-        self.assertEqual("index", self.hook.subcommand(self.sibling))
+        self.assertFalse(self.hook.written(self.sibling))
         Path(cache, "index.sqlite").write_bytes(b"\0" * 100)
-        self.assertEqual("update", self.hook.subcommand(self.sibling))
+        self.assertTrue(self.hook.written(self.sibling))
+
+    def test_a_worktree_is_seeded_from_the_main_checkout_and_never_built(self):
+        # blueprint-frontend#127: the seed is a copy of the main checkout's index, in WAL mode
+        # so the hook's own judgement admits it, renamed in whole, and the
+        # main checkout's index is read and not changed.
+        source = write_index(self.main)
+        before = read_index(source)
+        self.assertTrue(self.hook.refreshable(self.main, self.sibling))
+        self.assertTrue(self.hook.seed(self.main, self.sibling))
+        seeded = index_path(self.sibling)
+        self.assertEqual(["main"], read_index(seeded))
+        with open(seeded, "rb") as handle:
+            self.assertEqual(b"\x02\x02", handle.read(100)[18:20])
+        self.assertTrue(self.hook.index_openable(self.sibling))
+        self.assertEqual(before, read_index(source))
+        self.assertEqual(["index.sqlite"], sorted(
+            name for name in os.listdir(os.path.dirname(seeded))
+            if not name.startswith("index.sqlite-")))
+
+    def test_nothing_is_seeded_or_built_without_a_main_index(self):
+        # The acceptance's other half: no index on main means no index
+        # anywhere, and no wrapper run that would build one.
+        self.assertFalse(self.hook.refreshable(self.main, self.sibling))
+        self.assertFalse(self.hook.seed(self.main, self.sibling))
+        self.assertFalse(os.path.exists(index_path(self.sibling)))
+        with mock.patch.object(self.hook.subprocess, "Popen") as popen:
+            self.hook.refresh(self.main, self.sibling, mock.Mock())
+        popen.assert_not_called()
+        event = json.dumps({"cwd": self.sibling, "hook_event_name": "PostToolUse"})
+        with mock.patch.object(self.hook, "home", return_value=self.main), \
+                mock.patch.object(self.hook, "spawn") as spawn, \
+                mock.patch("sys.stdin", io.StringIO(event)):
+            self.assertEqual(0, self.hook.main([]))
+        spawn.assert_not_called()
+
+    def test_the_main_checkout_is_never_seeded(self):
+        # Its index is the seed; one missing there is the user's to build.
+        write_index(self.sibling)
+        for owner in (self.main, self.sibling):
+            with self.subTest(owner=owner):
+                self.assertIsNone(self.hook.seed_source(owner, self.main))
+                self.assertFalse(self.hook.seed(owner, self.main))
+
+    def test_an_index_already_there_is_left_alone(self):
+        write_index(self.main)
+        write_index(self.sibling, "branch")
+        self.assertIsNone(self.hook.seed_source(self.main, self.sibling))
+        self.assertTrue(self.hook.seed(self.main, self.sibling))
+        self.assertEqual(["branch"], read_index(index_path(self.sibling)))
+
+    def test_a_main_index_its_own_refresh_would_refuse_seeds_nothing(self):
+        # The source is judged as a root's own index is: a rollback journal
+        # beside it, or a header that is not WAL, refuses it.
+        source = write_index(self.main)
+        Path(source + "-journal").write_bytes(b"")
+        self.assertIsNone(self.hook.seed_source(self.main, self.sibling))
+        os.remove(source + "-journal")
+        conn = sqlite3.connect(source, isolation_level=None)
+        try:
+            conn.execute("PRAGMA journal_mode=DELETE")
+        finally:
+            conn.close()
+        self.assertIsNone(self.hook.seed_source(self.main, self.sibling))
+        self.assertFalse(self.hook.seed(self.main, self.sibling))
+        self.assertFalse(os.path.exists(index_path(self.sibling)))
+
+    def test_a_copy_without_a_wal_header_is_never_renamed_in(self):
+        # The header check is what keeps a copy `index_openable` would refuse
+        # off the index path. A rollback-mode source, let past its own
+        # judgement here, gives exactly such a copy.
+        source = write_index(self.main)
+        conn = sqlite3.connect(source, isolation_level=None)
+        try:
+            conn.execute("PRAGMA journal_mode=DELETE")
+        finally:
+            conn.close()
+        real_openable = self.hook.index_openable
+        with mock.patch.object(self.hook, "index_openable",
+                               side_effect=lambda root: True if real(root) == real(self.main)
+                               else real_openable(root)):
+            self.assertFalse(self.hook.seed(self.main, self.sibling))
+        self.assertFalse(os.path.exists(index_path(self.sibling)))
+        self.assertEqual([], [name for name in os.listdir(os.path.dirname(index_path(
+            self.sibling))) if ".seed." in name])
+
+    def test_a_seed_into_a_redirected_cache_is_refused(self):
+        write_index(self.main)
+        aimed = os.path.join(self.base, "aimed-at")
+        os.mkdir(aimed)
+        os.makedirs(os.path.join(self.sibling, ".claude"))
+        self.link(os.path.join(self.sibling, ".claude", "cache"), aimed)
+        self.assertFalse(self.hook.seed(self.main, self.sibling))
+        self.assertEqual([], os.listdir(aimed))
+
+    def edit_event(self, path, cwd):
+        return {"cwd": cwd, "hook_event_name": "PostToolUse", "tool_name": "Edit",
+                "tool_input": {"file_path": path}}
+
+    def test_an_edit_into_a_worktree_from_the_main_checkout_refreshes_the_worktree(self):
+        # blueprint-frontend#137: the session stays in the main checkout and edits a
+        # worktree's file by absolute path. The worktree changed; the main
+        # checkout did not.
+        write_index(self.main)
+        edited = os.path.join(self.sibling, "src", "app.ts")
+        os.makedirs(os.path.dirname(edited))
+        Path(edited).write_text("x", encoding="utf-8")
+        event = json.dumps(self.edit_event(edited, self.main))
+        with mock.patch.object(self.hook, "home", return_value=self.main), \
+                mock.patch.object(self.hook, "spawn") as spawn, \
+                mock.patch("sys.stdin", io.StringIO(event)):
+            self.assertEqual(0, self.hook.main([]))
+        spawn.assert_called_once()
+        self.assertEqual(real(self.sibling), real(spawn.call_args.args[0][3]))
+
+    def test_a_relative_path_is_resolved_before_it_is_walked(self):
+        # `../../../x` from a worktree under `.claude/worktrees/` lands in the
+        # main checkout, whose worktree is among that path's lexical parents.
+        nested = os.path.join(self.main, ".claude", "worktrees", "nested")
+        git("worktree", "add", "-q", "-b", "nested", nested, cwd=self.main)
+        event = self.edit_event(os.path.join("..", "..", "..", "README.md"), nested)
+        self.assertEqual(real(self.main),
+                         real(self.hook.target_root(self.hook.named(event), self.main)))
+
+    def test_a_file_in_a_directory_not_yet_made_names_its_checkout(self):
+        event = self.edit_event(
+            os.path.join(self.sibling, "new", "deeper", "x.ts"), self.main)
+        self.assertEqual(real(self.sibling), real(self.hook.named(event)))
+
+    def test_an_event_naming_a_file_is_never_answered_with_cwd(self):
+        # A file that cannot be placed refreshes nothing, never the tree the
+        # session stands in, which the change did not touch.
+        loose = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, loose, ignore_errors=True)
+        outside = self.edit_event(os.path.join(loose, "notes.md"), self.sibling)
+        self.assertIsNone(self.hook.target_root(self.hook.named(outside), self.main))
+        relative = {"tool_input": {"file_path": "src/app.ts"}}
+        self.assertIsNone(self.hook.named(relative))
+        # A file with no directory above it that exists — a drive gone, a
+        # mount unplugged — walks to the root and stops there.
+        placed = self.edit_event(os.path.join(self.sibling, "x.ts"), self.main)
+        with mock.patch.object(self.hook.os.path, "isdir", return_value=False):
+            self.assertIsNone(self.hook.named(placed))
+        for key in ("notebook_path", "file_path"):
+            with self.subTest(key=key):
+                event = {"cwd": self.main,
+                         "tool_input": {key: os.path.join(self.sibling, "n.ipynb")}}
+                self.assertEqual(real(self.sibling), real(self.hook.named(event)))
+
+    def test_a_bash_event_follows_its_cwd(self):
+        # blueprint-frontend#136: a shell call names no file, so the directory it ran in decides.
+        event = {"cwd": self.sibling, "hook_event_name": "PostToolUse",
+                 "tool_name": "Bash", "tool_input": {"command": "git commit -m x"}}
+        self.assertEqual(self.sibling, self.hook.named(event))
+        self.assertEqual(self.main, self.hook.named({"cwd": self.main}))
+
+    def test_the_event_is_decoded_as_utf_8(self):
+        # A Windows pipe reads in the ANSI code page; the bytes are UTF-8.
+        payload = json.dumps({"cwd": "C:/\u0141\u00f3d\u017a"}, ensure_ascii=False)
+        stream = io.TextIOWrapper(io.BytesIO(payload.encode("utf-8")), encoding="cp1252")
+        self.assertEqual("C:/\u0141\u00f3d\u017a", self.hook.read_event(stream)["cwd"])
+        for bad in (b"", b"[1]", b"\xff\xfe", b"not json"):
+            with self.subTest(payload=bad):
+                self.assertIsNone(self.hook.read_event(
+                    io.TextIOWrapper(io.BytesIO(bad), encoding="cp1252")))
 
     def test_a_refused_root_spawns_nothing(self):
         for payload in (json.dumps({"cwd": self.sweep}), "not json", "[]"):
@@ -716,6 +916,7 @@ class OneWorkerPerRootAndNoEditDropped(unittest.TestCase):
         # an indexer nobody could name, so the next edit started a second one.
         # The worker's own pid holds the record until the child's is known.
         claims = []
+        write_index(self.root)
         lock = self.hook.Lock(self.root, self.root)
         self.assertTrue(lock.acquire())
         self.addCleanup(lock.release)
@@ -735,6 +936,7 @@ class OneWorkerPerRootAndNoEditDropped(unittest.TestCase):
         # The other half: `kill` only asks. A record cleared while the process
         # is still exiting lets a coalesced refresh start beside it.
         order = []
+        write_index(self.root)
         child = mock.Mock()
         child.pid = 4242
         waits = []
@@ -1020,6 +1222,8 @@ class TheIndexIsCompactedAfterARefresh(unittest.TestCase):
         self.assertEqual(before, self.snapshot())
 
     def refresh_exiting(self, wait):
+        # An index to update: with none and none to seed, nothing runs.
+        self.build()
         child = mock.Mock(pid=4242)
         child.wait.side_effect = wait
         with mock.patch.object(self.hook.subprocess, "Popen", return_value=child), \
@@ -1028,7 +1232,7 @@ class TheIndexIsCompactedAfterARefresh(unittest.TestCase):
         return compact
 
     def test_only_an_index_at_rest_in_wal_mode_may_be_opened(self):
-        # No index yet is admitted, since the wrapper builds one; a WAL-mode
+        # No index yet is admitted, since the worker seeds one; a WAL-mode
         # index is admitted; a journal beside it, or a rollback-mode header,
         # refuses it at every point that opens it.
         self.assertTrue(self.hook.index_openable(self.root))
@@ -1176,7 +1380,7 @@ class TheIndexIsCompactedAfterARefresh(unittest.TestCase):
         # build that dies there must not refuse the root for good.
         Path(self.index).write_bytes(b"")
         self.assertTrue(self.hook.index_openable(self.root))
-        self.assertEqual("index", self.hook.subcommand(self.root))
+        self.assertFalse(self.hook.written(self.root))
         Path(self.index + "-journal").write_bytes(b"")
         self.assertFalse(self.hook.index_openable(self.root))
 
@@ -1230,6 +1434,7 @@ class TheIndexIsCompactedAfterARefresh(unittest.TestCase):
         # A worker judges its root once and then refreshes for as long as
         # edits keep coming, so a checkout that links the cache path between
         # two runs must stop the second one before the wrapper writes.
+        self.build()
         with mock.patch.object(self.hook.subprocess, "Popen") as popen:
             popen.return_value.wait.return_value = 1
             self.hook.refresh(self.root, self.root, mock.Mock())
@@ -1265,6 +1470,7 @@ class TheIndexIsCompactedAfterARefresh(unittest.TestCase):
         seen = []
         child = mock.Mock(pid=4242)
         child.wait.return_value = 0
+        self.build()
         self.hook.mark_pending(self.root, self.root)
         with mock.patch.object(self.hook.subprocess, "Popen", return_value=child), \
                 mock.patch.object(self.hook, "compact", side_effect=lambda root: seen.append(
@@ -1297,6 +1503,8 @@ class TheDetachedWorkerReallyRuns(unittest.TestCase):
             "--allow-empty", "-m", "root", cwd=owner)
         sibling = os.path.join(base, "owner-feature")
         git("worktree", "add", "-q", "-b", "feature", sibling, cwd=owner)
+        # The owner's index, which the detached worker seeds the worktree from.
+        write_index(owner)
 
         hooks = Path(owner, ".claude", "hooks")
         hooks.mkdir(parents=True)
@@ -1339,7 +1547,8 @@ class TheDetachedWorkerReallyRuns(unittest.TestCase):
         args = record.read_text(encoding="utf-8").split("\n")
         self.assertEqual(["--quiet", "--root"], args[:2])
         self.assertEqual(real(sibling), real(args[2]))
-        self.assertEqual("index", args[3])
+        self.assertEqual("update", args[3])
+        self.assertEqual(["main"], read_index(index_path(sibling)))
         self.assertFalse(hook.held(owner, sibling), "the worker finished without releasing")
         self.assertFalse(os.path.exists(hook.pending_path(owner, sibling)))
 
@@ -1388,10 +1597,17 @@ class TheRefreshIsWiredThroughTheLauncher(unittest.TestCase):
         for entry in self.entries_running_this_hook()["SessionStart"]:
             self.assertNotIn("matcher", entry)
 
+    def test_the_edit_entry_also_runs_after_every_bash_call(self):
+        # blueprint-frontend#136: commits, pulls, rebases and edit scripts change tracked files
+        # through the shell. The four edit tools and Bash, and nothing else.
+        [entry] = self.entries_running_this_hook()["PostToolUse"]
+        self.assertEqual({"Edit", "Write", "MultiEdit", "NotebookEdit", "Bash"},
+                         set(entry["matcher"].split("|")))
+
     def test_the_launcher_admits_it(self):
         launcher = (SCRIPTS.parent / "hooks" / "run-guard.sh").read_text(
             encoding="utf-8")
-        self.assertRegex(launcher, r"\|index-refresh\.py\)")
+        self.assertRegex(launcher, r"\|index-refresh\.py[|)]")
 
 
 if __name__ == "__main__":
