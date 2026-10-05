@@ -46,16 +46,25 @@ segment before forwarding.
 | `GET /bff/v1/checkout/quote?productId=&productId=&currency=` | Web.Bff | authenticated | repeated `productId`, one `currency` | `QuoteResponse`: `{ currency, lines: [{ productId, name, amount }], total, unpriced: [guid] }` |
 | `POST /api/v1/orders` | Ordering | `orders:write` | `PlaceOrderCommand`: `{ commandId, items: [{ productId, quantity }], shippingAddress: { line1, line2?, city, postalCode, country }, currency }` | `201` with the order id |
 | `POST /api/v1/orders/{id}/cancel` | Ordering | `orders:cancel` | `{ reason }`, one of `out_of_stock`, `stock_timeout`, `payment_declined`, `payment_timeout`, `customer_request` | `204` |
+| `GET /bff/v1/orders?cursor=&limit=20` | Web.Bff | authenticated | — | `CursorPage<OrderSummary>`: `{ orderId, status, timeline, refunded, refundedAt, cancellable, total, lines, asOf }` |
+| `GET /bff/v1/orders/{id}` | Web.Bff | authenticated | — | `OrderDetail`: the summary's members, lines with `quantity` and `unitPrice`, and `payment` and `shipment` |
 
-There is no endpoint that reads an order back, and the client says so on the
-one screen where a reader would expect one (§5.4).
+Ordering still exposes no endpoint that reads an order back. The buyer's order
+read is the BFF's — a projection it owns (backend ADR-051, §10.7 of its
+`10-api-gateway.md`, built in blueprint-backend#501) — and it binds the
+subject from the principal, so it asks for a session and no permission. This
+section said there was no order read at all until that landed;
+`client-architecture.md` §7 keeps the claim and its last subsection says what
+replaced it.
 
 Owners, for the citation rule in §1: `ProductSummaryDto` and
 `PublishProductCommand` in `Catalog.Application`; `CursorPage<T>` in
 `Common.Application`; `PlaceOrderCommand`, `PlaceOrderItem`, `AddressDto` and
 `CancellationReasons` in `Ordering.Application`; the reason codes in
 `Common.Contracts.Ordering.V1.CancelReasons`; `QuoteResponse` and `QuoteLine`
-in `Web.Bff.Endpoints`; the permission names in `CatalogPermissions` and
+in `Web.Bff.Endpoints`; `OrderSummary`, `OrderDetail` and their parts in
+`Web.Bff.Orders.OrderResponses`, and the status vocabulary in
+`Web.Bff.Orders.BuyerStatuses`; the permission names in `CatalogPermissions` and
 `OrderingPermissions`; the status mapping in `Common.Web.ResultExtensions`.
 
 ### 2.1 Facts the client must honour
@@ -90,17 +99,20 @@ blueprint-frontend/
     core/
       config/          environment.ts, environment.development.ts:
                        gateway base URL, Keycloak authority, client id per platform
-      api/             catalog.api.ts, ordering.api.ts, checkout.api.ts, types.ts
+      api/             catalog.api.ts, ordering.api.ts, checkout.api.ts, orders.api.ts,
+                       types.ts
       auth/            auth.service.ts (interface + factory), web-auth.strategy.ts,
                        native-auth.strategy.ts, auth.interceptor.ts,
-                       permission.guard.ts, current-user.ts
+                       permission.guard.ts, signed-in.guard.ts, current-user.ts
+      orders/          order-poll.ts — the poll's intervals and when it stops
       errors/          problem-details.ts, error-mapper.ts
       cart/            cart.store.ts (signals), cart.persistence.ts (Capacitor Preferences)
     features/
       products/        products.page.ts — list, infinite scroll, add to cart
       cart/            cart.page.ts — lines, quantities, quote
       checkout/        checkout.page.ts — address, currency, place order
-      order-placed/    order-placed.page.ts — id, cancel with reason
+      order-placed/    order-placed.page.ts — id, polled status, link to tracking
+      orders/          orders.page.ts — history; order-detail.page.ts — timeline, cancel
       publish/         publish.page.ts — publish product form
       account/         account.page.ts — sign in/out, username, permissions
     app.routes.ts, app.component.ts, tabs
@@ -124,9 +136,9 @@ ESLint `no-restricted-imports` rule per feature folder rather than trusted.
 **Types.** `core/api/types.ts` hand-writes the shapes in §2, one interface per
 backend record, each with a one-line comment naming the backend file and
 symbol it mirrors. Generation from the Catalog and Ordering OpenAPI documents
-was considered and deferred: the BFF publishes no document, six endpoints do
-not pay for the tooling, and a citing comment is enough for grep to find drift
-in either direction.
+was considered and deferred: the BFF publishes no document, a handful of
+endpoints do not pay for the tooling, and a citing comment is enough for grep
+to find drift in either direction.
 
 **Cart.** The backend has no cart, so the cart is client state: a signals
 store of `{ productId, name, amount, currency, quantity }` lines, persisted
@@ -192,9 +204,10 @@ application asks which platform it is on.
 
 ## 5. Screens
 
-Ionic tabs: **Products**, **Cart**, **Account**, with **Publish** as a fourth
-tab that appears only when `catalog:write` is held. Checkout and Order placed
-are pushed onto the Cart tab's stack.
+Ionic tabs: **Products**, **Cart**, **Account**, with **History**, which
+appears only while signed in, and **Publish**, which appears only when
+`catalog:write` is held. Checkout and Order placed are pushed onto the Cart
+tab's stack; an order's tracking detail is pushed onto History's.
 
 ### 5.1 Products
 
@@ -230,12 +243,25 @@ explains why in terms of `IdempotencyBehavior`.
 
 ### 5.4 Order placed
 
-Shows the returned order id and a **Cancel** action. The reason is an
-`ion-select` over the five codes in §2 with `customer_request` preselected;
-the codes are a frozen list in `types.ts` citing `CancelReasons`. Cancel posts
-`{ reason }` and reports the 204. The page states, in one sentence, that the
-platform exposes no order read yet, so no status is shown. It does not poll,
-fake a status or invent one.
+Shows the returned order id, the buyer status the order read reports for it,
+and a link to the order's tracking detail (§5.7). **Cancel is not here**: it
+moved to the tracking detail, so there is one cancel button and not two.
+
+The status is polled, because the read is a projection and nothing pushes: at
+once, then every 3 seconds, backing off to 15, stopping on a terminal status
+(`delivered`, `cancelled`, `out_of_stock`, `declined`), while the page is
+hidden, and when Ionic reports the page is being left. The intervals are
+named constants in `core/orders/order-poll.ts`. No poll is sent while the
+`authenticated` rate-limit window is blocked, and a 429 on a poll stretches
+the interval rather than raising a banner for a request the buyer did not
+make. A 404 straight after placing is the projection not having absorbed
+`OrderPlaced` yet, so it reads as "not recorded yet" and the poll carries on.
+A reply for an id the page has since left is dropped.
+
+Until the BFF's read landed this page stated, in one sentence, that the
+platform exposed no order read, and did not poll; `client-architecture.md` §7
+keeps that claim. The `already-committed` sentinel still has no id to show,
+and the page now points at History, where the order is listed.
 
 ### 5.5 Publish
 
@@ -248,6 +274,39 @@ success the products tab refreshes from the first page.
 Sign in and out, `preferred_username`, the permissions held as chips, and the
 platform's token posture in one line: on the web, "session ends on reload, no
 refresh token"; on native, "refresh token in secure storage, rotated".
+
+### 5.7 History and the tracking detail
+
+**History** is a tab, shown only while signed in, listing the buyer's orders
+from `GET /bff/v1/orders`, cursor-paged with the shared skeleton, empty-state
+and end-of-list rows. Each row names its products — a line whose name never
+resolved reads "Unnamed product", since backend §10.7 makes that null
+ordinary — its total through the money pipe, when it was placed, and a status
+chip. The chip's words name the BFF's closed vocabulary and nothing else: the
+client maps no saga state. History is a tab root, so it reloads on every entry
+(`ionViewWillEnter`) and forgets a list the moment the signed-in subject
+changes. A signed-out navigation to it is refused to Account with a stated
+reason.
+
+The **tracking detail**, `GET /bff/v1/orders/{id}`, is pushed from a row. It
+draws a timeline from the BFF's timestamps — placed, confirmed, dispatched,
+delivered — and draws an order that ended in `cancelled`, `out_of_stock` or
+`declined` as a finished timeline with that ending as its last step, not as an
+error. A refund is a further step beside the status. It shows the lines with
+their quantity and unit price, the total, the payment outcome where there is
+one, the carrier's tracking number where one is stored, and the time the
+platform last recorded anything (`asOf`). It does no date arithmetic and
+derives no step from another.
+
+**Cancel lives here.** It is offered while the read's `cancellable` is true,
+which backend §10.7 calls a hint and not an authority, so the command's own
+422 is still handled and shown as sent. After despatch the button is absent and a
+sentence says why. Cancel posts `{ reason: 'customer_request' }`, the only
+reason a customer can truthfully carry (`client-architecture.md` §12, *A
+customer may not name the platform's reasons*), with an in-flight guard, a
+reply dropped if it belongs to an order the page has since left, and one
+replay after a sign-in on a 401. After a 204 the page reads the order again
+and says the progress follows once the read records it.
 
 ## 6. Error handling
 
@@ -332,8 +391,9 @@ introduces.
 
 ## 10. Out of scope
 
-- A mobile BFF, order history, a product detail *route*, search, images upload
-  or any screen without an endpoint behind it.
+- A mobile BFF, a product detail *route*, search, images upload or any screen
+  without an endpoint behind it. Order history was on this list until the
+  BFF's order read gave it one (§5.7).
 - **Product detail as a sheet is in scope, and needs no endpoint of its own**,
   because the listing's endpoint already supplies the row it shows. It opens
   over a row of the listing and shows only what that row's `ProductSummary`

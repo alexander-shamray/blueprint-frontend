@@ -286,10 +286,11 @@ order. What the page does next depends on the page:
   spends the basket (an order from it exists) and leaves Place order disabled.
   It does not route to the placed page, which would tell the customer that the
   order they just sent was placed. It does not offer the edited order under a
-  fresh id either: that would certainly be a second order, and a warning to
-  check for the first would point at nothing, because there is no order read
-  (§7). A deliberate second order goes back through the cart. This is the one
-  terminal outcome on which checkout does not navigate away, the exception to
+  fresh id either: that would certainly be a second order. Its note points at
+  History, where the first is listed; until the order read landed it could
+  point at nothing (§7, which records both). A deliberate second order goes
+  back through the cart. This is the one terminal outcome on which checkout
+  does not navigate away, the exception to
   "navigates away on both terminal outcomes" in §12's *State at a tab root
   never gets a teardown*: the way out is the back button, which pops the page
   and destroys it, so the next visit builds a fresh `CommandIdentity`.
@@ -324,6 +325,17 @@ nothing to point at. Neither service exposes a per-resource GET.
 
 ## 7. There is no order read, and the client says so instead of inventing one
 
+> **Superseded on 2026-10-05 by this section's last subsection, *What
+> replaced it*.** The backend built a buyer's order read
+> in blueprint-backend#501 (ADR-051, backend §10.7): a projection the BFF owns,
+> served at `GET /bff/v1/orders` and `GET /bff/v1/orders/{id}`. Ordering still
+> has no read, and `OrderingPermissions.cs` still has no `orders:read`; what
+> stopped being true is that the *platform* has none. The section below is the
+> claim as it stood, kept because its argument — say what is absent rather
+> than invent it — is the one that subsection applies to a read that lags.
+> It is a subsection rather than a section of its own so that the numbering
+> other files cite stays whole.
+
 `Ordering.Api/OrderingPermissions.cs` holds two constants and explains the
 absence of a third: `orders:read` is "deliberately absent until there is a read
 endpoint to require it — a service's vocabulary holds what its endpoints require
@@ -346,6 +358,58 @@ result, and there is no id — so `CheckoutPage` navigates to
 imports another feature), and the placed page renders the honest paragraph: the
 order exists, its id is not recoverable from here. With a read endpoint, that
 page would look it up. Without one, saying so is the only truthful option.
+
+### What replaced it: a projection, read as one
+
+Backend ADR-051 and §10.7 of its `10-api-gateway.md` define the buyer's order
+read, and blueprint-backend#501 built it: `Web.Bff/Endpoints/OrderEndpoints.cs`
+maps `GET /v1/orders` and `GET /v1/orders/{id}` behind `RequireAuthorization()`
+and calls nothing, answering from rows the BFF's own handlers write as
+Ordering's, Payments' and Shipping's events arrive. This client speaks it
+through `core/api/orders.api.ts`, and the four facts below are why the screens
+over it are shaped as they are.
+
+**It asks for a session, not a permission.** The group requires an
+authenticated principal and binds the subject from it, and there is still no
+`orders:read` (§3). So History is shown while anybody is signed in and
+`core/auth/signed-in.guard.ts` refuses a signed-out navigation to Account with
+a reason — the tab hides, the guard refuses, the backend decides, as §3 has it
+for permissions. Another buyer's order answers 404 rather than 403, and the
+detail page shows the backend's own title and detail for it.
+
+**It lags, so a 404 can mean "not yet".** A row exists once the projection has
+absorbed an Ordering event, and an order nobody has attributed is invisible to
+everyone, with the same 404 as one that does not exist. Order placed reads the
+order the moment it arrives, which is exactly when the projection is most
+likely to be behind, so `OrderPlacedPage` treats a 404 as "not recorded yet"
+and keeps polling. The poll's intervals and its terminal statuses live in
+`core/orders/order-poll.ts` and nowhere else; it never sends inside a blocked
+`authenticated` window, and a 429 on a poll lengthens the next wait instead of
+raising a banner for a request the buyer did not make. There is no stream, so
+polling is the honest mechanism, and it is deleted when one exists.
+
+**`cancellable` is a hint.** The backend says so in as many words: the field
+is computed from a projection that lags `Order.Cancel`, so it can read true
+while the command answers 422. `OrderDetailPage` uses it to choose what to
+offer, keeps the 422 handling `mapError()` already gives every rule, and after
+a 204 reads the order again and says the progress follows — a cancellation the
+command accepted is not yet one the read reports. Cancel moved to this page
+from Order placed with everything §12's *A customer may not name the
+platform's reasons* and *A response can outlive the state it was computed for*
+argued about it.
+
+**The status is the BFF's word, and the timeline is the BFF's timestamps.**
+The vocabulary is closed — `placed`, `confirmed`, `dispatched`, `delivered`
+and the three cancellation members `cancelled`, `out_of_stock` and
+`declined` — and `BUYER_STATUSES` in `types.ts` mirrors it. The client maps no
+saga state and derives no step: `shared/order-status.component.ts` names each
+member, a member outside the set is rendered as sent, and the detail's
+timeline draws each step where `OrderTimeline` keys it, with no date
+arithmetic. An order that ended in a cancellation member is drawn as a
+finished timeline whose last step is that ending, in no error colour, because
+"payment declined" is how that order finished rather than a fault on this
+screen. `refunded` is a flag beside the status, as the backend keeps it, so a
+refund is a further step and never replaces the ending it followed.
 
 ## 8. The BFF names the gap rather than dropping the line
 
@@ -756,9 +820,17 @@ rather than the outcome: the new product appears after a tab click, with no
 `page.reload()` anywhere in the test.
 
 Both watchers of that idiom — `ProductsPage`'s `constructedAtVersion` and
-`OrderPlacedPage`'s `constructedForId` — capture the value they were built with
-and compare against it, because an `effect()` runs once immediately over every
+`OrdersPage`'s `constructedFor` — capture the value they were built with and
+compare against it, because an `effect()` runs once immediately over every
 signal it reads and that first run is the construction's own work.
+`OrderPlacedPage` held the other one until its effect began restarting a poll,
+which the first run has to do as well.
+
+History is the second tab root whose content changes behind it, and it answers
+differently from Products, because nothing can ask it to: a placement, a
+cancellation and the platform's own progress all change the list, and the last
+has no caller. So `OrdersPage` reloads from `ionViewWillEnter`, every arrival
+included (§7, *What replaced it*).
 
 ### `provideIonicAngular()` does not install `IonicRouteStrategy`
 
