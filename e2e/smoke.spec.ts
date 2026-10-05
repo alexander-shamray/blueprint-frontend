@@ -132,23 +132,36 @@ test('demo browses, quotes, orders and cancels', async ({ page }) => {
   );
   // The BFF's order read (backend §10.7, built in blueprint-backend#501). The
   // page polls it, and its first answers are usually 404 — the projection has
-  // not absorbed OrderPlaced yet — so the chip appearing is the evidence that
-  // the read found this order, through the gateway, for this buyer. The
-  // timeout covers the projection's lag plus the poll's first back-off steps.
-  await expect(page.locator('app-order-placed app-order-status')).toBeVisible({
+  // not absorbed OrderPlaced yet — so a status arriving at all is the evidence
+  // that the read found this order, through the gateway, for this buyer.
+  //
+  // And the status it arrives at is an ending. The two products this test
+  // published were never stocked — the client has no way to stock one — so
+  // the fulfilment saga cancels the order as `out_of_stock` within seconds of
+  // placing it, and the read reports that. Waiting for the page to say the
+  // order is final, rather than for any chip, is what keeps the next step
+  // from racing the saga.
+  await expect(page.getByText('This order has reached its last status.')).toBeVisible({
     timeout: 30_000,
   });
 
-  // Cancel lives on the tracking detail now (spec §5.7), one tab over. The
-  // read already holds the order, so the detail loads on its first request.
-  await page.getByRole('button', { name: 'Track this order' }).click();
-  await expect(page.locator('app-order-detail [data-testid="timeline"]')).toBeVisible();
-
-  // The page sends customer_request and offers no choice of reason: the
-  // other four codes in CANCEL_REASONS are facts the platform discovers,
-  // and this route stamps CommandOrigin.User regardless of the code sent.
-  await page.locator('app-order-detail').getByRole('button', { name: 'Cancel order' }).click();
-  await expect(page.getByText('the platform answered 204')).toBeVisible();
+  // The tracking detail, one tab over, reached through the link Order placed
+  // offers (an anchor, so a link and not a button). It draws the ending as
+  // the last step of a finished timeline, and offers no Cancel for an order
+  // the platform has already cancelled.
+  //
+  // This is why the smoke no longer presses Cancel itself. It did while
+  // Order placed offered the button unconditionally, and `Order.Cancel` is
+  // idempotent, so a 204 came back for an order the saga had already
+  // cancelled. The detail offers Cancel only while the read says the order is
+  // cancellable (spec §5.7), which on this stack it never is by the time a
+  // person could press it. The cancel request and its replies are covered by
+  // order-detail.page.spec.ts.
+  await page.getByRole('link', { name: 'Track this order' }).click();
+  const detail = page.locator('app-order-detail');
+  await expect(detail.getByTestId('timeline')).toBeVisible();
+  await expect(detail.getByTestId('timeline')).toContainText('Out of stock');
+  await expect(detail.getByRole('button', { name: 'Cancel order' })).toHaveCount(0);
 });
 
 test('a published product reaches the catalogue without a reload', async ({ page }) => {
