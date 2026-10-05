@@ -162,8 +162,8 @@ import { countryOptions } from './countries';
           <ion-note>
             This order was already placed by an earlier submission from this page, so any changes
             you made since were not applied, and nothing was sent again. Its id cannot be shown
-            here, because the platform no longer holds that submission's result; History lists
-            every order this account has placed, this one included.
+            here, because this refusal does not carry it; History lists every order this account
+            has placed, this one included.
           </ion-note>
         </ion-item>
       }

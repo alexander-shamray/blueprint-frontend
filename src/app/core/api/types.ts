@@ -193,18 +193,24 @@ export const BUYER_STATUSES = [
 export type BuyerStatus = (typeof BUYER_STATUSES)[number];
 
 /**
+ * The three members one `OrderCancelled` decides between, sharing one rank
+ * (`BuyerStatus.Of`). A screen that draws an order's ending reads them here
+ * rather than restating them.
+ */
+export const CANCELLATION_STATUSES: readonly BuyerStatus[] = [
+  'cancelled',
+  'out_of_stock',
+  'declined',
+];
+
+/**
  * The members no later event moves an order off. `delivered` outranks a
  * cancellation and every cancellation member outranks `dispatched`
  * (`BuyerStatus.Of`), so nothing reaches past any of these four. What it
  * decides here is only when a poll stops asking; the timeline draws from the
  * timestamps, never from this list.
  */
-export const TERMINAL_STATUSES: readonly BuyerStatus[] = [
-  'cancelled',
-  'out_of_stock',
-  'declined',
-  'delivered',
-];
+export const TERMINAL_STATUSES: readonly BuyerStatus[] = [...CANCELLATION_STATUSES, 'delivered'];
 
 /** Web.Bff/Orders/OrderResponses.cs — `OrderTimeline`. Keyed by name, so a screen never draws by position. */
 export interface OrderTimeline {

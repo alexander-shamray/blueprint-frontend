@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { BUYER_STATUSES, CANCEL_REASONS, PERMISSIONS, TERMINAL_STATUSES } from './types';
+import {
+  BUYER_STATUSES, CANCELLATION_STATUSES, CANCEL_REASONS, PERMISSIONS, TERMINAL_STATUSES,
+} from './types';
 
 /**
  * These vocabularies are the ones a screen renders directly, so a drift
@@ -34,6 +36,10 @@ describe('backend vocabularies', () => {
     expect([...TERMINAL_STATUSES].sort()).toEqual(
       ['cancelled', 'declined', 'delivered', 'out_of_stock'],
     );
+  });
+
+  it('names the three members one OrderCancelled decides between, and only those', () => {
+    expect([...CANCELLATION_STATUSES].sort()).toEqual(['cancelled', 'declined', 'out_of_stock']);
   });
 
   it('holds the three permissions the realm grants demo', () => {

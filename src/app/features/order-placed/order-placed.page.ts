@@ -11,6 +11,7 @@ import {
   IonText, IonTitle, IonToolbar,
 } from '@ionic/angular';
 import { OrdersApi } from '@core/api/orders.api';
+import { AuthService } from '@core/auth/auth.service';
 import { DisplayError, mapError } from '@core/errors/error-mapper';
 import { RateLimitWindows } from '@core/errors/rate-limit';
 import { ALREADY_COMMITTED } from '@core/commands/command-id';
@@ -94,6 +95,7 @@ export class OrderPlacedPage {
   private readonly orders = inject(OrdersApi);
   private readonly route = inject(ActivatedRoute);
   private readonly document = inject(DOCUMENT);
+  private readonly user = inject(AuthService).user();
 
   /**
    * Reactive, not a one-shot `route.snapshot` read. Angular's default
@@ -160,6 +162,20 @@ export class OrderPlacedPage {
       untracked(() => this.restart());
     });
 
+    // A different subject restarts the poll from nothing, for the reason a
+    // different id does: on native this page stands on the Cart tab's stack
+    // across a sign-out and somebody else's sign-in, and one buyer's status,
+    // note or banner must never be shown to the next. Compared with the last
+    // subject seen, because a subject can come back; the first run is the
+    // construction's own and does nothing, since the id effect has started it.
+    let lastSeen = untracked(() => this.user()?.subject ?? null);
+    effect(() => {
+      const subject = this.user()?.subject ?? null;
+      if (subject === lastSeen) return;
+      lastSeen = subject;
+      untracked(() => this.restart());
+    });
+
     const onVisibility = (): void => {
       if (this.document.visibilityState === 'hidden') this.stop();
       else this.resume();
@@ -185,6 +201,13 @@ export class OrderPlacedPage {
 
   ionViewWillEnter(): void {
     this.entered = true;
+    // A 401 stopped the poll for want of a session. Once one is back the
+    // refusal no longer holds, so the poll resumes; a change of subject is
+    // the effect's to restart, so this is the same buyer signing in again.
+    // A 403 is a refusal a session does not lift, and stays a stop.
+    if (this.errorState()?.kind === 'signIn' && this.user() !== null) {
+      this.errorState.set(null);
+    }
     this.resume();
   }
 
@@ -260,7 +283,9 @@ export class OrderPlacedPage {
 
         const displayed = mapError(failure);
         if (displayed.kind === 'signIn' || displayed.kind === 'forbidden') {
-          // Nothing a later poll could change: say so and stop.
+          // Nothing a later poll could change on its own: say so and stop.
+          // A 401 is lifted on the next entry once a session is back
+          // (`ionViewWillEnter`); a 403 is not.
           this.errorState.set(displayed);
           return;
         }
@@ -273,8 +298,13 @@ export class OrderPlacedPage {
             (displayed.retryAfterSeconds ?? 0) * 1000,
           );
         } else if (failure.status === 404) {
+          // The latest answer decides the note, and a 404 never stands
+          // beside a status an earlier read reported.
+          this.statusState.set(null);
           this.notRecordedState.set(true);
+          this.transientState.set(false);
         } else {
+          this.notRecordedState.set(false);
           this.transientState.set(true);
         }
         this.next();
