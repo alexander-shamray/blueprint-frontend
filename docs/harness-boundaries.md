@@ -1670,7 +1670,10 @@ splits the two things the anchor had fused:
   main checkout, whose `.git` is the common directory itself, even when the
   session started in a linked worktree; and a `.git` that is a link, a
   junction or a hard link to another name is refused, because a
-  forged `.git` reports the same common directory. A directory starting
+  forged `.git` reports the same common directory. The hard-link refusal
+  has a cost, accepted: the link raises the count on both names, so the
+  real worktree stops being refreshed while the forgery exists, a stale
+  index rather than a foreign tree indexed, and it needs a shell to make. A directory starting
   `secsweep-`, in any case, is refused by name, because a
   sweep's tree is prompt-injection input and indexing it reads that tree's
   `.codeindexignore`. Anything else refreshes nothing.
@@ -1838,8 +1841,11 @@ one.
 **The hook never looks in the working directory for a program.** On Windows,
 `shutil.which` and CreateProcess both search the current directory before
 `PATH` for a bare name, and the hook runs `bash`, `git` and `tasklist` by bare
-name from the owner checkout's root, where a session can write a `bash.cmd`
-or a `git.exe` that would run in place of the real one, with no prompt.
+name. The worker runs from the owner checkout's root, where a session can
+write a `bash.cmd`; the hook itself runs in whatever directory it was started
+in, which after `/branch` may be the branch's own worktree, where a tracked
+`git.exe` would sit. Either would run in place of the real program, with no
+prompt.
 Measured here: with `NoDefaultCurrentDirectoryInExePath` unset,
 `shutil.which("bash")` answered a planted `.\bash.CMD` and a planted
 `git.exe` ran in place of git. Claude Code passes the variable down, which is
@@ -1925,7 +1931,7 @@ because the CLI's install location is the host's; what stands in its place
 is Claude Code's approval of a project's MCP servers before it starts them,
 and a planted binary being a tracked file a diff shows.
 
-**`settings.json` raises `MCP_TIMEOUT` to 120 s for this repository's sessions
+**`settings.json` raises `MCP_TIMEOUT` for this repository's sessions
 (alexander-shamray/blueprint-frontend#141).** A server that runs past the
 startup timeout fails, and Claude Code caches the failure for 15 minutes
 user-wide, so one slow start emptied every session opened in that window of

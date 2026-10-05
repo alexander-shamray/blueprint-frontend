@@ -619,6 +619,17 @@ class TheRootFollowsTheActiveWorktree(unittest.TestCase):
             else:
                 os.environ["NoDefaultCurrentDirectoryInExePath"] = saved
 
+    def test_a_checkout_under_a_non_ascii_path_is_read_as_git_wrote_it(self):
+        # Git writes paths as UTF-8. Read in the ANSI code page, `Ł` was a
+        # byte cp1252 cannot decode, the reader thread raised where nothing
+        # could catch it, and the hook died on every event in that checkout.
+        deep = os.path.join(self.base, "Łódź")
+        os.mkdir(deep)
+        git("init", "-q", cwd=deep)
+        found = self.hook.git_paths(deep, self.hook.time.monotonic() + 10)
+        self.assertIsNotNone(found)
+        self.assertTrue(os.path.samefile(deep, found[0]), found)
+
     def test_the_event_is_decoded_as_utf_8(self):
         # A Windows pipe reads in the ANSI code page; the bytes are UTF-8.
         payload = json.dumps({"cwd": "C:/\u0141\u00f3d\u017a"}, ensure_ascii=False)

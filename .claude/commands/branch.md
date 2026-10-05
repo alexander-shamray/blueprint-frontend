@@ -86,10 +86,11 @@ and any parenthesised scope are dropped rather than spelled.
 because one word is already unambiguous; take the second where it is not.
 `masstransit-registration` is fine, and `feat(template)` is not a path.
 
-**A worktree carries committed files and one thing more: its code index.**
-`.claude/cache/codebase-index/` is ignored, so a new worktree would start with
-none, and the fork helper starts this checkout's index refresh for it, which
-seeds the worktree's index from the main checkout's and updates it
+**A worktree carries committed files and, where the main checkout has one, a
+copy of its code index.** `.claude/cache/codebase-index/` is ignored, so a
+new worktree would start with none, and the fork helper starts this
+checkout's index refresh for it, which seeds the worktree's index from the
+main checkout's and updates it; a main checkout with no index seeds nothing
 (alexander-shamray/blueprint-frontend#127). Anything else untracked that a
 build needs would have to be copied across — today nothing is, and a fresh
 worktree restores, builds and tests as it stands. Say so if that ever stops
