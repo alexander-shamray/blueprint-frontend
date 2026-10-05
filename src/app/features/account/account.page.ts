@@ -33,6 +33,15 @@ import { ErrorBannerComponent } from '@shared/error-banner.component';
         </ion-item>
       }
 
+      @if (signInRequired() && !username()) {
+        <ion-item>
+          <ion-label>
+            <h2>Route refused</h2>
+            <ion-note>That page shows one buyer's own orders, so it needs you to be signed in.</ion-note>
+          </ion-label>
+        </ion-item>
+      }
+
       @if (username(); as name) {
         <ion-item><ion-label><h2>{{ name }}</h2></ion-label></ion-item>
 
@@ -86,6 +95,16 @@ export class AccountPage {
   readonly denied = toSignal(
     this.route.queryParamMap.pipe(map((params) => params.get('denied'))),
     { initialValue: this.route.snapshot.queryParamMap.get('denied') },
+  );
+
+  /**
+   * `signedInGuard`'s `?signIn=required`, read reactively for the reason
+   * `denied` is. Hidden again once a user is signed in, because the sentence
+   * is about a session that no longer exists and the query param outlives it.
+   */
+  readonly signInRequired = toSignal(
+    this.route.queryParamMap.pipe(map((params) => params.get('signIn') === 'required')),
+    { initialValue: this.route.snapshot.queryParamMap.get('signIn') === 'required' },
   );
 
   /**

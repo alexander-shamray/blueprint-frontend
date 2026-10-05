@@ -1,6 +1,7 @@
 import { Routes } from '@angular/router';
 import { PERMISSIONS } from '@core/api/types';
 import { permissionGuard } from '@core/auth/permission.guard';
+import { signedInGuard } from '@core/auth/signed-in.guard';
 import { quoteGuard } from '@core/cart/quote.guard';
 
 /**
@@ -31,6 +32,21 @@ export const routes: Routes = [
         path: 'cart/placed/:id',
         loadComponent: () =>
           import('@features/order-placed/order-placed.page').then((m) => m.OrderPlacedPage),
+      },
+      {
+        // The buyer's own history (spec §5.7). The read needs a principal and
+        // no permission, so the guard asks for a session; the tab hides while
+        // there is none, and the BFF decides whose orders come back.
+        path: 'orders',
+        canActivate: [signedInGuard],
+        loadComponent: () => import('@features/orders/orders.page').then((m) => m.OrdersPage),
+      },
+      {
+        // Pushed on the History tab's stack, so back returns to the list.
+        path: 'orders/:id',
+        canActivate: [signedInGuard],
+        loadComponent: () =>
+          import('@features/orders/order-detail.page').then((m) => m.OrderDetailPage),
       },
       {
         path: 'publish',

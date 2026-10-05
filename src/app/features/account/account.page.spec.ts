@@ -232,4 +232,24 @@ describe('AccountPage', () => {
     expect(fixture.componentInstance.denied()).toBe('orders:cancel');
     expect(deniedCode(fixture)).toBe('orders:cancel');
   });
+
+  it('says a refused History route needs a session, on a cached instance too', async () => {
+    const { fixture, queryParams } = mount(null, true);
+    expect(fixture.nativeElement.textContent).not.toContain('needs you to be signed in');
+
+    queryParams.next(convertToParamMap({ signIn: 'required' }));
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.signInRequired()).toBe(true);
+    expect(fixture.nativeElement.textContent).toContain('needs you to be signed in');
+  });
+
+  it('drops the sign-in sentence once somebody is signed in, though the query param remains', () => {
+    const { fixture, queryParams } = mount(demo, true);
+    queryParams.next(convertToParamMap({ signIn: 'required' }));
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.textContent).not.toContain('needs you to be signed in');
+  });
 });

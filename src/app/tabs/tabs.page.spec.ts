@@ -37,8 +37,14 @@ function ionicHosts(root: Element): StencilHost[] {
 // same distinction `src/vitest-setup.ts` draws for `appload` — and it has no
 // bound of its own: a host that never hydrates fails on the test's timeout,
 // which is the loud outcome, where a bound would quietly hand the race back.
-async function mount(permissions: readonly string[]): Promise<ComponentFixture<TabsPage>> {
+async function mount(
+  permissions: readonly string[],
+  signedIn = false,
+): Promise<ComponentFixture<TabsPage>> {
   TestBed.resetTestingModule();
+  const user = signedIn
+    ? signal({ username: 'demo', subject: 's', permissions, expiresAt: 0 })
+    : signal(null);
   TestBed.configureTestingModule({
     imports: [TabsPage],
     providers: [
@@ -47,7 +53,7 @@ async function mount(permissions: readonly string[]): Promise<ComponentFixture<T
         provide: AuthService,
         useValue: {
           hasPermission: (n: string) => permissions.includes(n),
-          user: () => signal(null),
+          user: () => user,
         },
       },
       // Stubbed like every other page spec. TabsPage injects the root
@@ -77,7 +83,7 @@ describe('TabsPage', () => {
     expect(hosts.filter((host) => !host.classList.contains('hydrated'))).toEqual([]);
   });
 
-  it('shows three tabs to a user holding no permissions', async () => {
+  it('shows three tabs to a signed-out visitor', async () => {
     const tabs = (await mount([])).nativeElement.querySelectorAll('ion-tab-button');
 
     expect([...tabs].map((t: Element) => t.getAttribute('tab'))).toEqual([
@@ -87,12 +93,26 @@ describe('TabsPage', () => {
     ]);
   });
 
-  it('adds the publish tab for a holder of catalog:write', async () => {
-    const tabs = (await mount(['catalog:write'])).nativeElement.querySelectorAll('ion-tab-button');
+  it('adds History for anyone signed in, permissions or none — the read asks for a session only', async () => {
+    const tabs = (await mount([], true)).nativeElement.querySelectorAll('ion-tab-button');
 
     expect([...tabs].map((t: Element) => t.getAttribute('tab'))).toEqual([
       'products',
       'cart',
+      'orders',
+      'account',
+    ]);
+  });
+
+  it('adds the publish tab for a holder of catalog:write', async () => {
+    const tabs = (await mount(['catalog:write'], true)).nativeElement.querySelectorAll(
+      'ion-tab-button',
+    );
+
+    expect([...tabs].map((t: Element) => t.getAttribute('tab'))).toEqual([
+      'products',
+      'cart',
+      'orders',
       'publish',
       'account',
     ]);
