@@ -491,6 +491,21 @@ class TheRootFollowsTheActiveWorktree(unittest.TestCase):
         self.assertEqual([], [name for name in os.listdir(os.path.dirname(index_path(
             self.sibling))) if ".seed." in name])
 
+    def test_a_killed_workers_partial_is_removed_by_the_next_seed(self):
+        # The partial is named for the worker that made it, so one left by a
+        # worker killed mid-copy would never be met by a later pid; the next
+        # seed, under the same lock, removes it.
+        write_index(self.main)
+        cache = os.path.dirname(index_path(self.sibling))
+        os.makedirs(cache)
+        stale = os.path.join(cache, "index.sqlite.seed.99999999")
+        Path(stale).write_bytes(b"a full copy, once")
+        Path(stale + "-journal").write_bytes(b"")
+        self.assertTrue(self.hook.seed(self.main, self.sibling))
+        self.assertFalse(os.path.lexists(stale))
+        self.assertFalse(os.path.lexists(stale + "-journal"))
+        self.assertEqual(["main"], read_index(index_path(self.sibling)))
+
     def test_a_seed_into_a_redirected_cache_is_refused(self):
         write_index(self.main)
         aimed = os.path.join(self.base, "aimed-at")
