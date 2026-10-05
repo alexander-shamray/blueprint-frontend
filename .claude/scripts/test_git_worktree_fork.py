@@ -73,12 +73,16 @@ set -e
 root=$(mktemp -d)
 git init -q -b main "$root/origin"
 git -C "$root/origin" -c user.name=t -c user.email=t@t commit -q --allow-empty -m base
-if [ "$HOOK" = yes ]; then
-  # A launcher that records what it was asked, where, and with which event.
+if [ "$HOOK" != no ]; then
+  # A launcher that records what it was asked, where, and with which event;
+  # with HOOK=yes the hook it would run is there too.
   mkdir -p "$root/origin/.claude/hooks"
   cat > "$root/origin/.claude/hooks/run-guard.sh" <<'STUB'
 { printf '%s\\n' "$1"; pwd; cat; } > hook-ran.part && mv hook-ran.part hook-ran
 STUB
+  if [ "$HOOK" = yes ]; then
+    printf '# stand-in\\n' > "$root/origin/.claude/hooks/index-refresh.py"
+  fi
   git -C "$root/origin" add .claude
   git -C "$root/origin" -c user.name=t -c user.email=t@t commit -q -m hook
 fi
@@ -124,34 +128,40 @@ class ForkShape(unittest.TestCase):
         self.assertEqual(0, status.returncode, status.stderr)
         self.assertNotIn(".claude", status.stdout)
 
-    def test_the_new_worktree_runs_its_own_index_refresh(self):
-        # blueprint-frontend#127: /branch enters the worktree mid-session, where no
-        # `SessionStart` fires, so the fork starts the refresh that hook would
-        # have — the worktree's own launcher, from inside the worktree, with
-        # an event naming it. The stub is committed on origin/main, so the
-        # copy that runs is the worktree's.
+    def test_the_fork_starts_the_new_worktrees_index_refresh(self):
+        # blueprint-frontend#127: /branch enters the worktree mid-session,
+        # where no `SessionStart` fires, so the fork starts the refresh that
+        # hook would have. Through THIS checkout's launcher, from this
+        # checkout's root, with an event naming the worktree: the hook's
+        # owner, and so the wrapper it runs, stays the trusted checkout and
+        # never becomes the tree the session moves into.
         root = self.fixture(hook="yes")
         result = self.fork(f"{root}/checkout", ".claude/worktrees/probe")
         self.assertEqual(0, result.returncode, result.stderr)
         ran = run_bash(
             'for _ in $(seq 300); do '
-            '[ -s "$W/hook-ran" ] && exec cat "$W/hook-ran"; sleep 0.1; '
+            '[ -s "$C/hook-ran" ] && exec cat "$C/hook-ran"; sleep 0.1; '
             'done; exit 1',
-            W=f"{root}/checkout/.claude/worktrees/probe")
+            C=f"{root}/checkout")
         self.assertEqual(0, ran.returncode, "the fork never ran the refresh")
         hook, where, event = ran.stdout.splitlines()
         self.assertEqual("index-refresh.py", hook)
-        self.assertTrue(where.endswith("/.claude/worktrees/probe"), where)
-        self.assertEqual({"cwd": "."}, json.loads(event))
-
-    def test_a_worktree_without_the_hook_still_forks(self):
-        # A base that predates the hook has no launcher to run, and the fork
-        # is no less a fork for it.
-        root = self.fixture()
-        result = self.fork(f"{root}/checkout", ".claude/worktrees/probe")
-        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertTrue(where.endswith("/checkout"), where)
+        self.assertEqual({"cwd": ".claude/worktrees/probe"}, json.loads(event))
         self.assertFalse(
             Path(root, "checkout", ".claude", "worktrees", "probe", "hook-ran").exists())
+
+    def test_a_checkout_without_the_hook_still_forks_and_starts_nothing(self):
+        # A base that predates the hook has a launcher with nothing to run,
+        # or no launcher at all, and the fork is no less a fork for either.
+        for hook in ("launcher", "no"):
+            with self.subTest(hook=hook):
+                root = self.fixture(hook=hook)
+                result = self.fork(f"{root}/checkout", ".claude/worktrees/probe")
+                self.assertEqual(0, result.returncode, result.stderr)
+                # Long enough for a backgrounded launcher to have written.
+                run_bash("sleep 2")
+                self.assertFalse(Path(root, "checkout", "hook-ran").exists())
 
     def test_any_other_path_is_refused(self):
         root = self.fixture()

@@ -1730,9 +1730,14 @@ the index path, so `update` never opens a partial file; and then runs
 `update`. The source is judged as a root's own index is, and only
 `index.sqlite` crosses. A checkout with no index and none to seed — the main
 checkout itself, or a worktree whose main checkout has none — is left alone,
-and nothing is ever built. `git-worktree-fork.sh` starts the new worktree's
-own refresh, because `/branch` enters it mid-session, where no
-`SessionStart` fires. **A seeded index whose `update` keeps failing stays in
+and nothing is ever built. `git-worktree-fork.sh` starts the refresh for the
+new worktree, because `/branch` enters it mid-session, where no
+`SessionStart` fires — through the main checkout's own launcher and hook,
+with an event whose `cwd` is the worktree, so the wrapper still comes from
+the checkout the session started in. It first ran the worktree's own copy,
+which made the worktree the hook's owner and its `run-index` the code that
+ran, the exact thing the bullet above rules out; the in-house review's first
+round raised it. **A seeded index whose `update` keeps failing stays in
 place**: it is a consistent copy of the main checkout's, so the worktree
 answers from `main`'s state until an `update` succeeds. **One
 worker runs per root**: every edit leaves a marker beside the index, and the

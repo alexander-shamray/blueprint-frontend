@@ -24,7 +24,10 @@
 #
 # **A closed set of hook names, like every helper in `.claude/scripts/`.**
 # Its callers are hook wirings — `settings.json` and an agent profile's
-# `hooks:` — and each names one of the files in the `case` below; a launcher
+# `hooks:` — and one helper, `git-worktree-fork.sh`, which starts a new
+# worktree's index refresh where no hook event would
+# (alexander-shamray/blueprint-frontend#127). Each names one of the files in
+# the `case` below; a launcher
 # taking any path would be a way to run an arbitrary script through the hook
 # wiring, which is the shape the fixed-endpoint rule exists to refuse.
 #
@@ -52,7 +55,7 @@
 # and the mark forgotten, so the next call probes again. Never a second
 # candidate in the same call: the first may have read the event, and the two
 # guards `settings.json` wires allow an event they cannot read. The index
-# refresh, the one hook here that guards nothing, ignores one.
+# refresh and the query hint, the two hooks here that guard nothing, ignore one.
 #
 # **What that costs is one refused call when the host changes under a mark**,
 # where the probe moved on to the next candidate unnoticed. A mark that cannot

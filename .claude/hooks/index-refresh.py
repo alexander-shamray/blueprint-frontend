@@ -501,8 +501,9 @@ def seed(owner, root):
     """Give a root with no index its main checkout's; True when it now holds one.
 
     **A `/branch` worktree starts with no index
-    (alexander-shamray/blueprint-frontend#127).** `.claude/cache/` is ignored,
-    so every forked worktree begins empty, and this hook used to run a full
+    (alexander-shamray/blueprint-frontend#127).** `.claude/cache/codebase-index/`
+    is ignored, so every forked worktree begins with no index, and this hook
+    used to run a full
     `index` there. blueprint-backend measured that build at 230 s, against
     0.1 s to copy the main checkout's index and 5.1 s for the `update` after
     it, which re-reads only what the branch changed. So the hook never
@@ -523,8 +524,11 @@ def seed(owner, root):
     **The source is opened `mode=rw`**: `ro` cannot open a WAL database whose
     `-shm` is absent, and a plain connect would create an empty file at a
     path gone since `seed_source` looked. Called inside the worker's lock,
-    after the root was judged. Every failure leaves no index and no partial
-    file, so the next change tries again.
+    after the root was judged. A failure in this process leaves no index and
+    removes the partial file it made, so the next change tries again. A
+    partial left by a worker killed mid-copy is named for that worker, and is
+    removed by the next seed, which holds the same lock; a file at this
+    process's own name that will not go refuses the seed and is left alone.
     """
     if written(root):
         return True
@@ -534,15 +538,25 @@ def seed(owner, root):
     cache = os.path.join(root, CACHE)
     index = os.path.join(cache, "index.sqlite")
     partial = f"{index}.seed.{os.getpid()}"
+    copying = False
     try:
         os.makedirs(cache, exist_ok=True)
         # Asked again now the directory exists: `makedirs` creates what was
         # missing, and only an unlinked path may receive the copy.
         if not index_openable(root):
             return False
+        # A killed worker's partial, under this lock no other seed holds.
+        # `os.remove` takes a link itself and never what it names.
+        for name in os.listdir(cache):
+            if name.startswith("index.sqlite.seed."):
+                try:
+                    os.remove(os.path.join(cache, name))
+                except OSError:
+                    pass
         for suffix in ("",) + SIDECARS:
             if os.path.lexists(partial + suffix):
                 return False
+        copying = True
         reading = sqlite3.connect(sqlite_uri(source, "rw"), uri=True, timeout=30)
         try:
             writing = sqlite3.connect(partial, timeout=30)
@@ -564,7 +578,8 @@ def seed(owner, root):
     except (OSError, sqlite3.Error):
         return False
     finally:
-        for suffix in ("",) + SIDECARS:
+        # Only what this process made: a refusal above found files it did not.
+        for suffix in (("",) + SIDECARS) if copying else ():
             try:
                 os.remove(partial + suffix)
             except OSError:
