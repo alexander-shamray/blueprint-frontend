@@ -792,7 +792,7 @@ caller's to state".
 
 *Where it shows.* `core/api/types.ts` mirrors all five codes, because that is
 the wire vocabulary and the backend refuses a sixth with a 400 keyed `Reason`
-("Not a known cancellation reason."). `OrderPlacedPage` offers none of them: it
+("Not a known cancellation reason."). `OrderDetailPage` offers none of them: it
 sends `customer_request` and says so on screen ("Cancelling here is recorded as
 the customer's own request"). The alternative would let a customer record
 "cancelled because payment was declined, origin user" — a statement about an
@@ -1149,10 +1149,10 @@ says the client is fine: the `e2e` job builds the stack from the backend's
 `main` on a clean runner and reports `3 passed`. What follows is a fact about
 one host, recorded because that host is where the tests are usually run.
 
-`demo browses, quotes, orders and cancels` gets as far as placing the order and
-receives a Bad Gateway from the edge, because `ordering-api` is not running:
-`deploy/compose/services/ordering.yml` makes it depend on `rabbitmq` being
-healthy, and on this host RabbitMQ cannot bind 5672
+`demo browses, quotes, orders and tracks the ending` gets as far as placing the
+order and receives a Bad Gateway from the edge, because `ordering-api` is not
+running: `deploy/compose/services/ordering.yml` makes it depend on `rabbitmq`
+being healthy, and on this host RabbitMQ cannot bind 5672
 or 15672 — a native `erl.exe` already holds them. That is an environment fact
 about one machine rather than a defect in the client, and every step before the
 order passes: sign-in, browsing, adding two products, quoting, reaching

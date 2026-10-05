@@ -227,4 +227,45 @@ describe('OrdersPage', () => {
     page.ionViewWillEnter();
     list(controller).flush({ items: [summary('o1')], nextCursor: null });
   });
+
+  it('offers Try again after a first entry skipped into a blocked window, once it ends', () => {
+    const mounted = mount();
+    controller = mounted.controller;
+    const page = mounted.fixture.componentInstance;
+    const retry = (): HTMLElement & { disabled: boolean } =>
+      [...mounted.fixture.nativeElement.querySelectorAll('ion-button')].find(
+        (el: HTMLElement) => el.textContent?.trim() === 'Try again',
+      );
+
+    // Before any entry there is nothing to retry, so nothing is offered.
+    expect(retry()).toBeUndefined();
+
+    const authenticated = TestBed.inject(RateLimitWindows).forPartition('authenticated');
+    authenticated.open({
+      kind: 'rateLimited',
+      title: 'Too many requests',
+      detail: null,
+      retryAfterSeconds: 30,
+    });
+
+    page.ionViewWillEnter();
+    controller.expectNone((r) => r.url === LIST);
+    mounted.fixture.detectChanges();
+    expect(retry()).toBeTruthy();
+    expect(retry().disabled).toBe(true);
+
+    // The window ends with no further entry: the page is not left blank.
+    authenticated.close();
+    mounted.fixture.detectChanges();
+    expect(retry().disabled).toBe(false);
+
+    retry().click();
+    const request = list(controller);
+    expect(request.request.params.has('cursor')).toBe(false);
+    request.flush({ items: [summary('o1')], nextCursor: null });
+    mounted.fixture.detectChanges();
+
+    expect(page.orders().map((o) => o.orderId)).toEqual(['o1']);
+    expect(retry()).toBeUndefined();
+  });
 });

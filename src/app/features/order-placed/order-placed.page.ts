@@ -136,11 +136,13 @@ export class OrderPlacedPage {
    * Signed in as somebody other than that buyer, or signed out. The page then
    * shows nothing of the order and polls nothing: the id is the first buyer's,
    * and the read would answer anyone else 404 for as long as the page stood,
-   * on their own budget.
+   * on their own budget. Nobody signed in is foreign even before the page has
+   * an owner: a page handed its id while signed out waits for a buyer.
    */
   readonly foreign = computed(() => {
     const owner = this.ownerState();
-    return owner !== null && (this.user()?.subject ?? null) !== owner;
+    const subject = this.user()?.subject ?? null;
+    return subject === null || (owner !== null && subject !== owner);
   });
 
   /** What the order read last said, for `orderId` and no other. */
