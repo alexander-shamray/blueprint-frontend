@@ -71,7 +71,7 @@ async function publishProduct(page: import('@playwright/test').Page, amount: str
   return name;
 }
 
-test('demo browses, quotes, orders and cancels', async ({ page }) => {
+test('demo browses, quotes, orders and tracks the ending', async ({ page }) => {
   await signIn(page, 'demo', 'demo');
 
   await expect(page.getByText('demo')).toBeVisible();

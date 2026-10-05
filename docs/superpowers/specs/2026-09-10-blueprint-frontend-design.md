@@ -245,7 +245,7 @@ explains why in terms of `IdempotencyBehavior`.
 
 Shows the returned order id, the buyer status the order read reports for it,
 and a link to the order's tracking detail (§5.7). **Cancel is not here**: it
-moved to the tracking detail, so there is one cancel button and not two.
+is on the tracking detail, so there is one cancel button and not two.
 
 The status is polled, because the read is a projection and nothing pushes: at
 once, then on the back-off `ORDER_POLL` in `core/orders/order-poll.ts`
@@ -258,7 +258,9 @@ absorbed `OrderPlaced` yet, so it reads as "not recorded yet" and the poll
 carries on. A reply for an id the page has since left is dropped. The page is
 for the buyer who was signed in when it was handed the id: while anyone else
 is signed in, or nobody is, it shows neither the id nor a status and polls
-nothing, and when that buyer is back the poll starts again from nothing.
+nothing, and when that buyer is back the poll starts again from nothing. A
+page handed its id while nobody was signed in is for the first buyer to sign
+in after it.
 
 Some of §6's rows read differently on a poll, for the same reason. A 401 or a
 403 stops it and shows the banner without calling `AuthService.signIn()`; a
@@ -293,8 +295,8 @@ chip. The chip's words name the BFF's closed vocabulary and nothing else: the
 client maps no saga state. History is a tab root, so it reloads on every entry
 (`ionViewWillEnter`) and forgets a list the moment the signed-in subject
 changes. An entry while the `authenticated` rate-limit window is blocked reads
-nothing and keeps what is shown, as Order placed holds its poll. A signed-out navigation to it is refused to Account with a stated
-reason.
+nothing and keeps what is shown, as Order placed holds its poll. A signed-out
+navigation to it is refused to Account with a stated reason.
 
 The **tracking detail**, `GET /bff/v1/orders/{id}`, is pushed from a row. It
 draws a timeline from the BFF's timestamps — placed, confirmed, dispatched,
@@ -343,9 +345,11 @@ something a screen shows. It returns a display model
 | 503 | `kind: unavailable`; retry banner |
 | other 5xx, network, timeout | `kind: retry`; generic banner plus the correlation id from the response's `X-Correlation-Id` header when present, so a report can be matched to a log line |
 
-No error text is authored on the client beyond the six generic banners for
+No banner text is authored on the client beyond the six generic banners for
 `signIn`, `forbidden`, `alreadyCommitted`, `rateLimited`, `unavailable` and
-`retry`. Where the backend sends `title` and `detail`, they are shown as sent.
+`retry`. The only other error text the client writes is a note a page's own
+section in §5 describes, such as §5.4's poll notes. Where the backend sends
+`title` and `detail`, they are shown as sent.
 
 ## 7. Testing
 

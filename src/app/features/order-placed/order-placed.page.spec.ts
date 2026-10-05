@@ -35,7 +35,7 @@ function detail(orderId: string, status: string): OrderDetail {
 const demo: CurrentUser = { username: 'demo', subject: 'a', permissions: [], expiresAt: 0 };
 const other: CurrentUser = { username: 'other', subject: 'b', permissions: [], expiresAt: 0 };
 
-function mount(id: string): {
+function mount(id: string, signedIn: CurrentUser | null = demo): {
   fixture: ComponentFixture<OrderPlacedPage>;
   paramMap: BehaviorSubject<string>;
   user: WritableSignal<CurrentUser | null>;
@@ -48,7 +48,7 @@ function mount(id: string): {
   // does on a reused route.
   const paramMap = new BehaviorSubject(id);
   // One writable signal for the mount, so a test can sign somebody else in.
-  const user: WritableSignal<CurrentUser | null> = signal(demo);
+  const user: WritableSignal<CurrentUser | null> = signal(signedIn);
 
   TestBed.configureTestingModule({
     imports: [OrderPlacedPage],
@@ -366,6 +366,28 @@ describe('OrderPlacedPage', () => {
     reads(controller)[0].flush(detail(GUID_A, 'placed'));
     mounted.fixture.detectChanges();
     expect(mounted.fixture.componentInstance.status()).toBe('placed');
+    expect(mounted.fixture.nativeElement.textContent).toContain(GUID_A);
+    mounted.fixture.destroy();
+  });
+
+  it('shows and polls nothing while built signed out, then belongs to the first buyer in', () => {
+    // A web reload of the URL with no session: the route is unguarded.
+    const mounted = mount(GUID_A, null);
+    controller = mounted.controller;
+
+    vi.advanceTimersByTime(60_000);
+    expect(reads(controller)).toEqual([]);
+    expect(mounted.fixture.nativeElement.textContent).not.toContain(GUID_A);
+    expect(mounted.fixture.nativeElement.querySelector('[data-testid="foreign"]')).not.toBeNull();
+
+    mounted.user.set(demo);
+    mounted.fixture.detectChanges();
+
+    const after = reads(controller);
+    expect(after.length).toBe(1);
+    expect(after[0].request.url).toBe(`${READ}${GUID_A}`);
+    after[0].flush(detail(GUID_A, 'placed'));
+    mounted.fixture.detectChanges();
     expect(mounted.fixture.nativeElement.textContent).toContain(GUID_A);
     mounted.fixture.destroy();
   });

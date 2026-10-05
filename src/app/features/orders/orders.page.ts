@@ -59,7 +59,7 @@ import { SkeletonListComponent } from '@shared/skeleton-list.component';
 
       <app-error-banner [error]="error() ?? rateLimit.refusal()" [retryInSeconds]="rateLimit.remaining()" />
 
-      @if (error()) {
+      @if (error() || unread()) {
         <ion-button expand="block" fill="outline"
           [disabled]="rateLimit.blocked()" (click)="retryLoad()">Try again</ion-button>
       }
@@ -121,8 +121,10 @@ export class OrdersPage {
   /** The platform's "no more pages", kept apart from "this attempt failed" as `ProductsPage` keeps it. */
   private readonly hasMoreSignal = signal(true);
   private readonly loadingSignal = signal(false);
+  /** An entry fell inside a blocked window and read nothing; the next load clears it. */
+  private readonly skippedSignal = signal(false);
 
-  readonly orders: Signal<readonly OrderSummary[]> = this.ordersSignal.asReadonly();
+  readonly orders:Signal<readonly OrderSummary[]> = this.ordersSignal.asReadonly();
   readonly error: Signal<DisplayError | null> = this.errorSignal.asReadonly();
   readonly loading: Signal<boolean> = this.loadingSignal.asReadonly();
 
@@ -137,6 +139,20 @@ export class OrdersPage {
       !this.hasMoreSignal(),
   );
   readonly reachedEnd = computed(() => !this.hasMoreSignal() && this.ordersSignal().length > 0);
+
+  /**
+   * Nothing has been read, because an entry was skipped into a blocked window:
+   * no rows, no error, no skeleton and no empty state, so without this the
+   * page would be blank with nothing to press once the window ends.
+   */
+  readonly unread = computed(
+    () =>
+      this.skippedSignal() &&
+      this.ordersSignal().length === 0 &&
+      !this.loadingSignal() &&
+      this.errorSignal() === null &&
+      this.hasMoreSignal(),
+  );
 
   /** The gateway's `authenticated` bucket: `/bff/**` draws on it, as quote and checkout do. */
   readonly rateLimit = inject(RateLimitWindows).authenticated;
@@ -176,7 +192,10 @@ export class OrdersPage {
    * refresh and Try again come back when the window ends.
    */
   ionViewWillEnter(): void {
-    if (this.rateLimit.blocked()) return;
+    if (this.rateLimit.blocked()) {
+      this.skippedSignal.set(true);
+      return;
+    }
     this.reload();
   }
 
@@ -220,6 +239,7 @@ export class OrdersPage {
 
   private load(done?: () => void): void {
     const generation = this.generation;
+    this.skippedSignal.set(false);
     this.loadingSignal.set(true);
 
     this.ordersApi.list(this.cursor).subscribe({
