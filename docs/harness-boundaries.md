@@ -45,8 +45,8 @@ paragraphs and it stays that way — inventing headings would mean deciding wher
 the topic boundaries are, which is an edit to the argument wearing a
 navigation aid's clothes. Grep the bold lead-ins; they are the index.
 
-**`/ship` and both sweeps cite `CLAUDE.md` as where the sandbox boundary and
-its residuals are recorded, and those citations were deliberately left
+**`/ship` and both sweeps cite `CLAUDE.md` as where the harness's boundaries
+and their residuals are recorded, and those citations were deliberately left
 alone.** `CLAUDE.md` keeps a *What cuts across them* section that forwards
 here, so a command's reference lands one hop from what it names — where
 rewriting every one of those citations to point at a new path would be a
@@ -124,19 +124,16 @@ it broke startup. **A reviewer who has not run the harness cannot see this;
 check a permission claim against the harness before acting on it.**
 
 **The `Edit` denies bind the agent's own tooling**, in both spellings each:
-`.claude/scripts/**`, `.claude/sandbox/**`, `.claude/commands/**`,
-`.claude/agents/**`, `.claude/settings.json` and `.claude/settings.local.json`.
-Read the list, do not count it here — it has already grown twice, once inside
-the pull request that introduced it. The review loops grant those
-helpers by name, so a session that could rewrite one before invoking it would
-make every fixed endpoint a fiction. The sandbox `Dockerfile` is on the list
-for the same reason at one remove: it is a *build input to the security
-boundary*, so a session able to edit it could add an entrypoint reading the
-credentials the following `docker run` mounts in.
+`.claude/scripts/**`, `.claude/commands/**`, `.claude/agents/**`,
+`.claude/hooks/**`, `.claude/skills/**`, `.claude/settings.json` and
+`.claude/settings.local.json`. Read the list, do not count it here — it has
+already grown twice, once inside the pull request that introduced it. The
+commands grant those helpers by name, so a session that could rewrite one
+before invoking it would make every fixed endpoint a fiction.
 
-**The last three arrived with #33, and the argument for them is the first two's
-applied one level up.** `commands/`, `agents/` and `settings.json` are the
-files that *grant* what the first two protect. Several commands carry an
+**Three of them arrived with #33 — `commands/`, `agents/` and `settings.json` —
+and the argument for them is the helpers' applied one level up.** They are the
+files that *grant* what `scripts/**` protects. Several commands carry an
 unrestricted `Edit` or `Write`, and the ones that read untrusted input by
 design are among them, so a single applied edit could append a grant to a
 command's
@@ -144,6 +141,13 @@ command's
 `.claude/agents/security-auditor.md` — whose read-only guarantee is precisely
 its `Read, Grep, Glob` tool list, as `/security-sweep` says outright: read-only
 there "is a property of the agent's tool grant, not a word in its prompt".
+
+**`branch-reviewer` rests on the same property.** It reads the diff, the
+locality verdict and the method the parent wrote under `artifacts/review/` —
+inside the checkout, where its reads stay — and returns JSON the parent
+verifies before acting on any of it. The residual is the parent's: it holds
+the shell the reviewer was denied, so a finding written to steer an edit is
+caught by that verification or not at all.
 
 **`settings.json`'s own entry self-locks, and that is a working constraint, not
 a curiosity.** Once it denies itself, the session cannot edit it again —
@@ -213,14 +217,14 @@ performs; `guard-edit-target.py` is registered on
 
 **This was known for one command and never generalised**, which is this
 repository's most-repeated failure wearing its usual clothes.
-`.claude/commands/review-grok.md` argues the case in full — "a redirection on
-any granted `Bash` command writes what `Edit(...)` refuses, so
+`.claude/commands/review-grok.md`, now archived, argued the case in full — "a
+redirection on any granted `Bash` command writes what `Edit(...)` refuses, so
 `ls … > .claude/…` was a path into the machinery a record could steer" — and
-answers it by denying `Bash` whole, which is why that command is immune and
-why its own tree denies are called defence in depth there. `/pr`, `/ship`,
+answered it by denying `Bash` whole, which is why that command was immune and
+why its own tree denies were called defence in depth there. `/pr`, `/ship`,
 `/review-copilot` and `/style-pass` inherited neither half until Copilot
-raised it against PR #13. They now carry the path denies; none of them can
-deny `Bash`, because fixed helpers are their API.
+raised it against PR #13. The survivors carry the path denies; none of them
+can deny `Bash`, because fixed helpers are their API.
 
 **So the honest statement of the boundary was narrower than the deny list
 looked**, and the paragraphs above are kept in the past tense they were written
@@ -253,15 +257,15 @@ are compared case-folded, and a target inside a checkout is judged again where
 it resolves, from the hook event's `cwd`, so a branch's `docs/out ->
 ../.claude/settings.json` link does not make the write an unprotected one.
 
-**`grok-review.sh` is refused in the same hook, and `grok-ledger.sh` is
-admitted only as `<pr> count` or `<pr> status`, spelled literally.** The
+**`grok-review.sh` was refused in the same hook, and `grok-ledger.sh` admitted
+only as `<pr> count` or `<pr> status`, spelled literally, until both were
+archived with the external reviewers.** The lesson outlived them: the
 `settings.json` denies are substrings of the typed command, so a verb split by
-empty quotes spells nothing they match; and a list of write verbs judged after
+empty quotes spells nothing they match, and a list of write verbs judged after
 quote removal still missed one built by a substitution, which bash hands the
-helper while the token holds no verb at all. An allow-list of the two reads is
-what that leaves. A helper handed to a shell on stdin — `< grok-ledger.sh`, or
-`cat grok-ledger.sh | bash -s` — is refused too, since the shell then runs it
-past the allow-list.
+helper while the token holds no verb at all. An allow-list of the reads was
+what that left, and a helper handed to a shell on stdin was refused beside it,
+since the shell then runs it past the allow-list.
 
 **`gh` inside a command, backtick or process substitution is refused
 wherever it stands.** A substitution runs while bash is still building the
@@ -291,7 +295,7 @@ inspecting those files rather than running them, and is admitted.
 Three things about that rule are worth stating here rather than only in the
 hook. **A hook is handed a command and never the frontmatter that granted it**,
 so the protected set cannot be derived at run time the way
-`test_grok_helpers.py` derives the frontmatter denies from the frontmatter;
+`test_harness_helpers.py` derives the frontmatter denies from the frontmatter;
 what stands instead is a case whose subject is the list, asserting it covers
 `MACHINERY_TREES` and every tracked root file. **A target built by a command
 substitution is refused rather than guessed at**, and **a parameter expansion
@@ -358,80 +362,24 @@ expires without anyone noticing, because nothing re-reads the condition when
 the fact changes. #30's argv guard made it false. A hook is the sharpest case
 on the list: it grants nothing, but it **runs on every Bash call**, so a session
 able to rewrite one could delete its own guard and then act. `settings.json`
-denies it, and a case in `test_grok_helpers.py` asserts the deny, so the next
+denies it, and a case in `test_harness_helpers.py` asserts the deny, so the next
 hook arrives behind a control rather than behind a sentence that used to be
 true.
 
-**The external review runs in a container over a disposable clone — not a
-worktree — and it had TWO residuals, which were not independent; the egress
-one is closed and the credential one is what stands.** The boundary
-is `.claude/sandbox/Dockerfile`; a worktree could not be the thing mounted,
-because a worktree's `.git` is a file pointing back into this checkout, which
-is the one path the container must not reach. No `gh` token, no SSH keys, no
-host filesystem beyond the clone, non-root inside, and `bypassPermissions` is
-no longer the risk it was because the blast radius is the box.
-
-**Egress is confined to `api.x.ai` and `auth.x.ai` since #17**, and it takes
-two containers of the reviewer image: the reviewer on a network created with
-`--internal`, which Docker gives no gateway and whose embedded resolver
-answers `SERVFAIL` for any name outside it, and `egress-proxy.py` as the one
-member with a second leg on the bridge — a CONNECT-only tunnel with a host
-allow-list that the reviewer reaches through `HTTPS_PROXY`, which grok
-honours (measured: without it the same call hangs, with it `api.x.ai`
-answers). It is not a grant wider than its operation: the session runs
-nothing new to bring it up, and the proxy carries no clone and no credential.
-**The credential half is narrowed rather than closed**, which this paragraph
-asserted as settled until #58: where `XAI_API_KEY` is unset or unusable,
-`grok-review.sh` copies `~/.grok/auth.json` in, and that file carries a
-refresh-token-bearing OAuth session for the x.ai account. The three things
-enumerated as absent genuinely are; a fourth was never enumerated. What the
-proxy changes is what the crossing credential can reach — the two hosts the
-session is for and nothing else — which is why the egress half was the one to
-close: it was what made the crossing one exploitable. What remains is the
-session's own blast radius against x.ai, which no boundary here can shrink.
-Prefer `XAI_API_KEY`, which is scoped, revocable and crosses no file; on this
-host it authenticates against a team with no credits, so the fallback is the
-path that actually runs. **An authenticated call through the proxy is the
-one thing the measurement did not reach** — the classifier refused the probe
-that would have copied the host's session into a container — so the first
-real review behind it is that measurement, and the proxy logs a `deny` line
-naming any host it refuses.
-
-**A third residual stood behind both of those and was the one that decided
-what the other two were worth: the image was built from the branch it was
-about to review (#15).** `grok-review.sh` resolved its build context from its
-own location — this checkout's `.claude/sandbox` — and during `/ship` this
-checkout is on the branch under review. So a branch that edited `Dockerfile`
-or `egress-proxy.py` chose what the image does, and the image is then handed
-the credentials the paragraph above narrows: a `RUN` step executes at build
-time with the network, `ENTRYPOINT` and `USER` decide what runs with
-`auth.json` mounted, and `egress-proxy.py` **is** the allow-list, so editing it
-removes the confinement rather than widening it. Binding the image by digest
-ruled out a concurrent build swapping the tag and said nothing about this
-branch's own content; denying `.claude/**` to the review commands stops an
-agent writing those files and says nothing about a branch that arrives with
-them written, which is what an external review is for.
-
-**The context is now written out of `refs/remotes/origin/main` with `git
-archive`, and a branch that changes `.claude/sandbox/**` refuses the run.**
-`git archive` rather than a per-file `git show`, so the trusted revision
-decides which files the context holds and a file added to the image later
-travels without the script being edited. The refusal is the half a script
-cannot perform: building the branch's sandbox change from a revision that does
-not carry it would be a check that quietly does the wrong thing, so the run
-stops and names the human step — read that diff, merge it, then review. **What
-this does not close**: `origin/main` is trusted because it is what a human
-merged, which is a claim about the review process rather than about a
-mechanism here, and a compromised `main` builds a compromised reviewer.
-
-Stated here as well as in the script because `/ship` and both
-sweeps cite `CLAUDE.md` as where the boundary and its residuals are recorded,
-and it forwards here — the residual this file's header argues, not a second
-claim about it. The
-reviewer also has **no Node toolchain**, and could not use one: every gate
-here starts with `npm ci`, which needs `registry.npmjs.org`, and the egress
-allow-list admits two hosts and neither is it. So lint, the unit suite and
-the build are this host's gates and never the review's.
+**The external reviewers are archived, not deleted.** Grok's container review
+and Copilot's loop — their commands, the triager and adjudicator profiles and
+their hooks, the helpers, their suites and the sandbox image with its egress
+proxy — left the tree when the owner decided blueprint-frontend#117 on
+2026-10-15, porting blueprint-backend#596. The tag
+`archive/external-reviewers` holds them, and
+`git checkout archive/external-reviewers -- <paths>` restores them. The
+sandbox's residuals left with it — the x.ai credential that crossed into the
+container, and the image built from the branch it was about to review — since
+nothing here runs a container any more. The paragraphs below keep the
+residuals those tools raised where the grant or the guard they shaped still
+stands, in the past tense where the tool is gone. What the decision costs —
+no reader outside the model family that wrote the branch — is the twelfth
+entry's, below, and accepted there.
 
 **A grant is not a whitelist, and this is the trap under every row below.**
 `allowed-tools` is an **auto-approval list**: the harness documents that it
@@ -558,7 +506,7 @@ the call is refused, the mark is removed and the next call probes. **The
 residual is that one refused call**, where the probe used to move on to the
 next candidate unnoticed, and a host whose first candidate is not its working
 one is never remembered at all. `TheLauncherProvesWhatItRemembers` and
-`ARememberedGuardAnswersAsAProbedOne` in `test_grok_helpers.py` hold the
+`ARememberedGuardAnswersAsAProbedOne` in `test_harness_helpers.py` hold the
 launcher to each of those.
 
 **Two things differ from blueprint-admin, where the design was built.** The
@@ -647,9 +595,12 @@ and are refused now — a command WORD taken from a variable
 (`F='git push origin +HEAD:main'; $F`), and a substitution whose output
 becomes the command line (`sh -c "$(echo 'git push origin +HEAD:main')"`) —
 because a computed word in program position, or right after a launcher such
-as `bash`, could name the review helpers, and is refused wherever it stands.
-Closing the remaining shape needs the argv after expansion, which no hook is
-given. It is pinned as **admitted** in the suite, on the same argument as the degraded-check case:
+as `bash`, can name any program at all, and `computed_program_offence` in
+`guard-git-argv.py` refuses it wherever it stands. That refusal was first
+written to keep the Grok helpers from being named that way; it outlived them
+in generic form when they were archived (#117). Closing the remaining shape
+needs the argv after expansion, which no hook is given. It is pinned as
+**admitted** in the suite, on the same argument as the degraded-check case:
 a residual nobody can run is one the next reader assumes was closed.
 
 Three earlier versions of that sentence were each falsified by a spelling
@@ -748,7 +699,7 @@ branch, and has no `--force`; `gh-pr-merge.sh` takes a number and a full head
 oid, spells `--rebase --match-head-commit` itself, and refuses a pull request
 that is not the checked-out branch's own, from this repository, into `main`.
 Neither raw form is in any command's frontmatter —
-`test_no_command_grants_the_raw_form` in `.claude/scripts/test_grok_helpers.py`
+`test_no_command_grants_the_raw_form` in `.claude/scripts/test_harness_helpers.py`
 asserts that over every command — though both are still quoted as history.
 
 **Withdrawing an allow refused nothing, so both raw forms are now denied.**
@@ -835,9 +786,10 @@ cannot close stops it reading the rest of the command. Each fix is in
 
 **And the script run is the checkout's copy, which `Edit(.claude/scripts/**)`
 protects from neither a branch nor the session.** A branch can carry an
-edited one — the class blueprint-frontend#115 records for the triager's
-method — and the deny binds the editing tools only, so a write run inside a
-substitution in the tail can replace it before bash opens it. A plain `git`
+edited one — the class blueprint-frontend#115 records for a method read from
+the tree under review — and the deny binds the editing tools only, so a
+write run inside a substitution in the tail can replace it before bash opens
+it. A plain `git`
 there is now held to reads, but the routes blueprint-frontend#125 owns reach a
 writing one still.
 What the worktree helper's branch binding still leaves is stated in
@@ -865,53 +817,38 @@ denied by name, so what is left is the flag nobody has enumerated yet. The
 honest fix is the helper the transport issue asked for — a
 `git-fetch-origin.sh` taking a branch name and nothing else.
 
-The fourth **was** `/review-copilot`'s three unfiltered comment feeds, and #56
-closed it. It is kept here in the past tense rather than deleted, because what
-made it survive three revisions is worth more than the fix: each revision
-narrowed the claim and none of them narrowed it to something enforceable.
+The fourth **was** a pull request's comment feeds read unfiltered, and #56
+closed it. A review body, an inline comment and an issue comment are text
+anyone can post, and a command holding `Edit` that reads one holds an
+injection vector. `/review-copilot`'s filtered feed helpers were the fix, and
+they are archived with it; what survives is the rule they were the first
+instance of. **No command grants `Bash(gh pr view:*)` or `Bash(gh pr list:*)`
+any more**: `ship.md` reads state through `pr-state.sh`, `pr.md` reads
+GitHub's own closing-issue parse through `pr-closure-input.sh` — for a
+comparison a person makes here, the gate that consumed it having not been
+ported — every command that needs a branch's PR resolves it through
+`pr-for-branch.sh` — the test that pins the helper lists them — and
+`review-branch.md` and `ship.md` judge a PR's changed paths against the
+body's `| Class |` and `| Touch set |` rows through `pr-locality.sh`, which
+prints a verdict per path and never the rows. Every one fixes its field set,
+because a caller that chooses fields can choose `reviews`. `settings.json`
+carries no `gh` allow, so no tracked rule approves a raw call: it prompts, or,
+under the user-level `auto` mode the #26 paragraph records, goes to the
+classifier.
 
-**What landed.** All three feeds are behind helpers — `pr-review-bodies.sh`,
-`pr-review-comments.sh`, `pr-issue-comments.sh` — filtering on one allow-list
-declared once in `copilot-authors.sh` and each printing an admitted/dropped
-count. `Bash(gh pr view:*)` is gone from `review-copilot.md`'s frontmatter,
-which is the half that makes it enforcement rather than courtesy: that command
-used `gh pr view` for nothing but the two GraphQL feeds, and `settings.json`
-carries no `gh` allow, so no tracked rule approves a raw call: it prompts — a
-stall in the unattended loop instead of a silent pass — or, under the
-user-level `auto` mode the #26 paragraph records, goes to the classifier. An
-allow in the local or user-level settings, which the tree does not carry,
-turns that prompt into an automatic approval.
-
-**One file was not enough, and the review of the PR that closed this is what
-established it.** `/ship` invokes `/review-copilot` as a skill while holding
-its own frontmatter grants, and `allowed-tools` entries are cumulative
-auto-approvals rather than a whitelist — so a grant removed in one file and
-kept in its caller withholds nothing on the unattended path, which is the path
-the issue was about.
-
-**And `gh pr view` was not the only door, which took a third review round to
-find.** `gh pr list --json reviews,comments` returns the same review bodies and
-issue comments for every pull request at once — measured here, a 2,457-character
-Copilot review body out of `gh pr list --state all --limit 1 --json
-number,reviews`. Three commands kept that grant for the harmless job of finding
-a branch's pull request, and it was a complete bypass of all three filtering
-helpers. **No command grants `Bash(gh pr view:*)` or `Bash(gh pr list:*)` any
-more**: `ship.md` reads state through `pr-state.sh`, `pr.md` reads GitHub's
-own closing-issue parse through `pr-closure-input.sh` — for a comparison a
-person makes here, the gate that consumed it having not been ported — every
-command that needs a branch's PR
-resolves it through `pr-for-branch.sh` — the test that pins the helper lists
-them — `review-branch.md`, `review-copilot.md` and `ship.md` judge a
-PR's changed paths against the body's `| Class |` and `| Touch set |` rows
-through `pr-locality.sh`, which prints a verdict per path and never the
-rows, and every one fixes its field set, because a caller that chooses
-fields can choose `reviews`.
+**One file was not enough, and `gh pr view` was not the only door.**
+`allowed-tools` entries are cumulative auto-approvals rather than a
+whitelist, so a grant removed in a chained command and kept in its caller
+withholds nothing on the unattended path. And `gh pr list --json
+reviews,comments` returns every pull request's review bodies at once —
+measured here, a 2,457-character review body out of `gh pr list --state all
+--limit 1 --json number,reviews` — and three commands had kept that grant for
+the harmless job of finding a branch's pull request.
 
 **The gate that pins this is an ALLOW-list of `gh` subcommands, and it is the
 second one in this repository to be rewritten that way.** Its first version
 banned `gh pr view` by name and passed while three files still granted
-`gh pr list` — a deny-list passing every spelling nobody thought of, which is
-exactly what the Grok verdict check did before it was inverted.
+`gh pr list` — a deny-list passing every spelling nobody thought of.
 
 **This paragraph used to name `gh issue view` and `gh issue list` as still
 admitted, and #150 removed both.** The measurement it rested on is unchanged
@@ -930,13 +867,9 @@ earlier, and the rule nobody re-read was not.
 
 **The set itself is deliberately not written here**, which is the fix rather
 than an omission — it is `GH_GRANTS_THAT_CANNOT_REACH_A_FEED` in
-`test_grok_helpers.py`, beside the assertion that reads it, and a copy in this
+`test_harness_helpers.py`, beside the assertion that reads it, and a copy in this
 file is what went stale. This paragraph carries the argument for why a
 subcommand joins or leaves that set; the set carries the membership.
-
-`ship.md`'s review-body and inline
-reads go through the same feed helpers `/review-copilot` uses, so the two
-commands share one list instead of holding two prose rules that disagreed.
 
 **`pr.md` was the third holder and was found by a test, not by reading.** The
 issue named two commands; the case whose subject is *every* command's
@@ -954,38 +887,6 @@ grant — and each left the next grant standing. **The gate now asserts on the
 grant rather than on the instruction line**, because a listing line naming four
 fields is a rule a reader follows and a prefix grant beside it is what the
 session can actually run.
-
-**Three things the fix deliberately does not do.** It admits the repository
-owner alongside Copilot's three logins, because the decision table has three
-rows and dropping the owner would take away the input for the middle one —
-measured on PR #147, 21 of 43 inline comments and 21 of 33 review bodies are
-the owner's. It reports a dropped item's author and location but **never its
-body**, since printing the text one stream over would put the injection vector
-back into the transcript the filter exists to keep it out of — which narrowed
-the *Anyone else* row from "report what it asked for" to a count and a
-location, a deliberate loss of detail. And it is **not authentication**: a
-GitHub login is not verified, so the filter refuses the ordinary stranger and
-would not refuse a takeover of one of the four admitted logins.
-`grok-ledger.sh`'s collaborator-permission check is the stronger form and is
-not reached for, because Copilot is not a collaborator and a permission check
-would drop the whole review.
-
-**The measured logins, which the fix did not change.**
-`copilot-pull-request-reviewer[bot]` is REST's spelling, from
-`/pulls/{n}/reviews` — an endpoint no helper here calls. The one REST endpoint
-in play, `/pulls/{n}/comments`, reports `Copilot`; the two GraphQL feeds report
-the bare `copilot-pull-request-reviewer`. An earlier revision of this paragraph
-called the issue-comment login REST's; `gh pr view` loads `reviews` and
-`comments` through one exporter, so that could never have been true. All three
-spellings stay admitted, because admitting one that never arrives costs
-nothing and missing one that does is the direction that fails open.
-
-**The issue-comment feed's Copilot login is still unobserved**, and a revision
-of this paragraph once asserted it as measured. Seven PRs have now been checked
-— #112, #101, #100, #99, #98, #94 and #147, the last through the new helper
-itself — and none carries a Copilot-authored issue comment. So the shared
-exporter says what the login *must* be and nothing has seen it. Not evidence:
-an asserted measurement that never happened stops the next reader checking.
 
 The fifth is **`git push` under the two sweeps**, and it is the one that looks
 closed and is not. Both commands state a read-only boundary, and both used to
@@ -1042,81 +943,30 @@ that states it, and that is a cause the paragraph above did not have
 in the same turn, and the push came back "has been denied" in under a second
 with no hook reason, every time, while the identical push after a new user
 message ran — and a classifier refusal is slower and names itself. So
-`Bash(git push:*)` on `/branch`, `/commit` or `/review-copilot` refused
-`/ship`'s own push a step later. **A command `/ship` runs before it pushes
-never denies push. Do not put it back.** It reads as hardening and is not:
-`/branch` and `/commit` leave the push to `/pr`, `/review-copilot` pushes only
-an already-committed review fix, by name, and the git-argv hook and
-`settings.json` refuse `main`, force and delete whoever asks.
-`CHAINED_BEFORE_A_PUSH` in `test_grok_helpers.py` names the three and fails if
-one denies push again. A terminal, read-only command — the two sweeps — keeps
-its deny, because nothing pushes after it. Whether the three refusals above
-were this rather than the classifier was not re-examined, so the user-level
-remedy stands beside this one, not replaced by it.
+`Bash(git push:*)` on `/branch` or `/commit` refused `/ship`'s own push a step
+later. **A command `/ship` runs before it pushes never denies push. Do not put
+it back.** It reads as hardening and is not: `/branch` and `/commit` leave the
+push to `/pr`, and the git-argv hook and `settings.json` refuse `main`, force
+and delete whoever asks. `CHAINED_BEFORE_A_PUSH` in `test_harness_helpers.py`
+names the chained commands and fails if one denies push again. A terminal,
+read-only command — the two sweeps — keeps its deny, because nothing pushes
+after it. Whether the three refusals above were this rather than the
+classifier was not re-examined, so the user-level remedy stands beside this
+one, not replaced by it.
 
-**`/review-grok` is the one chained command that cannot follow that rule, so
-`/ship` step 5 runs it inside an `Agent` instead.** Run inline, its bare `Bash`
-deny is its boundary — it reads an untrusted review holding `Edit` — and under
-the same turn-wide lifetime it would also refuse every command step 5 runs
-after it: the checks, `/commit` and the push. The deny stays and the triage
-moves. **On the one agent type measured, the agent keeps the deny off the push
-by discarding it, so the agent alone is not the boundary**
-(blueprint-admin#19): `/review-grok` loaded through the Skill tool in the main
-session removed `Bash` until the next user message — background notifications
-did not end it — while the same load inside a `general-purpose` agent left
-`Bash` working there, and the parent's `Bash` in the same turn was unaffected.
-On that path the push is safe and the triage would read an untrusted review
-holding a shell.
-
-**So the triage runs under a profile of its own, and `/ship` says what a
-profile cannot.** Step 5 grants the triager by exact type — beside the three
-read-only lenses the twelfth entry below records, and nothing broader — whose
-`tools:` — an allowlist — holds no `Bash` and no `Skill`; it reads
-`review-grok.md` rather than loading it, so the skill load measured above never
-happens there. Two rules cannot live in `tools:`. A type list inside a
-subagent's `Agent` grant is ignored, so the profile's own `PreToolUse` hook,
-`guard-triager-dispatch.py`, admits `review-adjudicator` and refuses every
-other dispatch — the triager itself included, which `/ship` grants and so
-cannot deny. And a path in a profile's `disallowedTools` removes the whole
-tool, so every `Edit(...)` `/review-grok` states is in `/ship`'s own
-`disallowed-tools`, beside the broad agent types; that list reaches the agents
-a command spawns, in the turn it was loaded in.
-`CommandsEnforceTheEditingBoundariesTheyState` pins the profile, the grant and
-both deny lists, and reads `.claude/agents/` on every run, so a new profile
-fails each exact grant that does not deny it;
-`TheTriagerDispatchesOnlyTheAdjudicator` judges the hook — in-process for most
-cases, through the launcher for its controls — and pins its wiring on the
-profile.
-
-**The trees held only in the turn `/ship` was loaded in, so they moved onto
-the profile too (blueprint-admin#27).** Measured there: spawned in that turn,
-the triager was refused an `Edit` to `.github/**` and `README.md` while a
-`docs/**` control passed; spawned one user message later, without `/ship`
-re-invoked, it wrote into `.github/` and edited `README.md`. Step 5 spawns the
-triager async, so every round after the first starts in such a turn. The
-profile carries a second `PreToolUse` hook, `guard-triager-edit.py`, on
-`Edit|Write|MultiEdit|NotebookEdit`: it reads `/ship`'s `Edit(...)` denies
-from `ship.md` on every call — one list, no copy — and refuses a target under
-any of them, matched without regard to case, and any target outside the
-checkout its event's `cwd` stands in. `TheTriagerEditsNothingShipDenies` judges
-it against every pattern that list holds, in-process, and runs a handful of
-controls through the launcher.
-
-**None of the profile's runtime behaviour was measured in this repository.**
-The tool allowlist and the dispatch hook were probed in blueprint-admin
-(blueprint-admin#23), on the same harness and the same files; that the edit
-hook fires on `Edit` in a turn after `/ship`'s was not probed anywhere and
-rests on the mechanism the dispatch hook was measured under. The measurement
-owed: spawn the triager in a turn after the one `/ship` was loaded in, have it
-edit `README.md`, and see the hook refuse it.
-
-**That debt used to be payable later and is not any more, which is a change to
-when rather than to what.** It read "owed before Grok is re-enabled here",
-which was true while step 5 was skipped outright and nothing in `/ship` ever
-spawned the triager. The twelfth entry's loop spawns it on every round that
-finds anything, and Grok is not coming back to trigger the condition — so the
-unmeasured path is live now, in the command that merges unattended, and the
-debt is due rather than pending.
+**`/review-grok` was the one chained command that could not follow that rule,
+and it left with the external reviewers.** Its bare `Bash` deny was its
+boundary — it read an untrusted review holding `Edit` — so `/ship` ran it
+inside a `review-grok-triager` profile with no `Bash`, two `PreToolUse` hooks
+of its own (`guard-triager-dispatch.py`, `guard-triager-edit.py`) and one
+measurement still owed. The local review that replaced it holds no writing
+agent: `branch-reviewer` reads and returns data, and the fixes are this
+session's own, made under the deny list and the hooks every session meets.
+What that profile's history established still stands for any future writing
+agent (blueprint-admin#19, #23, #27): a command loaded inside an agent can
+discard its own frontmatter deny, a type list inside a subagent's `Agent`
+grant is ignored, and a command's `disallowed-tools` lasts only the turn that
+loaded it, so a boundary an agent must keep across turns lives on its profile.
 
 The sixth **was** the `--output` deny itself — the inventory's one entry that
 is a *deny* rather than an allow, listed because a deny over a command string
@@ -1140,7 +990,9 @@ paragraph named as the admitted case.
 **What survives is the run-time half alone**: a value the shell is *told*
 rather than one written where the guard can read it — `F=--output=x; git log
 $F`, or `N=2; git log -${N}`. Closing that needs the argv after expansion,
-which no hook is given.
+which no hook is given. **It is accepted, because no mechanism available to a
+hook or a rule can close it (blueprint-frontend#116)**: a hook is handed the
+typed command and a rule matches its text, and the value arrives after both.
 
 **One construct puts that residual inside a word a caller types literally, and
 it is refused for exactly that reason.** `$"…"` is a *translated*
@@ -1202,15 +1054,23 @@ alternative fails open on a wrapper nobody listed.
 
 **A seventh thing is a gap in the mechanism rather than in a grant.** Pinning a
 command to one subagent type is a **deny list of every other type**, because
-the harness has no "only this type" allow — so `security-sweep.md`,
-`bug-sweep.md` and `review-grok.md` each enumerate the registered types that
-hold a shell, an editor or the network, and **a newly added agent under
-`.claude/agents/` is admitted by default** until someone adds it to all three
-lists. That is the shape this repository already knows rots; it is taken here
-because the alternative on offer is prose. **It rotted once already on the day
-a third agent arrived**: `review-adjudicator` was added for #149 and each of
-the three commands had to name the other two profiles, which is the
-enumeration's cost paid in the change that proves it.
+the harness has no "only this type" allow — so every command that grants an
+agent by exact type enumerates the registered types it does not grant, and
+**a newly added agent under `.claude/agents/` is admitted by default** until
+someone adds it to each list. That is the shape this repository already knows
+rots; it is taken here because the alternative on offer is prose. **It rotted
+once already on the day a third agent arrived**: `review-adjudicator` was
+added for #149 and every command then holding a list had to name it, which is
+the enumeration's cost paid in the change that proves it.
+
+**Its disposition is half accepted and half pinned (blueprint-frontend#116).**
+The admission at run time is accepted, because no mechanism available to a
+hook or a rule can close it: the harness offers no "only this type" allow,
+and a dispatch hook cannot tell which command granted the call. The drift is
+pinned: `test_every_exact_agent_grant_denies_every_other_type` reads every
+profile's `name:` out of `.claude/agents/` on each run and fails any granting
+command that does not deny it, so a new profile goes red in the `harness` job
+before it can be admitted anywhere a person did not decide.
 
 **The eighth was the push deny-list (#23), and it closed the way the sixth
 did.** Two broad allows — `Bash(git push origin:*)` and the `-u` form — paired
@@ -1253,7 +1113,7 @@ bought it — `Bash(npm run:*)` — admits any script the manifest names,
 including one the command has just written, while `npm test -- --config
 <path>` admits a file Vitest executes to read, `suggestions.md` among them.
 None of those is granted: the executor is `npm-checks.sh`, whose only
-variable is one word out of a closed set, and `test_grok_helpers.py` asserts
+variable is one word out of a closed set, and `test_harness_helpers.py` asserts
 that no command's frontmatter carries `Bash(npm `, `Bash(npx `, `Bash(node `,
 `Bash(ng `, `Bash(yarn ` or `Bash(pnpm `.
 **The helper closes the executor and not the manifest**, so the auto-load
@@ -1266,43 +1126,17 @@ filenames are the spelling the file already used and the suite reads. The
 and are **not** measured in a `disallowed-tools` value — belt to the names' braces,
 and not the control.
 
-**The tenth is the one grant that was never wider than its operation, and
-the operation was the problem.** `/review-grok` held `Edit` and `Write` for
-the job it exists to do — fix every site a review names in one pass — and
-read `suggestions.md` in the same invocation, so one crafted review could
-steer an edit to any undenied path, unattended, inside `/ship`'s loop (#52,
-#149). Narrowing the grant was refused twice, correctly: the command needs
-to write, and `allowed-tools` withholds nothing. What closed it was a
-**split**: a `review-adjudicator` profile with `Read`, `Grep` and `Glob`
-reads the review and returns a structured record, and the writing invocation
-carries the three machinery trees in `disallowed-tools`, so a finding whose
-fix lands in the machinery is refused to the step that writes by the harness
-rather than by a callout. The record is the residual — it is one hop
-from the prose and the parent's context receives it — and what bounds an
-accepted row is a predicate on the file (its quoted text is at its site) and
-the rule that an edit stays inside the row's own sites. **The
-`Read(suggestions.md)` deny the first form carried is gone, and why is a
-measurement rather than a preference**: a command's `disallowed-tools`
-propagate to the subagents it spawns, so the adjudicator's `Read`, `Grep` and
-`Glob` on the review were refused too and it returned `unreadable-review`;
-and a path deny reaches a `Bash` command naming the path, so the `wc -c`
-preflight was refused beside it. The harness offers no deny that reaches
-the parent and not the child, so the review is readable to the writing step
-and the split holds by discipline — stated in the command as its residual.
-**The writing invocation denies `Bash` whole, and that is the fifth entry
-arriving here**: it held `Bash(wc:*)` for a size preflight and `Bash(ls:*)`
-for a link check, and a redirection on either writes what the tree deny
-refuses, so the deny was defence in depth for as long as they stood beside
-it. The size check moved into the adjudicator, which has no `Bash` and
-returns `oversized-review`; the link check became a gated premise — the
-helper suite fails on any tracked mode `120000`, so `main` carries no
-symbolic link on any push, and an invocation without `Bash` cannot add one.
-**The premise was `main`'s and not the reviewed branch's, and #181 closed
-the difference**: the branch is what introduces files, the command runs over
-it locally before CI goes red on it, so a statement about what `main` tracks
-was never a statement about what this command is about to edit.
-`.claude/hooks/guard-edit-target.py` is the check that premise stood in for
-— the second hook in this repository, and the argument for it is one
+**The tenth was `/review-grok`'s `Edit` and `Write` beside an untrusted
+review (#52, #149)**, closed by splitting the reading from the writing and
+now archived with it. A command's `disallowed-tools` propagate to the
+subagents it spawns, and a path deny reaches a `Bash` command naming the
+path, both measured on that split, and the harness offers no deny that
+reaches the parent and not the child. What outlived it is the premise its
+writing step rested on — the helper suite fails on any tracked mode `120000`,
+so `main` carries no symbolic link — but a premise about `main` was never one
+about the branch being edited, which introduces files before CI judges them
+(#181). `.claude/hooks/guard-edit-target.py` is the check that premise stood
+in for — the second hook in this repository, and the argument for it is one
 sentence: **an edit target must be the file its path spells.** It resolves
 the target of every `Edit`, `Write`, `NotebookEdit` and `MultiEdit` — the
 matcher, the hook's own `EDITING_TOOLS` and the registration case all name
@@ -1310,9 +1144,7 @@ those four, and a boundary documented narrower than the one configured is the
 drift this file exists to refuse — re-anchors it on the
 resolved checkout root, and refuses the call when the two disagree — into a
 denied tree, or out of the checkout. The premise stays as defence in depth
-and its gate stays green. The bare tool name is the documented form of a
-`disallowed-tools` entry; the pattern form is the one the fifth entry
-measured.
+and its gate stays green.
 
 **That guard holds no copy of any deny list, and refusing to write one is
 the whole of why it is safe to run on every write this repository makes.**
@@ -1493,6 +1325,14 @@ left**: the rest of the temp root is admitted rather than the session's own
 subdirectory within it, because no environment variable names the scratchpad
 and deriving it would be a guess the hook cannot check.
 
+**Nothing of the fall-through itself is left (blueprint-frontend#116).** A
+target under no anchor now reaches `outside_offence` and is refused unless one
+of the two roots or the task list below admits it; no branch of the guard
+admits by falling through. The temp-root breadth above is the one residual
+that replaced it, and it is accepted, because no mechanism available to a
+hook or a rule can close it: neither is told which subdirectory is the
+session's.
+
 **One file outside every anchor is admitted by name: the main checkout's
 `TODO.md` (blueprint-frontend#45).** `CLAUDE.md` tells a session to update the
 task list from a worktree under `.claude/worktrees/`, where the main checkout is
@@ -1547,6 +1387,17 @@ files there. None of that reaches a substitution in this grant's tail, which
 the first entry records as a standing residual: a `git` subcommand or a
 writing option run there can write under `.git` before the helper checks
 anything.
+
+**Each of the three has a disposition (blueprint-frontend#116).** The free
+tail is not accepted, because a hook can close it: `guard-git-argv.py` sees
+the typed command before bash builds the argv, so it can refuse any argument
+to a granted `.claude/scripts/` helper that is not a plain word, and
+blueprint-frontend#179 is that fix. The host's `pre-rebase` and
+`post-rewrite` hooks are not accepted either, because the helper can spell
+them away as it spells the `rebase.*` keys — `-c core.hooksPath=` pointing at
+an empty directory — and blueprint-frontend#180 is that fix. The `.git` files are reachable only through the
+substitution route, so their fix is the one blueprint-frontend#125 owns:
+nothing granted writes under `.git` once that route is shut.
 
 **It is granted to `/ship` alone, and it was ported rather than written here.**
 The helper and its suite came from `alexander-shamray/blueprint-backend`, which
@@ -1971,121 +1822,76 @@ failure it is allowed. **What no test can show is a session taking the hint**:
 it is advice in the context, and the issue's measure is `cbx stats` over a
 week of use.
 
-**The twelfth is `/ship`'s review dispatch, and calling it a widening would be
-the comfortable half of the truth.** Step 5's loop is this repository's own
-now: the command grants `Agent(branch-reviewer)`, `Agent(bug-auditor)` and
-`Agent(security-auditor)` where it granted `Agent(review-grok-triager)` alone,
-and it stopped denying the two auditors it used to deny by name. Three
-profiles reached from the most autonomous command here is a wider grant than
-one. What bounds it is the thing a permission rule cannot state: each of those
-profiles is `Read`, `Grep` and `Glob` and nothing else, so the widening buys
-three readers and no new way to *act*. **Which type does a lens's job is
-bound by the command's prose and nothing else**: `allowed-tools` grants the
-three and restricts no other, and `disallowed-tools` names the broad built-in
-types only for the turn it holds.
-`test_every_review_lens_holds_read_only_tools` is what keeps the profile half true —
-because the property lives in three files the grant does not name, and a grant
-whose safety is a property of another file is the eleventh entry's general form
-exactly.
+**The twelfth is `/ship`'s review dispatch, and calling it narrow would be
+the comfortable half of the truth.** Step 5's local review grants
+`Agent(branch-reviewer)` and nothing broader, one agent per round. What bounds
+it is the thing a permission rule cannot state: that profile is `Read`, `Grep`
+and `Glob` and nothing else, so the grant buys a reader and no new way to
+*act*. **Which type does the review is bound by the command's prose and
+nothing else**: `allowed-tools` grants the one and restricts no other, and
+`disallowed-tools` names the broad built-in types only for the turn it holds.
+The suite case that reads `branch-reviewer`'s `tools:` line is what keeps the
+profile half true — because the property lives in a file the grant does not
+name, and a grant whose safety is a property of another file is the eleventh
+entry's general form exactly.
 
 **"No new way to act" is the profile half, and stating it alone would be a
-boundary claimed where none exists.** The lenses also *report*, and their
-reports land in `/ship`'s own session — the context holding `git commit`,
+boundary claimed where none exists.** The reviewer also *reports*, and its
+JSON lands in `/ship`'s own session — the context holding `git commit`,
 `git push` and `gh-pr-merge.sh`, which also decides whether the round was
-clean. **That session holds two more things than those three**: `Write`, over
-every tree only `ship.md`'s frontmatter denies it, and `npm-checks.sh`, which
-runs `package.json`'s scripts and the JavaScript configuration on the host.
-`.claude/settings.json` denies a session none of `.github/**`, `package.json`,
-`.npmrc` or the configuration files — those denies are the command's, which
-this file records above as holding for the turn that loaded it — so a session
-steered by a report could write a script and then be told to run the checks.
-Moving those denies into `settings.json`, as `.claude/**`'s were, is the fix;
-that file is the owner's to edit and it is not done. A lens is required to quote the branch text it is judging, so
-branch-controlled bytes now re-enter the privileged session before any
-adjudication: under the launcher `/ship` never opened the review at all, and
-the only reader of its content was the read-only adjudicator. **That is a
-residual of this change and not a closed path.** It is the same shape this
-file already refuses one thread over, where the Copilot feed filter reports a
-dropped item's author and location but never its body, "since printing the text
-one stream over would put the injection vector back into the transcript the
-filter exists to keep it out of". The lens channel has no equivalent filter,
-and naming it is what keeps a later reader from checking the three profiles,
-finding them read-only, and concluding the path is shut.
+clean and makes every fix itself. **That session holds two more things than
+those three**: `Write`, over every tree only `ship.md`'s frontmatter denies
+it, and `npm-checks.sh`, which runs `package.json`'s scripts and the
+JavaScript configuration on the host. `.claude/settings.json` denies a session
+none of `.github/**`, `package.json`, `.npmrc` or the configuration files —
+those denies are the command's, which this file records above as holding for
+the turn that loaded it — so a session steered by a report could write a
+script and then be told to run the checks. Moving those denies into
+`settings.json`, as `.claude/**`'s were, is the fix, and
+blueprint-frontend#115 owns it. **A finding is untrusted data, and the
+verification is the only filter on it**: each finding's `defect` and `fix`
+are sentences the reviewer wrote over branch-controlled text, so `/ship`
+traces each to its file and line and acts on what the tree shows, never on
+what the finding asks. That is a discipline and not a mechanism, and naming
+it is what keeps a later reader from checking the profile, finding it
+read-only, and concluding the path is shut.
 
 **The residual is that the chain no longer has an outside reader, and no grant
-expresses it.** Grok's launcher is disabled, Copilot is skipped, and what
-reviews a branch before it merges is now the same model family that wrote it,
-with its own context and its own blind spots. Nothing in the harness can close
-that: independence of judgement is not a tool grant. The two things standing in
-its place are procedural rather than enforced — three different bars in one
-round, and a loop that wants two consecutive clean rounds where the Copilot
-half settled for one. It is recorded here because `/ship` merges unattended,
-and a reader who learns only that the reviewers are read-only has been told the
-safe half.
+expresses it.** What reviews a branch before it merges is the same model
+family that wrote it, with its own context and its own blind spots. Nothing in
+the harness can close that: independence of judgement is not a tool grant.
+**It is accepted, as blueprint-frontend#117's decision** — the owner chose on
+2026-10-15 to archive the external reviewers rather than restore one — and
+the control is procedural and stated: a full pass, a recheck of every fix
+with a full pass again after a deep or large one, a seventh-round ceiling
+whose open findings are filed as issues rather than dropped, and CI, which
+judges the branch by rules the model did not choose. It is recorded here
+because `/ship` merges unattended, and a reader who learns only that the
+reviewer is read-only has been told the safe half. Restoring an outside
+reader starts from `archive/external-reviewers`.
 
-**The Copilot skip is not a boundary, and this paragraph exists so that nobody
-comes looking for one.** No deny was added: the three `copilot-*.sh` helpers
-are still on disk and still covered by the suite, the two `ship.md` invokes —
-`copilot-request.sh` and `copilot-request-count.sh` — are still granted in its
-frontmatter, and `/review-copilot` is still hand-runnable against a review
-requested by other means. Step 6 reports itself skipped because the caller
-instructed it to, which is an instruction to one command and not a refusal by
-the harness — so nothing here stops a session requesting a review, and
-restoring the loop is reverting a skip, at the sites `ship.md` step 6 lists,
-rather than lifting a lock. Were it
-ever made a boundary, this is the file that would record the deny and
-`settings.json` is where it would live.
+**Methods come out of the branch under review at two places, and only one
+was moved.** `branch-reviewer` takes its bar from `review-branch.md` as
+`origin/main` carries it — `/ship` writes that copy under `artifacts/review/`
+— because a branch that can edit that command chooses the bar it is judged
+against. **Its profile was not moved**: a profile is a tracked file read from
+the checkout, its `tools:` line and its rules with it, and the suite case
+that pins the tool list reads the branch's copy in CI, which step 6 waits on
+after step 5 has already dispatched it — so a branch that edits the profile
+is reviewed by that edit. What bounds it is not a mechanism in the loop:
+`.claude/settings.json` denies a session `Edit` on `.claude/agents/**` and
+`.claude/commands/**`, so the edit takes a change made with that deny lifted,
+or made outside the session's tools. **The writer's method and the guard that
+read its rules from the tree left with the triager** — the second and third
+of blueprint-frontend#115's four items — because nothing in the local review
+applies a fix but the session itself.
 
-**Methods come out of the branch under review at three places, and only one
-was moved.**
-`branch-reviewer` takes its bar from `review-branch.md` as `origin/main`
-carries it, because a branch that can edit that command chooses the bar it is
-judged against — the shape the sandbox met when its image was built from the
-branch it was about to review. **The two auditors' methods are their
-profiles, and those were not moved**: a profile is a tracked file read from
-the checkout, its `tools:` line with it, and so is `branch-reviewer`'s own
-list of refusals. `test_every_review_lens_holds_read_only_tools` reads the
-branch's copies, in CI, which step 7 waits on after step 5 has already
-dispatched them — so a branch that edits a lens's profile is reviewed by that
-edit. **The triage's method was not moved.**
-`review-grok-triager` reads `.claude/commands/review-grok.md` out of the
-checkout, and unlike the three lenses that agent holds `Edit` and `Write` and
-applies findings unattended, so the asymmetry runs the wrong way: the reader
-was protected and the writer was not. It is owed the same extraction and has
-not had it. **Two things bound all three, and neither is a mechanism in the
-loop.** `.claude/settings.json` denies a session `Edit` on
-`.claude/agents/**` and `.claude/commands/**`, so each takes a change made
-with that deny lifted, or made outside the session's tools. And what a
-rewritten method makes the triager write is read by the next round's lenses,
-which is why step 5 runs no triage on the round that spends its ceiling:
-there would be no next round. **The stops step 5 has key on a word the lens
-chooses, and nothing remembers it.** A finding ranked high or critical stops
-the chain on the round it is raised, and branch text can argue a lens down as
-it can argue it into anything. A finding ranked lower and left unfixed keeps
-the loop unconverged, and step 7 merges an unconverged loop with the
-finding listed in the report: that is reported, not held. And the stop holds
-for one run only: a later `/ship` reviews afresh, so a lens that ranks the
-same finding lower then lets it through. What stands against both is the
-report a person reads, not a mechanism. **An `Injection` stop leaves the
-triage's edits in the tree, uncommitted**, and a later `/ship` checks,
-commits and pushes a dirty tree before it reviews: so what a steered triager
-wrote reaches the pull request's branch unless a person discards it first,
-and is then read by lenses the same branch can argue with. The report names
-those paths for that reason. **And what keeps a quotation from being read as a finding is an
-instruction**: the adjudicator is told that fenced text is quotation, in a
-profile read from the checkout, and nothing parses the review to enforce it. **`ship.md` cited this record before the record existed**, which
-is why it is written here rather than left as a citation to nothing.
-
-**The guard that bounds that agent reads its rules from the same tree.**
-`guard-triager-edit.py` derives its path from its own `__file__` and takes the
-refused trees from `/ship`'s `disallowed-tools` in the `ship.md` beside it —
-one owner, no copy, which is the right design and the wrong source here. On
-`/branch`'s in-place path, taken whenever `main` was dirty, that checkout *is*
-the branch under review, so a pull request that legitimately edits `ship.md`'s
-frontmatter — an ordinary change class in this repository — writes the rules
-that gate the agent applying that pull request's own review fixes. It fails
-closed on an unreadable or empty list and **not** on a weakened one. The
-machinery predates the in-house loop; what this change did was put it on the
-hot path, since step 5 spawns that triager on every round that finds anything
-but the one that spends its ceiling.
-Reading the list from `origin/main` is the fix, and it is not done.
+**The review's verdict keys on what the reviewer chose to report, and only
+the ceiling remembers it.** A round with nothing open ends the review, and
+branch text can argue a reviewer down as it can argue it into anything; a
+finding refused by this session stays in the report and nowhere else. What
+outlives the run is the seventh round's filing: each finding that holds and
+stays open at the ceiling becomes an issue before step 6 merges, so the
+review that ran out of budget leaves a record on the repository rather than
+in one session's context. **`ship.md` cites this record**, and the record is
+written here for that reason.

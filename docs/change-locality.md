@@ -95,9 +95,9 @@ set is the union.
 decision.** The repository these commands came from carries
 `.github/locality-gate/`, which reads the classes from one file and fails a PR
 on a path outside either set. Nothing here does. What stands instead is
-`bash .claude/scripts/pr-locality.sh <n>`, which `/review-branch`,
-`/review-copilot` and `/ship` run against an open PR and which prints one
-`inside`/`outside` verdict per changed path — a check somebody runs, not one
+`bash .claude/scripts/pr-locality.sh <n>`, which `/review-branch` and `/ship`
+run against an open PR and which prints one `inside`/`outside` verdict per
+changed path — a check somebody runs, not one
 that runs itself. Porting the gate is a follow-up worth having. Until then the
 table below is the owner of what each class may reach.
 

@@ -69,7 +69,7 @@ suite's `setUpModule` fails rather than skips when a tool is missing** — a
 skip on a missing tool reports a pass, which is the fail-open it exists to
 refuse. The
 shell helpers are written for **bash 3.2**, which is what macOS ships as
-`/bin/bash`; `.claude/scripts/grok-ledger.sh` used an associative array until
+`/bin/bash`; `grok-ledger.sh`, since archived, used an associative array until
 CI's three-OS matrix went red on macOS with `declare: -A: invalid option`.
 Nothing had ever run these helpers there. If you add a bash-4 construct —
 `declare -A`, `mapfile`, `${var,,}` — the macOS runner is what will tell you.
@@ -112,8 +112,8 @@ broke.
 
 **So no command runs it.** `npm-checks.sh` offers no `e2e` mode, `/ship` and
 `/review-branch` both say plainly that the suite was not run rather than
-implying it was green, and the external reviewer's sandbox has no Node at all.
-CI's `e2e` job is where it runs — on pull requests, and on pushes to `main`.
+implying it was green. CI's `e2e` job is where it runs — on pull requests,
+and on pushes to `main`.
 **Not on every push**, which this said and which `ci.yml` contradicts in its
 own opening comment: the triggers are `push: branches: [main]` and
 `pull_request`, deliberately, because an unqualified `push:` ran both jobs

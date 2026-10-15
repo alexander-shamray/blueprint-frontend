@@ -49,7 +49,7 @@ e2e/                   the Playwright smoke, against a real stack
 android/, ios/         committed, not generated here; CI compiles the manifest a developer edits
 capacitor.config.ts    the one file that decides what `cap sync` writes into both
 .github/workflows/     ci — the jobs `docs/client-architecture.md` §14 names, including `harness`
-.claude/               commands, agents, hooks, scripts, the reviewer sandbox
+.claude/               commands, agents, hooks, scripts
 docs/                  this file's table, above
 ```
 
@@ -193,12 +193,10 @@ These stay here because they have to be true before anyone opens the guide:
 
 | | |
 |---|---|
-| `/ship` | Clean `main` → `/branch` → checks → `/commit` → `/pr` → the in-house review loop (Copilot skipped, Grok disabled) → merge → teardown. **It stops for nothing that is a judgement**, except a finding its own review ranks high or critical |
+| `/ship` | Clean `main` → `/branch` → checks → `/commit` → `/pr` → the local review (one read-only `branch-reviewer` per round, until a round has nothing open; the seventh round's open findings are filed as issues) → merge → teardown. **It stops for nothing that is a judgement**; step 5 says what ends the review |
 | `/branch` | A correctly named branch **in a worktree under `.claude/worktrees/`** the session moves into; in place when the tree is dirty or that directory is not writable |
 | `/commit` | Split the working tree into semantic commits with arguing bodies |
 | `/pr` | Open a PR in the house body form |
-| `/review-grok` | Triage a review of the branch into a resolution record |
-| `/review-copilot` | Triage Copilot's PR comments — verify each before acting. Hand-run only: `/ship` step 6 skips it until the user says otherwise |
 | `/review-branch` | Review the branch against `main` for contradictions; writes `suggestions.md` |
 | `/style-pass` | Apply one corrected code form corpus-wide, then record it in the guide and the linters |
 | `/security-sweep` | Loop a defensive security audit in a throwaway worktree, filing an issue per confirmed medium-or-above finding |
@@ -218,12 +216,10 @@ rather than here. Four rules reach every session, so they stay:
   lands complete and goes last, and a restore is verified by reading the file,
   never by trying what it forbids.
 - **Every hook uses `run-guard.sh`** — the scripts `settings.json`'s
-  `hooks` name
-  and the `review-grok-triager` profile's own — which locates a compatible
-  Python launcher before invoking the hook. The index refresh and the query
-  hint are not guards. The refresh covers the checkout a change landed in —
-  the edited file's, or
-  the event's `cwd` for a Bash call — after an edit, after every Bash call and
+  `hooks` name — which locates a compatible Python launcher before invoking
+  the hook. The index refresh and the query hint are not guards. The refresh
+  covers the checkout a change landed in — the edited file's, or the event's
+  `cwd` for a Bash call — after an edit, after every Bash call and
   on a session start, seeding a worktree's index from the main checkout's,
   while the MCP server stays on the startup checkout. The query hint points a
   locate or impact prompt at the index, and its command ends `|| :` because
