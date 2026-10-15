@@ -35,7 +35,7 @@ session returns to the main checkout and the worktree is removed.
 
 **The review is in house, and the report says so every run.** Grok and
 Copilot were this chain's outside readers; both are archived under the tag
-`archive/external-reviewers` (#117), and nothing reads the branch from
+`archive/external-reviewers` (blueprint-frontend#117), and nothing reads the branch from
 outside the model family that wrote it. The reviewer is still a second
 context rather than this one: it starts from the diff and its own
 instructions, holds `Read`, `Grep` and `Glob` and nothing that could edit
@@ -61,7 +61,7 @@ could have made differently:
 |---|---|
 | A helper or a guarded git command exits non-zero, or the harness refuses it | The step did not run; a report that says otherwise is false. `git pull --ff-only` refusing a diverged branch is the commonest exit; a refused push is the commonest refusal, and has its own paragraph below |
 | This branch's PR was closed unmerged | Reopening a deliberate closure is not a recommended option |
-| A `branch-reviewer` round did not run — the agent missing, a reply that is not the JSON its profile declares, or one whose `read` is empty or whose `skipped` names the diff | The round did not happen, so no verdict may be minted from it: a review that read nothing is indistinguishable from a branch with nothing wrong in it, and only one of those is worth merging on |
+| A `branch-reviewer` round did not run — the agent missing, a reply that is not the JSON its profile declares, or one whose `read` is empty or whose `skipped` names anything but `locality` | The round did not happen, so no verdict may be minted from it: a review that read nothing is indistinguishable from a branch with nothing wrong in it, and only one of those is worth merging on |
 | `main` is ahead of `origin/main` at step 0 | Local commits on `main` need a decision this chain has no way to take |
 | CI is not green at step 6 | A merge onto a red `main` is not a judgement call |
 | The PR is not mergeable | Conflicts are the caller's tree, not this chain's |
@@ -508,8 +508,11 @@ run.
    build — whenever the change reaches `src/**`, `e2e/**` or any file the
    toolchain reads (`package.json`, `angular.json`, `tsconfig*.json`,
    `eslint.config.js`, `.prettierrc`). A docs-only change runs `fast` or
-   nothing and says which. A change under `.claude/` runs the harness's own
-   suite as `CLAUDE.md` states it, and says so.
+   nothing and says which. A change under `.claude/` is checked by the
+   harness's own suite, which this command cannot run — it holds no
+   interpreter grant, for the reason `/style-pass` gives — so the check is
+   CI's `harness` job, named in the PR body, and the owner's run of it
+   when they apply the change, said so in the report.
 
    **The Playwright suite is CI's and is not run here.** `npm run e2e` needs
    the backend's Compose stack and a downloaded browser, neither of which
@@ -674,8 +677,9 @@ run.
    Say the round number in the report on every round, so a count the next
    resume throws away is at least visible in the run that spent it. A
    `branch-reviewer` that cannot run — the agent missing, or a reply that is
-   not the JSON its profile declares, or one that says it read nothing — is
-   the review not having run, reported so, and it stops the chain under the
+   not the JSON its profile declares, or one that says it read nothing, or
+   whose `skipped` names any check but `locality` — the method above all —
+   is the review not having run, reported so, and it stops the chain under the
    table in *It runs to the end*; it is never replaced by a review this
    session writes of its own diff.
 
