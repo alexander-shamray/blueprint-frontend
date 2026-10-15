@@ -2697,31 +2697,40 @@ def runs_unmodelled_program(text):
     `$(( cat , PATH = 5 ))` it reads `cat` and never reaches the assignment
     the comma operator makes. Arithmetic has no reading use inside a
     substitution here, and the alternative is a grammar for it.
+
+    **The words are bash's, which the first split's were not**
+    (blueprint-frontend#187). It removed quotes and backslashes and then split
+    on every blank `str.split()` knows, so `$(cat' 'x/run)`, `$(cat\\ x/run)`
+    and `$(cat<U+00A0>x/run)` each read as `cat` and an argument, while bash
+    runs the one word `cat x/run` — a path in a directory the branch can
+    carry. `substitution_runs` splits as `_offence` does, on bash's blanks
+    alone, so the `/` test sees the whole word; and a body it cannot tokenise
+    is refused rather than read in part.
     """
     if ("$[" in text or "((" in text
             or PARAMETER_ARITHMETIC.search(text)):
         return True
-    unquoted = re.sub(r"\$?[\"']|\\", "", text)
-    for run in re.split(r"[;&|()\n`]+", unquoted):
-        wrapped = False
-        words = run.split()
+    runs = substitution_runs(text)
+    if runs is None:
+        return True
+    for words in runs:
         for position, word in enumerate(words):
             if ASSIGNMENT.match(word):
                 return True
+            # **A dash-led word in command position is the program**, since
+            # bash has no options there: `$(-x/run)` runs `./-x/run`, and was
+            # skipped as an option (blueprint-frontend#187). Behind a wrapper
+            # it is the wrapper's option, refused for the reason above.
             if word.startswith("-"):
-                if wrapped:
-                    return True
-                continue
-            # Splitting at every parenthesis leaves the tail of a nested
-            # `${…}` or `$(…)` as its own "run": a bare `}` or `$` is that
-            # tail, not a program.
+                return True
+            # A bare `$` is the tail of a `$(…)` whose parenthesis the
+            # tokeniser made a boundary, not a program.
             if re.fullmatch(r"[{}$]+", word):
                 continue
             if "/" in word or "\\" in word:
                 return True
             name = program_name(word)
             if name in SUBSTITUTION_WRAPPERS:
-                wrapped = True
                 continue
             if name not in SUBSTITUTION_PROGRAMS:
                 return True
@@ -2757,8 +2766,14 @@ def contains_gh_word(text):
     unquoted = re.sub(r"\$?[\"']|\\", "", text)
     if any(names_gh(word) for word in re.split(r"[\s;&|()<>`]+", unquoted)):
         return True
-    for run in re.split(r"[;&|()\n`]+", unquoted):
-        for word in run.split():
+    # The program word is bash's word, as `runs_unmodelled_program` reads it
+    # (blueprint-frontend#187); the scan above may split finer, since a finer
+    # split only finds more.
+    runs = substitution_runs(text)
+    if runs is None:
+        return True
+    for run in runs:
+        for word in run:
             if ASSIGNMENT.match(word) or word.startswith("-"):
                 continue
             # A word with a `/` is the branch's file and not a wrapper,
@@ -2795,10 +2810,25 @@ def substitution_tokens(text):
     try:
         lexer = shlex.shlex(stripped, posix=True, punctuation_chars=True)
         lexer.commenters = ""
+        lexer.whitespace = BASH_BLANKS
         lexer.whitespace_split = True
         return list(lexer)
     except ValueError:
         return None
+
+
+def substitution_runs(text):
+    """`text`'s command runs as lists of the words bash reads, or `None`.
+
+    Quote removal first and a split on bash's blanks after, through
+    `substitution_tokens` — the order bash keeps, where splitting after a
+    removal of its own put a word break wherever a quote or a backslash had
+    protected a blank (blueprint-frontend#187).
+    """
+    tokens = substitution_tokens(text)
+    if tokens is None:
+        return None
+    return list(command_runs(tokens))
 
 
 def substituted_git_offence(inner):
@@ -3872,6 +3902,14 @@ PUNCTUATION = set("();<>|&")
 # does.
 METACHARACTERS = set("|&;()<> \t\n")
 
+# **The blanks bash splits a word at, and no others** (blueprint-frontend#187).
+# `shlex` splits on `\r` as well, and `str.split()` on every Unicode space and
+# control blank; bash keeps each inside the word. So `x=1<CR>echo {git,push}
+# origin +HEAD:main` is one assignment word and a force push to bash, and was
+# a run led by `echo` here — measured with `offence()`, and Git Bash read the
+# carriage return as a word character.
+BASH_BLANKS = " \t\n"
+
 # What ends a command RUN. A subset of METACHARACTERS: a redirection
 # operator and a space separate words within one run rather than ending
 # it. **Read only through `_ends_run`**, because the `&` here is also the
@@ -4134,18 +4172,26 @@ def git_segments(tokens):
             yield run[index + 1:]
 
 
-def launched_git_segments(tokens):
-    """`git_segments`, only where the `git` word is run as the program.
+def brace_git_runs(tokens):
+    """Every run that names `git` and that a reader or a printer does not lead.
 
     `grep -rn git {src,e2e}` names `git` as an argument, and a check about
     what git is handed has nothing to say about it (PR #184's review).
+
+    **Launched was the test, and it fails open on a wrapper nobody named**
+    (blueprint-frontend#186): `ssh-agent git {fetch,--upload-pack=./tools/x}
+    origin` runs git with the brace's words, while `launched` knows only the
+    wrappers `ARGUMENT_RUNNERS` lists. So the exemption is the lead instead —
+    a printer, or a reader other than `git` itself — and every other run that
+    names `git` anywhere, the brace's own words included, is read.
     """
     for run in command_runs(tokens):
-        if not run or program_name(run[0]) in DATA_ONLY_COMMANDS:
+        lead = program_name(leading_command(run))
+        if lead in DATA_ONLY_COMMANDS or (
+                lead in READING_COMMANDS and lead != "git"):
             continue
-        for index, token in enumerate(run):
-            if names_program(token, "git") and launched(run, index):
-                yield run[index + 1:]
+        if any(names_program(token, "git") for token in run):
+            yield run
 
 
 def live_comma_brace(command):
@@ -4190,6 +4236,208 @@ def live_comma_brace(command):
             scan += 1
         index += 1
     return False
+
+
+# **What a later `git` reads from the shell's variables**
+# (blueprint-frontend#185): `PATH` decides which file `git` is, `HOME` and
+# `XDG_CONFIG_HOME` which global configuration it loads — `core.pager`,
+# `diff.external` — and the pager, the editor, `BASH_ENV` and the loader each
+# run something no word on the line names. **It is an enumeration, so it fails open on a variable nobody listed**;
+# naming no variable at all was the alternative, and it refused the ordinary
+# `X=1 git log` and `for f in a b; do git log -1 $f; done` this suite records.
+ASSIGNMENT_SENSITIVE_NAMES = frozenset({
+    "BASH_ENV", "EDITOR", "ENV", "HOME", "LESS", "LESSCLOSE", "LESSOPEN",
+    "PAGER", "PATH", "VISUAL", "XDG_CONFIG_HOME",
+})
+ASSIGNMENT_SENSITIVE_PREFIXES = ("DYLD_", "GIT_", "LD_", "SSH_")
+
+# **The builtins that assign in the current shell with no name a check can
+# read**, refused on a line that runs `git` whatever they assign: `export`,
+# `declare` and the rest take `-i`, which turns a later value into arithmetic
+# that may assign anything; `let` and `unset 'a[…]'` are arithmetic; `wait -p`
+# and `coproc` assign; `trap … DEBUG` runs a string before each later command;
+# `hash -p` and `alias` change what a command word finds; `enable -f` loads a
+# builtin from a file; and `.`, `source` and `eval` run text that may do any of
+# these. Bash's own builtins, so the list is closed where `ARGUMENT_RUNNERS` is
+# open.
+ASSIGNING_BUILTINS = frozenset({
+    ".", "alias", "coproc", "declare", "enable", "eval", "export", "hash",
+    "let", "local", "readonly", "source", "trap", "typeset", "unset", "wait",
+})
+
+# **The builtins and reserved words that assign the names among their
+# operands**, so the names are read: `for f in …` and `while read line` are
+# ordinary, `for PATH in 5` is not.
+NAMING_BUILTINS = frozenset({
+    "for", "getopts", "mapfile", "read", "readarray", "select",
+})
+
+# What runs a builtin in the current shell, past options of its own.
+BUILTIN_WRAPPERS = frozenset({"builtin", "command", "time"})
+
+# The `[[ … ]]` operators whose operands bash evaluates as arithmetic.
+ARITHMETIC_TESTS = frozenset({"-eq", "-ne", "-lt", "-le", "-gt", "-ge"})
+
+# `{NAME}>file` opens a descriptor and assigns its number to `NAME`.
+DESCRIPTOR_VARIABLE = re.compile(
+    r"\{(?P<name>[A-Za-z_][A-Za-z0-9_]*(?:\[[^\]]*\])?)\}(?=[<>])")
+
+# A `git` word anywhere in the command, read as `substituted_git_offence`
+# reads one where the tokeniser cannot: inside a quoted substitution or a
+# heredoc a shell runs, a `git` is no token at all.
+GIT_WORD = re.compile(r"(?<![\w.-])git(?![\w.-])", re.IGNORECASE)
+
+
+def sensitive_assignment(word):
+    """Whether assigning the name `word` begins with matters to a later `git`.
+
+    A subscript is arithmetic whatever the name, so `a[PATH=5]=1` counts. The
+    comparison ignores case, because Windows reads `Path` as `PATH`.
+    """
+    match = re.match(r"[A-Za-z_][A-Za-z0-9_]*", word)
+    if match is None:
+        return False
+    if word[match.end():match.end() + 1] == "[":
+        return True
+    name = match.group().upper()
+    return (name in ASSIGNMENT_SENSITIVE_NAMES
+            or name.startswith(ASSIGNMENT_SENSITIVE_PREFIXES))
+
+
+def _option_target(rest, letter):
+    """The operand of `-<letter>` in `rest`, glued or not, or `None`."""
+    for position, word in enumerate(rest):
+        if word.startswith("-" + letter):
+            glued = word[2:]
+            return glued or (rest[position + 1] if position + 1 < len(rest)
+                             else None)
+    return None
+
+
+def assigning_word(run):
+    """The word that makes `run` assign something a later `git` reads."""
+    wrapped = False
+    for position, word in enumerate(run):
+        if ASSIGNMENT.match(word):
+            if sensitive_assignment(word):
+                return word
+            continue
+        if word in ASSIGNING_BUILTINS:
+            return word
+        rest = run[position + 1:]
+        if word in NAMING_BUILTINS:
+            # A glued option value — `read -aPATH` — names the target too.
+            if any(sensitive_assignment(
+                    later[2:] if later.startswith("-") else later)
+                   for later in rest):
+                return word
+            return None
+        if word in COMMAND_PREFIX_WORDS or word in BUILTIN_WRAPPERS:
+            wrapped = word in BUILTIN_WRAPPERS
+            continue
+        if wrapped and word.startswith("-"):
+            continue
+        # `printf -v NAME` assigns, and `test -v 'a[…]'` evaluates the
+        # subscript, as in a substitution; `set -k` hands a later `NAME=value`
+        # argument to the command as its environment.
+        if word in ("printf", "test", "["):
+            target = _option_target(rest, "v")
+            if target is not None and sensitive_assignment(target):
+                return word
+        if word == "set" and any(
+                later == "keyword" or re.match(r"^[-+][A-Za-z]*k", later)
+                for later in rest):
+            return word
+        return None
+    return None
+
+
+def double_bracket_arithmetic(tokens):
+    """Whether a `[[ … ]]` in `tokens` evaluates an operand as arithmetic.
+
+    Read over the flat tokens, since `&&` inside the brackets ends a run.
+    """
+    inside = False
+    for token in tokens:
+        if token == "[[":
+            inside = True
+        elif token == "]]":
+            inside = False
+        elif inside and (token.startswith("-v") or token in ARITHMETIC_TESTS):
+            return True
+    return False
+
+
+def assigning_expansion(command):
+    """The first expansion in `command` that may assign as bash performs it.
+
+    **Arithmetic is refused whatever it names**, because the name is not
+    always on the line: arithmetic evaluates a variable's value as an
+    expression, so `y='PATH=5'; ls ${x[y]}` assigns `PATH` through `y`. So
+    `$[…]`, `$((…))`, `((…))`, a compound `a=(…)` whose subscripts are
+    arithmetic, and every `${…}` `PARAMETER_ARITHMETIC` matches, wherever bash
+    expands — a double-quoted word and a heredoc body a shell expands
+    included, a single-quoted one not. A `{NAME}` descriptor redirection names
+    its target, which is read like any other.
+    """
+    for text, quotes in expandable_regions(command):
+        text = join_continuations(text, quotes=quotes)
+        for index, state, escaped in _quoting(text, quotes=quotes):
+            # A heredoc body has no comments, so a `#` there starts nothing.
+            if escaped or state == "single" or (state == "comment" and quotes):
+                continue
+            if text[index] == "$":
+                match = PARAMETER_ARITHMETIC.match(text, index)
+                if match is not None:
+                    return match.group()
+                if text.startswith(("$[", "$(("), index):
+                    return text[index:index + 3]
+            elif state == "double":
+                continue
+            elif text.startswith(("((", "=("), index):
+                return text[index:index + 2]
+            else:
+                match = DESCRIPTOR_VARIABLE.match(text, index)
+                if match is not None and sensitive_assignment(
+                        match.group("name")):
+                    return match.group()
+    return None
+
+
+def assignment_offence(command, tokens):
+    """The reason to refuse an assignment on a line that runs `git`, or `None`.
+
+    **A substitution's body was held to this and the line around it was not**
+    (blueprint-frontend#185). `ls ${x[PATH=5]}; git status` evaluates the
+    subscript, so `PATH` is the relative directory `5` and the `git` after it
+    is `./5/git`, a file a branch can carry — behind two granted prefixes,
+    measured with `offence()` and Git Bash. `HOME` reaches a branch
+    `.gitconfig` the same way, and `GIT_EXTERNAL_DIFF` a branch program
+    directly.
+
+    **A line that does not run `git` is not judged**: `CI=true npm test` is
+    ordinary, and an assignment that re-resolves a later granted program there
+    is blueprint-frontend#188.
+    """
+    if not (GIT_WORD.search(command)
+            or any(True for _ in git_segments(tokens))):
+        return None
+    found = assigning_expansion(command)
+    if found is None:
+        for run in command_runs(tokens):
+            found = assigning_word(run)
+            if found is not None:
+                break
+    if found is None and double_bracket_arithmetic(tokens):
+        found = "[["
+    if found is None:
+        return None
+    return (
+        f"`{found}` may assign, in the shell that runs `git` on this line, "
+        "`PATH`, `HOME`, a `GIT_*` name or another variable that changes "
+        "which program git is or what it runs (blueprint-frontend#185). Run "
+        "the `git` command on a line of its own."
+    )
 
 
 def names_program(word, name):
@@ -4631,6 +4879,9 @@ def _offence(command, depth, judged):
         # the start of one. Left on, `--grep=#x ; git push origin +HEAD:main`
         # lost the push to the lexer.
         lexer.commenters = ""
+        # Bash's blanks rather than `shlex`'s, which carry `\r`
+        # (blueprint-frontend#187).
+        lexer.whitespace = BASH_BLANKS
         lexer.whitespace_split = True
         tokens = list(lexer)
     except ValueError:
@@ -4696,14 +4947,18 @@ def _offence(command, depth, judged):
     if refusal is not None:
         return refusal
 
+    refusal = assignment_offence(command, tokens)
+    if refusal is not None:
+        return refusal
+
     # **A comma brace expansion makes several words of one**, so the argv git
     # runs is not the one read here: `git {fetch,--upload-pack=./x} origin`
     # holds no `--upload-pack` word to find (blueprint-frontend#129). Live
-    # braces are read from the string and the token from the segment, since
+    # braces are read from the string and the token from the run, since
     # neither alone can tell `'{%h,%s}'` from a list (PR #184's review).
     if live_comma_brace(stripped) and any(
             "{" in word and "," in word and "}" in word
-            for segment in launched_git_segments(tokens) for word in segment):
+            for run in brace_git_runs(tokens) for word in run):
         return (
             "a brace expansion in a `git` command makes several words of one, "
             "so the argv git runs is not the one this guard reads; spell the "
