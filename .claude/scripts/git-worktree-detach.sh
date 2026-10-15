@@ -42,9 +42,8 @@ git rev-parse --verify --quiet "$commit^{commit}" >/dev/null ||
 # target is not, and `Read`, `Grep` and `Glob` all follow it. The auditor's
 # findings then reach `gh-sweep-issue-create.sh` and a public issue body.
 #
-# **`/review-grok` already carries this argument and the sweeps did not.** It
-# records that the suite's "no tracked symbolic link" case is a claim about
-# `main` while the exposure is on the branch, and points at
+# **The suite's "no tracked symbolic link" case is a claim about `main`
+# while the exposure is on the branch**, and the edit half points at
 # `guard-edit-target.py`, which resolves the target of every `Edit` and `Write`
 # and refuses one that does not land where its path spells. That closes the
 # WRITE half. Nothing closed the read half, and a subagent profile cannot: the
@@ -54,8 +53,7 @@ git rev-parse --verify --quiet "$commit^{commit}" >/dev/null ||
 # So it is closed here, at the one endpoint both sweeps pass through, before the
 # worktree exists. Asked of the pinned COMMIT rather than of `main` or of the
 # working tree, because the commit is what the worktree will materialise —
-# which is the half `/review-grok`'s paragraph says the suite's case does not
-# reach. Refused rather than pruned: a sweep over a tree with a file silently
+# which is the half the suite's case does not reach. Refused rather than pruned: a sweep over a tree with a file silently
 # removed would report a clean audit of something that is not the branch.
 links=$(git ls-tree -r "$commit" | awk '$1 == "120000" { print $4 }' | head -5)
 [ -z "$links" ] ||

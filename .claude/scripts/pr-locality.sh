@@ -3,7 +3,7 @@
 # `| Touch set |` rows its body declares, and print a verdict per path — and
 # nothing the author wrote. Read-only, fixed field set.
 #
-# **Exists so that /review-branch, /review-copilot and /ship can read the two
+# **Exists so that /review-branch and /ship can read the two
 # rows `docs/change-locality.md` asks a PR body to carry without holding
 # `Bash(gh pr view:*)`** — the grant that reaches `--json reviews`, the
 # unfiltered feed #56 closed. `body` is the one field this reads from the
@@ -12,8 +12,8 @@
 # caller that chooses fields can choose `reviews`, so this one chooses none.
 #
 # **The output never contains the touch-set cell.** A pull request author is
-# not a trusted party, /review-copilot takes any PR number, and a row was the
-# one place an author's text reached an Edit-capable agent unfiltered. A path
+# not a trusted party, and a row was the one place an author's text reached
+# an Edit-capable session unfiltered. A path
 # grammar cannot close that — `Ignore_all_previous_instructions.md` is a path
 # — so the cell is consumed here and only a verdict leaves: one `class` line
 # whose value is letters this script validated, then one `inside <path>` or
@@ -94,8 +94,8 @@ for item in "${items[@]}"; do
   # **The two grammars here disagreed, and the touch-set one was the narrower
   # (#19).** A changed path is admitted with `@` and `+` in it — git permits
   # both — while a declared set naming `src/app/@types/**` or `docs/a+b.md`
-  # made this `refuse` and exit 3 before printing any verdict. `/review-branch`,
-  # `/review-copilot` and `/ship` all read a helper that prints nothing as
+  # made this `refuse` and exit 3 before printing any verdict. `/review-branch`
+  # and `/ship` both read a helper that prints nothing as
   # "names no class and no bound", so a legitimate touch set silently degraded
   # the locality check rather than failing it visibly. This is the changed-path
   # grammar plus the glob characters `*?{},`, which makes it a superset rather

@@ -42,7 +42,7 @@ git rev-parse --git-dir >/dev/null 2>&1 ||
 [ "$(git rev-parse --git-dir)" = "$(git rev-parse --git-common-dir)" ] ||
   { echo "run from the main checkout, not a linked worktree" >&2; exit 2; }
 # A worktree inside the checkout is untracked content of it unless ignored,
-# and every `git status` the chain reads — grok-review.sh's clean-tree
+# and every `git status` the chain reads — /ship's clean-tree
 # refusal, /commit's unscoped sweep — would then see it.
 git check-ignore -q "$path" ||
   { echo "$path is not ignored — add .claude/worktrees/ to .gitignore" >&2; exit 2; }

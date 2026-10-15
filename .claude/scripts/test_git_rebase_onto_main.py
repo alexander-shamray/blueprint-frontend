@@ -10,7 +10,7 @@ the rest run the thing.
 Ported from `alexander-shamray/blueprint-backend`, where the helper was built
 and reviewed (#57). The module's own harness is spelled here rather than
 imported: the suite this repository already runs against its shell helpers,
-`test_grok_helpers.py`, carries its own `run_bash` and `code_lines` and argues
+`test_harness_helpers.py`, carries its own `run_bash` and `code_lines` and argues
 for both, and a shared module introduced for one port would be a second
 spelling of what exists three files over. The other suites here need neither,
 which is why there is nothing to share yet rather than something being

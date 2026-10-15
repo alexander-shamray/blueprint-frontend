@@ -3,10 +3,10 @@
 
 **A permission rule matches a SPELLING and an edit lands on a FILE**, and the
 gap between those two is #181. `.claude/settings.json` denies
-`Edit(.claude/scripts/**)`, and `/review-grok`'s frontmatter denies
-`Edit(.claude/**)`, `Edit(.github/**)`, `Edit(deploy/**)` and `Edit(.git/**)`
-beside the `src/`, `tests/` and `docs/` the command exists to write. Every one
-of those is compared against the path a caller typed. A symbolic link — or, on
+`Edit(.claude/scripts/**)`, and the editing commands' frontmatter denies
+`Edit(.claude/**)`, `Edit(.github/**)` and `Edit(.git/**)` beside the trees
+each exists to write. Every one of those is compared against the path a
+caller typed. A symbolic link — or, on
 Windows, a junction — inside an allowed tree is a spelling no deny matches
 while the write lands wherever the link points: inside a denied tree, or out of
 the checkout altogether.
@@ -15,8 +15,8 @@ the checkout altogether.
 fails on any tracked mode `120000` in `git ls-files -s`, so `main` carries no
 tracked link on any push, and an invocation whose only writers are `Write` and
 `Edit` cannot add one. Both halves are true and neither covers the case that
-matters: `/review-grok` runs over the *branch* under review, locally, before CI
-has said anything about it, and a branch is what introduces files. The premise
+matters: `/ship` edits the *branch* under review, locally, before CI has
+said anything about it, and a branch is what introduces files. The premise
 is a statement about `main`; the exposure is on the branch.
 
 **So the rule here is one predicate and it names no tree: an edit target must
@@ -60,10 +60,7 @@ the harness's own control surface is refused too: that root is admitted for
 STATE and a credential or a settings file is not state. A spelling no anchor
 recognises that nevertheless *lands inside* a checkout is refused by the
 paragraph below instead, whatever alphabet it is in, because the matcher then
-judged a string that is not this file. Nothing in the exposure this closes can
-spell either: `/review-grok`'s site contract admits one plain
-repository-relative path per row, with no leading slash, no drive letter and no
-`..` segment, and the adjudicator drops a row that is not.
+judged a string that is not this file.
 
 **What that leaves, stated because an allow-list is not an absence of
 residual.** The temp root is admitted whole rather than the session's own
@@ -249,13 +246,16 @@ def under(child, parent, traits):
 
 # **The control surface, wherever a `.claude` directory holds it.** This
 # repository denies `Edit(.claude/scripts/**)`, `hooks/**`, `commands/**`,
-# `agents/**`, `sandbox/**` and both settings files, and the argument in
+# `agents/**`, `skills/**` and both settings files, and the argument in
 # `docs/harness-boundaries.md` is that a session able to rewrite one of those
 # before invoking it makes every fixed endpoint in the chain a fiction. The
 # user's own `~/.claude` has the same shape and grants strictly more — its
 # settings and hooks apply to every project — so the same names are refused
 # there. `.credentials.json` is beside them because the fallback below exists
-# for the harness's STATE writes and a credential is not one.
+# for the harness's STATE writes and a credential is not one. `sandbox` stays
+# a refused name although this repository's left with the external reviewer
+# (tag `archive/external-reviewers`): under any `.claude` it is machinery by
+# its shape, and a refused name that matches nothing costs nothing.
 CONTROL_DIRECTORIES = frozenset({
     "agents", "commands", "hooks", "plugins", "sandbox", "scripts", "skills",
 })
@@ -929,9 +929,9 @@ def offence(event):
     # both were closed by teaching the comparison a new equivalence. This
     # closes the class instead: whatever the spelling, if it RESOLVES into a
     # checkout that did not recognise it, the matcher judged a string that is
-    # not this file and the write is refused. The residual is untouched — a
-    # target resolving outside every anchor still falls through, which is what
-    # keeps the session's own memory and scratch writes working.
+    # not this file and the write is refused. A target resolving outside every
+    # anchor is not refused by this rule: it goes to `outside_offence` below,
+    # which admits the scratch and harness-state roots and refuses the rest.
     if not judged:
         for _, real_root, traits in checkouts:
             if under(resolved, real_root, traits):

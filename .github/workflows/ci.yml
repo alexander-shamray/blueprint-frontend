@@ -79,17 +79,16 @@ jobs:
             test-results/
 
   # The harness's own suite, and it is here because three files in `.claude/`
-  # argued from a premise this repository did not make true. `/review-grok`
-  # says the tracked-symlink premise is "still gated" because "the helper suite
+  # argued from a premise this repository did not make true. `/review-grok`,
+  # archived since under the tag `archive/external-reviewers`, said the
+  # tracked-symlink premise was "still gated" because "the helper suite
   # fails on any mode 120000 in `git ls-files -s` on every push" — which was a
   # statement about the repository this harness came from. Nothing here ran it,
   # so a premise offered as defence in depth was resting on a gate that did not
   # exist. Copilot's seventh round on PR #13 found the neighbouring overclaims;
   # this one was found by sweeping for the same class.
   #
-  # It needs no Node and no Docker. The cases that mention `docker run` assert
-  # things about the TEXT of `grok-review.sh`, which is the point of writing a
-  # gate's test against what the gate is looking at. What it does need is bash,
+  # It needs no Node and no Docker. What it does need is bash,
   # grep, git and jq, and `setUpModule` FAILS rather than skips when one is
   # missing — a skip on a missing tool reports a pass, which is the fail-open
   # this suite exists to refuse.
