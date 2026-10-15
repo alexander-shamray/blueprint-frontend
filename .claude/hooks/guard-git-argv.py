@@ -1856,7 +1856,7 @@ def target_literal(word):
     if word.startswith(("<(", ">(")) or substitutions(word):
         return None
     try:
-        parsed = shlex.split(strip_dollar_quotes(word), posix=True)
+        parsed = bash_split(strip_dollar_quotes(word))
     except ValueError:
         return None
     return parsed[0] if parsed else None
@@ -2709,6 +2709,16 @@ def runs_unmodelled_program(text):
     """
     if ("$[" in text or "((" in text
             or PARAMETER_ARITHMETIC.search(text)):
+        return True
+    # **A write in front of the program was refused by accident before**, the
+    # old split reading `>./tools/run` as an unlisted program, and
+    # `substitution_runs` strips redirections before it splits — so
+    # `$(>./tools/run cat)` was admitted (PR #190's review). A substitution
+    # writes before the command holding it is judged, so a redirection that
+    # opens a file is refused wherever it stands, `/dev/null` aside.
+    if any(writes_to_a_file(span)
+           and span.target.strip().strip("'\"") != "/dev/null"
+           for span in redirection_spans(text)):
         return True
     runs = substitution_runs(text)
     if runs is None:
@@ -3696,7 +3706,7 @@ def stdin_scripts(command):
                 index = max(word, index + 3)
                 continue
             try:
-                parts = shlex.split(strip_dollar_quotes(text), posix=True)
+                parts = bash_split(strip_dollar_quotes(text))
             except ValueError:
                 parts = [text]
             if parts:
@@ -3909,6 +3919,22 @@ METACHARACTERS = set("|&;()<> \t\n")
 # a run led by `echo` here — measured with `offence()`, and Git Bash read the
 # carriage return as a word character.
 BASH_BLANKS = " \t\n"
+
+
+def bash_split(text):
+    """`shlex.split(text, posix=True)` on `BASH_BLANKS` rather than `shlex`'s.
+
+    `shlex.split` builds its own lexer on the default blanks, so a here-string
+    split by it lost the carriage return the two tokenisers above had stopped
+    splitting on: `bash <<<x=1<CR>echo' {git,push} …'` was judged as a
+    printer's run (PR #190's review).
+    """
+    lexer = shlex.shlex(text, posix=True)
+    lexer.whitespace = BASH_BLANKS
+    lexer.whitespace_split = True
+    lexer.commenters = ""
+    return list(lexer)
+
 
 # What ends a command RUN. A subset of METACHARACTERS: a redirection
 # operator and a space separate words within one run rather than ending
@@ -4288,20 +4314,71 @@ DESCRIPTOR_VARIABLE = re.compile(
 GIT_WORD = re.compile(r"(?<![\w.-])git(?![\w.-])", re.IGNORECASE)
 
 
-def sensitive_assignment(word):
+def sensitive_assignment(word, fold=True):
     """Whether assigning the name `word` begins with matters to a later `git`.
 
-    A subscript is arithmetic whatever the name, so `a[PATH=5]=1` counts. The
-    comparison ignores case, because Windows reads `Path` as `PATH`.
+    A subscript is arithmetic whatever the name, so `a[PATH=5]=1` counts. An
+    assignment word is compared ignoring case, because it may reach the
+    environment and Windows reads `Path` as `PATH`; `fold` is false for a
+    builtin's target, which bash names as spelled — `for path in …` is no
+    `PATH` (PR #190's review).
     """
     match = re.match(r"[A-Za-z_][A-Za-z0-9_]*", word)
     if match is None:
         return False
     if word[match.end():match.end() + 1] == "[":
         return True
-    name = match.group().upper()
+    name = match.group().upper() if fold else match.group()
     return (name in ASSIGNMENT_SENSITIVE_NAMES
             or name.startswith(ASSIGNMENT_SENSITIVE_PREFIXES))
+
+
+def sensitive_target(word):
+    """Whether a builtin assigning the name `word` matters to a later `git`.
+
+    **A name bash computes is one no check can read** (PR #190's review):
+    `n=PATH; printf -v "$n" …` assigns `PATH`, and `$n` matched no name, so
+    it was admitted. A computed or pattern target counts, as an
+    `ASSIGNING_BUILTINS` member does.
+    """
+    return bool(computed_word(word) or any(char in word for char in "*?")
+                or sensitive_assignment(word, fold=False))
+
+
+def naming_targets(word, rest):
+    """The operands of `NAMING_BUILTINS` member `word` that name a target.
+
+    `for` and `select` assign their first operand and iterate over the rest,
+    so `for f in $files` names only `f`; `getopts` assigns its second.
+    `read`, `mapfile` and `readarray` are read whole, a glued option value —
+    `read -aPATH` — included, which costs an option value that happens to
+    match.
+    """
+    if word in ("for", "select"):
+        return rest[:1]
+    if word == "getopts":
+        return rest[1:2]
+    return [later[2:] if later.startswith("-") else later for later in rest]
+
+
+def environment_operand(run):
+    """A sensitive `NAME=value` operand `run` hands a program, or `None`.
+
+    **`env PATH=./tools git status` sets `PATH` for the `git` it runs** (PR
+    #190's review), and `assigning_word` stops at `env`, the command word. So
+    an operand shaped as an assignment counts in any run that a reader, a
+    printer or `git` itself does not lead — `env`, `nice env`, `sudo` and a
+    wrapper nobody listed alike — since only those leads are known to take it
+    as text.
+    """
+    command = leading_command(run)
+    lead = program_name(command)
+    if not command or lead in READING_COMMANDS or lead in DATA_ONLY_COMMANDS:
+        return None
+    for word in run[run.index(command) + 1:]:
+        if ASSIGNMENT.match(word) and sensitive_assignment(word):
+            return word
+    return None
 
 
 def _option_target(rest, letter):
@@ -4326,10 +4403,13 @@ def assigning_word(run):
             return word
         rest = run[position + 1:]
         if word in NAMING_BUILTINS:
-            # A glued option value — `read -aPATH` — names the target too.
-            if any(sensitive_assignment(
-                    later[2:] if later.startswith("-") else later)
-                   for later in rest):
+            # `mapfile -C` evaluates a string in this shell, as `eval` and
+            # `trap` do, so it is refused as they are (PR #190's review).
+            if word in ("mapfile", "readarray") and any(
+                    later.startswith("-") and "C" in later for later in rest):
+                return word
+            if any(sensitive_target(target)
+                   for target in naming_targets(word, rest)):
                 return word
             return None
         if word in COMMAND_PREFIX_WORDS or word in BUILTIN_WRAPPERS:
@@ -4342,7 +4422,7 @@ def assigning_word(run):
         # argument to the command as its environment.
         if word in ("printf", "test", "["):
             target = _option_target(rest, "v")
-            if target is not None and sensitive_assignment(target):
+            if target is not None and sensitive_target(target):
                 return word
         if word == "set" and any(
                 later == "keyword" or re.match(r"^[-+][A-Za-z]*k", later)
@@ -4404,6 +4484,25 @@ def assigning_expansion(command):
     return None
 
 
+def spells_git(command):
+    """Whether `command`, or a substitution in it, spells `git` to bash.
+
+    **Read with the quoting gone and `$'…'` decoded** (PR #190's review):
+    `g""it`, `gi\\t` and `$'g\\x69t'` are each `git` to bash, and inside a
+    quoted substitution none of them is a token, so
+    `ls ${x[PATH=5]}; ls "$(g""it status)"` was not a line that runs `git`.
+    Each body is decoded on its own, since a substitution opens a quoting
+    context of its own and `$'…'` inside `"$(…)"` is ANSI-C there.
+    """
+    texts = [command]
+    for text, quotes in expandable_regions(command):
+        texts.extend(substitutions(
+            join_continuations(text, quotes=quotes), quotes=quotes))
+    return any(
+        GIT_WORD.search(re.sub(r"[\"'\\]", "", strip_dollar_quotes(text)))
+        for text in texts)
+
+
 def assignment_offence(command, tokens):
     """The reason to refuse an assignment on a line that runs `git`, or `None`.
 
@@ -4419,13 +4518,13 @@ def assignment_offence(command, tokens):
     ordinary, and an assignment that re-resolves a later granted program there
     is blueprint-frontend#188.
     """
-    if not (GIT_WORD.search(command)
+    if not (spells_git(command)
             or any(True for _ in git_segments(tokens))):
         return None
     found = assigning_expansion(command)
     if found is None:
         for run in command_runs(tokens):
-            found = assigning_word(run)
+            found = assigning_word(run) or environment_operand(run)
             if found is not None:
                 break
     if found is None and double_bracket_arithmetic(tokens):
