@@ -4365,6 +4365,99 @@ class TheGitArgvGuard(unittest.TestCase):
             with self.subTest(command=command):
                 self.assertAdmitted(command)
 
+    def test_what_stands_in_front_of_a_substituted_program(self):
+        # **The substitution allow-list judged the program word and skipped
+        # what stood in front of it** (blueprint-frontend#125, #130): a path
+        # was taken for a wrapper when its basename was one, a wrapper's
+        # option was skipped although its value can be the program, a glued
+        # `env -S` was an option like any other, and an assignment or a global
+        # option changed what an admitted `git` read runs. Each was admitted
+        # before the fix.
+        for command in (
+                "ls $(./tools/env)",
+                "ls $(./tools/xargs)",
+                "ls $(tools/command cat x)",
+                "ls $(env -S./tools/run)",
+                "ls $(env -i cat x)",
+                "ls $(command -p cat x)",
+                "ls $(GIT_EXTERNAL_DIFF=./tools/d git diff)",
+                "ls $(GIT_CONFIG_GLOBAL=./c git log)",
+                "ls $(env GIT_EXTERNAL_DIFF=./tools/d git diff)",
+                "ls $(PAGER=./tools/p git log)",
+                "ls $(LD_PRELOAD=./x.so cat a)",
+                "ls $(git -C ../elsewhere log)",
+                "ls $(git --work-tree=.. status)",
+                "ls $(git -C . -C .. log)",
+                "cat <(GIT_EXTERNAL_DIFF=./tools/d git diff)",
+                "cat <(./tools/env)",
+        ):
+            with self.subTest(command=command):
+                self.assertRefused(command)
+        # A wrapper by bare name with no option, and `-C .`, are still reads.
+        for command in (
+                "ls $(env cat x)",
+                "ls $(command cat x)",
+                'echo "$(git -C . rev-parse --show-toplevel)"',
+                "echo $(date +%s)",
+        ):
+            with self.subTest(command=command):
+                self.assertAdmitted(command)
+
+    def test_a_wrapper_with_operands_does_not_hide_the_program(self):
+        # **A computed or pattern `git` was recognised only where `launched`
+        # said a program runs** — the leading word, or the one after a
+        # `LAUNCHERS` member — and `timeout 5` puts the program behind an
+        # operand (blueprint-frontend#129). And a brace expansion in a `git`
+        # segment was judged as one word, though bash makes several of it.
+        # Each was admitted before the fix: the first six are a force push to
+        # `main`, the last two write a protected file and run a branch script.
+        for command in (
+                "timeout 5 {git,push} origin +HEAD:main",
+                "nice {git,push} origin +HEAD:main",
+                "nice -n 5 {git,push} origin +HEAD:main",
+                "timeout 5 /usr/bin/gi[t] push origin +HEAD:main",
+                "env timeout 5 gi? push origin +HEAD:main",
+                "stdbuf -oL $G push origin +HEAD:main",
+                "git {log,--output=.claude/settings.json}",
+                "git {fetch,--upload-pack=./tools/x} origin",
+        ):
+            with self.subTest(command=command):
+                self.assertRefused(command)
+        for command in (
+                "timeout 5 git status",
+                "nice git log --oneline -1",
+                "git log --format='%h {%s,%an}' -1",
+                "bash .claude/scripts/npm-checks.sh $MODE",
+        ):
+            with self.subTest(command=command):
+                self.assertAdmitted(command)
+
+    def test_an_opener_the_scan_cannot_close_is_refused(self):
+        # **The substitution scan stopped at an opener it could not close, and
+        # nothing after it was read** (blueprint-frontend#125). `_closing_paren`
+        # counts a `(` bash does not, so each of these parses — measured with
+        # `bash -n` — and runs `./tools/run`, while the scan extracted no body.
+        # The first three were admitted before the fix.
+        for command in (
+                NEWLINE.join(['ls "$(cat <<E', "(", "E", ')" "$(./tools/run)"']),
+                'ls "$(echo $[ ( ])" "$(./tools/run)"',
+                'ls "$(echo ${#x[(]})" "$(./tools/run)"',
+                'ls "$(echo ${x#(})" "$(./tools/run)"',
+                "ls `echo $(` `./tools/run`",
+        ):
+            with self.subTest(command=command):
+                self.assertRefused(command)
+        # A heredoc bash does not expand holds no opener, whatever it says.
+        self.assertAdmitted(NEWLINE.join(
+            ["git commit -F - <<'EOF'", "fix: don't (yet", "EOF"]))
+
+    def test_rg_is_not_a_reading_command(self):
+        # `rg --pre` runs a command on every file it searches, so a run `rg`
+        # leads is judged like any other (blueprint-frontend#125): the verb
+        # scan used to skip it as a reader's.
+        self.assertRefused("rg --pre rm x .claude/settings.json")
+        self.assertAdmitted("rg -n guard docs")
+
     def test_the_short_and_operand_spellings_that_run_a_command(self):
         # `FORBIDDEN_FLAGS` read the long spelling and its abbreviations only,
         # and `bisect run` and `submodule foreach` carry their command as an
@@ -4422,7 +4515,7 @@ class TheGitArgvGuard(unittest.TestCase):
         ):
             with self.subTest(command=command):
                 self.assertRefused(command)
-        self.assertAdmitted("echo $(git --shallow-file x status)")
+        self.assertAdmitted("git --shallow-file x status")
 
     def test_xargs_launches_only_a_reader(self):
         # **`xargs` runs whatever program it is given, with arguments from

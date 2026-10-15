@@ -110,6 +110,13 @@ import traceback
 # So `git diff`, `git log` and `git show`, granted everywhere as read-only,
 # were host code execution one flag away. Raised by Copilot against PR #13.
 #
+# **Porcelain `git diff` needs neither flag, so for it these two close
+# nothing**: it runs `diff.external` and a `textconv` driver by default, and
+# `git log -p` and `git show` run `textconv` by default too. What refusing
+# them closes is `log` and `show` reaching `diff.external`. A driver is
+# configuration the host already holds, and the way a session would plant one
+# is the `.git/config` write named above (blueprint-frontend#125).
+#
 # `--no-ext-diff` is the safe direction and stays admitted: neither the
 # prefix test nor the abbreviation test matches it against these names.
 #
@@ -2637,7 +2644,8 @@ def substituted_gh_offence(inner):
         return (
             "a command substitution runs a program outside the short list "
             "whose effects this guard models — a script path, an interpreter, "
-            "`awk` or `sed` — and it runs before the command that holds it is "
+            "`awk` or `sed` — or puts an assignment or a wrapper's option in "
+            "front of one, and it runs before the command that holds it is "
             "checked against its grant. Run it as its own command, where the "
             "permission rules see it."
         )
@@ -2647,26 +2655,43 @@ def substituted_gh_offence(inner):
 def runs_unmodelled_program(text):
     """Whether any command run in `text` is led by a program outside the list.
 
-    Led means the first word past assignments and the wrappers that run their
-    argument — `env`, `command`, `exec`, `nohup`, `time`, `xargs` — so wrapping
-    a program does not hide it. A word carrying a `/` is refused whatever its
-    basename, since `./tools/cat` is the branch's file and not `cat`.
+    Led means the first word past the wrappers that run their argument —
+    `SUBSTITUTION_WRAPPERS` — so wrapping a program does not hide it. A word
+    carrying a `/` is refused whatever its basename, since `./tools/cat` is the
+    branch's file and not `cat` — and **before** it is compared with a
+    wrapper's name, because `./tools/env` was taken for `env` and skipped
+    (blueprint-frontend#130).
+
+    **What stands in front of the program is refused rather than modelled**
+    (blueprint-frontend#125). A wrapper's option that takes a value makes that
+    value read as the program while another runs, and a glued `env
+    -S./tools/run` was skipped as an option like any other; an assignment
+    changes what the program does — `GIT_EXTERNAL_DIFF`, `GIT_CONFIG_GLOBAL`,
+    `PAGER` and `LD_PRELOAD` each run something no word names. Nothing here
+    puts either inside a substitution.
     """
     unquoted = re.sub(r"\$?[\"']|\\", "", text)
     for run in re.split(r"[;&|()\n`]+", unquoted):
+        wrapped = False
         for word in run.split():
-            if ASSIGNMENT.match(word) or word.startswith("-"):
+            if ASSIGNMENT.match(word):
+                return True
+            if word.startswith("-"):
+                if wrapped:
+                    return True
                 continue
             # Splitting at every parenthesis leaves the tail of a nested
             # `${…}` or `$(…)` as its own "run": a bare `}` or `$` is that
             # tail, not a program.
             if re.fullmatch(r"[{}$]+", word):
                 continue
+            if "/" in word or "\\" in word:
+                return True
             name = program_name(word)
-            if name in {"builtin", "command", "env", "exec", "nohup", "time",
-                        "xargs"}:
+            if name in SUBSTITUTION_WRAPPERS:
+                wrapped = True
                 continue
-            if "/" in word or "\\" in word or name not in SUBSTITUTION_PROGRAMS:
+            if name not in SUBSTITUTION_PROGRAMS:
                 return True
             break
     return False
@@ -2694,8 +2719,9 @@ def contains_gh_word(text):
         for word in run.split():
             if ASSIGNMENT.match(word) or word.startswith("-"):
                 continue
-            if program_name(word) in {"builtin", "command", "env", "exec",
-                                      "nohup", "time", "xargs"}:
+            # A word with a `/` is the branch's file and not a wrapper,
+            # whatever its basename (blueprint-frontend#130).
+            if "/" not in word and program_name(word) in SUBSTITUTION_WRAPPERS:
                 continue
             if "$" in word or "{" in word or re.search(r"[@+!?*]\(", word) or (
                     any(char in word for char in "*?[")):
@@ -2709,6 +2735,14 @@ SUBSTITUTED_GIT_REFUSAL = (
     "`worktree remove`, `checkout`, `reset`, `bisect run` and the like — and "
     "it runs before the command that holds it is checked against its grant. "
     "Run it as its own command, where the permission rules see it."
+)
+
+SUBSTITUTED_GIT_GLOBAL_REFUSAL = (
+    "a command substitution runs `git` with a global option in front of its "
+    "subcommand — `-C`, `--git-dir`, `--work-tree` — which changes the "
+    "repository and configuration the read loads, and it runs before the "
+    "command that holds it is checked against its grant. Only `-C .` is "
+    "admitted there; run anything else as its own command."
 )
 
 
@@ -2745,6 +2779,13 @@ def substituted_git_offence(inner):
             return SUBSTITUTED_GIT_REFUSAL
         return None
     for segment in git_segments(tokens):
+        # **A global option changes which repository and configuration the
+        # read loads** (blueprint-frontend#125): `-C` or `--git-dir` pointed
+        # elsewhere brings that repository's `core.fsmonitor` and
+        # `diff.external` with it. `-C .` is the checkout a bare `git` reads
+        # already, and the one spelling this repository uses there.
+        if global_options(segment) not in ([], ["-C", "."]):
+            return SUBSTITUTED_GIT_GLOBAL_REFUSAL
         stripped = after_global_options(segment)
         subcommand, rest = (stripped[0], stripped[1:]) if stripped else ("", [])
         if subcommand in SUBSTITUTION_GIT_SUBCOMMANDS:
@@ -2791,6 +2832,27 @@ def substitutions(command, quotes=True):
     `quotes` is false for a heredoc body, where `'` is an ordinary character
     rather than a quote. See `expandable_regions` for what that cost.
     """
+    return _substitution_scan(command, quotes)[0]
+
+
+def unclosed_substitution(command, quotes=True):
+    """Whether `command` opens a substitution the scan cannot find the end of.
+
+    **The scan used to stop there, and nothing after the opener was read**
+    (blueprint-frontend#125). `_closing_paren` counts a `(` that bash does
+    not — one inside `${x#(}`, `$[ ( ]` or a heredoc body — so
+    `ls "$(echo ${#x[(]})" "$(./tools/run)"` parses and runs `./tools/run`,
+    while the scan extracted no body at all and the allow-list never saw it.
+    Teaching the counter each of those is the enumeration this file keeps
+    losing, so an opener it cannot close is refused instead: bash either
+    agrees and fails on it, or disagrees, and then the command is one this
+    guard cannot read.
+    """
+    return not _substitution_scan(command, quotes)[1]
+
+
+def _substitution_scan(command, quotes):
+    """`substitutions`' scan: the bodies, and whether every opener closed."""
     found = []
     index = 0
     # One model of bash's quoting, shared: this scan used to keep its own,
@@ -2827,7 +2889,7 @@ def substitutions(command, quotes=True):
         if command.startswith("$(", index):
             end = _closing_paren(command, index + 2)
             if end is None:
-                break
+                return found, False
             found.append(command[index + 2:end])
             index = end + 1
             continue
@@ -2850,7 +2912,7 @@ def substitutions(command, quotes=True):
             # "this region is a command line" everywhere it is passed.
             end = _closing_paren(command, index + 2)
             if end is None:
-                break
+                return found, False
             found.append(command[index + 2:end])
             index = end + 1
             continue
@@ -2868,7 +2930,7 @@ def substitutions(command, quotes=True):
             # a hook directory that was safe until it was not.
             end = _closing_brace(command, index + 2)
             if end is None:
-                break
+                return found, False
             found.append(command[index + 2:end].lstrip("| \t\n"))
             index = end + 1
             continue
@@ -2889,7 +2951,7 @@ def substitutions(command, quotes=True):
                     break
                 end += 1
             if end >= len(command):
-                break
+                return found, False
             # **An escaped backtick is how the legacy form NESTS**, so skipping
             # the escape and handing the body on unchanged skipped it twice:
             # `git log "`echo \`git push origin +HEAD:main\``"` runs the push
@@ -2900,7 +2962,7 @@ def substitutions(command, quotes=True):
             index = end + 1
             continue
         index += 1
-    return found
+    return found, True
 
 
 def _closing_brace(command, start):
@@ -3770,10 +3832,10 @@ def command_runs(tokens):
 # **Only programs that cannot run a command.** `awk` was here and its
 # `system()` and `cmd | getline` run a shell; GNU `sed` runs one with `e`; and
 # `less` runs one with `!`. Each is removed, so a run they lead is judged like
-# any other. Raised by Copilot.
+# any other. Raised by Copilot. `rg` followed, for `--pre`, which runs a
+# command on every file it searches (blueprint-frontend#125).
 READING_COMMANDS = frozenset({
-    "cat", "diff", "file", "git", "grep", "head", "ls", "rg", "stat", "tail",
-    "wc",
+    "cat", "diff", "file", "git", "grep", "head", "ls", "stat", "tail", "wc",
 })
 
 # **The only programs a substitution may run, and it is an allow-list.** A
@@ -3788,7 +3850,9 @@ READING_COMMANDS = frozenset({
 # `awk` and `sed` among it, is refused.
 #
 # **A name here is judged by its name alone, so a program earns its place only
-# if no option of it executes or writes (blueprint-frontend#122).** `rg
+# if no option of it executes, or writes as an unprivileged user
+# (blueprint-frontend#122)**: `date -s` and `hostname <name>` write, and both
+# need a privilege the session does not hold (blueprint-frontend#130). `rg
 # --pre=<cmd>` runs `<cmd>` per input file, `sort -o <file>` writes and `sort
 # --compress-program=<cmd>` executes, and `uniq <in> <out>` writes its second
 # operand — and only the first word was read, so each was admitted. Nothing in
@@ -3803,6 +3867,13 @@ SUBSTITUTION_PROGRAMS = frozenset({
     "git", "grep", "head", "hostname", "id", "jq", "ls", "printf", "pwd",
     "readlink", "realpath", "seq", "stat", "tail", "test", "tr", "true",
     "uname", "wc", "whoami",
+})
+
+# **The wrappers a substitution's program may stand behind**, skipped to reach
+# it — by bare name only, and carrying no option of their own
+# (blueprint-frontend#125, #130).
+SUBSTITUTION_WRAPPERS = frozenset({
+    "builtin", "command", "env", "exec", "nohup", "time", "xargs",
 })
 
 # **What `git` may do inside a substitution: read.** The subcommands this
@@ -3834,6 +3905,16 @@ LAUNCHERS = frozenset({
     "source", "time", "xargs", "zsh",
 })
 
+# **What runs a later word of its own argv as the program**, past options and
+# operands this file does not model — `timeout 5`, `nice -n 5`, `chrt 10`,
+# `flock <file>` (blueprint-frontend#129). `bash` is not here: what follows it
+# is a script and its arguments, and `bash script.sh $MODE` is ordinary.
+ARGUMENT_RUNNERS = frozenset({
+    "builtin", "chrt", "command", "doas", "env", "exec", "flock", "ionice",
+    "nice", "nohup", "setsid", "stdbuf", "strace", "sudo", "taskset", "time",
+    "timeout", "unbuffer", "watch",
+})
+
 
 def brace_alternatives(word):
     """Every word a comma brace expansion in `word` produces, `word` if none."""
@@ -3862,7 +3943,14 @@ def launched(run, index):
     while previous >= 0 and (run[previous].startswith("-")
                              or ASSIGNMENT.match(run[previous])):
         previous -= 1
-    return previous >= 0 and program_name(run[previous]) in LAUNCHERS
+    if previous >= 0 and program_name(run[previous]) in LAUNCHERS:
+        return True
+    # **A wrapper with operands of its own puts its program further along than
+    # the word after it** (blueprint-frontend#129): `timeout 5 {git,push}
+    # origin +HEAD:main` pushes from behind `5`. The operands are not
+    # modelled, so in a run an `ARGUMENT_RUNNERS` wrapper leads, every later
+    # word may be the program.
+    return program_name(leading_command(run)) in ARGUMENT_RUNNERS
 
 
 def token_followed_by_group(tokens, run, index):
@@ -4289,6 +4377,16 @@ def _offence(command, depth, judged):
         # review; verified allowed. Only for a command-line region: a heredoc
         # body arrives with `quotes` false and is not a command line.
         text = join_continuations(text, quotes=quotes)
+        if unclosed_substitution(text, quotes=quotes):
+            return (
+                "a substitution opens here and this guard cannot find where "
+                "it ends, so the rest of the command would go unread; "
+                "refusing rather than judging part of it. A `(` inside "
+                "`${…}` or `$[…]`, or a heredoc body inside `$(…)`, is the "
+                "usual cause: pass a commit message as `git commit -F - "
+                "<<'EOF'` rather than through `$(cat <<'EOF' …)` "
+                "(blueprint-frontend#125)."
+            )
         for inner in substitutions(text, quotes=quotes):
             # The body is judged in its own right first, so a refusal that
             # names what it found — a shell evaluator, a push — is the one
@@ -4435,6 +4533,17 @@ def _offence(command, depth, judged):
         return refusal
 
     for segment in git_segments(tokens):
+        # **A comma brace expansion makes several words of one**, so the argv
+        # git runs is not the one read here: `git {push,origin,+HEAD:main}`
+        # holds no `push` subcommand to find (blueprint-frontend#129). A token
+        # holding whitespace was quoted, and bash expands no brace inside one.
+        if any(len(brace_alternatives(word)) > 1 and not re.search(r"\s", word)
+               for word in segment):
+            return (
+                "a brace expansion in a `git` command makes several words of "
+                "one, so the argv git runs is not the one this guard reads; "
+                "spell the words out (blueprint-frontend#129)."
+            )
         refusal = push_offence(segment)
         if refusal is not None:
             return refusal
