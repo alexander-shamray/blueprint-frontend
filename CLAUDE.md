@@ -210,7 +210,7 @@ These stay here because they have to be true before anyone opens the guide:
 what the harness grants these commands and what it refuses them — every grant
 wider than the operation it buys, and the hooks that closed the rest. **Read
 it before touching anything under `.claude/`**, and state a new residual there
-rather than here. Three rules reach every session, so they stay:
+rather than here. Four rules reach every session, so they stay:
 
 - **File permission rules take `Edit(...)`, never `Write(...)`** — a
   `Write(path)` rule matches nothing and stops Claude Code from starting.
