@@ -114,8 +114,9 @@ import traceback
 # nothing**: it runs `diff.external` and a `textconv` driver by default, and
 # `git log -p` and `git show` run `textconv` by default too. What refusing
 # them closes is `log` and `show` reaching `diff.external`. A driver is
-# configuration the host already holds, and the way a session would plant one
-# is the `.git/config` write named above (blueprint-frontend#125).
+# configuration the host already holds: planting one is a write under `.git`,
+# which `PROTECTED_TREES` refuses to a redirection and a writing verb alike
+# (blueprint-frontend#125).
 #
 # `--no-ext-diff` is the safe direction and stays admitted: neither the
 # prefix test nor the abbreviation test matches it against these names.
@@ -2669,11 +2670,21 @@ def runs_unmodelled_program(text):
     changes what the program does — `GIT_EXTERNAL_DIFF`, `GIT_CONFIG_GLOBAL`,
     `PAGER` and `LD_PRELOAD` each run something no word names. Nothing here
     puts either inside a substitution.
+
+    **An assignment need not stand in front of the program to reach it**
+    (PR #184's review): `printf -v PATH …`, `$[PATH=5]` and `${NAME:=…}` each
+    set a variable in the subshell, and `PATH` is exported, so a `git` after
+    them resolves to a file the branch supplies. All three are refused, and
+    `$[…]` whole, since it is deprecated arithmetic nothing here writes.
     """
+    if "$[" in text or re.search(
+            r"\$\{#?[A-Za-z_][A-Za-z0-9_]*(?:\[[^\]]*\])?:?=", text):
+        return True
     unquoted = re.sub(r"\$?[\"']|\\", "", text)
     for run in re.split(r"[;&|()\n`]+", unquoted):
         wrapped = False
-        for word in run.split():
+        words = run.split()
+        for position, word in enumerate(words):
             if ASSIGNMENT.match(word):
                 return True
             if word.startswith("-"):
@@ -2692,6 +2703,10 @@ def runs_unmodelled_program(text):
                 wrapped = True
                 continue
             if name not in SUBSTITUTION_PROGRAMS:
+                return True
+            # `printf -v NAME` assigns rather than prints (PR #184's review).
+            if name == "printf" and words[position + 1:position + 2] and (
+                    words[position + 1].startswith("-v")):
                 return True
             break
     return False
@@ -2849,6 +2864,35 @@ def unclosed_substitution(command, quotes=True):
     guard cannot read.
     """
     return not _substitution_scan(command, quotes)[1]
+
+
+def miscounted_body(body):
+    """Whether the paren count that cut `body` out may disagree with bash's.
+
+    **`unclosed_substitution` catches the count running long; this is the count
+    running short** (PR #184's review). A `)` bash does not count — in a heredoc
+    body, in `${x:-)}`, in `$[ 1 ) ]` — closes the scan early, so
+    `ls "$(cat <<E` / `)` / `E` / `./tools/run)"` gave the body `cat <<E` and
+    left `./tools/run`, which bash runs inside the substitution, in the outer
+    quoted word as data. Neither direction can be told from the body alone,
+    so a body holding a heredoc, a `$[`, or a `${…}` with no end or with
+    parentheses that do not balance inside it is refused rather than trusted.
+    A balanced `${a:-$(…)}` is counted the way bash counts it, and stays.
+    """
+    if re.search(r"<<(?!<)", body) or "$[" in body:
+        return True
+    for match in re.finditer(r"\$\{", body):
+        end = _closing_brace(body, match.end())
+        if end is None:
+            return True
+        depth = 0
+        for char in body[match.end():end]:
+            depth += {"(": 1, ")": -1}.get(char, 0)
+            if depth < 0:
+                return True
+        if depth:
+            return True
+    return False
 
 
 def _substitution_scan(command, quotes):
@@ -3909,10 +3953,20 @@ LAUNCHERS = frozenset({
 # operands this file does not model — `timeout 5`, `nice -n 5`, `chrt 10`,
 # `flock <file>` (blueprint-frontend#129). `bash` is not here: what follows it
 # is a script and its arguments, and `bash script.sh $MODE` is ordinary.
+#
+# **It is a list, so it fails open on a wrapper nobody named** — `winpty`,
+# which Git for Windows ships, was the first one found (PR #184's review).
+# Inverting it, so that every later word counts as launched unless a reader
+# or a printer leads, was rejected: a computed ARGUMENT is ordinary traffic
+# (`gh pr checks $N`, `cd "$work"`) and would be refused everywhere.
 ARGUMENT_RUNNERS = frozenset({
-    "builtin", "chrt", "command", "doas", "env", "exec", "flock", "ionice",
-    "nice", "nohup", "setsid", "stdbuf", "strace", "sudo", "taskset", "time",
-    "timeout", "unbuffer", "watch",
+    "builtin", "catchsegv", "chroot", "chrt", "command", "cpulimit",
+    "dbus-run-session", "doas", "eatmydata", "env", "exec", "fakeroot",
+    "faketime", "firejail", "flock", "ionice", "ltrace", "nice", "nocache",
+    "nohup", "nsenter", "numactl", "parallel", "prlimit", "proxychains",
+    "proxychains4", "rlwrap", "runuser", "setsid", "stdbuf", "strace", "sudo",
+    "systemd-run", "taskset", "time", "timeout", "torsocks", "trickle",
+    "unbuffer", "unshare", "valgrind", "watch", "winpty", "xvfb-run",
 })
 
 
@@ -4035,6 +4089,64 @@ def git_segments(tokens):
                     launched(run, index) and names_program(token, "git")):
                 continue
             yield run[index + 1:]
+
+
+def launched_git_segments(tokens):
+    """`git_segments`, only where the `git` word is run as the program.
+
+    `grep -rn git {src,e2e}` names `git` as an argument, and a check about
+    what git is handed has nothing to say about it (PR #184's review).
+    """
+    for run in command_runs(tokens):
+        if not run or program_name(run[0]) in DATA_ONLY_COMMANDS:
+            continue
+        for index, token in enumerate(run):
+            if names_program(token, "git") and launched(run, index):
+                yield run[index + 1:]
+
+
+def live_comma_brace(command):
+    """Whether bash would brace-expand a comma list somewhere in `command`.
+
+    **Read from the string, because the tokens no longer carry the quoting
+    that decides it** (PR #184's review). `'{%h,%s}'` is text, while
+    `{-c,'user.name=a b',push}` is three words although `shlex` hands back one
+    token holding a space — so neither a token's whitespace nor its braces
+    can say which it was. A `{`, `,` or `}` counts only where `quote_states`
+    reads it unquoted and no backslash escapes it, and `${…}` is a parameter.
+    """
+    states = quote_states(command)
+    index = 0
+    while index < len(command):
+        char = command[index]
+        if char == "\\":
+            index += 2
+            continue
+        if char != "{" or states[index] or command[index - 1:index] == "$":
+            index += 1
+            continue
+        depth, comma, scan = 1, False, index + 1
+        while scan < len(command):
+            here = command[scan]
+            if here == "\\":
+                scan += 2
+                continue
+            if not states[scan]:
+                if here in " \t\n|&;()<>":
+                    break
+                if here == "{":
+                    depth += 1
+                elif here == "}":
+                    depth -= 1
+                    if not depth:
+                        if comma:
+                            return True
+                        break
+                elif here == "," and depth == 1:
+                    comma = True
+            scan += 1
+        index += 1
+    return False
 
 
 def names_program(word, name):
@@ -4388,6 +4500,15 @@ def _offence(command, depth, judged):
                 "(blueprint-frontend#125)."
             )
         for inner in substitutions(text, quotes=quotes):
+            if miscounted_body(inner):
+                return (
+                    "a substitution holds a heredoc, a `$[…]` or a `${…}` "
+                    "with a parenthesis in it, where this guard's count of "
+                    "where the substitution ends may not be bash's, so part "
+                    "of what it runs could go unread. Pass a commit message "
+                    "as `git commit -F - <<'EOF'` rather than through "
+                    "`$(cat <<'EOF' …)` (PR #184's review)."
+                )
             # The body is judged in its own right first, so a refusal that
             # names what it found — a shell evaluator, a push — is the one
             # reported; the allow-list below then refuses what that admits.
@@ -4532,18 +4653,21 @@ def _offence(command, depth, judged):
     if refusal is not None:
         return refusal
 
+    # **A comma brace expansion makes several words of one**, so the argv git
+    # runs is not the one read here: `git {fetch,--upload-pack=./x} origin`
+    # holds no `--upload-pack` word to find (blueprint-frontend#129). Live
+    # braces are read from the string and the token from the segment, since
+    # neither alone can tell `'{%h,%s}'` from a list (PR #184's review).
+    if live_comma_brace(stripped) and any(
+            "{" in word and "," in word and "}" in word
+            for segment in launched_git_segments(tokens) for word in segment):
+        return (
+            "a brace expansion in a `git` command makes several words of one, "
+            "so the argv git runs is not the one this guard reads; spell the "
+            "words out (blueprint-frontend#129)."
+        )
+
     for segment in git_segments(tokens):
-        # **A comma brace expansion makes several words of one**, so the argv
-        # git runs is not the one read here: `git {push,origin,+HEAD:main}`
-        # holds no `push` subcommand to find (blueprint-frontend#129). A token
-        # holding whitespace was quoted, and bash expands no brace inside one.
-        if any(len(brace_alternatives(word)) > 1 and not re.search(r"\s", word)
-               for word in segment):
-            return (
-                "a brace expansion in a `git` command makes several words of "
-                "one, so the argv git runs is not the one this guard reads; "
-                "spell the words out (blueprint-frontend#129)."
-            )
         refusal = push_offence(segment)
         if refusal is not None:
             return refusal

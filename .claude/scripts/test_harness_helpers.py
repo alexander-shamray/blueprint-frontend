@@ -4390,6 +4390,13 @@ class TheGitArgvGuard(unittest.TestCase):
                 "ls $(git -C . -C .. log)",
                 "cat <(GIT_EXTERNAL_DIFF=./tools/d git diff)",
                 "cat <(./tools/env)",
+                # Assigned rather than placed in front, and `PATH` is exported
+                # (PR #184's review).
+                "ls $(printf -v PATH %s ./tools; git status)",
+                "ls $(printf -vPATH ./tools; git status)",
+                "ls $(builtin printf -v PATH x; git status)",
+                "ls $(echo $[PATH=5]; git status)",
+                "ls $(echo ${GIT_DIR:=../x/.git}; git status)",
         ):
             with self.subTest(command=command):
                 self.assertRefused(command)
@@ -4399,6 +4406,8 @@ class TheGitArgvGuard(unittest.TestCase):
                 "ls $(command cat x)",
                 'echo "$(git -C . rev-parse --show-toplevel)"',
                 "echo $(date +%s)",
+                "ls $(printf %s x)",
+                "echo ${HOME:-x} $(pwd)",
         ):
             with self.subTest(command=command):
                 self.assertAdmitted(command)
@@ -4420,6 +4429,12 @@ class TheGitArgvGuard(unittest.TestCase):
                 "stdbuf -oL $G push origin +HEAD:main",
                 "git {log,--output=.claude/settings.json}",
                 "git {fetch,--upload-pack=./tools/x} origin",
+                # A quoted alternative holds a space, and the list is still
+                # live; and two wrappers the first list did not name (PR
+                # #184's review).
+                "git {--no-pager,-c,'user.name=a b',push,origin,+HEAD:main}",
+                "winpty {git,push} origin +HEAD:main",
+                "prlimit {git,push} origin +HEAD:main",
         ):
             with self.subTest(command=command):
                 self.assertRefused(command)
@@ -4427,6 +4442,9 @@ class TheGitArgvGuard(unittest.TestCase):
                 "timeout 5 git status",
                 "nice git log --oneline -1",
                 "git log --format='%h {%s,%an}' -1",
+                "git log --format='{%h,%s}' -1",
+                "grep -rn git {src,e2e}",
+                'git commit -m "fix: {a, b}"',
                 "bash .claude/scripts/npm-checks.sh $MODE",
         ):
             with self.subTest(command=command):
@@ -4450,6 +4468,18 @@ class TheGitArgvGuard(unittest.TestCase):
         # A heredoc bash does not expand holds no opener, whatever it says.
         self.assertAdmitted(NEWLINE.join(
             ["git commit -F - <<'EOF'", "fix: don't (yet", "EOF"]))
+
+    def test_a_body_the_count_may_have_cut_short_is_refused(self):
+        # **The other direction** (PR #184's review): a `)` bash does not
+        # count closes the scan early, and the rest of the substitution is
+        # left in the outer word as data. Each parses — measured with
+        # `bash -n` — runs `./tools/run`, and was admitted before the fix.
+        for command in (
+                NEWLINE.join(['ls "$(cat <<E', ")", "E", './tools/run)"']),
+                'ls "$(echo $[ 1 ) ]; ./tools/run)"',
+        ):
+            with self.subTest(command=command):
+                self.assertRefused(command)
 
     def test_rg_is_not_a_reading_command(self):
         # `rg --pre` runs a command on every file it searches, so a run `rg`
