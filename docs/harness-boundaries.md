@@ -571,7 +571,8 @@ substitution is now judged wherever bash would perform it and nowhere else.
 **The lexer's blanks were not bash's either.** `shlex` also splits on a
 carriage return, which bash keeps inside a word, so `x=1<CR>echo {git,push}
 origin +HEAD:main` was a run led by `echo` to the hook and an assignment and a
-force push to bash. Both tokenisers now split on space, tab and newline alone
+force push to bash. Both tokenisers, and the splits of a here-string and of a
+redirection target, now split on space, tab and newline alone
 (blueprint-frontend#187).
 
 **And then the bound was wrong for a fourth reason, which had nothing to do
@@ -789,10 +790,11 @@ splits it — after quote removal, on space, tab and newline alone — so a
 quoted blank, a Unicode space or a dash-led command word cannot put a listed
 program in front of a branch path (blueprint-frontend#187). On a line that
 runs `git` the same arithmetic is refused wherever it stands, and so is an
-assignment, a `for`, a `read` or a `printf -v` naming a variable git reads —
-`PATH`, `HOME`, a `GIT_*` name and the rest of `ASSIGNMENT_SENSITIVE_NAMES` —
-and every builtin whose target no check can read, `export`, `trap` and
-`set -k` among them (blueprint-frontend#185). **That name list is an
+assignment, an `env NAME=…` operand, a `for`, a `read` or a `printf -v`
+naming a variable git reads — `PATH`, `HOME`, a `GIT_*` name and the rest of
+`ASSIGNMENT_SENSITIVE_NAMES` — or a name bash computes, and every builtin
+whose target no check can read, `export`, `trap`, `mapfile -C` and `set -k`
+among them (blueprint-frontend#185). **That name list is an
 enumeration too**, chosen over refusing every assignment because `X=1 git
 log` and a `for f in …` loop are ordinary; and a line that runs no `git` is
 not judged for any of it, the route blueprint-frontend#188 records. The
