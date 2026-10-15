@@ -4408,6 +4408,10 @@ class TheGitArgvGuard(unittest.TestCase):
                 # `$((…))` and `((…))` assign behind a listed word (round 3).
                 "ls $(echo $(( cat , PATH = 5 )); git status)",
                 "ls $(echo 1; (( cat , PATH = 5 )); git status)",
+                # `test -v` evaluates a subscript too (round 5).
+                "ls $(test -v 'HOME[PATH=5]'; git status)",
+                "ls $(echo; [ ! -v 'HOME[PATH=5]' ]; git status)",
+                "ls $(test -n x -a -v 'HOME[PATH=5]'; git status)",
         ):
             with self.subTest(command=command):
                 self.assertRefused(command)
@@ -4420,6 +4424,7 @@ class TheGitArgvGuard(unittest.TestCase):
                 "ls $(printf %s x)",
                 "echo ${HOME:-x} $(pwd)",
                 'ls $(echo ${HOME:-x} ${x#*=} ${x%%,*} ${x/a/b} "${a[@]}")',
+                "echo $(test -n x && echo y)",
         ):
             with self.subTest(command=command):
                 self.assertAdmitted(command)

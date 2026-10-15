@@ -2690,6 +2690,7 @@ def runs_unmodelled_program(text):
     each measured with Git Bash. All are refused: `$[…]` whole, since it is
     deprecated arithmetic nothing here writes, and every `${…}` that
     `PARAMETER_ARITHMETIC` matches, which costs `${x:1}` and `${a[0]}` too.
+    `test -v` and `[ -v` read an array reference's subscript the same way.
 
     **`$((…))` and the `((…))` command are refused whole as well** (round 3).
     The run loop below stops at the first listed word, so in
@@ -2727,6 +2728,12 @@ def runs_unmodelled_program(text):
             # `printf -v NAME` assigns rather than prints (PR #184's review).
             if name == "printf" and words[position + 1:position + 2] and (
                     words[position + 1].startswith("-v")):
+                return True
+            # `test -v 'a[PATH=5]'` evaluates the subscript, and arithmetic
+            # assigns — measured with Git Bash, `[ ! -v …` and `-a -v` too, so
+            # a `-v` anywhere in the run counts (PR #184's review, round 5).
+            if name in ("test", "[") and any(
+                    later.startswith("-v") for later in words[position + 1:]):
                 return True
             break
     return False
