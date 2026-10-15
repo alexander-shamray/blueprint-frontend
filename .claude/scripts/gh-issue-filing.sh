@@ -104,7 +104,12 @@
 # entry points that source it — `gh-issue-create.sh` files `hand` and
 # `gh-sweep-issue-create.sh` files `sweep`, neither able to name the other's
 # trailer because neither has an argument for it. The sweeps grant the second
-# and deny the first by name; the hand path grants nothing and needs nothing.
+# and deny the first by name. `/ship` grants the first and not the second:
+# its review files what stays open at its ceiling (blueprint-frontend#117).
+# That is an unattended command over an untrusted diff holding the hand
+# route, and its trailer stays true there: a finding `/ship` files was
+# verified by the session, not by a second auditor, which is exactly what
+# the hand trailer says.
 #
 # **The residual, because a split is not a proof of provenance.** Nothing stops
 # a session invoking the sweep entry point by hand — no `gh` rule exists at all
