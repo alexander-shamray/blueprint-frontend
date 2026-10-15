@@ -193,7 +193,7 @@ These stay here because they have to be true before anyone opens the guide:
 
 | | |
 |---|---|
-| `/ship` | Clean `main` → `/branch` → checks → `/commit` → `/pr` → the local review (one read-only `branch-reviewer` per round, until a round has nothing open; the seventh round's open findings are filed as issues) → merge → teardown. **It stops for nothing that is a judgement**; step 5 says what ends the review |
+| `/ship` | Clean `main` → `/branch` → checks → `/commit` → `/pr` → the local review (one read-only `branch-reviewer` per round, until a round has nothing open; at the seventh round's ceiling what stays open is filed as step 5 maps it) → merge → teardown. **It stops for nothing that is a judgement**; step 5 says what ends the review |
 | `/branch` | A correctly named branch **in a worktree under `.claude/worktrees/`** the session moves into; in place when the tree is dirty or that directory is not writable |
 | `/commit` | Split the working tree into semantic commits with arguing bodies |
 | `/pr` | Open a PR in the house body form |
