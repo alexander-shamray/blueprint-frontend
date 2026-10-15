@@ -4481,6 +4481,166 @@ class TheGitArgvGuard(unittest.TestCase):
             with self.subTest(command=command):
                 self.assertAdmitted(command)
 
+    def test_a_substitution_body_is_split_where_bash_splits_it(self):
+        # **The body was split after its quotes were removed, on every blank
+        # `str.split()` knows, and a dash-led word was skipped as an option**
+        # (blueprint-frontend#187). Bash runs each of these bodies as one
+        # program word holding a `/` — a file in a directory the branch can
+        # carry — while the scan read a listed `cat` and stopped, or read no
+        # program at all. Each was admitted before the fix.
+        for command in (
+                "ls $(cat' 'x/run)",
+                'ls $(cat" "x/run)',
+                "ls $(cat\\ x/run)",
+                "ls $(-x/run)",
+                "ls $(-x)",
+                "ls $(cat x/run)",
+                "ls $(cat x/run)",
+                "ls $(cat\vx/run)",
+                "ls $(cat\fx/run)",
+                "ls $(cat\rx/run)",
+                "cat <(cat' 'x/run)",
+                "ls `cat' 'x/run`",
+        ):
+            with self.subTest(command=command):
+                self.assertRefused(command)
+        # **And the line's own tokeniser split on a carriage return**, which
+        # bash keeps inside a word: `x=1<CR>echo` is one assignment to bash,
+        # so the brace after it is the command, and a run led by a word that
+        # merely begins `echo` is no printer's. Each was admitted before the
+        # fix.
+        for command in (
+                "x=1\recho {git,push} origin +HEAD:main",
+                "x=1\recho gi[t] push origin +HEAD:main",
+                "echo\r/x git push origin +HEAD:main",
+                "printf\r/x git push origin +HEAD:main",
+        ):
+            with self.subTest(command=command):
+                self.assertRefused(command)
+        for command in (
+                "ls $(cat 'a b')",
+                'ls "$(cat "a b")"',
+                "ls $(cat x 2>/dev/null)",
+                "echo $(git rev-parse --show-toplevel)",
+                'ls "$(dirname "$(git rev-parse --show-toplevel)")"',
+                "git log -1 --format=%H",
+        ):
+            with self.subTest(command=command):
+                self.assertAdmitted(command)
+
+    def test_a_brace_behind_an_unnamed_wrapper_is_still_read(self):
+        # **The brace check read only a `git` that `launched` placed**, and
+        # `launched` knows the wrappers `ARGUMENT_RUNNERS` lists and no others
+        # (blueprint-frontend#186). Bash expands each of these, so git is
+        # handed `--upload-pack=./tools/x`, which runs a branch file, or
+        # `--output=…`, which writes a protected one, or the brace is the
+        # force push itself. Each was admitted before the fix.
+        for command in (
+                "ssh-agent git {fetch,--upload-pack=./tools/x} origin",
+                "foo git {log,--output=.claude/settings.json}",
+                "dbus-launch git {log,--output=.claude/settings.json}",
+                "ccache git {log,--output=.claude/settings.json}",
+                "ssh-agent {git,push} origin +HEAD:main",
+        ):
+            with self.subTest(command=command):
+                self.assertRefused(command)
+        # A reader or a printer leads a search or text, and a brace in a run
+        # that names no `git` is not this check's.
+        for command in (
+                "grep -rn git {src,e2e}",
+                "cat git {a,b}",
+                "echo git {a,b}",
+                "ls {src,e2e} && git status",
+                "ssh-agent git status",
+                "git log --format='{%h,%s}' -1",
+        ):
+            with self.subTest(command=command):
+                self.assertAdmitted(command)
+
+    def test_an_assignment_on_a_line_that_runs_git(self):
+        # **Inside a substitution these were refused, and on the line around
+        # one they were not judged** (blueprint-frontend#185). Each sets, in
+        # the shell that then runs `git`, a variable git reads: `PATH` becomes
+        # the relative `5`, so `git` is `./5/git`, a file a branch can carry,
+        # and `HOME` or a `GIT_*` name points git's configuration, or a
+        # program it runs, at one. Each was admitted before the fix.
+        #
+        # Arithmetic first, refused whatever it names, since it can assign
+        # through a variable's value (`y=PATH=5`) as well as by name.
+        for command in (
+                "ls ${x[PATH=5]}; git status",
+                "ls ${x:PATH=5} && git status",
+                "ls $[PATH=5]; git status",
+                "ls ${PATH:=x}; git status",
+                "ls ${@:PATH=5}; git status",
+                'ls "${x[PATH=5]}"; git status',
+                'git commit -m "${x[PATH=5]}"',
+                'ls ${x[PATH=5]}; ls "$(git status)"',
+                NEWLINE.join(["cat <<EOF", "${x[PATH=5]}", "EOF", "git status"]),
+                "(( PATH = 5 )); git status",
+                "y=PATH=5; ls ${x[y]}; git status",
+                "a=([PATH=5]=1); git status",
+                "[[ 1 -eq PATH=5 ]] && git status",
+                "[[ -n x && 1 -eq PATH=5 ]] && git status",
+                "test -v 'x[PATH=5]'; git status",
+        ):
+            with self.subTest(command=command):
+                self.assertRefused(command)
+        # Then a name the line spells, which is read: a variable git reads,
+        # or a subscript, which is arithmetic.
+        for command in (
+                "ls; PATH=./tools; git status",
+                "PATH=./tools git status",
+                "Path=./tools git status",
+                "HOME=. git log -1",
+                "GIT_EXTERNAL_DIFF=./tools/d git diff",
+                "GIT_DIR=/tmp/x git status",
+                "a[PATH=5]=1; git status",
+                "printf -v PATH %s 5; git status",
+                "printf -vHOME %s .; git status",
+                "read PATH <<< 5; git status",
+                "read -aPATH <<< 5; git status",
+                "git log -1 | while read PATH; do git status; done",
+                "for PATH in 5; do git status; done",
+                "ls {PATH}>/dev/null; git status",
+        ):
+            with self.subTest(command=command):
+                self.assertRefused(command)
+        # And the builtins whose target no check can read, refused outright.
+        for command in (
+                "export PATH=./tools; git status",
+                "command export PATH=./tools; git status",
+                "time -p export PATH=5; git status",
+                "declare -i n=y; git status",
+                "trap 'PATH=5' DEBUG; git status",
+                "unset 'x[PATH=5]'; git status",
+                "hash -p ./5/git git; git status",
+                "set -k; git diff GIT_EXTERNAL_DIFF=./tools/d",
+                "eval PATH=5; git status",
+        ):
+            with self.subTest(command=command):
+                self.assertRefused(command)
+        # A name git does not read, a quote bash leaves alone, a heredoc it
+        # does not expand, and a line with no `git` on it are ordinary. The
+        # last is blueprint-frontend#188's residual, not a decision.
+        for command in (
+                "X=1 git log --oneline -5",
+                "LC_ALL=C git log -1",
+                "TZ=UTC git status",
+                "for f in a b; do git log -1 $f; done",
+                "git log -1 | while read line; do echo $line; done",
+                "git push origin fix/some-branch {fd}>&1",
+                "echo ${HOME:-x}; git status",
+                "set -euo pipefail; git status",
+                "git commit -m 'refuse ${x[PATH=5]} and $[PATH=5]'",
+                NEWLINE.join(["git commit -F - <<'EOF'",
+                              "fix: ${x[PATH=5]}, $((1 + 2)), PATH=5", "EOF"]),
+                '[[ -n "$(git status --porcelain)" ]] && echo dirty',
+                "CI=true npm test",
+        ):
+            with self.subTest(command=command):
+                self.assertAdmitted(command)
+
     def test_an_opener_the_scan_cannot_close_is_refused(self):
         # **The substitution scan stopped at an opener it could not close, and
         # nothing after it was read** (blueprint-frontend#125). `_closing_paren`
@@ -6376,7 +6536,10 @@ class TheGitArgvGuard(unittest.TestCase):
         # The controls: an assignment prefix on honest traffic is ordinary, and
         # a printer with no shell behind it is still text.
         self.assertAdmitted("X=1 git log --oneline -5")
-        self.assertAdmitted("GIT_DIR=/tmp/x git status")
+        # `GIT_DIR=/tmp/x` was a control here, and points git at another
+        # repository's configuration and hooks — refused now, as `-C ..` is
+        # inside a substitution (blueprint-frontend#185, #125).
+        self.assertAdmitted("TZ=UTC git status")
         self.assertAdmitted("X=1 echo 'git push origin +HEAD:main'")
 
     def test_a_nested_default_is_unwrapped_one_layer_at_a_time(self):
@@ -6918,7 +7081,9 @@ class TheGitArgvGuard(unittest.TestCase):
             with self.subTest(command=command):
                 self.assertRefused(command)
 
-        self.assertAdmitted("GIT_PAGER=cat git log --oneline -5")
+        # `GIT_PAGER=cat` was the control here until a `GIT_*` name on a line
+        # that runs `git` was refused (blueprint-frontend#185).
+        self.assertAdmitted("LC_ALL=C git log --oneline -5")
 
     def test_a_locale_quote_is_refused_for_its_own_reason(self):
         # One sentence covered two decisions and said the wrong thing about
