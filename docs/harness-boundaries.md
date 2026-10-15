@@ -598,7 +598,8 @@ because a computed word in program position, or right after a launcher such
 as `bash`, can name any program at all, and `computed_program_offence` in
 `guard-git-argv.py` refuses it wherever it stands. That refusal was first
 written to keep the Grok helpers from being named that way; it outlived them
-in generic form when they were archived (#117). Closing the remaining shape
+in generic form when they were archived (blueprint-frontend#117). Closing
+the remaining shape
 needs the argv after expansion, which no hook is given. It is pinned as
 **admitted** in the suite, on the same argument as the degraded-check case:
 a residual nobody can run is one the next reader assumes was closed.
