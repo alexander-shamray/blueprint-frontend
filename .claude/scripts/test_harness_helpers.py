@@ -892,6 +892,22 @@ class IssueHelperHasNoFreeParameter(unittest.TestCase):
                 seen += 1
         self.assertEqual(2, seen)
 
+    def test_ship_files_by_hand_and_cannot_reach_the_sweep_route(self):
+        # **The mirror of the case above (blueprint-frontend#117).** /ship's
+        # ceiling files what its review leaves open through the hand route,
+        # and /ship runs unattended over an untrusted diff — so the sweep
+        # route, whose trailer claims a second auditor, is denied by name,
+        # since a missing grant withholds nothing.
+        text = (COMMANDS / "ship.md").read_text(encoding="utf-8")
+        allowed = " ".join(
+            re.findall(r"^allowed-tools:\s*(.+)$", text, re.MULTILINE))
+        denied = " ".join(
+            re.findall(r"^disallowed-tools:\s*(.+)$", text, re.MULTILINE))
+        self.assertIn("bash .claude/scripts/gh-issue-create.sh:*", allowed)
+        self.assertNotIn("gh-sweep-issue-create.sh", allowed)
+        self.assertIn(
+            "Bash(bash .claude/scripts/gh-sweep-issue-create.sh:*)", denied)
+
     def test_each_entry_point_files_one_route_and_cannot_name_the_other(self):
         # Driven end to end through the stub: the hand entry point refuses a
         # body carrying the sweep's trailer and the sweep entry point refuses
