@@ -776,7 +776,8 @@ hide the subcommand it skips to.
 standing residual still, because the hook is an allow-list over a grammar it
 reads only in part.** Inside a substitution a wrapper may carry no option,
 nothing may be assigned in front of a program or by `printf -v`, `$[…]`,
-`${NAME:=…}` or the arithmetic in a `${…}` subscript or offset, and `git`
+`$((…))`, `((…))`, `${NAME:=…}` or the arithmetic in a `${…}` subscript or
+offset, and `git`
 takes no global option but `-C .`. The same assignments outside a
 substitution are a separate route this hook does not judge yet
 (blueprint-frontend#185). The scanner still

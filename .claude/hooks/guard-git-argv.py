@@ -2689,8 +2689,15 @@ def runs_unmodelled_program(text):
     each measured with Git Bash. All are refused: `$[…]` whole, since it is
     deprecated arithmetic nothing here writes, and every `${…}` that
     `PARAMETER_ARITHMETIC` matches, which costs `${x:1}` and `${a[0]}` too.
+
+    **`$((…))` and the `((…))` command are refused whole as well** (round 3).
+    The run loop below stops at the first listed word, so in
+    `$(( cat , PATH = 5 ))` it reads `cat` and never reaches the assignment
+    the comma operator makes. Arithmetic has no reading use inside a
+    substitution here, and the alternative is a grammar for it.
     """
-    if "$[" in text or PARAMETER_ARITHMETIC.search(text):
+    if ("$[" in text or "((" in text
+            or PARAMETER_ARITHMETIC.search(text)):
         return True
     unquoted = re.sub(r"\$?[\"']|\\", "", text)
     for run in re.split(r"[;&|()\n`]+", unquoted):

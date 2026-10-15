@@ -4405,6 +4405,9 @@ class TheGitArgvGuard(unittest.TestCase):
                 "ls $(echo ${!x[PATH=5]}; git status)",
                 "ls $(echo ${@:PATH=5}; git status)",
                 "ls $(echo ${x:-${y[PATH=5]}}; git status)",
+                # `$((…))` and `((…))` assign behind a listed word (round 3).
+                "ls $(echo $(( cat , PATH = 5 )); git status)",
+                "ls $(echo 1; (( cat , PATH = 5 )); git status)",
         ):
             with self.subTest(command=command):
                 self.assertRefused(command)
