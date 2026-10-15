@@ -2653,6 +2653,16 @@ def substituted_gh_offence(inner):
     return None
 
 
+# **The `${…}` forms that assign or evaluate arithmetic** (PR #184's review):
+# `=` and `:=` assign, a subscript other than `[@]` or `[*]` is arithmetic on
+# an indexed array, and so is a `:` offset or length that is not `:-`, `:+` or
+# `:?`. The name may be a special parameter, since `${@:PATH=5}` slices the
+# positionals and evaluates its offset all the same.
+PARAMETER_ARITHMETIC = re.compile(
+    r"\$\{[#!]?(?:[A-Za-z_][A-Za-z0-9_]*|[0-9]+|[@*#?$!-])"
+    r"(?:\[(?![@*]\])|(?:\[[@*]\])?(?::(?![-+?])|=))")
+
+
 def runs_unmodelled_program(text):
     """Whether any command run in `text` is led by a program outside the list.
 
@@ -2674,11 +2684,13 @@ def runs_unmodelled_program(text):
     **An assignment need not stand in front of the program to reach it**
     (PR #184's review): `printf -v PATH …`, `$[PATH=5]` and `${NAME:=…}` each
     set a variable in the subshell, and `PATH` is exported, so a `git` after
-    them resolves to a file the branch supplies. All three are refused, and
-    `$[…]` whole, since it is deprecated arithmetic nothing here writes.
+    them resolves to a file the branch supplies. So does the arithmetic bash
+    evaluates inside `${…}` — `${x[PATH=5]}`, `${x:PATH=5}`, `${@:PATH=5}`,
+    each measured with Git Bash. All are refused: `$[…]` whole, since it is
+    deprecated arithmetic nothing here writes, and every `${…}` that
+    `PARAMETER_ARITHMETIC` matches, which costs `${x:1}` and `${a[0]}` too.
     """
-    if "$[" in text or re.search(
-            r"\$\{#?[A-Za-z_][A-Za-z0-9_]*(?:\[[^\]]*\])?:?=", text):
+    if "$[" in text or PARAMETER_ARITHMETIC.search(text):
         return True
     unquoted = re.sub(r"\$?[\"']|\\", "", text)
     for run in re.split(r"[;&|()\n`]+", unquoted):
@@ -2879,7 +2891,7 @@ def miscounted_body(body):
     parentheses that do not balance inside it is refused rather than trusted.
     A balanced `${a:-$(…)}` is counted the way bash counts it, and stays.
     """
-    if re.search(r"<<(?!<)", body) or "$[" in body:
+    if re.search(r"(?<!<)<<(?!<)", body) or "$[" in body:
         return True
     for match in re.finditer(r"\$\{", body):
         end = _closing_brace(body, match.end())

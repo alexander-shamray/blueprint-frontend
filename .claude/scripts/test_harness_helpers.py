@@ -4397,6 +4397,14 @@ class TheGitArgvGuard(unittest.TestCase):
                 "ls $(builtin printf -v PATH x; git status)",
                 "ls $(echo $[PATH=5]; git status)",
                 "ls $(echo ${GIT_DIR:=../x/.git}; git status)",
+                # A subscript, an offset and a length are arithmetic, and
+                # arithmetic assigns (PR #184's review, round 2).
+                "ls $(echo ${x[PATH=5]}; git status)",
+                "ls $(echo ${HOME:PATH=5}; git status)",
+                "ls $(echo ${x:0:PATH=5}; git status)",
+                "ls $(echo ${!x[PATH=5]}; git status)",
+                "ls $(echo ${@:PATH=5}; git status)",
+                "ls $(echo ${x:-${y[PATH=5]}}; git status)",
         ):
             with self.subTest(command=command):
                 self.assertRefused(command)
@@ -4408,6 +4416,7 @@ class TheGitArgvGuard(unittest.TestCase):
                 "echo $(date +%s)",
                 "ls $(printf %s x)",
                 "echo ${HOME:-x} $(pwd)",
+                'ls $(echo ${HOME:-x} ${x#*=} ${x%%,*} ${x/a/b} "${a[@]}")',
         ):
             with self.subTest(command=command):
                 self.assertAdmitted(command)
@@ -4480,6 +4489,8 @@ class TheGitArgvGuard(unittest.TestCase):
         ):
             with self.subTest(command=command):
                 self.assertRefused(command)
+        # A here-string is not a heredoc: it holds no body to miscount.
+        self.assertAdmitted('ls $(jq length <<<"$x")')
 
     def test_rg_is_not_a_reading_command(self):
         # `rg --pre` runs a command on every file it searches, so a run `rg`
@@ -4537,7 +4548,12 @@ class TheGitArgvGuard(unittest.TestCase):
     def test_a_value_taking_global_option_hides_no_subcommand(self):
         # `--shallow-file` takes a value, and while the hook skipped it as a
         # bare flag it judged that value as the subcommand and git ran the
-        # next word (blueprint-frontend#124's review).
+        # next word (blueprint-frontend#124's review). The `bisect` and
+        # `rebase` cases carry that: read as a bare flag, `x` is the
+        # subcommand and both are admitted. The substitution case is refused
+        # by the global-option rule before its subcommand is read, and the
+        # admitted case passes under either reading and guards only against
+        # refusing the option outright (PR #184's review).
         for command in (
                 "ls $(git --shallow-file status worktree remove -f x)",
                 "git --shallow-file x bisect run ./tools/m",
