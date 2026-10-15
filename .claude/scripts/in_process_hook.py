@@ -11,16 +11,15 @@ literals, zero differences.
 
 **It is one helper rather than a copy per test file**, because the three
 properties below are what make the speed-up safe, and a copy is where one of
-them is dropped. `test_index_refresh.py`'s `load()` and
-`test_egress_proxy.py`'s `load_proxy()` are the precedent for importing a
-script under test, and `TheGitArgvGuard._run_hook` for calling a guard's
+them is dropped. `test_index_refresh.py`'s `load()` is the precedent for
+importing a script under test, and `TheGitArgvGuard._run_hook` for calling a guard's
 `main()` with its streams swapped; what this adds is the reset and the stack.
 
 1. **Through the entry point the `__main__` block calls, never the judgement
    function.** Every entry point carries the JSON-on-stdout contract and the
-   exit status, and two carry a crash handler — `guard-git-argv.py`'s
-   `main()` its `except Exception → refuse`, `guard-triager-edit.py`'s `run()`
-   its exit 2 — so a case calling `offence()` directly would test neither.
+   exit status, and `guard-git-argv.py`'s carries a crash handler — its
+   `main()`'s `except Exception → refuse` — so a case calling `offence()`
+   directly would test neither.
    `run` therefore hands back what a spawn hands back: an exit status, stdout
    and stderr, in a `subprocess.CompletedProcess`, and every assertion written
    against a spawn reads it unchanged.

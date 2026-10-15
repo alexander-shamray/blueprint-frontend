@@ -10,7 +10,8 @@
 # look enforced, which is the one way a missing control does real damage.
 #
 # **Exists so that pr.md need not hold `Bash(gh pr view:*)` (#56).** This was
-# the third command carrying that grant, after review-copilot.md and ship.md,
+# the third command carrying that grant, after review-copilot.md (archived
+# since, tag `archive/external-reviewers`) and ship.md,
 # and it was found by the test whose subject is every command's frontmatter
 # rather than by reading the two files the issue named — which is the whole
 # argument for writing the gate's test against the surface instead of against

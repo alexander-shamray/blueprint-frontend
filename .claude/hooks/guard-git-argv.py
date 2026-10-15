@@ -154,13 +154,12 @@ EXECUTING_FORMS = {"bisect": "run", "submodule": "foreach",
 # --oneline > package.json` were all admitted, and in a scratch directory the
 # write landed.
 #
-# `/review-grok` answered this by denying `Bash` whole, which is available to
-# exactly one command: the other four editing commands have fixed helpers as
-# their API and cannot. So the rule moves here, where it binds the redirection
-# rather than the tool beside it.
+# Denying `Bash` whole is available to no command that needs a shell, and the
+# editing commands have fixed helpers as their API. So the rule lives here,
+# where it binds the redirection rather than the tool beside it.
 #
 # **A hook is handed a command, never the frontmatter that granted it**, so the
-# set cannot be derived at run time the way `test_grok_helpers.py` derives the
+# set cannot be derived at run time the way `test_harness_helpers.py` derives the
 # frontmatter denies from the frontmatter. What stands instead is a test whose
 # subject is this list: the suite asserts it covers `MACHINERY_TREES` and every
 # tracked root file, so a new tree or a new root file fails the suite until
@@ -2081,31 +2080,6 @@ def redirection_offence(command):
     there.
     """
     for span in redirection_spans(command):
-        # **A review helper read INTO a command is a script being handed to
-        # it.** `bash -s -- 42 re''serve 1 full < .claude/scripts/grok-ledger.sh`
-        # runs the ledger from stdin, and the strip that follows removes the
-        # redirection before `review_helper_offence` sees the path. Refused on
-        # any reading redirection, since reading the helper's source is what
-        # `Read` and `grep` are for. Raised by Copilot.
-        #
-        # A source this guard cannot read — a substitution, a variable — is
-        # refused only where a shell is in the command to run it, because
-        # `wc -l < "$TMP/out"` is ordinary traffic.
-        if span.operator == "<" and span.target.strip():
-            source = target_literal(span.target)
-            named = helper_named(span.target if source is None else source)
-            if named == "computed" or source is None:
-                named = ("computed" if re.search(
-                    r"(?<![\w.-])(?:ba|da|k|z)?sh(?:\.exe)?(?![\w.-])", command)
-                    else None)
-            if named is not None:
-                return (
-                    f"`<` feeds `{span.target.strip()}` into a command's "
-                    "stdin, and it is, or may expand to, `grok-ledger.sh` or "
-                    "`grok-review.sh` — a shell reading it runs the helper "
-                    "past the literal allow-list. Read the file with the "
-                    "`Read` tool or `grep` instead."
-                )
         if not writes_to_a_file(span):
             continue
         # **An empty target is not a write and refusing it broke an admitted
@@ -3788,18 +3762,8 @@ def command_runs(tokens):
         yield current
 
 
-# The Grok ledger's two READ verbs, and the reviewer runner beside it.
-# `.claude/settings.json` denies the write verbs and the runner as substrings
-# of the typed command, and a substring deny is a speed bump: a verb split by
-# empty quotes, or built by a substitution, spells nothing it matches while
-# bash runs it — so `/ship`'s `grok-ledger.sh:*` grant could manufacture a
-# clean outcome and a convergence. Judged here as an allow-list over the argv
-# `shlex` resolves. Raised by Copilot, twice.
-LEDGER_READ_VERBS = frozenset({"count", "status"})
-REVIEW_HELPERS = frozenset({"grok-ledger.sh", "grok-review.sh"})
-
-# Commands that only READ a file named in their arguments, so a helper's path
-# there is a file being inspected and not a helper being run. Anything else in
+# Commands that only READ a file named in their arguments, so a path there is
+# a file being inspected and not a program being run. Anything else in
 # the leading position — `bash`, `sh`, `env`, `command`, `xargs`, `source` —
 # is judged, because the wrapper list is the one that fails open.
 #
@@ -3817,8 +3781,8 @@ READING_COMMANDS = frozenset({
 # runs inside one decides before any grant does. The first form listed the
 # programs whose argument is code — `awk`, `sed`, the interpreters — and a
 # branch-controlled executable walked around it: `ls "$(./tools/run)"` names
-# nothing on a list and runs whatever the branch put there, `gh` and the
-# ledger included. Raised by Copilot, twice. So only programs whose effects
+# nothing on a list and runs whatever the branch put there, `gh`
+# included. Raised by Copilot, twice. So only programs whose effects
 # are modelled or harmless run here, each by bare name — a word with a `/` is
 # a file somebody chose, whatever it is called — and everything else,
 # `awk` and `sed` among it, is refused.
@@ -3884,36 +3848,6 @@ def brace_alternatives(word):
     ]
 
 
-def helper_named(token):
-    """Which review helper `token` runs: a name, `"computed"`, or `None`.
-
-    **A literal comparison misses what bash expands before it runs.**
-    `bash .claude/scripts/grok-ledger.s? 42 reserve 1 full` holds no helper
-    token and no substring the deny list matches, and the glob expands to the
-    ledger. So a word whose basename is a pattern, or a brace expansion, is
-    compared as bash would expand it, and a word carrying `$` or a backtick —
-    whose value is not in the source at all — is reported as computed. Raised
-    by Copilot.
-    """
-    name = program_name(token)
-    for candidate in brace_alternatives(name):
-        for helper in REVIEW_HELPERS:
-            if candidate == helper or (
-                    any(char in candidate for char in "*?[")
-                    and fnmatch.fnmatchcase(helper, candidate)):
-                return helper
-    # **A range, a nested brace or an extglob is computed too**, rather than
-    # expanded here: `grok-{l..l}edger.sh` is the ledger and the comma-only
-    # expansion above cannot see it, and `grok-@(ledger).sh` is the ledger in
-    # an extglob shell. Modelling each form is the enumeration that missed
-    # these, so any `{` left unmatched, and any extglob opener, is reported as
-    # computed and refused in program position. Raised by Copilot.
-    if ("$" in token or "`" in token or re.search(r"(?<!\$)\{", token)
-            or re.search(r"[@+!?*]\(", token)):
-        return "computed"
-    return None
-
-
 def launched(run, index):
     """Whether `run[index]` is in a position where it is RUN as a program."""
     if ASSIGNMENT.match(run[index]):
@@ -3946,81 +3880,46 @@ def token_followed_by_group(tokens, run, index):
     return False
 
 
-def review_helper_offence(tokens):
-    """The reason to refuse a Grok review or a ledger write, or `None`."""
-    # **A helper named anywhere, beside a shell that runs its stdin, is the
-    # helper being run.** `cat .claude/scripts/grok-ledger.sh | bash -s -- 42
-    # reserve 1 full` is led by a reader, so the loop below skips it, and the
-    # shell runs the ledger with a write verb. Raised by Copilot.
-    #
-    # A shell whose OWN script is the literal helper is the ordinary call the
-    # loop below judges, so a stdin-reading run counts here only when it names
-    # no helper itself, or reads its script from stdin by `-s`.
-    runs = list(command_runs(tokens))
+def computed_word(token):
+    """Whether bash computes `token` before it runs: the word is not its value.
 
-    def names_helper(words):
-        return any(helper_named(word) in REVIEW_HELPERS for word in words)
+    A variable or a substitution carries a value that is not in the source at
+    all; an unmatched `{` is a brace expansion or a range, and an extglob
+    opener a pattern in an extglob shell. Modelling each form is the
+    enumeration that missed `{l..l}` and `@(...)`, so all of them count.
+    """
+    return bool("$" in token or "`" in token
+                or re.search(r"(?<!\$)\{", token)
+                or re.search(r"[@+!?*]\(", token))
 
-    if names_helper(tokens) and any(
-            reads_stdin_as_script(run)
-            and (not names_helper(run) or "-s" in run)
-            for run in runs):
-        return (
-            "a command names `grok-ledger.sh` or `grok-review.sh` beside a "
-            "shell that runs what arrives on its stdin, so the helper can run "
-            "past the literal allow-list. Read the file with the `Read` tool "
-            "or `grep` instead."
-        )
-    for run in runs:
+
+def computed_program_offence(tokens):
+    """The reason to refuse a program whose name bash computes, or `None`.
+
+    **The half of the review-helper refusal that was never about the helpers.**
+    `F='git push origin +HEAD:main'; $F` runs a push this hook never sees as
+    one, because the command word is a variable. That refusal shipped inside
+    the check for the Grok helpers, which computed every program name to see
+    whether it could be one of them, and it stays when they left for the tag
+    `archive/external-reviewers`. A computed word as an ARGUMENT is not
+    refused here: `bash .claude/scripts/npm-checks.sh $MODE` is ordinary.
+    """
+    for run in command_runs(tokens):
         if program_name(leading_command(run)) in READING_COMMANDS:
             continue
         for index, token in enumerate(run):
-            name = helper_named(token)
             # The tokeniser splits an extglob at its parenthesis, so
-            # `grok-@(ledger).sh` arrives as `grok-@` with the group in a
-            # separate run. A word ending in an extglob operator is computed.
-            if name is None and token[-1:] in ("@", "+", "!", "?", "*") and (
-                    token_followed_by_group(tokens, run, index)):
-                name = "computed"
-            if name is None:
-                continue
-            if name == "computed" or token != token.strip() or (
-                    program_name(token) not in REVIEW_HELPERS):
-                if name == "computed" and not launched(run, index):
-                    continue
+            # `x-@(y).sh` arrives as `x-@` with the group in a separate run.
+            computed = computed_word(token) or (
+                token[-1:] in ("@", "+", "!", "?", "*")
+                and token_followed_by_group(tokens, run, index))
+            if computed and launched(run, index):
                 return (
                     f"`{token}` is run as a program whose name bash computes "
-                    "— a pattern, a brace expansion or a variable — and it "
-                    "can be `grok-ledger.sh` or `grok-review.sh`, which run "
-                    "here only when spelled literally. Refusing rather than "
-                    "judging the word instead of the script it opens."
+                    "— a variable, a substitution, a brace expansion or a "
+                    "pattern — so what runs is not in the command this hook "
+                    "reads. Spell the program literally."
                 )
-            if name == "grok-review.sh":
-                return (
-                    "`grok-review.sh` is disabled: it runs the branch's own "
-                    "code with the reviewer's credentials, and "
-                    "`.claude/settings.json` denies it. This hook refuses it "
-                    "after quote removal, which the substring deny cannot."
-                )
-            # **An allow-list of the two reads, because the tokens are not the
-            # argv bash executes.** A verb list compared after quote removal
-            # still missed `"$(printf '\143omplete')"`: the token holds no
-            # write verb, the empty-substitution reading holds none either,
-            # and bash hands the helper `complete`. So a session may run the
-            # ledger only as `<pr> count` or `<pr> status`, spelled literally;
-            # anything computed, and every write verb, is refused. Raised by
-            # Copilot.
-            arguments = run[index + 1:]
-            if (len(arguments) == 2 and re.fullmatch(r"[0-9]+", arguments[0])
-                    and arguments[1] in LEDGER_READ_VERBS):
-                continue
-            return (
-                "`grok-ledger.sh` runs here only as `<pr> count` or `<pr> "
-                "status`, spelled literally. Every other verb writes a review "
-                "outcome, which only `grok-review.sh` may record and "
-                "`.claude/settings.json` denies, and an argument built by an "
-                "expansion is a verb this guard cannot read."
-            )
     return None
 
 
@@ -4527,7 +4426,7 @@ def _offence(command, depth, judged):
         if refusal is not None:
             return f"inside `env -S`: {refusal}"
 
-    refusal = review_helper_offence(tokens)
+    refusal = computed_program_offence(tokens)
     if refusal is not None:
         return refusal
 

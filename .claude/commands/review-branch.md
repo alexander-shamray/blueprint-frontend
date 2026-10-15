@@ -69,9 +69,9 @@ cannot be true of the system described — not pure style taste. Prefer:
    row widened with its reason beside it when the path is inside the
    class's tree set, or a different class when it is not — never a row
    widened silently (`docs/change-locality.md` §3). Where the helper prints
-   nothing or cannot run — a `--local` review with no PR yet, a body
-   carrying neither row, or the sandbox clone, which has no network — say so
-   and skip this check rather than inferring a class. **Nothing enforces the
+   nothing or cannot run — a `--local` review with no PR yet, or a body
+   carrying neither row — say so and skip this check rather than inferring
+   a class. **Nothing enforces the
    touch set here**: the repository this came from runs
    `.github/locality-gate/` on every push, that workflow was not ported, and
    `docs/change-locality.md` §3 says so. This helper is the whole of the
@@ -150,15 +150,6 @@ this branch did not touch, where the owner site is already correct.
      toolchain reads:
      `bash .claude/scripts/npm-checks.sh [all|fast|lint|test|build]`
 
-   **In the sandbox none of them is available**, and that is deliberate rather
-   than an oversight: every one starts with `npm ci`, which needs
-   `registry.npmjs.org`, and the reviewer's egress allow-list admits
-   `api.x.ai` and `auth.x.ai` and nothing else. An image that could install its
-   own toolchain could install anything, which is the capability the sandbox
-   exists to remove. So whether lint, the tests and the build are green is the
-   **host's** to verify — report it as unverified rather than asserting it, and
-   never report `command not found` as a finding about the branch.
-
    **The Playwright suite is nobody's gate here.** It needs the backend's
    Compose stack and a downloaded browser — `docs/testing.md` owns what, and
    on which ports — and `npm-checks.sh` has no `e2e` mode for exactly that
@@ -207,21 +198,6 @@ this branch did not touch, where the owner site is already correct.
    pass is clean; **replace** it when the new pass has findings.
 7. **`suggestions.md` is working state.** Never commit it. Do not add it to
    the index. Say so if the user is about to ship.
-8. **Write `.grok-review-ran` at the repo root, as the last thing you do** —
-   one line, any content. It is gitignored, so it dirties nothing.
-
-   **This is the evidence that the review happened, and it exists because a
-   finished turn is not that evidence (#18).** `grok-review.sh` reads an
-   absent `suggestions.md` as "nothing to report", and it could only tell that
-   apart from "the reviewer never looked" by the model's root `stopReason` —
-   which proves a completed response and not a single tool call. A model that
-   ended its turn without opening the clone left no `suggestions.md` and was
-   counted as a clean round. So the file's absence is now a refusal rather
-   than a pass, and writing it is the one step that cannot be skipped by a
-   review that decided there was nothing to say.
-
-   Its **content is never read** — only that it exists and is a regular file —
-   so nothing written here steers anything on the host.
 
 ---
 
@@ -257,24 +233,13 @@ They are **enumerated** rather than denied wholesale, and `suggestions.md` is
 why: it lives at the root, it is this command's one legitimate output, and it
 is untracked — so denying every *tracked* root file leaves it alone, where a
 blanket `Edit(**)` or a `/*` root pattern would take the deliverable with it.
-`test_grok_helpers.py` reads the tracked set from `git ls-files` and asserts
-each is denied, so a new root file is a red build rather than a silent gap.
+The harness suite reads the tracked set from `git ls-files` and asserts each is
+denied, so a new root file is a red build rather than a silent gap.
 
-**Two limits, both stated rather than glossed.**
-
-`disallowed-tools` binds the Claude Code host path — `/review-branch` run here,
-including `--local`. It says nothing about the containerised run: inside
-`grok-review.sh` this file is read by **grok**, a different CLI, under
-`--permission-mode bypassPermissions`, and nothing has established that grok
-honours a `disallowed-tools` key at all. There the only thing keeping the
-reviewer from rewriting the branch it is reviewing is the container's
-disposability — a property of the sandbox, not of this grant. Do not read the
-frontmatter as reaching that run.
-
-And the list is a deny-list, so a tree added later is editable until someone
-adds it. `test_grok_helpers.py` asserts the list covers every tracked
-top-level tree, which is what makes that a red build instead of a quiet
-widening.
+**One limit, stated rather than glossed.** The list is a deny-list, so a tree
+added later is editable until someone adds it. The harness suite asserts the
+list covers every tracked top-level tree, which is what makes that a red build
+instead of a quiet widening.
 
 **That test can never see the case that mattered, and the reason is
 structural.** It reads `git ls-files`, so it enumerates what EXISTS; the
@@ -317,12 +282,12 @@ it never sees a `Bash` call at all. Every `Edit(...)` rule in this file is
 therefore defence in depth against a model that reaches for the editing tools,
 not a bound on what this command can write.
 
-`/review-grok` was the one command that closed it, by denying `Bash` whole —
-its body argues exactly this case, from the round that measured it. The
-commands that cannot follow it are the ones whose helpers *are* their API. What
-stood for them was that every granted `Bash` entry names a fixed helper or a
-read-only git verb, so a redirect had to be appended by the model itself rather
-than supplied by anything it read: a weaker property, and the true one.
+A command closes it by denying `Bash` whole, as the archived `/review-grok`
+did. The commands that cannot follow it are the ones whose helpers *are* their
+API. What stood for them was that every granted `Bash` entry names a fixed
+helper or a read-only git verb, so a redirect had to be appended by the model
+itself rather than supplied by anything it read: a weaker property, and the
+true one.
 
 **Closed now, in the place that sentence named (#20).** `guard-git-argv.py`
 already parsed redirections in order to strip them, so the targets were in hand

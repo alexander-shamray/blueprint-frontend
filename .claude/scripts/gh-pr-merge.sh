@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # Land one of THIS repository's pull requests by rebase, bound to a named head,
-# and nothing else — `/ship` step 7's one merge and no other.
+# and nothing else — `/ship` step 6's one merge and no other.
 #
 # **`Bash(gh pr merge --merge:*)` is a PREFIX grant, so a trailing flag is
 # inside it (#16).** `gh pr merge --merge <n> --admin` bypasses the failing-check
-# stop that step 7 treats as mandatory: a pull request merged past red checks by
+# stop that step 6 treats as mandatory: a pull request merged past red checks by
 # a chain whose report says the checks gated it. `ship.md` argues this at length
-# and what stood was visibility rather than prevention — step 7 reports the
+# and what stood was visibility rather than prevention — step 6 reports the
 # literal invocation it ran, so the claim is checkable rather than enforced.
 #
 # It also explains why a session could not simply write this helper: a session

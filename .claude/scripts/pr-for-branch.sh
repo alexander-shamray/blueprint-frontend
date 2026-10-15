@@ -40,10 +40,9 @@ esac
 # reads this to decide whether the branch landed, /pr to decide whether one is
 # already open. Acting on a stranger's pull request is the failure.
 #
-# grok-review.sh:139 already carries this check and the argument for it, and
+# The retired Grok launcher carried this check and the argument for it, and
 # this helper shipped without it: a fix that closes a hole by name and leaves
-# it open by provenance has moved the defect rather than removed it — written
-# down one file away, in a comment, and reimplemented wrong here anyway.
+# it open by provenance has moved the defect rather than removed it.
 #
 # Both sides of the comparison are properties of the filesystem: `gh repo view`
 # reads the checkout, and the branch came from `git branch --show-current` or

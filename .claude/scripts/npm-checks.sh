@@ -28,15 +28,13 @@
 # **What actually stands is the trust boundary, not this script.** These modes
 # run on the developer's own machine against a branch the developer is
 # reviewing, which is the same act as opening the repository in an editor with
-# a language server — and the external reviewer, the one case where the branch
-# is genuinely untrusted, gets no Node toolchain at all and cannot install one
-# (see .claude/sandbox/Dockerfile). Running these checks on a fork's branch,
+# a language server. Running these checks on a fork's branch,
 # unattended, is the case this does not cover; do that in a disposable
 # environment with no credentials, or not at all.
 #
 # `e2e` is deliberately NOT one of the modes. Playwright needs a browser
-# download and the backend's Compose stack, neither of which exists in the
-# sandbox the external reviewer runs in; a mode that silently passed because
+# download and the backend's Compose stack, neither of which a checkout can
+# assume; a mode that silently passed because
 # nothing was listening would be worse than no mode at all. E2E is CI's job —
 # see the `e2e` job in .github/workflows/ci.yml — and `docs/testing.md` owns
 # what a local run needs, ports included.

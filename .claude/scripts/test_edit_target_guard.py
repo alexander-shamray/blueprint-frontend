@@ -262,10 +262,9 @@ class GuardCase(unittest.TestCase):
 class ALinkIsNotTheFileItIsSpelledAs(GuardCase):
 
     def test_a_link_into_a_denied_tree_is_refused(self):
-        # #181 exactly: `/review-grok` holds `Edit` for `docs/` and denies
-        # `.claude/**`, and both denies are matched on the spelling. A link
-        # under `docs/` pointing into the machinery is a path the deny never
-        # sees and a write the machinery receives.
+        # #181 exactly: `settings.json` and the editing commands deny the
+        # machinery by spelling. A link under `docs/` pointing into it is a
+        # path the deny never sees and a write the machinery receives.
         target = os.path.join(self.root, ".claude", "scripts", "helper.sh")
         for linker in linkers():
             with self.subTest(link=linker):
@@ -1307,7 +1306,7 @@ class TheWiringWithoutWhichNoneOfTheAboveRuns(unittest.TestCase):
         Windows Python launcher and ships nowhere else, so on macOS or Linux the
         hook command could not start and every `Edit`, `Write` and `Bash` call
         failed before the guard ran. Two cases pinned the broken spelling — this
-        one and its twin in `test_grok_helpers.py` — and both passed on the only
+        one and its twin in `test_harness_helpers.py` — and both passed on the only
         platform where it worked.
 
         `run-guard.sh` chooses the interpreter and keeps the floor: `py -3.12`

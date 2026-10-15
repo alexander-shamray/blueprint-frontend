@@ -75,8 +75,8 @@ def judged(name):
         source = handle.read()
 
     # What `python guard.py` gives the guard: its own `__main__`, its own path
-    # in `__file__` and in `sys.argv[0]`. `guard-edit-target.py` and
-    # `guard-triager-edit.py` both find their checkout from `__file__`, and
+    # in `__file__` and in `sys.argv[0]`. `guard-edit-target.py` finds its
+    # checkout from `__file__`, and
     # `index-refresh.py` starts its worker from it and from `sys.executable`.
     module = type(sys)("__main__")
     module.__file__ = path

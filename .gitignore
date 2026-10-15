@@ -120,10 +120,8 @@ __pycache__/
 /ios/App/App/capacitor.config.json
 /ios/App/App/config.xml
 
-# /review-branch's proof that it ran, which grok-review.sh requires before it
-# reads a missing suggestions.md as a clean pass. Ignored so that a standalone
-# review does not dirty the tree the same helper refuses to review over.
-/.grok-review-ran
+# /ship's local review writes each round's inputs under artifacts/review/.
+/artifacts/
 
 # /pr's description, written at the checkout root because gh-pr-create.sh
 # publishes no other path, and removed by that helper once the PR is open.
