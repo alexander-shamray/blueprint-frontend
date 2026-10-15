@@ -44,9 +44,7 @@ this command can run unattended.
 **This command holds no interpreter grant, and the absence is deliberate.** It
 used to carry `Bash(python:*)`, which is a prefix grant on a general-purpose
 interpreter: `python -c "<anything>"` was auto-approved, and one `open(…,'w')`
-reaches every path the `Edit(…)` denies cover — `.claude/scripts/**`,
-`.claude/commands/**`, `.claude/agents/**`, `.claude/hooks/**`,
-`.claude/settings.json`, `.claude/settings.local.json` and `.remember/**` —
+reaches every path the `Edit(…)` denies in `.claude/settings.json` cover —
 while one `subprocess.run` reaches every `git push --force` and `git switch -fC`
 the deny list and the `git-*.sh` helpers exist to keep out. A rule that
 matches `python -c` cannot see what the interpreter then does, so the whole
