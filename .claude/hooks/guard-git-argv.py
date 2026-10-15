@@ -3191,11 +3191,26 @@ def leading_command(run):
     The same reading is owed to the printer half — `X=1 echo … | bash` — and to
     the data-only exemption, which is why this is one function rather than a
     test repeated at each site.
+
+    **A reserved word in front is grammar, not the command** (PR #184's
+    review): in `! {git,push} origin +HEAD:main` and `if {git,push} …; then`
+    bash runs the brace's first word, while this returned `!` or `if`, so
+    `launched` placed no program at `{git,push}` and the force push was
+    admitted. `time` is not skipped: it is a `LAUNCHERS` member, and the word
+    after it is judged as launched there.
     """
     for token in run:
-        if not ASSIGNMENT.match(token):
+        if not ASSIGNMENT.match(token) and token not in COMMAND_PREFIX_WORDS:
             return token
     return ""
+
+
+# **The reserved words after which the next word is a command word**, as
+# `leading_command` skips them. `}`, `done`, `fi` and `esac` end a construct
+# and lead nothing; `time` is judged through `LAUNCHERS` instead.
+COMMAND_PREFIX_WORDS = frozenset({
+    "!", "{", "coproc", "do", "elif", "else", "if", "then", "until", "while",
+})
 
 
 def reads_stdin_as_script(words):
