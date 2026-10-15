@@ -775,8 +775,11 @@ hide the subcommand it skips to.
 **The three routes blueprint-frontend#125 named are closed, and it is a
 standing residual still, because the hook is an allow-list over a grammar it
 reads only in part.** Inside a substitution a wrapper may carry no option,
-nothing may be assigned in front of a program or by `printf -v`, `$[…]` or
-`${NAME:=…}`, and `git` takes no global option but `-C .`. The scanner still
+nothing may be assigned in front of a program or by `printf -v`, `$[…]`,
+`${NAME:=…}` or the arithmetic in a `${…}` subscript or offset, and `git`
+takes no global option but `-C .`. The same assignments outside a
+substitution are a separate route this hook does not judge yet
+(blueprint-frontend#185). The scanner still
 miscounts a parenthesis inside `${…}`, `$[…]` or a heredoc body within
 `$(…)`, in both directions, and both are refused rather than read past: an
 opener it cannot close, and a body holding one of those constructs. In a run
