@@ -33,7 +33,8 @@ review you were given.
   run. Read the method rather than loading it, and skip any step in it that
   writes a file or runs a shell: you hold neither.
 - **On a recheck, the findings still open**, as the JSON you returned
-  before. Judge each against the new diff, and look for nothing else.
+  before. Judge each against the new diff, and look for nothing else
+  except what the fix itself broke.
 - **The locality verdict**, when the branch has a PR: the `pr-locality.sh`
   output beside the diff, one `class` line and one `inside <path>` or
   `outside <path>` line per changed file. Each `outside` line is a finding;
