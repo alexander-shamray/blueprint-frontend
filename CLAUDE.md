@@ -8,7 +8,7 @@ anything — is owned elsewhere and cited from here by name, never restated.
 
 | | |
 |---|---|
-| `TODO.md` (gitignored, local) | Open PRs and issues, for the user; every task change edits it, or is reported as owed from a worktree |
+| `TODO.md` (gitignored, local) | The task list, for the user, laid out as *Working in this repo* says; every task change edits it, or is reported as owed from a worktree |
 | [`docs/change-locality.md`](docs/change-locality.md) | The operating contract: the trust order, the one rule, the change classes and their touch sets |
 | [`docs/client-architecture.md`](docs/client-architecture.md) | Why this client is shaped the way it is — §1–§15, one argument each; §12 is where the spec turned out wrong |
 | [`docs/superpowers/specs/2026-09-10-blueprint-frontend-design.md`](docs/superpowers/specs/2026-09-10-blueprint-frontend-design.md) | The design spec, §1–§11 — outranked by §12 above wherever the two disagree |
@@ -172,18 +172,19 @@ These stay here because they have to be true before anyone opens the guide:
   reopens an issue. **Move an issue's row from Remaining to In progress
   before entering a worktree directory** (`EnterWorktree`, `/branch`,
   `/ship`), deleting it from Remaining in the same edit, because from
-  inside one the file is refused. Only the main checkout's copy counts,
-  never one in a worktree. `guard-edit-target.py` admits that one file from a linked
-  worktree (#45), but a session moved into `.claude/worktrees/` with
-  `EnterWorktree` is refused it by Claude Code's own isolation, which no file
-  here controls — so there the update is carried in the report as owed and
-  made once the session is back in the main checkout, never into a copy
-  nobody reads.
-  When in doubt, rebuild it from
+  inside one the file may be refused (below). Only the main checkout's copy
+  counts, never one in a worktree. `guard-edit-target.py` admits that one
+  file from a linked worktree (#45), but a session moved into
+  `.claude/worktrees/` with `EnterWorktree` is refused it by Claude Code's
+  own isolation, which no file here controls — so there the update is
+  carried in the report as owed and made once the session is back in the
+  main checkout, never into a copy nobody reads.
+  When in doubt, rebuild the rows from
   `gh pr list --limit 1000 --json number,title,url,closingIssuesReferences`
   and `gh issue list --limit 1000 --json number,title,url,labels`, because
   the default of 30 truncates silently; severity is the `high`, `medium` or
-  `low` label.
+  `low` label. Those recover the rows only: the rules note, the waves, the
+  groups and Paused come from the backend's `TODO.md`.
 - **A `#NN` inside `.claude/` or `docs/harness-boundaries.md` is an issue in
   the backend repository**, where that machinery was built. It is not an issue
   here.
