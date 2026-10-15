@@ -775,16 +775,19 @@ hide the subcommand it skips to.
 **The three routes blueprint-frontend#125 named are closed, and it is a
 standing residual still, because the hook is an allow-list over a grammar it
 reads only in part.** Inside a substitution a wrapper may carry no option,
-nothing may be assigned in front of a program, and `git` takes no global
-option but `-C .`; an opener the scanner cannot close is refused rather than
-read past; and in a run led by a wrapper with operands of its own —
-`timeout 5`, `nice -n 5` and the rest of `ARGUMENT_RUNNERS` — every later
-word counts as launched, so a computed or pattern `git` behind one is judged,
-and a comma brace expansion in a `git` command is refused rather than read as
-one word (blueprint-frontend#129). The scanner still counts a `(` bash does
-not — inside `${…}`, `$[…]` or a heredoc body within `$(…)` — which is now an
-over-refusal rather than a route; a value assembled at run time is the
-residual the `F=--output=x` paragraphs record.
+nothing may be assigned in front of a program or by `printf -v`, `$[…]` or
+`${NAME:=…}`, and `git` takes no global option but `-C .`. The scanner still
+miscounts a parenthesis inside `${…}`, `$[…]` or a heredoc body within
+`$(…)`, in both directions, and both are refused rather than read past: an
+opener it cannot close, and a body holding one of those constructs. In a run
+led by a wrapper with operands of its own — `timeout 5`, `nice -n 5`,
+`winpty` and the rest of `ARGUMENT_RUNNERS` — every later word counts as
+launched, so a computed or pattern `git` behind one is judged, and a comma
+brace expansion the shell would perform in a launched `git` command is
+refused rather than read as one word (blueprint-frontend#129). **That list is
+an enumeration, so it fails open on a wrapper nobody named**; inverting it was
+rejected because a computed argument is ordinary traffic. A value assembled at
+run time is the residual the `F=--output=x` paragraphs record.
 
 **And the script run is the checkout's copy, which `Edit(.claude/scripts/**)`
 protects from neither a branch nor the session.** A branch can carry an
