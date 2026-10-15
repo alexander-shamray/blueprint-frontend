@@ -4447,6 +4447,20 @@ class TheGitArgvGuard(unittest.TestCase):
                 "git {--no-pager,-c,'user.name=a b',push,origin,+HEAD:main}",
                 "winpty {git,push} origin +HEAD:main",
                 "prlimit {git,push} origin +HEAD:main",
+                # A reserved word in front is grammar, and the brace's first
+                # word is the command (PR #184's review). Each was admitted
+                # on `main` and on this branch before the fix.
+                "! {git,push} origin +HEAD:main",
+                "! gi[t] push origin +HEAD:main",
+                "! $G push origin +HEAD:main",
+                "if {git,push} origin +HEAD:main; then :; fi",
+                "if true; then {git,push} origin +HEAD:main; fi",
+                "if false; then :; elif {git,push} origin +HEAD:main; then :; fi",
+                "if false; then :; else {git,push} origin +HEAD:main; fi",
+                "while {git,push} origin +HEAD:main; do break; done",
+                "for x in 1; do {git,push} origin +HEAD:main; done",
+                "coproc {git,push} origin +HEAD:main",
+                "! timeout 5 {git,push} origin +HEAD:main",
         ):
             with self.subTest(command=command):
                 self.assertRefused(command)

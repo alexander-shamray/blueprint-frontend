@@ -786,7 +786,9 @@ miscounts a parenthesis inside `${…}`, `$[…]` or a heredoc body within
 opener it cannot close, and a body holding one of those constructs. In a run
 led by a wrapper with operands of its own — `timeout 5`, `nice -n 5`,
 `winpty` and the rest of `ARGUMENT_RUNNERS` — every later word counts as
-launched, so a computed or pattern `git` behind one is judged, and a comma
+launched, so a computed or pattern `git` behind one is judged; a reserved
+word in front — `!`, `if`, `then`, `do`, `coproc` and the rest — is grammar
+and leads nothing, so the word after it is the command; and a comma
 brace expansion the shell would perform in a launched `git` command is
 refused rather than read as one word (blueprint-frontend#129). **That list is
 an enumeration, so it fails open on a wrapper nobody named**; inverting it was
