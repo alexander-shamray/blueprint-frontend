@@ -4501,6 +4501,14 @@ class TheGitArgvGuard(unittest.TestCase):
                 "ls $(cat\rx/run)",
                 "cat <(cat' 'x/run)",
                 "ls `cat' 'x/run`",
+                # A redirection that writes, in front of the program or
+                # behind it: the split strips it, so it is read on its own
+                # (PR #190's review). `main` refused the first only by
+                # accident, reading `>./tools/run` as a program, and admitted
+                # the other two.
+                "ls $(>./tools/run cat)",
+                "ls $(cat x >./tools/out)",
+                "ls $(cat x 2>>./tools/log)",
         ):
             with self.subTest(command=command):
                 self.assertRefused(command)
@@ -4514,6 +4522,9 @@ class TheGitArgvGuard(unittest.TestCase):
                 "x=1\recho gi[t] push origin +HEAD:main",
                 "echo\r/x git push origin +HEAD:main",
                 "printf\r/x git push origin +HEAD:main",
+                # A here-string was split by `shlex.split`, on the default
+                # blanks (PR #190's review).
+                "bash <<<x=1\recho' {git,push} origin +HEAD:main'",
         ):
             with self.subTest(command=command):
                 self.assertRefused(command)
@@ -4521,6 +4532,8 @@ class TheGitArgvGuard(unittest.TestCase):
                 "ls $(cat 'a b')",
                 'ls "$(cat "a b")"',
                 "ls $(cat x 2>/dev/null)",
+                "ls $(cat x 2>'/dev/null')",
+                "echo $(git status --short 2>&1)",
                 "echo $(git rev-parse --show-toplevel)",
                 'ls "$(dirname "$(git rev-parse --show-toplevel)")"',
                 "git log -1 --format=%H",
@@ -4583,6 +4596,11 @@ class TheGitArgvGuard(unittest.TestCase):
                 "[[ 1 -eq PATH=5 ]] && git status",
                 "[[ -n x && 1 -eq PATH=5 ]] && git status",
                 "test -v 'x[PATH=5]'; git status",
+                # A `git` the quoting splits is still `git` to bash, and in a
+                # quoted substitution it is no token (PR #190's review).
+                'ls ${x[PATH=5]}; ls "$(g""it status)"',
+                "ls ${x[PATH=5]}; ls \"$(gi\\t status)\"",
+                "ls ${x[PATH=5]}; ls \"$($'g\\x69t' status)\"",
         ):
             with self.subTest(command=command):
                 self.assertRefused(command)
@@ -4603,6 +4621,13 @@ class TheGitArgvGuard(unittest.TestCase):
                 "git log -1 | while read PATH; do git status; done",
                 "for PATH in 5; do git status; done",
                 "ls {PATH}>/dev/null; git status",
+                # Handed to a program as its environment, and a target bash
+                # computes, which no check can read (PR #190's review).
+                "env PATH=./tools git status",
+                "env GIT_EXTERNAL_DIFF=./tools/d git diff",
+                "nice env PATH=./tools git status",
+                'n=PATH; printf -v "$n" %s ./tools; git status',
+                'n=PATH; read "$n" <<< ./tools; git status',
         ):
             with self.subTest(command=command):
                 self.assertRefused(command)
@@ -4617,6 +4642,10 @@ class TheGitArgvGuard(unittest.TestCase):
                 "hash -p ./5/git git; git status",
                 "set -k; git diff GIT_EXTERNAL_DIFF=./tools/d",
                 "eval PATH=5; git status",
+                # `mapfile -C` evaluates its callback as `eval` does (PR #190's
+                # review).
+                "mapfile -c 1 -C 'X=1; PATH=5; :' a <<< z; git status",
+                "readarray -tC 'PATH=5; :' -c 1 a <<< z; git status",
         ):
             with self.subTest(command=command):
                 self.assertRefused(command)
@@ -4628,6 +4657,12 @@ class TheGitArgvGuard(unittest.TestCase):
                 "LC_ALL=C git log -1",
                 "TZ=UTC git status",
                 "for f in a b; do git log -1 $f; done",
+                # A builtin's target is compared as spelled, and only the
+                # loop's name is one (PR #190's review).
+                'for path in a b; do git log -1 -- "$path"; done',
+                'git log -1 | while read path; do echo "$path"; done',
+                "for f in $FILES; do git log -1 -- $f; done",
+                "grep -rn PATH=5 src; git status",
                 "git log -1 | while read line; do echo $line; done",
                 "git push origin fix/some-branch {fd}>&1",
                 "echo ${HOME:-x}; git status",
