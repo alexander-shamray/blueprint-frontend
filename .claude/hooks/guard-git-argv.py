@@ -2288,6 +2288,7 @@ LONG_VALUE_OPTIONS = {
 FIND_EXECUTORS = frozenset({"-exec", "-execdir", "-ok", "-okdir"})
 
 # Reserved words that can stand before a command in the same run.
+# `COMMAND_PREFIX_WORDS` is derived from this list rather than kept beside it.
 SHELL_KEYWORDS = frozenset({
     "!", "{", "}", "do", "done", "elif", "else", "fi", "if", "then", "time",
     "until", "while",
@@ -3206,11 +3207,12 @@ def leading_command(run):
 
 
 # **The reserved words after which the next word is a command word**, as
-# `leading_command` skips them. `}`, `done`, `fi` and `esac` end a construct
-# and lead nothing; `time` is judged through `LAUNCHERS` instead.
-COMMAND_PREFIX_WORDS = frozenset({
-    "!", "{", "coproc", "do", "elif", "else", "if", "then", "until", "while",
-})
+# `leading_command` skips them: `SHELL_KEYWORDS`, which owns the list, less
+# `}`, `done` and `fi`, which end a construct and lead nothing, and `time`,
+# judged through `LAUNCHERS` instead — plus `coproc`, which runs its command
+# as a coprocess and stands nowhere `SHELL_KEYWORDS` is read.
+COMMAND_PREFIX_WORDS = (
+    SHELL_KEYWORDS - {"}", "done", "fi", "time"}) | {"coproc"}
 
 
 def reads_stdin_as_script(words):
