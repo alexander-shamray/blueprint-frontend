@@ -568,6 +568,12 @@ things — `expandable_regions`, over the quote-and-comment-aware scanner the
 heredoc opener already used — rather than a second model per function. Command
 substitution is now judged wherever bash would perform it and nowhere else.
 
+**The lexer's blanks were not bash's either.** `shlex` also splits on a
+carriage return, which bash keeps inside a word, so `x=1<CR>echo {git,push}
+origin +HEAD:main` was a run led by `echo` to the hook and an assignment and a
+force push to bash. Both tokenisers now split on space, tab and newline alone
+(blueprint-frontend#187).
+
 **And then the bound was wrong for a fourth reason, which had nothing to do
 with the shell at all.** Every version of this paragraph has named the residual
 in shell terms — quoting, then expansion — while `git -c` sat one layer up:
@@ -778,9 +784,19 @@ reads only in part.** Inside a substitution a wrapper may carry no option,
 nothing may be assigned in front of a program or by `printf -v`, `$[…]`,
 `$((…))`, `((…))`, `${NAME:=…}`, `test -v` or the arithmetic in a `${…}`
 subscript or offset, and `git`
-takes no global option but `-C .`. The same assignments outside a
-substitution are a separate route this hook does not judge yet
-(blueprint-frontend#185). The scanner still
+takes no global option but `-C .`. A body is split into words as bash
+splits it — after quote removal, on space, tab and newline alone — so a
+quoted blank, a Unicode space or a dash-led command word cannot put a listed
+program in front of a branch path (blueprint-frontend#187). On a line that
+runs `git` the same arithmetic is refused wherever it stands, and so is an
+assignment, a `for`, a `read` or a `printf -v` naming a variable git reads —
+`PATH`, `HOME`, a `GIT_*` name and the rest of `ASSIGNMENT_SENSITIVE_NAMES` —
+and every builtin whose target no check can read, `export`, `trap` and
+`set -k` among them (blueprint-frontend#185). **That name list is an
+enumeration too**, chosen over refusing every assignment because `X=1 git
+log` and a `for f in …` loop are ordinary; and a line that runs no `git` is
+not judged for any of it, the route blueprint-frontend#188 records. The
+scanner still
 miscounts a parenthesis inside `${…}`, `$[…]` or a heredoc body within
 `$(…)`, in both directions, and both are refused rather than read past: an
 opener it cannot close, and a body holding one of those constructs. In a run
@@ -789,9 +805,12 @@ led by a wrapper with operands of its own — `timeout 5`, `nice -n 5`,
 launched, so a computed or pattern `git` behind one is judged; a reserved
 word in front — `!`, `if`, `then`, `do`, `coproc` and the rest — is grammar
 and leads nothing, so the word after it is the command; and a comma
-brace expansion the shell would perform in a launched `git` command is
-refused rather than read as one word (blueprint-frontend#129). **That list is
-an enumeration, so it fails open on a wrapper nobody named**; inverting it was
+brace expansion the shell would perform in any run that names `git` and that
+a reader or a printer does not lead is refused rather than read as one word
+(blueprint-frontend#129) — launched or not, since the launch test is the one
+that knew no wrapper outside the list (blueprint-frontend#186). **That list is
+an enumeration, so it fails open on a wrapper nobody named**, for a computed
+or pattern `git` behind one (blueprint-frontend#189); inverting it was
 rejected because a computed argument is ordinary traffic. A value assembled at
 run time is the residual the `F=--output=x` paragraphs record.
 
