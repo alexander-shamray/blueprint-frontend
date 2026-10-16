@@ -904,13 +904,16 @@ pattern under a relative directory (`src/*`) is not, since it expands to a file
 inside the checkout, so `cp src/* dest` passes while `cp * dest` and `cp /tmp/*
 dest` are over-refused, because the tokens keep no quoting. **Unless that
 directory is itself a link out of the checkout** (`src/gi[t]` under `src ->
-/usr/bin`): its directory part goes through `escapes_checkout` (#216), so
-`cp src/* dest` is refused there and still passes for a real `src`. **A link made
-earlier on the same line** (`ln -s /etc/hosts out && git diff out README.md`)
+/usr/bin`), **or a match is** (`src/git -> /usr/bin/git`): the directory part
+and the whole pattern both go through `escapes_checkout` (#216), so `cp src/*
+dest` is refused there and still passes for a real `src`.
+**A link made earlier on the same line**
+(`ln -s /etc/hosts out && git diff out README.md`)
 cannot be seen by `escapes_checkout` and `linked_protected_path`, which judge
 the filesystem when the hook runs, so a line that makes a link (`ln`, `mklink`,
-`junction`, `link`, `fsutil`, `New-Item`, `cp -s` and `cp --symbolic-link`, an
-archive program on `ARCHIVE_UNPACKERS` (`tar`, `unzip`, `7z`, `cpio` and the
+`junction`, `link`, `fsutil`, `New-Item`, `cp -s`, `cp --symbolic-link` and
+any abbreviation `cp` accepts such as `--sym`, an archive program on
+`ARCHIVE_UNPACKERS` (`tar`, `unzip`, `7z`, `cpio`, `jar`, `ditto` and the
 rest, extracting or not), anywhere in a run no reader leads, or in the text of
 a script handed to a shell or to one of the interpreters in `SCRIPT_RUNNERS`,
 which now holds `osascript`, `wsl`, `cscript`, `wscript`, `mshta` and `env`)

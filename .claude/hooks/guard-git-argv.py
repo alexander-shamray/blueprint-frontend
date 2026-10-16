@@ -4323,7 +4323,9 @@ def program_pattern(token):
     **Unless that directory is itself a link out of the checkout**
     (blueprint-frontend#216): `src/gi[t]` under `src -> /usr/bin` runs the
     real `git`, so the directory part goes through `escapes_checkout`, which
-    resolves it where the hook runs.
+    resolves it where the hook runs, and the whole pattern goes through it
+    too, since a link among the matches (`src/git -> /usr/bin/git`) escapes
+    as well (round 1 of PR 217's review).
     """
     if not patterned(token):
         return False
@@ -4332,7 +4334,8 @@ def program_pattern(token):
     if (token.startswith(("/", "\\", "~")) or DRIVE_PATH.match(token)
             or ".." in re.split(r"[\\/]", token)):
         return True
-    return escapes_checkout(re.sub(r"[\\/][^\\/]*$", "", token))
+    return (escapes_checkout(re.sub(r"[\\/][^\\/]*$", "", token))
+            or escapes_checkout(token))
 
 
 def listed_as_a_launch(run, index):
@@ -4409,12 +4412,26 @@ LINK_MAKERS = frozenset({"ln", "mklink", "junction", "link", "fsutil",
 # git is an over-refusal that costs a second command.
 ARCHIVE_UNPACKERS = frozenset({
     "tar", "bsdtar", "gtar", "unzip", "7z", "7za", "7zr", "cpio", "pax",
-    "unar", "expand-archive",
+    "unar", "expand-archive", "jar", "bsdcpio", "7zz", "unrar", "rar",
+    "dpkg-deb", "ditto",
 })
 LINK_PROGRAMS = LINK_MAKERS | ARCHIVE_UNPACKERS
-# `cp -s` and `cp --symbolic-link` make links; a plain `cp` does not. A short
-# cluster holding `s` counts (`cp -rs`).
-SYMBOLIC_COPY_FLAG = re.compile(r"^(?:-[A-Za-z]*s[A-Za-z]*|--symbolic-link)$")
+
+
+def symbolic_copy_flag(token):
+    """Whether `token` is a `cp` flag that makes a symbolic link.
+
+    `cp -s` and `cp --symbolic-link` make links; a plain `cp` does not. A
+    short cluster holding `s` counts (`cp -rs`), and so does any abbreviation
+    of the long form that `cp` accepts: `--sy` is unambiguous among its
+    options (round 1 of PR 217's review).
+    """
+    if re.match(r"^-[A-Za-z]*s[A-Za-z]*$", token):
+        return True
+    name = token.split("=", 1)[0]
+    return len(name) >= 4 and "--symbolic-link".startswith(name)
+
+
 LINK_WORD = re.compile(
     r"(?<![\w-])(?:ln|mklink|junction|link|fsutil|new-item|ni|symlink|"
     r"createsymboliclink)(?![\w.-])", re.IGNORECASE)
@@ -4467,7 +4484,7 @@ def link_made_beside_git_offence(tokens):
         for token in run:
             if program_name(token).lower() in LINK_PROGRAMS:
                 makes = True
-            elif symbolic_copy and SYMBOLIC_COPY_FLAG.match(token):
+            elif symbolic_copy and symbolic_copy_flag(token):
                 makes = True
             elif runs_script and re.search(r"\s", token):
                 makes = makes or bool(LINK_WORD.search(token))
