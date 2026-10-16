@@ -5109,8 +5109,10 @@ def outside_checkout():
         directory = parent
 
 
-# The most matches of a glob operand that are resolved: a pattern over a
-# huge directory must not be what the hook's time limit is spent on.
+# The most matches of a glob operand that are resolved. A pattern over a huge
+# directory must not be what the hook's time limit is spent on, and the matches
+# past it are not resolved at all, so an operand with more is refused rather
+# than truncated: the one link among them could be any of the rest.
 LINK_GLOB_LIMIT = 256
 
 
@@ -5120,33 +5122,37 @@ def escapes_checkout(operand):
     **The lexical rules read the spelling, and git opens the file**
     (blueprint-frontend#208): a branch can carry `docs/out -> /etc/hosts`, and
     `docs/out` holds no absolute path, drive, `~` or `..`. So each existing
-    path the operand names (a glob is expanded, bounded by
-    `LINK_GLOB_LIMIT`) is resolved through the filesystem, and it escapes when
-    the resolution lies outside the real root of the checkout that holds it.
-    The root is the nearest ancestor of the path's own DIRECTORY with a
-    `.git`, so a link to a repository elsewhere is not mistaken for the
-    checkout, and it is resolved too, which keeps a checkout under a linked
-    temporary root from reading as a link on every operand. A path that does
-    not exist is left to the lexical checks.
+    path the operand names (a glob is expanded, and one with more matches than
+    `LINK_GLOB_LIMIT` is refused outright) is resolved through the
+    filesystem, and it escapes when the resolution lies outside the real root
+    of the checkout the COMMAND runs in.
+    **The root comes from the event's directory and never from the operand**:
+    the operands that reach here lie lexically under that directory, the
+    absolute and `..` spellings having been refused, and a root found from the
+    operand's own path takes a link to a directory holding a `.git` for the
+    checkout (round 1 of PR 210's review). The root is resolved, which keeps
+    a checkout under a linked temporary root from reading as a link on every
+    operand. A path that does not exist is left to the lexical checks, and a
+    directory under no repository to `outside_checkout`.
     """
-    joined = os.path.join(EVENT_CWD or os.getcwd(), operand)
+    base = os.path.abspath(EVENT_CWD or os.getcwd())
+    root = base
+    while not os.path.exists(os.path.join(root, ".git")):
+        parent = os.path.dirname(root)
+        if parent == root:
+            return False
+        root = parent
+    real_root = os.path.normcase(os.path.realpath(root))
+    joined = os.path.join(base, operand)
     if any(char in operand for char in "*?["):
-        candidates = glob.glob(joined)[:LINK_GLOB_LIMIT]
+        candidates = glob.glob(joined)
+        if len(candidates) > LINK_GLOB_LIMIT:
+            return True
     else:
         candidates = [joined]
     for candidate in candidates:
         if not os.path.lexists(candidate):
             continue
-        root = os.path.dirname(os.path.normpath(os.path.abspath(candidate)))
-        while not os.path.exists(os.path.join(root, ".git")):
-            parent = os.path.dirname(root)
-            if parent == root:
-                root = None
-                break
-            root = parent
-        if root is None:
-            continue
-        real_root = os.path.normcase(os.path.realpath(root))
         resolved = os.path.normcase(os.path.realpath(candidate))
         try:
             inside = os.path.commonpath([real_root, resolved]) == real_root
@@ -5208,7 +5214,8 @@ def diff_offence(segment, command):
         elif ".." in re.split(r"[\\/]", operand):
             reason = "climbs out of the checkout with `..`"
         elif escapes_checkout(operand):
-            reason = "is, or lies under, a link that leads out of the checkout"
+            reason = ("is, or lies under, a link that leads out of the "
+                      "checkout, or matches more paths than can be resolved")
         else:
             continue
         return (
@@ -5634,6 +5641,28 @@ def _offence(command, depth, judged):
                 "tokenise, so its remote and refspec cannot be read; refusing "
                 "rather than admitting a push nothing checked."
             )
+        # **The allow-list reaches this path too** (blueprint-frontend#209,
+        # round 1 of PR 210's review): a line is easy to make untokenisable
+        # on purpose, and `git mergetool "` would otherwise be admitted. Crude,
+        # as the push check above is: the first word after each `git`, past the
+        # words that start `-`, must be on the list, read with the quoting
+        # gone as well. A bounded tail per `git` keeps it linear, and it
+        # over-refuses a sentence that merely mentions git, which is the
+        # direction to be wrong in for text `shlex` failed on.
+        for text in (stripped, re.sub(r"[\"'\\]", "", stripped)):
+            for found in re.finditer(r"\bgit\b", text):
+                for word in text[found.end():found.end() + 512].split():
+                    if word.startswith("-"):
+                        continue
+                    name = re.match(r"[A-Za-z0-9][\w.-]*", word)
+                    if name and name.group(0) not in ALLOWED_SUBCOMMANDS:
+                        return (
+                            f"`git {name.group(0)}` appears in a command this "
+                            "guard could not tokenise and is not a "
+                            "subcommand it admits; refusing on the raw "
+                            "string (blueprint-frontend#209)."
+                        )
+                    break
         # And the assignment check, which reads tokens, done the crude way:
         # on a line that runs `git`, any word that may assign (PR #190's
         # review).

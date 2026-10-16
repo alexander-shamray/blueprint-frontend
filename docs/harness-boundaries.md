@@ -878,8 +878,11 @@ naming a strategy program or running what it is handed, and a `-s` or
 `--strategy` on `pull` and `rebase` (`git-merge-<name>` from the exec path or
 `PATH`) is refused beside the other executing options. **The allow-list is
 judged where a program is launched**, so `grep -rn git src/app` and `apt
-install git curl` are not read as git invocations. **Its residuals are
-stated:** a subcommand that is a bare variable (`git $SUB`) is not judged,
+install git curl` are not read as git invocations. **A line the guard cannot
+tokenise reaches it crudely**, as the push check does: the first word after
+each `git`, past any option, must be on the list, which also over-refuses a
+sentence that merely mentions git. **Its residuals are stated:** a
+subcommand that is a bare variable (`git $SUB`) is not judged,
 because no reading expands it; a wrapper the guard has not named
 (`ssh-agent git mergetool`) is not read as a launch, and the older option
 lists still judge what follows it; and the empty-substitution reading
@@ -894,9 +897,12 @@ component, a `$` or a backtick is refused, as are `-C`, `--git-dir` and
 directory under no repository. **A link a branch carries** (`docs/out ->
 /etc/hosts`, named as `docs/out`), which a lexical check cannot see, is
 closed by blueprint-frontend#208: each operand that names an existing path
-(a glob is expanded, to at most 256 matches) is resolved through the
-filesystem and refused when it lands outside the real root of the checkout
-that holds it. A path that does not exist is left to the lexical rules. **The
+(a glob is expanded, and one with more than 256 matches is refused rather
+than truncated) is resolved through the filesystem and refused when it lands
+outside the real root of the checkout the command runs in. That root comes
+from the event's directory and never from the operand, because a root found
+from the operand takes a link to a directory holding its own `.git` for the
+checkout. A path that does not exist is left to the lexical rules. **The
 read through such a link was not reproduced on the host this was built on**:
 it withholds the privilege a symbolic link needs, and git did not follow a
 directory junction, so the case is held by the suite's own link (a symbolic
