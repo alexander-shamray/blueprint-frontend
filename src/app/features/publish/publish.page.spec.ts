@@ -334,6 +334,39 @@ describe('PublishPage', () => {
     expect(fixture.componentInstance.publishedId()).toBeNull();
   });
 
+  it('does not replay a form that was started again while sign-in was pending, though the refused buyer is back (#160)', async () => {
+    const page = fixture.componentInstance;
+    const demo = { username: 'demo', subject: 'subject-demo', permissions: [], expiresAt: 0 };
+    let settle: () => void = () => undefined;
+    signIn.mockImplementation(() => new Promise<void>((resolve) => { settle = resolve; }));
+
+    page.publish();
+    controller
+      .expectOne('http://localhost:5000/api/v1/catalog/products')
+      .flush({ title: 'Unauthorized', status: 401 }, { status: 401, statusText: 'Unauthorized' });
+    await fixture.whenStable();
+    expect(signIn).toHaveBeenCalledOnce();
+
+    // Demo -> other -> demo inside the one pending sign-in. The subject at
+    // settling is the refused one, so the subject test alone passes; but the
+    // effect has started the form again twice, and what is in it now is not the
+    // publish that was refused.
+    user.set({ username: 'other', subject: 'subject-other', permissions: [], expiresAt: 0 });
+    fixture.detectChanges();
+    await fixture.whenStable();
+    user.set(demo);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(page.form.controls.name.value).toBe('');
+    page.form.setValue({ name: 'Typed meanwhile', amount: 3, currency: 'EUR' });
+
+    settle();
+    await fixture.whenStable();
+
+    controller.expectNone('http://localhost:5000/api/v1/catalog/products');
+    expect(page.publishedId()).toBeNull();
+  });
+
   it('starts the form again when a different buyer signs in: draft, banner and id', async () => {
     const page = fixture.componentInstance;
     page.publish();
