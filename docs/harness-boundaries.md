@@ -801,15 +801,19 @@ whose target no check can read, `trap`, `eval`, `mapfile -C`, `set -k` and
 runs no `git` as well** (blueprint-frontend#188), since `ls ${x[PATH=5]}; ls`
 re-resolves the `ls` after it as a file a branch can carry; there
 `export`, `readonly`, `unset` and `declare` are read by their operands
-instead of refused, so `CI=true npm test` and `export CI=true` stay ordinary.
+instead of refused, so `CI=true npm test` and `export CI=true` stay ordinary;
+`declare -n` is refused there, since a nameref hides its target in the value.
 A prompt expansion `${x@P}` and an indirection `${!x}` evaluate a variable's
 value as code — the first runs a substitution held in it — so both are
 refused on every line. **On a line that runs `git` the name list is
 inverted** (blueprint-frontend#191): only the names in
-`ASSIGNMENT_ALLOWED_NAMES` — `LC_ALL`, `TZ`, `CI` and the like — or a plain
-lowercase word may be assigned, so a variable nobody listed, `PERL5OPT` or
-`LESSKEY`, is refused without being named. **Off a `git` line the list is an
-enumeration still**, and fails open on a variable nobody listed. The scanner still miscounts a parenthesis inside `${…}`, `$[…]` or a heredoc
+`ASSIGNMENT_ALLOWED_NAMES` — `LC_ALL`, `TZ`, `CI` and the like — or, as the
+target of a `for` or a `read`, a plain lowercase word may be assigned, so a
+variable nobody listed, `PERL5OPT` or `LESSKEY`, is refused without being
+named. A lowercase word as an assignment word is refused too, because Windows
+reads `perl5opt` as `PERL5OPT`. **Off a `git` line the list is an
+enumeration still**, and fails open on a variable nobody listed.
+The scanner still miscounts a parenthesis inside `${…}`, `$[…]` or a heredoc
 body within `$(…)`, in both directions, and both are refused rather than
 read past: an opener it cannot close, and a body holding one of those
 constructs. In a run led by a wrapper with operands of its own — `timeout
@@ -823,12 +827,13 @@ rather than read as one word (blueprint-frontend#129) — launched or not,
 since the launch test is the one that knew no wrapper outside the list
 (blueprint-frontend#186). **That list is an enumeration, so it fails open on
 a wrapper nobody named**, for a computed `git` behind one; a pattern `git`
-is read behind any wrapper that no reader leads, when the pattern spells at
-least two letters of the name literally (`patterned`), so `ssh-agent gi[t]
-push origin +HEAD:main` is judged and `ssh-agent ls src/*` is not
-(blueprint-frontend#189). Inverting the list for a computed word was
-rejected because a computed argument is ordinary traffic. A value assembled at run time is the residual
-the `F=--output=x` paragraphs record.
+is read behind any wrapper that no reader leads, however little of the name
+the pattern spells (`patterned`), so `ssh-agent gi[t] push origin
++HEAD:main` and `ssh-agent g* push origin +HEAD:main` are judged
+(blueprint-frontend#189); `ssh-agent ls src/*` yields a segment with
+nothing in it, which nothing refuses. Inverting the list for a computed word
+was rejected because a computed argument is ordinary traffic. A value
+assembled at run time is the residual the `F=--output=x` paragraphs record.
 
 **And the script run is the checkout's copy, which `Edit(.claude/scripts/**)`
 protects from neither a branch nor the session.** A branch can carry an
