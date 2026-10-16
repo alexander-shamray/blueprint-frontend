@@ -120,6 +120,89 @@ own opening comment: the triggers are `push: branches: [main]` and
 twice for every commit on a PR branch. So a commit pushed to a branch with no
 pull request open runs nothing at all, and is verified by nothing.
 
+## The emulator round trip
+
+What a developer runs to put this client on an Android emulator, in order, as
+walked on 2026-10-16 (Windows 11, Docker Desktop, an API 36 AVD, the backend's
+Compose stack already up). `client-architecture.md` §15 owns *why* each step is
+shaped as it is; this section owns the commands and what was seen.
+
+**Prerequisites.** The Android SDK (`platform-tools`, `emulator`, the platform
+`android/variables.gradle` compiles against) with `ANDROID_HOME` pointing at it,
+and `JAVA_HOME` on a JDK; an AVD whose image carries Google APIs, since sign-in
+runs in Chrome; the Compose stack healthy; `npm ci` done here. Nothing here
+starts the emulator for you.
+
+**Three reads before the first run.** Each one has been the reason a first
+device run failed, and none changes anything:
+
+1. **An emulator is attached.** `adb devices` lists a line ending `device`
+   (`emulator-5554  device`). An empty list, or `offline` or `unauthorized`,
+   means nothing will install. `adb` lives in `$ANDROID_HOME/platform-tools`
+   and is not on `PATH` by default.
+2. **The gateway admits the WebView's origin.** On Android that is
+   `https://localhost` — the one origin the packaged build sends, because
+   Capacitor's `androidScheme` defaults to `https`. It must be among the
+   gateway's `Cors__Origins__*` (`deploy/compose/services/gateway.yml` in the
+   backend). `capacitor://localhost` is the iOS origin and is not needed for
+   Android. Measured: a request to the gateway with `Origin: https://localhost`
+   is answered with `Access-Control-Allow-Origin: https://localhost`.
+3. **The realm's `mobile-app` client agrees with the app.** Its redirect URI is
+   exactly `blueprint://auth/callback`, which is what `nativeRedirectUri` in
+   the three environment files sends, and its `webOrigins` name
+   `https://localhost` and `capacitor://localhost`. Keycloak imports the realm
+   only into an empty database, so a container that predates the origins serves
+   the old values until it is recreated; read the running realm, not the file.
+
+**The commands, in order.** From the repository root:
+
+```bash
+npm run emulator:android           # android build, then cap sync with the emulator flag
+```
+
+That writes `server.cleartext` and `android.allowMixedContent` into
+`android/app/src/main/assets/capacitor.config.json`; both must be present
+afterwards, or every call to the gateway fails (§15, *two blocks, two keys*).
+Then install and launch:
+
+```bash
+npm run emulator:android:run -- --target emulator-5554
+```
+
+`cap run` asks which target to use when an AVD exists as well as an attached
+emulator, and the prompt cannot be answered from a script, so pass `--target`
+with the serial `adb devices` printed. **On a Windows host this step failed**
+(`'gradlew' is not recognized as an internal or external command`): Capacitor
+invokes `./gradlew`, which `cmd.exe` cannot run (#192). What worked instead, with the
+flagged sync left in place because Gradle does not sync:
+
+```powershell
+cd android
+.\gradlew.bat installDebug
+adb shell am start -n dev.ashamray.blueprint/.MainActivity
+```
+
+**What to expect.** The Products tab fills from the gateway: that is the
+cross-origin read, over cleartext, from `https://localhost`, and it needs no
+sign-in. A `Mixed Content` line in `adb logcat` for that request is a console
+warning, not a refusal.
+
+**A hand on the device is needed, and the round trip does not yet complete.**
+
+- *Chrome's first-run screen.* A fresh AVD opens "Make Chrome your own" when
+  Sign in is first tapped; choose "Use without an account" once. Manual.
+- *Typing the credentials.* The login form is in the system browser, so it is
+  the person at the device (or `adb shell input`) who types `demo` / `demo`.
+  Manual.
+- *The return.* After the credentials are accepted the custom tab navigates to
+  `localhost`, not to the host alias, and fails with `ERR_CONNECTION_REFUSED`:
+  Keycloak's pinned `KC_HOSTNAME` makes it name `localhost` in every browser URL
+  it generates, wherever the page was loaded from. `adb reverse` for that port
+  does not help, because the session cookie belongs to the other host
+  ("Cookie not found"). The `blueprint://auth/callback` return, the token in
+  secure storage, and everything after sign-in have therefore **not** been
+  observed. Tracked in blueprint-backend #1069, and in this repository under #77.
+
 ## What no unit test covers
 
 State this in a PR body rather than letting a green suite imply it:

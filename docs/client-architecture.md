@@ -1247,12 +1247,10 @@ the exchange would fail for the same reason the web strategy's
 Capacitor serves the bundle from `https://localhost` on Android and
 `capacitor://localhost` on iOS. The gateway's CORS list
 (`deploy/compose/services/gateway.yml`, `Cors__Origins__*`) admits
-`http://localhost:5173` — the Angular dev server — and neither native origin.
-So a packaged build talking to the Compose stack is refused at the edge until
-that origin is added, and this is a real deployment question rather than a
-client defect: the spec does not cover it, and the fix belongs in the backend's
-configuration next to the origin it already lists. Locally, adding
-`https://localhost` as `Cors__Origins__1` is enough to test with. (The two
+`http://localhost:5173` — the Angular dev server — and `https://localhost`, the
+Android origin (backend #263); the iOS origin is absent, because the edge
+admits http and https alone. Measured on an emulator on 2026-10-16: the
+catalogue read from `https://localhost` succeeds. (The two
 native origins are secure contexts, which is also why
 `native-auth.strategy.ts` can rely on `crypto.subtle` for its S256 challenge;
 jsdom has no `crypto.subtle` at all, which is why its spec stubs Node's
@@ -1375,9 +1373,9 @@ files and not about a WebView. Plan Task 20
 is that round trip, and it is deliberately still open. Running it means, in
 order:
 
-1. Bring up the backend's Compose stack, and add `https://localhost` to the
-   gateway's `Cors__Origins__*` as above. The realm side needs no edit — the
-   export names both native origins — but Keycloak imports a realm only when
+1. Bring up the backend's Compose stack. Neither side needs an edit — the
+   gateway admits `https://localhost` and the export names both native origins
+   — but Keycloak imports a realm only when
    it does not already have one, and `start-dev` keeps its database inside the
    container. A keycloak container that imported the realm before those
    origins were added is still serving the empty `webOrigins`; recreate it
@@ -1403,5 +1401,11 @@ order:
    storage), which is the one behaviour that differs from the web by design
    and the sentence the account page shows because of it.
 
-Until somebody runs that, the honest claim about this client on a device is
-that it compiles and its logic is tested, and nothing more.
+Steps 1 and 2 were run on 2026-10-16 and `docs/testing.md`, *The emulator round
+trip*, records how, and what a hand has to do. The run stopped at step 3: the
+login page opens in Chrome, and submitting it sends the browser to
+`localhost`, because the backend's Keycloak pins its frontend URL to that host
+(blueprint-backend #1069). So the claim about this client on a device is that
+it installs, starts and reads the catalogue through the gateway from its own
+origin; sign-in, the return, secure storage and steps 4 and 5 have not been
+observed.
