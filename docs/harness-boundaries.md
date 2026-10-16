@@ -1860,6 +1860,60 @@ failure it is allowed. **What no test can show is a session taking the hint**:
 it is advice in the context, and the issue's measure is `cbx stats` over a
 week of use.
 
+**A session's first search for a named symbol is refused once, because a hint
+after the search was read and ignored
+(alexander-shamray/blueprint-frontend#166, #167).** 31 sessions here searched
+code in a week and none asked the index; the prompt hint above never fires on
+a task prompt such as `/ship`'s, and the MCP tools are deferred, so Grep and
+Bash win every time the agent does not stop to think. blueprint-backend built
+the obvious fix, a `PostToolUse` hint after the search, and in its first
+`/ship` session the agent read two of them and grepped on: the answer was
+already in hand, and asking the index meant redoing it. So
+`index-search-hint.py` runs on `PreToolUse` for `Grep`, `Bash` and
+`PowerShell` and **refuses the first recursive search for an identifier, or an
+alternation of them, with the lookup that answers it as the reason**:
+`find_refs` and `find_symbol`, one per name up to three. It spends one refusal
+per `session_id`, recorded by an exclusive create under the temporary
+directory so a parallel batch is refused once, and the same search rerun
+passes. Text, a message, a pattern, a single file, prose under `docs/` or
+`*.md`, a pipe and a path outside the checkout are never refused: grep lists
+those whole and the index ranks. A session whose transcript already holds a
+lookup that ran, an MCP call or `run-index` and its relatives, is not
+refused, and neither is a subagent, whose profile may hold neither the tools
+nor a shell. **It fails open everywhere it cannot judge**: unreadable input,
+an id that cannot name a record, a transcript it cannot read. Its command ends
+`|| :`, for the reason the query hint's does, and under `PreToolUse` the
+cost of the 2 is every Grep and shell call of the session. The route differs
+by checkout, because the MCP server serves the checkout the session started
+in: the main checkout is sent to the MCP tools alone, and a linked worktree
+to the CLI alone, run from its root. **That is the cautious half**: a session
+launched *in* the worktree has a server rooted there and could use the tools,
+which this hook cannot tell from one that entered it, so until the server
+follows a move (alexander-shamray/blueprint-frontend#195, blueprint-backend#563)
+such a session is sent the longer route. `test_index_search_hint.py` holds every command it names to a prefix
+the skill's `allowed-tools` approves, and each to one plain command, since a
+pipe or `;` takes it out of the grant. **What no test can show is a session
+taking the refusal**; the measure is the share of code-searching sessions
+with a lookup, which was zero.
+
+**A session started in a `/branch` worktree had no index tools, because the
+main checkout's approval of `.mcp.json` did not reach it
+(alexander-shamray/blueprint-frontend#165).** The approval lives in the main
+checkout's untracked `.claude/settings.local.json`, and a session launched in
+the worktree reads that directory's own, so Claude Code listed the server as
+pending approval and the session fell back to Grep. `git-worktree-fork.sh`
+now writes the worktree a settings file holding `enabledMcpjsonServers` and
+nothing else: the names the main checkout approves, an approve-all expanded to
+the servers `.mcp.json` defines now, and without any the main checkout
+disables. **No `permissions` row crosses**, because those are the main
+checkout's own grants. It writes only where the worktree has nothing at that
+path, and not through a link the branch carries, whose target would otherwise
+be written; the Python that reads the approval runs with `-I`, so an untracked
+`json.py` at the checkout root is not imported. A file it cannot read forks
+the worktree anyway and says on stderr that the servers stay unapproved.
+`.claude/settings.json` cannot hold the approval: a scratch repository with
+the keys there still listed the server as pending.
+
 **The twelfth is `/ship`'s review dispatch, and calling it narrow would be
 the comfortable half of the truth.** Step 5's local review grants
 `Agent(branch-reviewer)` and nothing broader, one agent per round. What bounds
