@@ -5104,6 +5104,14 @@ class TheGitArgvGuard(unittest.TestCase):
                 "ln -s /etc/hosts out && bash -c 'git diff out README.md'",
                 "ssh-agent bash -c 'ln -s a b' && git diff a README.md",
                 "python3.12 -c 'import os; os.symlink(1, 2)' && git diff a b",
+                # Blueprint-frontend#216: the spellings the lists lacked.
+                "cp -s /etc/hosts out && git diff out README.md",
+                "cp --symbolic-link /etc/hosts out && git diff out README.md",
+                "cp -rs a b && git diff a README.md",
+                "tar xf a.tar && git diff a README.md",
+                "unzip a.zip && git diff a README.md",
+                "env -S 'ln -s a b' && git diff a README.md",
+                "osascript -e 'do shell script \"ln -s a b\"' && git diff a x",
         ):
             with self.subTest(command=command):
                 self.assertIn("blueprint-frontend#213",
@@ -5122,9 +5130,55 @@ class TheGitArgvGuard(unittest.TestCase):
                 # PR 215's review: prose in a quoted argument is not a script.
                 'gh pr create --title x --body "add a link to the git docs"',
                 "curl -d 'link git' https://example.test",
+                # Blueprint-frontend#216: a plain copy, and an archive read
+                # without git beside it.
+                "cp a b && git status",
+                "cp -r a b && git status",
+                "cp -s a b",
+                "tar tf a.tar",
+                "env LC_ALL=C git status",
         ):
             with self.subTest(command=command):
                 self.assertAdmitted(command)
+        for command in (
+                "busybox ln -s a b && git diff a README.md",
+                "echo $(ln -s a b) && git diff a README.md",
+                "x=$(ln -s a b); git diff a README.md",
+                "wsl ln -s a b && git diff a README.md",
+        ):
+            with self.subTest(command=command):
+                self.assertRefused(command)
+
+    def test_a_pattern_under_a_relative_directory_that_is_a_link_is_judged(
+            self):
+        # Blueprint-frontend#216: `src/gi[t]` under `src -> /usr/bin` runs the
+        # real `git`, and `program_pattern` exempted every relative directory.
+        base = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, base, True)
+        repo = os.path.join(base, "repo")
+        outside = os.path.join(base, "outside")
+        os.makedirs(os.path.join(repo, ".git"))
+        os.makedirs(os.path.join(repo, "lib"))
+        os.makedirs(outside)
+        linked = os.path.join(repo, "src")
+        try:
+            os.symlink(outside, linked, target_is_directory=True)
+        except (OSError, NotImplementedError):
+            made = (subprocess.run(["cmd", "/c", "mklink", "/J", linked,
+                                    outside], capture_output=True)
+                    if os.name == "nt" else None)
+            if made is None or made.returncode != 0:
+                self.skipTest("this host lets no link be created")
+        for command in ("ssh-agent src/gi[t] mergetool",
+                        "ssh-agent src/g* mergetool",
+                        "cp src/* dest"):
+            with self.subTest(command=command):
+                self.assertRefused(command, cwd=repo)
+        # A real directory, and one that does not exist, stay arguments.
+        for command in ("cp lib/* dest", "ssh-agent lib/gi[t] status",
+                        "cp absent/* dest"):
+            with self.subTest(command=command):
+                self.assertAdmitted(command, cwd=repo)
 
     def test_a_merge_strategy_is_refused_on_pull_and_rebase(self):
         # `-s <name>` runs `git-merge-<name>` from the exec path or `PATH`

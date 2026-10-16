@@ -4320,13 +4320,19 @@ def program_pattern(token):
     is an argument far more often than a program, so `cp src/* dest` passes.
     `cp * dest` and `cp /tmp/* dest` are over-refused: the tokens keep no
     quoting, so no reading tells them from a wrapper's pattern.
+    **Unless that directory is itself a link out of the checkout**
+    (blueprint-frontend#216): `src/gi[t]` under `src -> /usr/bin` runs the
+    real `git`, so the directory part goes through `escapes_checkout`, which
+    resolves it where the hook runs.
     """
     if not patterned(token):
         return False
     if not re.search(r"[\\/]", token):
         return True
-    return bool(token.startswith(("/", "\\", "~")) or DRIVE_PATH.match(token)
-                or ".." in re.split(r"[\\/]", token))
+    if (token.startswith(("/", "\\", "~")) or DRIVE_PATH.match(token)
+            or ".." in re.split(r"[\\/]", token)):
+        return True
+    return escapes_checkout(re.sub(r"[\\/][^\\/]*$", "", token))
 
 
 def listed_as_a_launch(run, index):
@@ -4398,6 +4404,17 @@ def computed_option_value(segment):
 # the same line is not there to be seen (blueprint-frontend#213).
 LINK_MAKERS = frozenset({"ln", "mklink", "junction", "link", "fsutil",
                          "new-item", "ni"})
+# Programs that unpack a link out of an archive (blueprint-frontend#216). They
+# are listed whole, extracting or not: a list fails closed, and `tar tf` beside
+# git is an over-refusal that costs a second command.
+ARCHIVE_UNPACKERS = frozenset({
+    "tar", "bsdtar", "gtar", "unzip", "7z", "7za", "7zr", "cpio", "pax",
+    "unar", "expand-archive",
+})
+LINK_PROGRAMS = LINK_MAKERS | ARCHIVE_UNPACKERS
+# `cp -s` and `cp --symbolic-link` make links; a plain `cp` does not. A short
+# cluster holding `s` counts (`cp -rs`).
+SYMBOLIC_COPY_FLAG = re.compile(r"^(?:-[A-Za-z]*s[A-Za-z]*|--symbolic-link)$")
 LINK_WORD = re.compile(
     r"(?<![\w-])(?:ln|mklink|junction|link|fsutil|new-item|ni|symlink|"
     r"createsymboliclink)(?![\w.-])", re.IGNORECASE)
@@ -4408,7 +4425,7 @@ GIT_WORD = re.compile(r"(?<![\w.-])git(?![\w.-])", re.IGNORECASE)
 SCRIPT_RUNNERS = frozenset({
     "bash", "sh", "zsh", "dash", "ksh", "fish", "pwsh", "powershell", "cmd",
     "eval", "busybox", "python", "perl", "ruby", "node", "deno", "bun", "php",
-    "lua",
+    "lua", "osascript", "wsl", "cscript", "wscript", "mshta", "env",
 })
 
 
@@ -4429,8 +4446,12 @@ def link_made_beside_git_offence(tokens):
     `SCRIPT_RUNNERS`) is searched for the word, in either
     direction (`bash -c 'ln -s a b' && git diff a`, `ln -s a b && bash -c
     'git diff a'`). A script that holds both is judged by its own pass.
-    Not modelled: `cp -s`, `busybox`, an archive that unpacks a link, and a
-    link maker behind a substitution.
+    **The spellings blueprint-frontend#216 named** are read as well: `cp -s`
+    and `cp --symbolic-link` (a short cluster holding `s` counts), an archive
+    program on `ARCHIVE_UNPACKERS`, and the script of `osascript`, `wsl`,
+    `cscript`, `wscript`, `mshta` or `env -S`, now on `SCRIPT_RUNNERS`.
+    `busybox` and a link maker behind a substitution were already seen by the
+    reading above; a test holds each.
     """
     makes = script_git = False
     for run in command_runs(tokens):
@@ -4441,8 +4462,12 @@ def link_made_beside_git_offence(tokens):
         runs_script = any(
             re.sub(r"[\d.]+$", "", program_name(token).lower())
             in SCRIPT_RUNNERS for token in run)
+        symbolic_copy = any(program_name(token).lower() == "cp"
+                            for token in run)
         for token in run:
-            if program_name(token).lower() in LINK_MAKERS:
+            if program_name(token).lower() in LINK_PROGRAMS:
+                makes = True
+            elif symbolic_copy and SYMBOLIC_COPY_FLAG.match(token):
                 makes = True
             elif runs_script and re.search(r"\s", token):
                 makes = makes or bool(LINK_WORD.search(token))
