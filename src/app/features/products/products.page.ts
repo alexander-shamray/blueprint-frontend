@@ -269,10 +269,11 @@ export class ProductsPage {
    * out — and the skeleton gives the content something to scroll — would ask
    * for page one again under the same generation, and both replies would be
    * appended. A cold start has no rows yet and a restart keeps the old ones
-   * (#202), so the state is "loading with no rows, or restarting". A later page the scroll itself started is
-   * not stopped here: Ionic's own `isLoading` already holds the scroll until
-   * `complete()`, and disabling it mid-load would clear that flag, hide the
-   * spinner and turn `complete()` into a no-op.
+   * (#202), so the state is "loading with no rows, or restarting". A later
+   * page the scroll itself started is not stopped here: Ionic's own
+   * `isLoading` already holds the scroll until `complete()`, and disabling it
+   * mid-load would clear that flag, hide the spinner and turn `complete()`
+   * into a no-op.
    */
   readonly canLoadMore = computed(
     () =>
