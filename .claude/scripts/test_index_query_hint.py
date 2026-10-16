@@ -88,7 +88,7 @@ def context(done):
 
 def emitted(text):
     """The command inside the hint's backticks."""
-    found = re.search(r"`([^`]+)`", text)
+    found = re.search(r"`(bash [^`]+)`", text)
     assert found, text
     return found.group(1)
 
@@ -123,7 +123,7 @@ class TheWiring(unittest.TestCase):
 
     def test_the_launcher_admits_it(self):
         launcher = LAUNCHER.read_text(encoding="utf-8")
-        self.assertRegex(launcher, r"\|index-query-hint\.py\)")
+        self.assertRegex(launcher, r"\|index-query-hint\.py[|)]")
 
     def test_the_registered_command_cannot_erase_a_prompt(self):
         # The launcher exits 2 whenever it cannot prove it ran the hook — no
@@ -167,6 +167,26 @@ class TheHint(unittest.TestCase):
                 self.assertEqual(0, done.returncode, done.stderr)
                 command = emitted(context(done))
                 self.assertEqual(subcommand, command.split()[2], command)
+
+    def test_each_kind_of_question_names_the_mcp_tool_asking_it(self):
+        for prompt, subcommand in CASES.items():
+            with self.subTest(prompt=prompt):
+                tool = _module().TOOLS[subcommand]
+                self.assertIn(f"`mcp__codebase-index__{tool}`", context(ask(prompt)))
+
+    def test_it_says_the_server_does_not_follow_a_worktree_move(self):
+        self.assertIn("linked worktree", context(ask("where is the cart store")))
+
+    def test_every_route_has_a_tool_and_the_search_hint_keeps_the_same_map(self):
+        import importlib.util
+
+        routes = {row[2].split()[2] for row in _module().ROUTES}
+        self.assertEqual(routes, set(_module().TOOLS))
+        spec = importlib.util.spec_from_file_location(
+            "index_search_hint", HINT.with_name("index-search-hint.py"))
+        search = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(search)
+        self.assertEqual(search.TOOLS, _module().TOOLS)
 
     def test_every_route_is_reached_by_a_case(self):
         reached = {emitted(context(ask(prompt))) for prompt in CASES}

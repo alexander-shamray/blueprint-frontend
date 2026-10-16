@@ -8417,9 +8417,10 @@ class ALauncherCheckout:
         if guards:
             for path in source.glob("guard-*.py"):
                 shutil.copy2(path, self.hooks / path.name)
-            # The index refresh and the query hint are the hooks here that
+            # The index refresh and the two hints are the hooks here that
             # guard nothing, and the closed set admits them beside the guards.
-            for name in ("index-refresh.py", "index-query-hint.py"):
+            for name in ("index-refresh.py", "index-query-hint.py",
+                         "index-search-hint.py"):
                 shutil.copy2(source / name, self.hooks / name)
         self.launcher = self.hooks / "run-guard.sh"
         self.cache = self.root / ".claude" / "cache"
@@ -9113,6 +9114,11 @@ class ARememberedGuardAnswersAsAProbedOne(LauncherMarkCases, unittest.TestCase):
         # as safe to hand it as an unreadable one.
         ("index-query-hint.py", {"prompt": "where is the cart store"}),
         ("index-query-hint.py", "not json"),
+        # The search hint reads a tool call, and one with no transcript to
+        # consult is one it lets through, so a readable event starts nothing.
+        ("index-search-hint.py",
+         {"tool_name": "Grep", "tool_input": {"pattern": "MoneyPipe"}}),
+        ("index-search-hint.py", "not json"),
     )
 
     def both(self, box, guard="guard-git-argv.py", event="{}"):

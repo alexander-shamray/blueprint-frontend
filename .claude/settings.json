@@ -90,6 +90,16 @@
             "statusMessage": "checking edit target"
           }
         ]
+      },
+      {
+        "matcher": "Grep|Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${CLAUDE_PROJECT_DIR}/.claude/hooks/run-guard.sh\" index-search-hint.py || :",
+            "timeout": 15
+          }
+        ]
       }
     ],
     "PostToolUse": [
