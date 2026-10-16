@@ -5113,9 +5113,15 @@ def _offence(command, depth, judged):
         # `git -c "a;b" push origin +HEAD:main` hid the push from a pattern
         # that stopped at the first one, and a newline inside a quote hides
         # it the same way. Any `push` after a `git` is refused here, across
-        # lines; the path is only for text `shlex` failed on.
-        if any(re.search(r"\bgit\b[\s\S]*\bpush\b", text) for text in (
-                stripped, re.sub(r"[\"'\\]", "", stripped))):
+        # lines; the path is only for text `shlex` failed on. **Two searches
+        # rather than one pattern**: `\bgit\b[\s\S]*\bpush\b` backtracks the
+        # whole tail from every `git`, so text of many `git` words and no
+        # `push` took minutes — measured, 110 s at 128 KB — which is a
+        # fail-open by timeout. The first `git` is the one that matters, since
+        # any later `git` has its `push` after the first (PR #190's review).
+        if any((first := re.search(r"\bgit\b", text)) is not None
+               and re.search(r"\bpush\b", text[first.end():])
+               for text in (stripped, re.sub(r"[\"'\\]", "", stripped))):
             return (
                 "a `git push` appears in a command this guard could not "
                 "tokenise, so its remote and refspec cannot be read; refusing "
