@@ -168,7 +168,7 @@ silently stays hidden for exactly the user who has one grant.
 
 The claim then shows up three times, and the repetition is the point:
 
-- `tabs.page.ts` hides the fourth tab unless `hasPermission('catalog:write')`.
+- `tabs.page.ts` hides the Publish tab unless `hasPermission('catalog:write')`.
 - `app.routes.ts` puts `permissionGuard(PERMISSIONS.catalogWrite)` on
   `tabs/publish`, so a typed URL is refused even though the tab is absent.
 - `mapError`'s 403 branch produces a banner that names the permission.
@@ -591,7 +591,8 @@ served.
 So the windows moved to `core/errors/rate-limit.ts`, and there are exactly two
 of them, because the gateway has exactly two policies. `RateLimitWindows`
 provides `catalogue` and `authenticated` in root; Products binds the first and
-the four authenticated actions bind the second. `catalogue` is named for what
+every authenticated screen binds the second: Cart, Checkout, Order placed,
+the History list and detail, and Publish. `catalogue` is named for what
 it governs rather than for the gateway's own policy name, because "anonymous"
 is actively misleading from this side — it is the window a signed-in customer's
 listing lands in as well.
@@ -642,9 +643,11 @@ request's refusal opened while it was in flight.
 The honest caveat: 300 requests a minute with a queue of 10, and 100 a minute
 for the catalogue. No human tapping buttons reaches either. This was never a
 bug users were hitting. It is the model being wrong in a way that becomes a
-real one the moment a retry loop or a polling screen is added — and the
-catalogue's infinite scroll is the closest thing this client has to one, which
-is why `canLoadMore` consults the window and not just its own last error.
+real one the moment a retry loop is added — and the catalogue's infinite
+scroll and Order placed's poll (`core/orders/order-poll.ts`, §7) are the
+nearest things this client has to one. The poll draws on the `authenticated`
+window and consults it before sending; the scroll is why `canLoadMore`
+consults the window and not just its own last error.
 
 ## 11. The gateway is the only host the client calls — and Publish needed a route for that to stay true
 
@@ -1396,7 +1399,9 @@ order:
    which the source does not settle.
 4. Browse, quote, order and follow the order to its tracking detail — the path
    `e2e/smoke.spec.ts` drives on the web — then cancel an order that is still
-   cancellable, which the smoke cannot (§7, *What replaced it*).
+   cancellable, which the smoke cannot (spec §7, *Testing*, and the
+   comment in `e2e/smoke.spec.ts`: its products are unstocked, so the order ends
+   `out_of_stock`).
 5. Force-stop the app and relaunch: the cart must survive (Capacitor
    Preferences) and the session must survive too (the refresh token in secure
    storage), which is the one behaviour that differs from the web by design

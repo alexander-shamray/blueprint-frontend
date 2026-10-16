@@ -4,9 +4,10 @@ import { DisplayError } from '@core/errors/error-mapper';
 /**
  * The order id the placed page is given when the platform answered
  * `command.already_committed`: the order exists, but no id came back and there
- * is no endpoint to read one from. It lives here rather than on the checkout
- * page because two features need it and a feature never imports another
- * feature (spec §3) — the ESLint rule and the boundary test both enforce that.
+ * is no id to read it back by (`GET /bff/v1/orders/{id}` needs one). It lives
+ * here rather than on the checkout page because two features need it and a
+ * feature never imports another feature (spec §3) — the ESLint rule and the
+ * boundary test both enforce that.
  */
 export const ALREADY_COMMITTED = 'already-committed';
 
@@ -70,7 +71,7 @@ export class CommandIdentity {
     // resubmitting under a fresh id is the second order the whole mechanism
     // exists to prevent. No edit — not even after a validation failure — may
     // release it. Only onSuccess() may clear spent, because only a completed
-    // submission starts a new form entry.
+    // submission, or a different buyer signing in, starts a new form entry.
     if (this.spent()) return;
 
     if (!this.failedValidationOnly) return;
