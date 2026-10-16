@@ -12,7 +12,7 @@ import {
 } from '@ionic/angular';
 import { OrderingApi } from '@core/api/ordering.api';
 import { OrdersApi } from '@core/api/orders.api';
-import { CANCELLATION_STATUSES, CancelReason, OrderDetail, PERMISSIONS } from '@core/api/types';
+import { CANCELLATION_STATUSES, CancelOrderReason, OrderDetail, PERMISSIONS } from '@core/api/types';
 import { AuthService } from '@core/auth/auth.service';
 import { DisplayError, mapError } from '@core/errors/error-mapper';
 import { RateLimitWindows } from '@core/errors/rate-limit';
@@ -254,16 +254,18 @@ export class OrderDetailPage {
    * choice a customer makes, and OrderEndpoints.cs stamps every cancellation
    * from this route `CommandOrigin.User` regardless of the code sent.
    *
-   * So offering the list would let a customer record "cancelled because
-   * payment was declined, origin user" - a statement about an incident that
-   * did not happen. It is not cosmetic: the backend's own comment notes that
+   * The backend's ADR-087 now enforces this: the route accepts
+   * `customer_request` alone and answers any other code with a 400 keyed
+   * `Reason`, so a customer cannot record "cancelled because payment was
+   * declined, origin user" - a statement about an incident that did not
+   * happen - even from a client that tried. Before it, only this screen's
+   * restraint stood in the way, and the backend's own comment notes that
    * payment_declined and payment_timeout are one dimension value apart on the
-   * orders.cancelled metric and a different incident, so a mis-picked code
-   * lands in the data operators read during one. The order read has since made
-   * it visible to the buyer too: §10.7 keys the status on the origin first
-   * precisely so that a user-origin `payment_declined` still reads `cancelled`.
+   * orders.cancelled metric and a different incident. The order read keys the
+   * status on the origin first (§10.7), so a user-origin `payment_declined`
+   * still read `cancelled`.
    */
-  private static readonly USER_REASON: CancelReason = 'customer_request';
+  private static readonly USER_REASON: CancelOrderReason = 'customer_request';
 
   /** Reactive for the reason `OrderPlacedPage.orderId` gives: a reused route keeps emitting. */
   readonly orderId = toSignal(

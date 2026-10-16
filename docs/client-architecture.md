@@ -797,7 +797,11 @@ caller's to state".
 
 *Where it shows.* `core/api/types.ts` mirrors all five codes, because that is
 the wire vocabulary and the backend refuses a sixth with a 400 keyed `Reason`
-("Not a known cancellation reason."). `OrderDetailPage` offers none of them: it
+("Not a known cancellation reason."). Since the backend's ADR-087 the cancel
+route accepts `customer_request` alone and refuses the other four the same way,
+so `CancelOrderReason` is that one code and `OrderingApi.cancel` takes it,
+while `CancelReason` stays the vocabulary an order's `cancelReason` can read.
+`OrderDetailPage` offers none of them: it
 sends `customer_request` and says so on screen ("Cancelling here is recorded as
 the customer's own request"). The alternative would let a customer record
 "cancelled because payment was declined, origin user" — a statement about an

@@ -85,4 +85,12 @@ describe('OrderingApi', () => {
     request.flush(null, { status: 204, statusText: 'No Content' });
     expect(done).toHaveBeenCalledOnce();
   });
+
+  it('types the cancel reason as the one code the backend accepts (ADR-087)', () => {
+    // The compiler is the assertion: the four platform-discovered codes are
+    // still in CANCEL_REASONS, for reading an order, and are refused here.
+    // @ts-expect-error out_of_stock is the saga's to state, and a 400 from the backend
+    api.cancel('33333333-3333-3333-3333-333333333333', 'out_of_stock').subscribe({ error: () => undefined });
+    controller.expectOne(() => true).flush(null, { status: 400, statusText: 'Bad Request' });
+  });
 });
