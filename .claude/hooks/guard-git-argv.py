@@ -4268,12 +4268,15 @@ def live_comma_brace(command):
 # (blueprint-frontend#185): `PATH` decides which file `git` is, `HOME` and
 # `XDG_CONFIG_HOME` which global configuration it loads — `core.pager`,
 # `diff.external` — and the pager, the editor, `BASH_ENV` and the loader each
-# run something no word on the line names. **It is an enumeration, so it fails open on a variable nobody listed**;
-# naming no variable at all was the alternative, and it refused the ordinary
-# `X=1 git log` and `for f in a b; do git log -1 $f; done` this suite records.
+# run something no word on the line names. `PS4` runs a substitution held in
+# it before each command under `set -x`, and `VIMINIT` and `EXINIT` are Ex
+# commands the editor git starts runs first (PR #190's review). **It is an
+# enumeration, so it fails open on a variable nobody listed**; naming no
+# variable at all was the alternative, and it refused the ordinary `X=1 git
+# log` and `for f in a b; do git log -1 $f; done` this suite records.
 ASSIGNMENT_SENSITIVE_NAMES = frozenset({
-    "BASH_ENV", "EDITOR", "ENV", "HOME", "LESS", "LESSCLOSE", "LESSOPEN",
-    "PAGER", "PATH", "VISUAL", "XDG_CONFIG_HOME",
+    "BASH_ENV", "EDITOR", "ENV", "EXINIT", "HOME", "LESS", "LESSCLOSE",
+    "LESSOPEN", "PAGER", "PATH", "PS4", "VIMINIT", "VISUAL", "XDG_CONFIG_HOME",
 })
 ASSIGNMENT_SENSITIVE_PREFIXES = ("DYLD_", "GIT_", "LD_", "SSH_")
 
@@ -4310,8 +4313,11 @@ DESCRIPTOR_VARIABLE = re.compile(
 
 # A `git` word anywhere in the command, read as `substituted_git_offence`
 # reads one where the tokeniser cannot: inside a quoted substitution or a
-# heredoc a shell runs, a `git` is no token at all.
-GIT_WORD = re.compile(r"(?<![\w.-])git(?![\w.-])", re.IGNORECASE)
+# heredoc a shell runs, a `git` is no token at all. `git.exe` and the other
+# `EXECUTABLE_SUFFIXES` are `git` to `program_name`, so they are here too (PR
+# #190's review).
+GIT_WORD = re.compile(
+    r"(?<![\w.-])git(?:\.(?:exe|cmd|bat|com))?(?![\w.-])", re.IGNORECASE)
 
 
 def sensitive_assignment(word, fold=True):
@@ -4381,14 +4387,23 @@ def environment_operand(run):
     return None
 
 
-def _option_target(rest, letter):
-    """The operand of `-<letter>` in `rest`, glued or not, or `None`."""
+def _option_targets(rest, letter):
+    """Every operand of `-<letter>` in `rest`, glued or not.
+
+    **Every one, not the first** (PR #190's review): printf lets the last
+    `-v` win, so `printf -v a -v PATH %s 5` assigns `PATH`, and test's `-a`
+    evaluates its second term whatever the first gave, so
+    `[ -v a -a -v 'x[PATH=5]' ]` assigns too. Both measured with Git Bash.
+    """
+    targets = []
     for position, word in enumerate(rest):
         if word.startswith("-" + letter):
             glued = word[2:]
-            return glued or (rest[position + 1] if position + 1 < len(rest)
-                             else None)
-    return None
+            if glued:
+                targets.append(glued)
+            elif position + 1 < len(rest):
+                targets.append(rest[position + 1])
+    return targets
 
 
 def assigning_word(run):
@@ -4420,10 +4435,9 @@ def assigning_word(run):
         # `printf -v NAME` assigns, and `test -v 'a[…]'` evaluates the
         # subscript, as in a substitution; `set -k` hands a later `NAME=value`
         # argument to the command as its environment.
-        if word in ("printf", "test", "["):
-            target = _option_target(rest, "v")
-            if target is not None and sensitive_target(target):
-                return word
+        if word in ("printf", "test", "[") and any(
+                sensitive_target(target) for target in _option_targets(rest, "v")):
+            return word
         # `set -a` exports every later assignment, which would carry a `for`
         # or `read` target into the environment — where Windows reads `Path`
         # as `PATH` — and so undo comparing targets as spelled (PR #190's
@@ -4432,6 +4446,10 @@ def assigning_word(run):
                 later in ("keyword", "allexport")
                 or re.match(r"^[-+][A-Za-z]*[ak]", later)
                 for later in rest):
+            return word
+        # `shopt -o` sets the options `set -o` does (PR #190's review).
+        if word == "shopt" and any(
+                later.startswith("-") and "o" in later for later in rest):
             return word
         return None
     return None
@@ -4477,7 +4495,9 @@ def assigning_expansion(command):
                     return match.group()
                 if text.startswith(("$[", "$(("), index):
                     return text[index:index + 3]
-            elif state == "double":
+            # A heredoc body expands `$` alone, so `a=(1 2)` there is text
+            # (PR #190's review).
+            elif state == "double" or not quotes:
                 continue
             elif text.startswith(("((", "=("), index):
                 return text[index:index + 2]
@@ -4493,9 +4513,6 @@ def assigning_expansion(command):
 # names or keys: `${!prefix*}`, `${!prefix@}`, `${!arr[@]}`, `${!arr[*]}`.
 INDIRECT_EXPANSION = re.compile(
     r"\$\{!(?:[A-Za-z_][A-Za-z0-9_]*|[0-9]+)(?P<rest>[^}]*)\}")
-
-# `${…@P}`, which expands its value as a prompt string.
-PROMPT_EXPANSION = re.compile(r"\$\{[^{}]*@P\}")
 
 
 def evaluating_expansion(command):
@@ -4515,11 +4532,13 @@ def evaluating_expansion(command):
         for index, state, escaped in _quoting(text, quotes=quotes):
             if escaped or state == "single" or (state == "comment" and quotes):
                 continue
+            # Read at the operator rather than from the `$`, since what it
+            # follows may hold a nested `${…}`: `"${x[${z:-0}]@P}"` (PR
+            # #190's review).
+            if text.startswith("@P}", index):
+                return "${…@P}"
             if text[index] != "$":
                 continue
-            match = PROMPT_EXPANSION.match(text, index)
-            if match is not None:
-                return match.group()
             match = INDIRECT_EXPANSION.match(text, index)
             if match is not None and match.group("rest") not in (
                     "*", "@", "[@]", "[*]"):
@@ -4546,6 +4565,17 @@ def spells_git(command):
         for text in texts)
 
 
+# **A word that may assign, read from the string where the tokeniser failed**:
+# `NAME=`, `NAME[…]=` or `NAME+=`, or a builtin that assigns or names its
+# target — `set`, `env`, `printf` and `test` among them. Wider than
+# `assigning_word`, since with no tokens there is no name to read.
+UNTOKENISED_ASSIGNMENT = re.compile(
+    r"(?:^|[\s;&|(){}`])(?:[A-Za-z_][A-Za-z0-9_]*(?:\[[^\]]*\])?\+?=|(?:"
+    + "|".join(sorted(re.escape(word) for word in (
+        ASSIGNING_BUILTINS | NAMING_BUILTINS | {"[", "env", "printf", "set", "test"})))
+    + r")(?=[\s;&|()]|$))")
+
+
 def assignment_offence(command, tokens):
     """The reason to refuse an assignment on a line that runs `git`, or `None`.
 
@@ -4570,6 +4600,14 @@ def assignment_offence(command, tokens):
             found = assigning_word(run) or environment_operand(run)
             if found is not None:
                 break
+    if found is None:
+        # `env -SPATH=./tools git status` assigns inside the string env
+        # splits, which is judged as a line of its own and runs no `git`
+        # there (PR #190's review).
+        found = next((
+            word for payload in split_string_payloads(tokens)
+            for word in re.sub(r"[\"']", "", payload).split()
+            if ASSIGNMENT.match(word) and sensitive_assignment(word)), None)
     if found is None and double_bracket_arithmetic(tokens):
         found = "[["
     if found is None:
@@ -4955,6 +4993,19 @@ def _offence(command, depth, judged):
             if refusal is not None:
                 return refusal
 
+    # **Before the tokeniser, since a line can be made to fail it**: the
+    # fallback below reads forbidden flags and a push alone, and a trailing
+    # backslash once took every check after the tokeniser away (PR #190's
+    # review).
+    found = evaluating_expansion(command)
+    if found is not None:
+        return (
+            f"`{found}` expands a variable's value as code — a prompt "
+            "expansion runs a substitution held in it, an indirection "
+            "evaluates a subscript in it — so what runs is not in the command "
+            "this hook reads (PR #190's review)."
+        )
+
     # Stripped once, and used by BOTH paths below. The fallback used to scan the
     # raw `command`, which put the heredoc false positive straight back: a body
     # that mentions a forbidden flag would be refused on the raw string the
@@ -5014,8 +5065,16 @@ def _offence(command, depth, judged):
     # `strip_dollar_quotes` turns `$'…'` and `$"…"` into the ordinary quoting
     # `shlex` resolves, on the string just checked.
     stripped = strip_dollar_quotes(resolved)
+    # **Bash keeps a backslash that ends the command as a literal one**, where
+    # `shlex` finds nothing for it to escape and fails, so
+    # `PATH=./tools git status \` ran with every check below the tokeniser
+    # switched off — measured with Git Bash (PR #190's review). Doubled, it is
+    # the same literal to `shlex`; inside an unclosed quote both still fail.
+    lexed = stripped
+    if (len(stripped) - len(stripped.rstrip("\\"))) % 2:
+        lexed = stripped + "\\"
     try:
-        lexer = shlex.shlex(stripped, posix=True, punctuation_chars=True)
+        lexer = shlex.shlex(lexed, posix=True, punctuation_chars=True)
         # Comments are already gone, and `shlex` would take a second, wider view
         # of them: its `commenters` fires mid-word, where bash's fires only at
         # the start of one. Left on, `--grep=#x ; git push origin +HEAD:main`
@@ -5053,6 +5112,17 @@ def _offence(command, depth, judged):
                 "tokenise, so its remote and refspec cannot be read; refusing "
                 "rather than admitting a push nothing checked."
             )
+        # And the assignment check, which reads tokens, done the crude way:
+        # on a line that runs `git`, any word that may assign (PR #190's
+        # review).
+        if spells_git(stripped) and (assigning_expansion(command) or
+                                     UNTOKENISED_ASSIGNMENT.search(stripped)):
+            return (
+                "a command this guard could not tokenise runs `git` and may "
+                "assign a variable git reads, so what it assigns cannot be "
+                "read; refusing rather than admitting it "
+                "(blueprint-frontend#185)."
+            )
         return None
 
     if unmodelled_printer(tokens):
@@ -5088,15 +5158,6 @@ def _offence(command, depth, judged):
     refusal = xargs_offence(tokens)
     if refusal is not None:
         return refusal
-
-    found = evaluating_expansion(command)
-    if found is not None:
-        return (
-            f"`{found}` expands a variable's value as code — a prompt "
-            "expansion runs a substitution held in it, an indirection "
-            "evaluates a subscript in it — so what runs is not in the command "
-            "this hook reads (PR #190's review)."
-        )
 
     refusal = assignment_offence(command, tokens)
     if refusal is not None:
