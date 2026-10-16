@@ -45,127 +45,139 @@ import { countryOptions } from './countries';
     </ion-header>
 
     <ion-content>
-      <app-error-banner [error]="bannerError() ?? rateLimit.refusal()" [retryInSeconds]="rateLimit.remaining()" />
-
-      <form [formGroup]="form" (ngSubmit)="placeOrder()">
+      @if (signedOut()) {
         <!--
-          A 400's messages sit under the control they name (fieldErrors), and
-          leave the banner, which keeps only the keys no control here owns.
-          Each goes when its control is edited: the message was about the
-          value that was sent, and that value is no longer the one on screen.
+          Nobody is signed in, so the previous buyer's address is not rendered:
+          on native a sign-out leaves this pushed page mounted, and whoever
+          opens the Cart tab next would read it (#159). The form is still held
+          below, with its values and command id, for the owner's return.
         -->
-        <ion-item><ion-input label="Line 1" formControlName="line1" required></ion-input></ion-item>
-        @for (message of fieldErrors().line1 ?? []; track $index) {
-          <ion-note class="field-error" color="danger" data-field="line1">{{ message }}</ion-note>
-        }
-        <ion-item><ion-input label="Line 2" formControlName="line2"></ion-input></ion-item>
-        @for (message of fieldErrors().line2 ?? []; track $index) {
-          <ion-note class="field-error" color="danger" data-field="line2">{{ message }}</ion-note>
-        }
-        <ion-item><ion-input label="City" formControlName="city" required></ion-input></ion-item>
-        @for (message of fieldErrors().city ?? []; track $index) {
-          <ion-note class="field-error" color="danger" data-field="city">{{ message }}</ion-note>
-        }
-        <ion-item><ion-input label="Postal code" formControlName="postalCode" required></ion-input></ion-item>
-        @for (message of fieldErrors().postalCode ?? []; track $index) {
-          <ion-note class="field-error" color="danger" data-field="postalCode">{{ message }}</ion-note>
-        }
-        <!--
-          A native select, not ion-select: it is labelled by a real <label>,
-          a WebView renders it as the platform's own picker, and a browser
-          test chooses an option by value rather than by driving an overlay.
-        -->
-        <ion-item>
-          <label class="country" for="checkout-country">Country</label>
-          <select id="checkout-country" formControlName="country" required>
-            <option value="" disabled>Choose a country</option>
-            @for (option of countries; track option.code) {
-              <option [value]="option.code">{{ option.name }}</option>
-            }
-          </select>
+        <ion-item data-testid="signed-out">
+          <ion-note>Sign in to continue with this order.</ion-note>
         </ion-item>
-        @for (message of fieldErrors().country ?? []; track $index) {
-          <ion-note class="field-error" color="danger" data-field="country">{{ message }}</ion-note>
-        }
+      } @else {
+        <app-error-banner [error]="bannerError() ?? rateLimit.refusal()" [retryInSeconds]="rateLimit.remaining()" />
+
+        <form [formGroup]="form" (ngSubmit)="placeOrder()">
+          <!--
+            A 400's messages sit under the control they name (fieldErrors), and
+            leave the banner, which keeps only the keys no control here owns.
+            Each goes when its control is edited: the message was about the
+            value that was sent, and that value is no longer the one on screen.
+          -->
+          <ion-item><ion-input label="Line 1" formControlName="line1" required></ion-input></ion-item>
+          @for (message of fieldErrors().line1 ?? []; track $index) {
+            <ion-note class="field-error" color="danger" data-field="line1">{{ message }}</ion-note>
+          }
+          <ion-item><ion-input label="Line 2" formControlName="line2"></ion-input></ion-item>
+          @for (message of fieldErrors().line2 ?? []; track $index) {
+            <ion-note class="field-error" color="danger" data-field="line2">{{ message }}</ion-note>
+          }
+          <ion-item><ion-input label="City" formControlName="city" required></ion-input></ion-item>
+          @for (message of fieldErrors().city ?? []; track $index) {
+            <ion-note class="field-error" color="danger" data-field="city">{{ message }}</ion-note>
+          }
+          <ion-item><ion-input label="Postal code" formControlName="postalCode" required></ion-input></ion-item>
+          @for (message of fieldErrors().postalCode ?? []; track $index) {
+            <ion-note class="field-error" color="danger" data-field="postalCode">{{ message }}</ion-note>
+          }
+          <!--
+            A native select, not ion-select: it is labelled by a real <label>,
+            a WebView renders it as the platform's own picker, and a browser
+            test chooses an option by value rather than by driving an overlay.
+          -->
+          <ion-item>
+            <label class="country" for="checkout-country">Country</label>
+            <select id="checkout-country" formControlName="country" required>
+              <option value="" disabled>Choose a country</option>
+              @for (option of countries; track option.code) {
+                <option [value]="option.code">{{ option.name }}</option>
+              }
+            </select>
+          </ion-item>
+          @for (message of fieldErrors().country ?? []; track $index) {
+            <ion-note class="field-error" color="danger" data-field="country">{{ message }}</ion-note>
+          }
+
+          <!--
+            Reads the handoff directly, with optional chaining, rather than
+            currency()'s non-null assertion. currency() is a template dependency
+            of this view; on success and on already_committed this component
+            calls handoff.clear() before router.navigate() resolves, which nulls
+            the signal currency() reads. That alone is enough to mark it dirty —
+            no other signal needs to change on the same tick, because a computed
+            re-evaluates whenever ITS OWN dependency changes, not because
+            something else in the template did. Zoneless CD then re-renders the
+            still-mounted view on the next tick and currency() would throw on
+            the now-null quote unconditionally. currency() itself stays
+            asserted: placeOrder() reads the handoff directly too (see below)
+            and returns before ever calling currency() with a null quote.
+          -->
+          @if (handoff.quote(); as quote) {
+            <!--
+              The summary is the quote the cart handed over, line for line and
+              number for number: what this order will be placed against, read
+              off the reply and formatted, never added up here
+              (client-architecture.md §9).
+            -->
+            <ion-list data-testid="order-summary">
+              <ion-list-header><ion-label>Order summary</ion-label></ion-list-header>
+              @for (line of quote.lines; track line.productId) {
+                <ion-item>
+                  <ion-label>{{ line.name }}</ion-label>
+                  <ion-note slot="end">
+                    {{ line.quantity }} × {{ line.amount | money: quote.currency }} =
+                    {{ line.lineTotal | money: quote.currency }}
+                  </ion-note>
+                </ion-item>
+              }
+              <ion-item>
+                <ion-label><strong>Total</strong></ion-label>
+                <ion-note slot="end"><strong>{{ quote.total | money: quote.currency }}</strong></ion-note>
+              </ion-item>
+            </ion-list>
+
+            <ion-item>
+              <ion-note>Ordering in {{ quote.currency }}, carried from the quote.</ion-note>
+            </ion-item>
+          }
+
+          <!--
+            rateLimit.blocked() joins the other refusals: a 429 says the platform
+            will not take this order yet, and the banner above is counting the
+            window down (spec §6). submitting() is the busy state — what the
+            customer sees between the tap and the answer — and it changes the
+            label only: the button stays live while the request is out, so a
+            double-click still reaches the platform, as client-architecture.md
+            §4 decides and placeOrder() below explains.
+          -->
+          <ion-button expand="block" type="submit"
+            [disabled]="form.invalid || identity.isSpent() || !handoff.quote() || rateLimit.blocked()">
+            @if (submitting()) {
+              <ion-spinner name="dots" aria-hidden="true"></ion-spinner> Placing order…
+            } @else {
+              Place order
+            }
+          </ion-button>
+        </form>
 
         <!--
-          Reads the handoff directly, with optional chaining, rather than
-          currency()'s non-null assertion. currency() is a template dependency
-          of this view; on success and on already_committed this component
-          calls handoff.clear() before router.navigate() resolves, which nulls
-          the signal currency() reads. That alone is enough to mark it dirty —
-          no other signal needs to change on the same tick, because a computed
-          re-evaluates whenever ITS OWN dependency changes, not because
-          something else in the template did. Zoneless CD then re-renders the
-          still-mounted view on the next tick and currency() would throw on
-          the now-null quote unconditionally. currency() itself stays
-          asserted: placeOrder() reads the handoff directly too (see below)
-          and returns before ever calling currency() with a null quote.
+          command.id_reused: the form stays on screen with the user's changes in
+          it, because those changes are what was NOT applied, and this note is
+          the page saying so in its own words — the banner above carries the
+          platform's title and detail, which are addressed to a client rather
+          than to a customer.
         -->
-        @if (handoff.quote(); as quote) {
-          <!--
-            The summary is the quote the cart handed over, line for line and
-            number for number: what this order will be placed against, read
-            off the reply and formatted, never added up here
-            (client-architecture.md §9).
-          -->
-          <ion-list data-testid="order-summary">
-            <ion-list-header><ion-label>Order summary</ion-label></ion-list-header>
-            @for (line of quote.lines; track line.productId) {
-              <ion-item>
-                <ion-label>{{ line.name }}</ion-label>
-                <ion-note slot="end">
-                  {{ line.quantity }} × {{ line.amount | money: quote.currency }} =
-                  {{ line.lineTotal | money: quote.currency }}
-                </ion-note>
-              </ion-item>
-            }
-            <ion-item>
-              <ion-label><strong>Total</strong></ion-label>
-              <ion-note slot="end"><strong>{{ quote.total | money: quote.currency }}</strong></ion-note>
-            </ion-item>
-          </ion-list>
-
+        @if (error()?.kind === 'idReused') {
           <ion-item>
-            <ion-note>Ordering in {{ quote.currency }}, carried from the quote.</ion-note>
+            <ion-note>
+              This order was already placed by an earlier submission from this page, so any changes
+              you made since were not applied, and nothing was sent again. Its id cannot be shown
+              here, because this refusal does not carry it; History lists every order this account
+              has placed, this one included.
+            </ion-note>
           </ion-item>
         }
-
-        <!--
-          rateLimit.blocked() joins the other refusals: a 429 says the platform
-          will not take this order yet, and the banner above is counting the
-          window down (spec §6). submitting() is the busy state — what the
-          customer sees between the tap and the answer — and it changes the
-          label only: the button stays live while the request is out, so a
-          double-click still reaches the platform, as client-architecture.md
-          §4 decides and placeOrder() below explains.
-        -->
-        <ion-button expand="block" type="submit"
-          [disabled]="form.invalid || identity.isSpent() || !handoff.quote() || rateLimit.blocked()">
-          @if (submitting()) {
-            <ion-spinner name="dots" aria-hidden="true"></ion-spinner> Placing order…
-          } @else {
-            Place order
-          }
-        </ion-button>
-      </form>
-
-      <!--
-        command.id_reused: the form stays on screen with the user's changes in
-        it, because those changes are what was NOT applied, and this note is
-        the page saying so in its own words — the banner above carries the
-        platform's title and detail, which are addressed to a client rather
-        than to a customer.
-      -->
-      @if (error()?.kind === 'idReused') {
-        <ion-item>
-          <ion-note>
-            This order was already placed by an earlier submission from this page, so any changes
-            you made since were not applied, and nothing was sent again. Its id cannot be shown
-            here, because this refusal does not carry it; History lists every order this account
-            has placed, this one included.
-          </ion-note>
-        </ion-item>
       }
     </ion-content>
   `,
@@ -179,6 +191,13 @@ import { countryOptions } from './countries';
 export class CheckoutPage {
   private readonly ordering = inject(OrderingApi);
   private readonly auth = inject(AuthService);
+
+  /**
+   * Nobody is signed in. The template shows a placeholder instead of the form
+   * then, while the form itself, its values and `identity` stay here: a sign-out
+   * alone changes nothing the owner would need back (see the subject effect).
+   */
+  protected readonly signedOut = computed(() => this.auth.user()() === null);
   private readonly cart = inject(CartStore);
   // Protected, not private: the template reads it directly (see the @if
   // guard below), the same convention CartPage.store uses.

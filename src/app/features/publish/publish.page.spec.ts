@@ -419,6 +419,40 @@ describe('PublishPage', () => {
     expect(page.publishedId()).toBeNull();
   });
 
+  it('renders no draft while nobody is signed in, and gives it back with its id to the owner (#159)', async () => {
+    const page = fixture.componentInstance;
+    const host: HTMLElement = fixture.nativeElement;
+    page.publish();
+    const first = controller.expectOne('http://localhost:5000/api/v1/catalog/products');
+    const firstId = first.request.body.commandId;
+    first.flush({ title: 'Service Unavailable', status: 503 }, { status: 503, statusText: '' });
+    await fixture.whenStable();
+    fixture.detectChanges();
+    expect(host.querySelector('form')).not.toBeNull();
+
+    user.set(null);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    expect(host.querySelector('form')).toBeNull();
+    expect(host.querySelector('ion-input')).toBeNull();
+    expect(host.querySelector('app-error-banner')).toBeNull();
+    expect(host.querySelector('[data-testid="signed-out"]')).not.toBeNull();
+
+    user.set({ username: 'demo', subject: 'subject-demo', permissions: [], expiresAt: 1 });
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    expect(host.querySelector('[data-testid="signed-out"]')).toBeNull();
+    expect(host.querySelector('form')).not.toBeNull();
+    expect(page.form.controls.name.value).toBe('A widget');
+    page.publish();
+    const retry = controller.expectOne('http://localhost:5000/api/v1/catalog/products');
+    expect(retry.request.body.commandId).toBe(firstId);
+    retry.flush('55555555-5555-5555-5555-555555555555', { status: 200, statusText: 'OK' });
+    await fixture.whenStable();
+  });
+
   it('keeps the draft and the held id when the same buyer signs out and back in', async () => {
     const page = fixture.componentInstance;
     page.publish();

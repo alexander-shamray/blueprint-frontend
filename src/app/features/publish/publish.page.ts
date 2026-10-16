@@ -1,5 +1,5 @@
 import {
-  ChangeDetectionStrategy, Component, effect, inject, signal, untracked,
+  ChangeDetectionStrategy, Component, computed, effect, inject, signal, untracked,
 } from '@angular/core';
 import { FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
 import {
@@ -79,48 +79,59 @@ import { ErrorBannerComponent } from '@shared/error-banner.component';
     <ion-header><ion-toolbar><ion-title>Publish</ion-title></ion-toolbar></ion-header>
 
     <ion-content>
-      <app-error-banner [error]="error() ?? rateLimit.refusal()" [retryInSeconds]="rateLimit.remaining()" />
-
-      <form [formGroup]="form" (ngSubmit)="publish()">
-        <ion-item><ion-input label="Name" formControlName="name" required></ion-input></ion-item>
-        <ion-item>
-          <ion-input label="Amount" type="number" formControlName="amount" required></ion-input>
-        </ion-item>
-        <ion-item><ion-input label="Currency" formControlName="currency" required></ion-input></ion-item>
-
+      @if (signedOut()) {
         <!--
-          rateLimit.blocked() joins the other two refusals: the gateway has
-          said how long to wait and the banner above is counting it down
-          (spec §6).
+          Nobody is signed in, so the draft is not rendered: this tab root
+          survives a native sign-out (#159). The form and its command id are
+          held, for the owner's return.
         -->
-        <ion-button expand="block" type="submit"
-          [disabled]="form.invalid || identity.isSpent() || rateLimit.blocked()">
-          Publish
-        </ion-button>
-      </form>
+        <ion-item data-testid="signed-out">
+          <ion-note>Sign in to publish a product.</ion-note>
+        </ion-item>
+      } @else {
+        <app-error-banner [error]="error() ?? rateLimit.refusal()" [retryInSeconds]="rateLimit.remaining()" />
 
-      @if (publishedId(); as id) {
-        @if (id === alreadyCommitted) {
+        <form [formGroup]="form" (ngSubmit)="publish()">
+          <ion-item><ion-input label="Name" formControlName="name" required></ion-input></ion-item>
+          <ion-item>
+            <ion-input label="Amount" type="number" formControlName="amount" required></ion-input>
+          </ion-item>
+          <ion-item><ion-input label="Currency" formControlName="currency" required></ion-input></ion-item>
+
+          <!--
+            rateLimit.blocked() joins the other two refusals: the gateway has
+            said how long to wait and the banner above is counting it down
+            (spec §6).
+          -->
+          <ion-button expand="block" type="submit"
+            [disabled]="form.invalid || identity.isSpent() || rateLimit.blocked()">
+            Publish
+          </ion-button>
+        </form>
+
+        @if (publishedId(); as id) {
+          @if (id === alreadyCommitted) {
+            <ion-item>
+              <ion-note>
+                The platform reported that this command id had already been applied, and it no
+                longer holds the result. The product was published; its id is not recoverable
+                from here.
+              </ion-note>
+            </ion-item>
+          } @else {
+            <ion-item><ion-note>Published as <code>{{ id }}</code>.</ion-note></ion-item>
+          }
+        }
+
+        @if (error()?.kind === 'idReused') {
           <ion-item>
             <ion-note>
-              The platform reported that this command id had already been applied, and it no
-              longer holds the result. The product was published; its id is not recoverable
-              from here.
+              An earlier publish from this form already went through, so any changes you made since
+              were not applied. Check Products before publishing again: publishing now creates a
+              second product.
             </ion-note>
           </ion-item>
-        } @else {
-          <ion-item><ion-note>Published as <code>{{ id }}</code>.</ion-note></ion-item>
         }
-      }
-
-      @if (error()?.kind === 'idReused') {
-        <ion-item>
-          <ion-note>
-            An earlier publish from this form already went through, so any changes you made since
-            were not applied. Check Products before publishing again: publishing now creates a
-            second product.
-          </ion-note>
-        </ion-item>
       }
     </ion-content>
   `,
@@ -129,6 +140,9 @@ export class PublishPage {
   private readonly catalog = inject(CatalogApi);
   private readonly catalogRefresh = inject(CatalogRefresh);
   private readonly auth = inject(AuthService);
+
+  /** See `CheckoutPage.signedOut`: the draft is hidden, not dropped, while nobody is signed in. */
+  protected readonly signedOut = computed(() => this.auth.user()() === null);
 
   readonly identity = new CommandIdentity();
 
