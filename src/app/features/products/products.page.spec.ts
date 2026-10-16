@@ -438,6 +438,69 @@ describe('ProductsPage', () => {
     });
   });
 
+  describe('a reload keeps the rows until the first page lands (#202)', () => {
+    const URL = 'http://localhost:5000/api/v1/catalog/products';
+
+    const loaded = async (): Promise<void> => {
+      controller.expectOne((r) => r.url === URL).flush(page(20, 'cursor-2'));
+      await fixture.whenStable();
+    };
+
+    it('leaves the rows and no skeleton on screen while the first page is in flight', async () => {
+      await loaded();
+
+      fixture.componentInstance.reload();
+      await fixture.whenStable();
+
+      expect(fixture.componentInstance.products()).toHaveLength(20);
+      expect(fixture.componentInstance.showSkeleton()).toBe(false);
+      controller.expectOne((r) => r.url === URL).flush(page(3, null));
+    });
+
+    it('replaces the rows with the reply, not extends them', async () => {
+      await loaded();
+
+      fixture.componentInstance.reload();
+      controller.expectOne((r) => r.url === URL).flush(page(3, null));
+      await fixture.whenStable();
+
+      expect(fixture.componentInstance.products()).toHaveLength(3);
+      expect(fixture.componentInstance.hasMore()).toBe(false);
+    });
+
+    it('keeps the infinite scroll quiet while the restart is in flight', async () => {
+      await loaded();
+
+      fixture.componentInstance.reload();
+      await fixture.whenStable();
+
+      expect(fixture.componentInstance.canLoadMore()).toBe(false);
+      controller.expectOne((r) => r.url === URL).flush(page(3, 'cursor-b'));
+      await fixture.whenStable();
+      expect(fixture.componentInstance.canLoadMore()).toBe(true);
+    });
+
+    it('keeps the rows when the restart fails, and Try again replaces them', async () => {
+      await loaded();
+
+      fixture.componentInstance.reload();
+      controller.expectOne((r) => r.url === URL).flush(null, { status: 503, statusText: 'Unavailable' });
+      await fixture.whenStable();
+
+      expect(fixture.componentInstance.error()).not.toBeNull();
+      expect(fixture.componentInstance.products()).toHaveLength(20);
+
+      fixture.componentInstance.retryLoad();
+      const retry = controller.expectOne((r) => r.url === URL);
+      expect(retry.request.params.has('cursor')).toBe(false);
+      retry.flush(page(3, null));
+      await fixture.whenStable();
+
+      expect(fixture.componentInstance.products()).toHaveLength(3);
+      expect(fixture.componentInstance.error()).toBeNull();
+    });
+  });
+
   it('a reload triggered by CatalogRefresh drops a stale loadMore() the same way a manual reload() does', async () => {
     controller
       .expectOne((r) => r.url === 'http://localhost:5000/api/v1/catalog/products')
