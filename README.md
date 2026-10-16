@@ -98,8 +98,9 @@ plain `cap run` re-syncs, which would overwrite the flagged sync with a release
 one and fail exactly as if the keys were never set. §15 has the mechanism.
 
 A packaged native build is served from `https://localhost` (Android) or
-`capacitor://localhost` (iOS), which is **not** an origin the gateway's CORS
-list admits — see §15 before pointing one at the Compose stack.
+`capacitor://localhost` (iOS). The gateway's CORS list admits the first and not
+the second; `docs/testing.md`, *The emulator round trip*, is the procedure and
+says what has and has not been observed on a device.
 
 The e2e smoke runs against the real Compose stack and is never skipped when the
 platform is missing — it fails on connection instead. The backend's own rule is
