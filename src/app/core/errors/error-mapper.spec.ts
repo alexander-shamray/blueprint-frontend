@@ -69,6 +69,40 @@ describe('mapError', () => {
     expect(result).toMatchObject({ kind: 'banner', title: 'Not Found', detail: 'No such order.' });
   });
 
+  it('404 product.not_found shows the backend text as sent', () => {
+    const result = mapError(
+      problem(404, {
+        title: 'Product not found',
+        detail: 'No product has that id.',
+        status: 404,
+        code: 'product.not_found',
+      }),
+    );
+
+    expect(result).toMatchObject({
+      kind: 'banner',
+      title: 'Product not found',
+      detail: 'No product has that id.',
+    });
+  });
+
+  it('504 request.timed_out is a retry carrying the backend text and correlation id', () => {
+    const result = mapError(
+      problem(504, {
+        title: 'The request timed out',
+        status: 504,
+        code: 'request.timed_out',
+        correlationId: 'abc-504',
+      }),
+    );
+
+    expect(result).toMatchObject({
+      kind: 'retry',
+      title: 'The request timed out',
+      correlationId: 'abc-504',
+    });
+  });
+
   it('409 command.already_committed must not be retried', () => {
     const result = mapError(
       problem(409, {

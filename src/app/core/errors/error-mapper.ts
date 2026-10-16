@@ -123,6 +123,8 @@ export function mapError(
       return { ...base, kind: 'forbidden', permission: context?.permission };
 
     case 404:
+      // Includes `product.not_found` from `GET /v1/catalog/products/{id}`: the
+      // backend's title and detail are the message, as for any other 404.
       return { ...base, kind: 'banner' };
 
     case 409:
@@ -170,7 +172,12 @@ export function mapError(
 
     default:
       // Every other 5xx, plus status 0 — a network failure, a timeout, a CORS
-      // rejection. There is no body on those, so there is no correlation id to
+      // rejection. That includes the 504 `request.timed_out` every backend host
+      // now answers at its deadline (backend ADR-066): the gateway's deadline
+      // is longer than a service's, so a slow call can end this way instead of
+      // hanging. Nothing retries on its own, and a command that met one keeps
+      // its id (`CommandIdentity.onFailure` releases it for a validation
+      // failure only), so the user's retry is the same idempotent request. There is no body on those, so there is no correlation id to
       // carry, and `base` already reflects that.
       return { ...base, kind: 'retry' };
   }
