@@ -419,6 +419,42 @@ describe('CheckoutPage', () => {
     await fixture.whenStable();
   });
 
+  it('renders no form while nobody is signed in, and gives it back with its values and id to the owner (#159)', async () => {
+    const page = fixture.componentInstance;
+    const host: HTMLElement = fixture.nativeElement;
+    page.placeOrder();
+    const first = controller.expectOne('http://localhost:5000/api/v1/orders');
+    const firstId = first.request.body.commandId;
+    first.flush({ title: 'Server error', status: 500 }, { status: 500, statusText: 'Error' });
+    await fixture.whenStable();
+    fixture.detectChanges();
+    expect(host.querySelector('form')).not.toBeNull();
+
+    user.set(null);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    // Nothing of the address, the order summary or the last error is in the DOM.
+    expect(host.querySelector('form')).toBeNull();
+    expect(host.querySelector('ion-input')).toBeNull();
+    expect(host.querySelector('[data-testid="order-summary"]')).toBeNull();
+    expect(host.querySelector('app-error-banner')).toBeNull();
+    expect(host.querySelector('[data-testid="signed-out"]')).not.toBeNull();
+
+    user.set({ username: 'demo', subject: 'subject-demo', permissions: [], expiresAt: 1 });
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    expect(host.querySelector('[data-testid="signed-out"]')).toBeNull();
+    expect(host.querySelector('form')).not.toBeNull();
+    expect(page.form.getRawValue()).toEqual(validAddress);
+    page.placeOrder();
+    const retry = controller.expectOne('http://localhost:5000/api/v1/orders');
+    expect(retry.request.body.commandId).toBe(firstId);
+    retry.flush('44444444-4444-4444-4444-444444444444', { status: 200, statusText: 'OK' });
+    await fixture.whenStable();
+  });
+
   it('starts the form again when a different buyer signs in after a sign-out', async () => {
     const page = fixture.componentInstance;
     const firstId = page.identity.current();
