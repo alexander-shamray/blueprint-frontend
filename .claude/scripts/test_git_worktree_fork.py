@@ -87,6 +87,15 @@ STUB
   git -C "$root/origin" -c user.name=t -c user.email=t@t commit -q -m hook
 fi
 git clone -q "$root/origin" "$root/checkout"
+# Committed after the clone, so only origin/main carries the dangling link. Its
+# target is the native spelling, which a Windows link resolves where bash does.
+if [ "$LINK" = yes ]; then
+  native=$(cd "$root" && { pwd -W 2>/dev/null || pwd; })
+  blob=$(printf %s "$native/outside.json" | git -C "$root/origin" hash-object -w --stdin)
+  git -C "$root/origin" update-index --add --cacheinfo "120000,$blob,.claude/settings.local.json"
+  git -C "$root/origin" -c user.name=t -c user.email=t@t commit -q -m link
+  git -C "$root/checkout" fetch -q origin
+fi
 if [ "$IGNORE" = yes ]; then printf '.claude/worktrees/\\n' > "$root/checkout/.gitignore"; fi
 mkdir -p "$root/checkout/src"
 printf '%s\\n' "$root"
@@ -96,8 +105,8 @@ printf '%s\\n' "$root"
 class ForkShape(unittest.TestCase):
     """The helper forks `.claude/worktrees/<name>` from the main checkout only."""
 
-    def fixture(self, ignore="yes", hook="no"):
-        made = run_bash(FIXTURE, IGNORE=ignore, HOOK=hook)
+    def fixture(self, ignore="yes", hook="no", link="no"):
+        made = run_bash(FIXTURE, IGNORE=ignore, HOOK=hook, LINK=link)
         self.assertEqual(0, made.returncode, made.stderr)
         root = made.stdout.strip()
         self.addCleanup(lambda: run_bash('rm -rf "$TARGET"', TARGET=root))
@@ -106,6 +115,19 @@ class ForkShape(unittest.TestCase):
     def fork(self, where, path, branch="feat/probe", **env):
         return run_bash('cd "$WHERE" && bash "$FORK" "$P" "$B"',
                         WHERE=where, FORK=str(FORK), P=path, B=branch, **env)
+
+    def local_settings(self, root, text):
+        made = run_bash('mkdir -p "$C/.claude" && printf %s "$T" > "$C/.claude/settings.local.json"',
+                        C=f"{root}/checkout", T=text)
+        self.assertEqual(0, made.returncode, made.stderr)
+
+    def probe_settings(self, root):
+        return run_bash('cat "$W/.claude/settings.local.json"',
+                        W=f"{root}/checkout/.claude/worktrees/probe")
+
+    def checkout_file(self, root, name, text):
+        made = run_bash('printf %s "$T" > "$C/$N"', C=f"{root}/checkout", N=name, T=text)
+        self.assertEqual(0, made.returncode, made.stderr)
 
     def test_the_documented_shape_forks_with_no_upstream(self):
         root = self.fixture()
@@ -166,6 +188,110 @@ class ForkShape(unittest.TestCase):
                 # asked through bash, which spells `root` the way it was made.
                 absent = run_bash('sleep 2; [ ! -e "$P" ]', P=f"{root}/checkout/hook-ran")
                 self.assertEqual(0, absent.returncode, "a launcher ran with no hook to run")
+
+    def test_the_mcp_approval_crosses_and_no_permission_does(self):
+        # A session started in the worktree reads that directory's local
+        # settings (blueprint-frontend#165), so the main checkout's approval
+        # is carried there alone.
+        root = self.fixture()
+        self.local_settings(root, json.dumps({
+            "enableAllProjectMcpServers": True,
+            "enabledMcpjsonServers": ["codebase-index"],
+            "permissions": {"allow": ["Bash(ls:*)"]}}))
+        result = self.fork(f"{root}/checkout", ".claude/worktrees/probe")
+        self.assertEqual(0, result.returncode, result.stderr)
+        copied = self.probe_settings(root)
+        self.assertEqual(0, copied.returncode, copied.stderr)
+        self.assertEqual({"enabledMcpjsonServers": ["codebase-index"]},
+                         json.loads(copied.stdout))
+
+    def test_the_approval_is_not_written_through_a_link_the_branch_carries(self):
+        root = self.fixture(link="yes")
+        self.local_settings(root, json.dumps({"enabledMcpjsonServers": ["codebase-index"]}))
+        result = self.fork(f"{root}/checkout", ".claude/worktrees/probe")
+        self.assertEqual(0, result.returncode, result.stderr)
+        linked = run_bash('[ -L "$W/.claude/settings.local.json" ]',
+                          W=f"{root}/checkout/.claude/worktrees/probe")
+        if linked.returncode != 0:
+            self.skipTest("git checked the link out as a file: no symbolic links here")
+        self.assertNotEqual(0, run_bash('[ -e "$R/outside.json" ]', R=root).returncode,
+                            "the approval was written through the link")
+
+    def test_a_checkout_approving_nothing_gives_the_worktree_no_settings(self):
+        root = self.fixture()
+        self.local_settings(root, json.dumps({"permissions": {"allow": ["Bash(ls:*)"]}}))
+        result = self.fork(f"{root}/checkout", ".claude/worktrees/probe")
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertNotIn("could not copy", result.stderr)
+        self.assertNotEqual(0, self.probe_settings(root).returncode)
+
+    def test_a_checkout_with_no_local_settings_forks_and_says_nothing(self):
+        root = self.fixture()
+        result = self.fork(f"{root}/checkout", ".claude/worktrees/probe")
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertNotIn("could not copy", result.stderr)
+        self.assertNotEqual(0, self.probe_settings(root).returncode)
+
+    def test_an_unreadable_approval_still_forks_and_says_so(self):
+        root = self.fixture()
+        self.local_settings(root, "{not json")
+        result = self.fork(f"{root}/checkout", ".claude/worktrees/probe")
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertIn("could not copy the MCP approval", result.stderr)
+        self.assertIn("JSONDecodeError", result.stderr)
+        self.assertNotEqual(0, self.probe_settings(root).returncode)
+
+    def test_an_approval_list_that_is_not_names_warns(self):
+        # Anything else would leave the worktree's servers pending with
+        # nothing said.
+        root = self.fixture()
+        self.local_settings(root, json.dumps({"enabledMcpjsonServers": "codebase-index"}))
+        result = self.fork(f"{root}/checkout", ".claude/worktrees/probe")
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertIn("could not copy the MCP approval", result.stderr)
+        self.assertNotEqual(0, self.probe_settings(root).returncode)
+
+    def test_approving_every_server_crosses_as_the_servers_defined(self):
+        # Names cross, not the approve-all, so a server defined later still asks.
+        for local in ({"enableAllProjectMcpServers": True},
+                      {"enableAllProjectMcpServers": True, "enabledMcpjsonServers": ["codebase-index"]}):
+            with self.subTest(local=local):
+                root = self.fixture()
+                self.checkout_file(root, ".mcp.json", json.dumps(
+                    {"mcpServers": {"codebase-index": {}, "other": {}}}))
+                self.local_settings(root, json.dumps(local))
+                result = self.fork(f"{root}/checkout", ".claude/worktrees/probe")
+                self.assertEqual(0, result.returncode, result.stderr)
+                copied = self.probe_settings(root)
+                self.assertEqual(0, copied.returncode, copied.stderr)
+                self.assertEqual({"enabledMcpjsonServers": ["codebase-index", "other"]},
+                                 json.loads(copied.stdout))
+
+    def test_a_json_module_at_the_checkout_root_is_not_imported(self):
+        # The approval is read by a Python run from the checkout root, whose
+        # untracked files must not shadow the standard library.
+        root = self.fixture()
+        self.checkout_file(root, "json.py", 'raise SystemExit("shadowed")')
+        self.local_settings(root, json.dumps({"enabledMcpjsonServers": ["codebase-index"]}))
+        result = self.fork(f"{root}/checkout", ".claude/worktrees/probe")
+        self.assertEqual(0, result.returncode, result.stderr)
+        copied = self.probe_settings(root)
+        self.assertEqual(0, copied.returncode, copied.stderr)
+        self.assertEqual({"enabledMcpjsonServers": ["codebase-index"]},
+                         json.loads(copied.stdout))
+
+    def test_a_disabled_server_does_not_cross(self):
+        # The worktree may approve no server the main checkout refuses.
+        root = self.fixture()
+        self.local_settings(root, json.dumps({
+            "enabledMcpjsonServers": ["codebase-index", "other"],
+            "disabledMcpjsonServers": ["other"]}))
+        result = self.fork(f"{root}/checkout", ".claude/worktrees/probe")
+        self.assertEqual(0, result.returncode, result.stderr)
+        copied = self.probe_settings(root)
+        self.assertEqual(0, copied.returncode, copied.stderr)
+        self.assertEqual({"enabledMcpjsonServers": ["codebase-index"]},
+                         json.loads(copied.stdout))
 
     def test_any_other_path_is_refused(self):
         root = self.fixture()

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Fork /branch step 5's worktree under .claude/worktrees/ and start its index
-# refresh, and nothing else.
+# Fork /branch step 5's worktree under .claude/worktrees/, carry the main
+# checkout's MCP approval into it and start its index refresh, and nothing
+# else.
 #
 # The whole command is fixed here: `git worktree add --no-track -b <branch>
 # <path> origin/main`. A `Bash(git worktree add:*)` grant would buy that and
@@ -62,6 +63,41 @@ esac
 git show-ref --verify --quiet refs/remotes/origin/main ||
   { echo "no refs/remotes/origin/main — fetch first (step 1)" >&2; exit 4; }
 git worktree add --no-track -b "$branch" "$path" origin/main
+# python3 stands in where the `py` launcher the hooks name does not exist.
+python=python3
+command -v py >/dev/null 2>&1 && python="py -3.12"
+# A session started in the worktree reads that directory's own untracked local
+# settings, where the main checkout's approval of its `.mcp.json` servers does
+# not reach, so the approval crosses as the names it covers, an approve-all
+# expanded to the servers defined now; never the file, whose `permissions` rows
+# are the main checkout's own grants. Definitions are found by walking up.
+settings=.claude/settings.local.json
+# -L as well as -e, because -e follows a link and a dangling one reads absent.
+if [ -f "$settings" ] && [ ! -L "$path/$settings" ] && [ ! -e "$path/$settings" ]; then
+  # -I keeps a checkout-root json.py off the import path, as the hooks' -P does.
+  if ! $python -I - "$settings" "$path/$settings" .mcp.json <<'PY'; then
+import json, os, sys
+local = json.load(open(sys.argv[1], encoding="utf-8"))
+servers = local.get("enabledMcpjsonServers", [])
+if not (isinstance(servers, list) and all(isinstance(s, str) for s in servers)):
+    sys.exit("enabledMcpjsonServers is not a list of server names")
+if local.get("enableAllProjectMcpServers") is True and os.path.isfile(sys.argv[3]):
+    defined = json.load(open(sys.argv[3], encoding="utf-8")).get("mcpServers")
+    if not isinstance(defined, dict):
+        sys.exit(f"{sys.argv[3]} has no mcpServers object")
+    servers += [name for name in defined if name not in servers]
+disabled = local.get("disabledMcpjsonServers", [])
+if not isinstance(disabled, list):
+    sys.exit("disabledMcpjsonServers is not a list")
+servers = [s for s in servers if s not in disabled]
+if servers:
+    os.makedirs(os.path.dirname(sys.argv[2]), exist_ok=True)
+    with open(sys.argv[2], "w", encoding="utf-8") as out:
+        json.dump({"enabledMcpjsonServers": servers}, out)
+PY
+    echo "warning: could not copy the MCP approval from $settings; the worktree's MCP servers stay unapproved" >&2
+  fi
+fi
 # Seed the new worktree's code index now (alexander-shamray/blueprint-frontend#127):
 # /branch enters it mid-session, where no `SessionStart` fires. THIS checkout's
 # hook does the work, through this checkout's launcher, handed an event whose
