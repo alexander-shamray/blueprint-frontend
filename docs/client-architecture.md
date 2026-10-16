@@ -387,7 +387,10 @@ likely to be behind, so `OrderPlacedPage` treats a 404 as "not recorded yet"
 and keeps polling. The poll's intervals are `ORDER_POLL` in
 `core/orders/order-poll.ts`, and the statuses it stops on are
 `TERMINAL_STATUSES` in `core/api/types.ts`, read through `isTerminal` beside
-the intervals. It never sends inside a blocked `authenticated` window, and a
+the intervals. That list is `delivered` alone: `BuyerStatus.Of` ranks a
+delivery above every cancellation and the projection absorbs Ordering and
+Shipping events in whatever order they arrive, so a cancellation is not a
+status nothing can outrank (#158). It never sends inside a blocked `authenticated` window, and a
 429 on a poll lengthens the next wait instead of raising a banner for a
 request the buyer did not make. There is no stream, so polling is the honest
 mechanism, and it is deleted when one exists.

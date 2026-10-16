@@ -32,10 +32,8 @@ describe('backend vocabularies', () => {
     ]);
   });
 
-  it('treats delivered and the three cancellation members as terminal, and nothing else', () => {
-    expect([...TERMINAL_STATUSES].sort()).toEqual(
-      ['cancelled', 'declined', 'delivered', 'out_of_stock'],
-    );
+  it('treats delivered as the only terminal status, because it outranks every cancellation', () => {
+    expect([...TERMINAL_STATUSES]).toEqual(['delivered']);
   });
 
   it('names the three members one OrderCancelled decides between, and only those', () => {
