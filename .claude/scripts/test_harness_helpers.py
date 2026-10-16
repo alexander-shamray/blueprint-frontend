@@ -4762,6 +4762,8 @@ class TheGitArgvGuard(unittest.TestCase):
                 "UNLISTED=1 bash .claude/scripts/npm-checks.sh fast",
                 "env UNLISTED=1 npm test",
                 "UNLISTED=1; ls",
+                # `rm suggestions.md` is a granted command (PR #206's review).
+                "UNLISTED=1; rm suggestions.md",
                 'S=.claude/scripts; py "$S/x"',
                 "x=1; ls",
                 "declare -r y=1; ls",
@@ -4800,6 +4802,9 @@ class TheGitArgvGuard(unittest.TestCase):
                 "git diff ../x README.md",
                 "git diff -- ../../x",
                 "git diff -- -/../../x",
+                # A drive prefix needs no separator (PR #206's review).
+                "git diff C:../../.gitconfig README.md",
+                "git diff c:x README.md",
                 "git diff a/../../x README.md",
                 r"git diff C:/Users/x/.gitconfig README.md",
                 r"git diff 'C:\Users\x\.gitconfig' README.md",
@@ -4868,6 +4873,10 @@ class TheGitArgvGuard(unittest.TestCase):
                 "git Filter-Branch --tree-filter ./tools/x HEAD",
                 "git SubModule foreach ./tools/x",
                 "git Send-Email --to-cmd=./tools/x a.patch",
+                # Windows opens a script by the name without its trailing dot
+                # or space.
+                "git filter-branch. --msg-filter cat",
+                "git 'filter-branch ' --msg-filter cat",
         ):
             with self.subTest(command=command):
                 self.assertRefused(command)
