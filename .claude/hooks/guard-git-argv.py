@@ -4295,30 +4295,74 @@ def git_segments(tokens):
         yield run[index + 1:]
 
 
+# **Programs whose arguments name `git` without running it**
+# (blueprint-frontend#211). `unlisted_subcommand_offence` judges a `git` word
+# behind a wrapper nobody named (`ssh-agent git mergetool`), so a command that
+# only mentions git has to be exempted by name: `apt install git curl` and
+# `which git npm` are not invocations. A list, so it fails closed: a program
+# missing here is over-refused, never admitted.
+NAMES_GIT_AS_DATA = frozenset({
+    "apt", "apt-get", "apk", "brew", "choco", "dnf", "dpkg", "man", "pacman",
+    "scoop", "type", "where", "whereis", "which", "winget", "yum",
+})
+
+
+def listed_as_a_launch(run, index):
+    """Whether the allow-list judges the `git` at `run[index]`.
+
+    **Launched, or behind a wrapper nobody named** (blueprint-frontend#211):
+    `launched` knows only the wrappers `LAUNCHERS` and `ARGUMENT_RUNNERS`
+    list, so `ssh-agent git mergetool` was not read. The test is the one
+    `brace_git_runs` uses instead: a printer, a reader other than `git`, or a
+    program on `NAMES_GIT_AS_DATA` leads the run and the word is data;
+    anything else leads it and a `git` in it counts. A `git` that follows an
+    earlier `git` in the same run is that command's argument (`git mv git
+    x`), not a second invocation.
+    """
+    if launched(run, index):
+        return True
+    # **A pattern is not judged here**: `cp src/* dest` names `*`, which
+    # matches `git`, and `dest` is not a subcommand.
+    if program_name(run[index]) != "git":
+        return False
+    lead = program_name(leading_command(run))
+    if (lead in DATA_ONLY_COMMANDS or lead in NAMES_GIT_AS_DATA
+            or (lead in READING_COMMANDS and lead != "git")):
+        return False
+    return not any(program_name(token) == "git" for token in run[:index])
+
+
 def unlisted_subcommand_offence(tokens):
     """The reason to refuse a `git` whose subcommand is not allowed, or `None`.
 
-    **Judged where a program is launched and nowhere else**
-    (blueprint-frontend#209): `grep -rn git src/app` and `apt install git
-    curl` yield a segment as well, and the word after `git` there is data.
-    `launched` is the test `git_segments`'s own callers already trust for a
-    wrapper, so `ssh-agent git mergetool` and `timeout 5 git mergetool` are
-    read. A segment with no subcommand (`git`, `git --version`) names nothing
-    to refuse.
+    **Judged where a program is launched, and behind a wrapper nobody
+    named** (blueprint-frontend#209, #211): `grep -rn git src/app` and `apt
+    install git curl` yield a segment as well, and the word after `git` there
+    is data. `listed_as_a_launch` is the test: `launched` for the wrappers
+    this file names, and otherwise any `git` in a run no printer, reader or
+    `NAMES_GIT_AS_DATA` program leads, so `ssh-agent git mergetool` and
+    `timeout 5 git mergetool` are both read. A segment with no subcommand
+    (`git`, `git --version`) names nothing to refuse.
 
-    **A computed word is left to the readings that expand it**: `git
-    ${x:-mergetool}` is judged again as `git mergetool` by the default
-    expansion's reading, and refusing the raw word here would pre-empt the
-    reason that reading gives. A variable on its own (`git $SUB`) is not
-    expanded by any of them, so it passes; that residual is recorded in
-    `docs/harness-boundaries.md`.
+    **A computed subcommand is refused** (blueprint-frontend#211): `git
+    $SUB` is not rewritten by any reading, so it was admitted, and leaving
+    `git ${x:-mergetool}` to the default expansion's reading only chose
+    whose reason was given. Which subcommand runs is not in the command, so
+    the word has to be spelled. A computed global-option VALUE is untouched
+    (`git -C "$work" status`), since `subcommand_of` skips it.
     """
     for run, index in git_invocations(tokens):
-        if not launched(run, index):
+        if not listed_as_a_launch(run, index):
             continue
         word = subcommand_of(run[index + 1:])
-        if word and not computed_word(word) and (
-                word not in ALLOWED_SUBCOMMANDS):
+        if word and computed_word(word):
+            return (
+                f"`git {word}` takes its subcommand from a variable, a "
+                "substitution, a brace expansion or a pattern, so which "
+                "subcommand runs is not in the command this hook reads. "
+                "Spell the subcommand literally (blueprint-frontend#211)."
+            )
+        if word and word not in ALLOWED_SUBCOMMANDS:
             return (
                 f"`git {word}` is not a subcommand this guard admits. The "
                 "lists of options that run a program trail git's grammar "
@@ -5648,16 +5692,25 @@ def _offence(command, depth, judged):
         # words that start `-`, must be on the list, read with the quoting
         # gone as well. A bounded tail per `git` keeps it linear, and it
         # over-refuses a sentence that merely mentions git, which is the
-        # direction to be wrong in for text `shlex` failed on.
+        # direction to be wrong in for text `shlex` failed on. **A global
+        # option's value is skipped, as `after_global_options` skips it, and
+        # a first word that is no name at all is refused**
+        # (blueprint-frontend#211): `git -C log mergetool "` read `log` as the
+        # subcommand, and a lone `;` or `"` ended the scan with no verdict.
         for text in (stripped, re.sub(r"[\"'\\]", "", stripped)):
             for found in re.finditer(r"\bgit\b", text):
-                for word in text[found.end():found.end() + 512].split():
+                words = iter(text[found.end():found.end() + 512].split())
+                for word in words:
+                    if word in GLOBAL_VALUE_FLAGS:
+                        next(words, None)
+                        continue
                     if word.startswith("-"):
                         continue
                     name = re.match(r"[A-Za-z0-9][\w.-]*", word)
-                    if name and name.group(0) not in ALLOWED_SUBCOMMANDS:
+                    if name is None or name.group(0) not in ALLOWED_SUBCOMMANDS:
                         return (
-                            f"`git {name.group(0)}` appears in a command this "
+                            f"`git {name.group(0) if name else word}` "
+                            "appears in a command this "
                             "guard could not tokenise and is not a "
                             "subcommand it admits; refusing on the raw "
                             "string (blueprint-frontend#209)."
