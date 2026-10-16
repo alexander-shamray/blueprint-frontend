@@ -40,8 +40,8 @@ computes money (§9).
 ### The tree
 
 ```
-src/app/core/          api/ auth/ cart/ catalog/ commands/ config/ errors/ — shared, screen-agnostic
-src/app/features/      account cart checkout order-placed products publish — one slice each
+src/app/core/          api/ auth/ cart/ catalog/ commands/ config/ errors/ orders/ — shared, screen-agnostic
+src/app/features/      account cart checkout order-placed orders products publish — one slice each
 src/app/shared/        components every feature may import
 src/app/tabs/          the shell; app.routes.ts and app.config.ts are the composition roots
 src/theme/, src/styles.css   Ionic's variables and the global sheet
