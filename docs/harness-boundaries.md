@@ -1889,10 +1889,11 @@ in: the main checkout is sent to the MCP tools alone, and a linked worktree
 to the CLI alone, run from its root. **That is the cautious half**: a session
 launched *in* the worktree has a server rooted there and could use the tools,
 which this hook cannot tell from one that entered it, so until the server
-follows a move (alexander-shamray/blueprint-frontend#195, blueprint-backend#563)
-such a session is sent the longer route. `test_index_search_hint.py` holds every command it names to a prefix
-the skill's `allowed-tools` approves, and each to one plain command, since a
-pipe or `;` takes it out of the grant. **What no test can show is a session
+follows a move (alexander-shamray/blueprint-frontend#195,
+blueprint-backend#563) such a session is sent the longer route.
+`test_index_search_hint.py` holds every command it names to a prefix the
+skill's `allowed-tools` approves, and each to one plain command, since a pipe
+or `;` takes it out of the grant. **What no test can show is a session
 taking the refusal**; the measure is the share of code-searching sessions
 with a lookup, which was zero.
 
