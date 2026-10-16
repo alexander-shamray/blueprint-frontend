@@ -4884,6 +4884,11 @@ class TheGitArgvGuard(unittest.TestCase):
             with self.subTest(command=command):
                 self.assertRefused(command)
         for command in (
+                # A dotted name that is an argument is not a subcommand (PR
+                # #206's review): only a stream, a trailing dot or blank and an
+                # executable suffix are read through.
+                "grep -rn git daemon.json",
+                "cat git filter-branch.md",
                 "git grep -n foo",
                 "git grep -o foo",
                 "git grep -e foo -- src",
