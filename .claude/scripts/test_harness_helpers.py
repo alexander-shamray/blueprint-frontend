@@ -4799,6 +4799,7 @@ class TheGitArgvGuard(unittest.TestCase):
                 "git diff README.md /etc/hosts",
                 "git diff ../x README.md",
                 "git diff -- ../../x",
+                "git diff -- -/../../x",
                 "git diff a/../../x README.md",
                 r"git diff C:/Users/x/.gitconfig README.md",
                 r"git diff 'C:\Users\x\.gitconfig' README.md",
@@ -4860,6 +4861,13 @@ class TheGitArgvGuard(unittest.TestCase):
                 "git clone --template=./tools/t ./src dest",
                 "git init --template=./tools/t",
                 "git init --templ=./tools/t",
+                # The scripts git runs a subcommand from are found ignoring
+                # case on Windows, `submodule foreach` (#122) included (PR
+                # #206's review).
+                "git FILTER-BRANCH --msg-filter cat",
+                "git Filter-Branch --tree-filter ./tools/x HEAD",
+                "git SubModule foreach ./tools/x",
+                "git Send-Email --to-cmd=./tools/x a.patch",
         ):
             with self.subTest(command=command):
                 self.assertRefused(command)
