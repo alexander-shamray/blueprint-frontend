@@ -5025,6 +5025,8 @@ class TheGitArgvGuard(unittest.TestCase):
                 "git -C$work log mergetool",
                 "git -C [a-z]* log",
                 "git -C ? log",
+                "git -C {.,mergetool} log",
+                "git -? log",
                 "git --work-tree$x log mergetool",
                 # A `git` behind a lead other than `git` is judged each time,
                 # and a program that runs what it is handed is not data.
