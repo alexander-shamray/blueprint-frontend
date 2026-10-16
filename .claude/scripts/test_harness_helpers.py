@@ -5041,6 +5041,10 @@ class TheGitArgvGuard(unittest.TestCase):
                 "ssh-agent g?t mergetool",
                 "ssh-agent g* mergetool",
                 "timeout 5 gi[t] mergetool",
+                # PR 215's review: a pattern that leaves the checkout.
+                "ssh-agent /usr/bin/gi[t] mergetool",
+                "ssh-agent ../x/g* mergetool",
+                "ssh-agent ~/bin/g?t mergetool",
                 # Quoting a value with a space moves the subcommand, which
                 # the crude reading takes for the word after the first.
                 'git -C "a b" mergetool "',
@@ -5073,6 +5077,7 @@ class TheGitArgvGuard(unittest.TestCase):
                 # A pattern with a directory is an argument, and a reader
                 # leads the run.
                 "cp src/* dest",
+                "ssh-agent ./gi[t] status",
                 "ls *",
                 "grep -rn gi[t] src",
                 # An untokenisable line whose subcommand is allowed.
@@ -5091,6 +5096,12 @@ class TheGitArgvGuard(unittest.TestCase):
                 "git status ; ln -s a b",
                 "mklink /J out C:\\Windows && git diff out x",
                 "ssh-agent git status ; ln a b",
+                # PR 215's review: behind a wrapper, and inside a script.
+                "ssh-agent ln -s /etc/hosts out && git diff out README.md",
+                "timeout 5 ln -s /etc/hosts out && git diff out README.md",
+                "cmd /c mklink /J out C:\\Windows && git diff out x",
+                "bash -c 'ln -s /etc/hosts out' && git diff out README.md",
+                "ln -s /etc/hosts out && bash -c 'git diff out README.md'",
         ):
             with self.subTest(command=command):
                 self.assertIn("blueprint-frontend#213",
@@ -5100,6 +5111,8 @@ class TheGitArgvGuard(unittest.TestCase):
                 "git status",
                 "echo ln -s a b && git status",
                 "grep -rn ln src && git status",
+                "git commit -m 'ln fix'",
+                "bash -c 'echo hi' && git status",
         ):
             with self.subTest(command=command):
                 self.assertAdmitted(command)
