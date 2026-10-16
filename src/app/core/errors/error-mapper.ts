@@ -177,8 +177,10 @@ export function mapError(
       // is longer than a service's, so a slow call can end this way instead of
       // hanging. Nothing retries on its own, and a command that met one keeps
       // its id (`CommandIdentity.onFailure` releases it for a validation
-      // failure only), so the user's retry is the same idempotent request. There is no body on those, so there is no correlation id to
-      // carry, and `base` already reflects that.
+      // failure only), so the user's retry is the same idempotent request.
+      // The 504 carries a problem body, so `base` has its correlation id. A
+      // network failure, a timeout or a CORS rejection has no body at all, so
+      // there is no correlation id to carry, and `base` reflects that too.
       return { ...base, kind: 'retry' };
   }
 }
