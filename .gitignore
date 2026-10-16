@@ -132,6 +132,3 @@ __pycache__/
 # this repo). Local by design: it changes too often to go through a PR.
 /TODO.md
 
-# The detail behind TODO.md's roadmap, local for the same reason. Untracked
-# and unignored it fails every clean-tree read /ship makes from this checkout.
-/PLAN.md
