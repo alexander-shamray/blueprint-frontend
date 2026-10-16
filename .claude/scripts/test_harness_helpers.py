@@ -4709,6 +4709,67 @@ class TheGitArgvGuard(unittest.TestCase):
             with self.subTest(command=command):
                 self.assertAdmitted(command)
 
+    def test_a_line_the_tokeniser_cannot_read_keeps_the_new_checks(self):
+        # **The fallback for a line `shlex` cannot tokenise returned before
+        # the expansion and assignment checks ran** (PR #190's review). Bash
+        # keeps a backslash that ends the command as a literal one, measured
+        # with Git Bash, so each of the first five ran with those checks off;
+        # the sixth runs nothing in bash and is the fallback's own case. A
+        # nested `${…}` hid `@P` from a scan that started at the `$`, and
+        # `PS4` runs a substitution under `set -x`, measured too. Each was
+        # admitted before the fix.
+        for command in (
+                "PATH=./tools git status \\",
+                "x='$(./tools/run)'; ls ${x@P} \\",
+                "y='x[PATH=5]'; ls ${!y}; git status \\",
+                "for PATH in ./tools; do git status; done \\",
+                "ls ${x[PATH=5]}; git status \\",
+                "PATH=./tools git status 'unclosed",
+                'x=\'$(./tools/run)\'; ls "${x[${z:-0}]@P}"',
+                "PS4='$(./tools/run)'; set -x; git status",
+                "VIMINIT='!./tools/run' git commit",
+        ):
+            with self.subTest(command=command):
+                self.assertRefused(command)
+        # A trailing backslash is a literal word to bash, so a read stays one,
+        # and an untokenisable line that assigns nothing is the fallback's.
+        for command in (
+                "git log --oneline \\",
+                "git status 'unclosed",
+        ):
+            with self.subTest(command=command):
+                self.assertAdmitted(command)
+
+    def test_an_assignment_past_the_first_reading_is_refused(self):
+        # **Each spells an assignment a first reading of the run missed** (PR
+        # #190's review): an `env -S` string glued to its flag, a later `-v`
+        # — printf's last wins and test's `-a` evaluates both, measured with
+        # Git Bash — `shopt -o` for `set -o`, and `git.exe` inside a quoted
+        # substitution. Each was admitted before the fix.
+        for command in (
+                "env -SPATH=./tools git status",
+                "env --split-string=GIT_EXTERNAL_DIFF=./tools/d git diff",
+                "printf -v a -v PATH %s 5; git status",
+                "[ -v a -a -v 'x[PATH=5]' ]; git status",
+                "test -v a -a -v 'x[PATH=5]'; git status",
+                "shopt -os keyword; git diff GIT_EXTERNAL_DIFF=./tools/d",
+                "shopt -o -s allexport; for Path in 5; do git status; done",
+                'ls ${x[PATH=5]}; ls "$(git.exe status)"',
+        ):
+            with self.subTest(command=command):
+                self.assertRefused(command)
+        # An unquoted heredoc body expands `$` alone, so a commit message may
+        # hold `a=(1 2)` or `((x))`; a `-v` naming nothing git reads and a
+        # `shopt -s` are ordinary.
+        for command in (
+                NEWLINE.join(["git commit -F - <<EOF", "fix: a=(1 2)", "EOF"]),
+                NEWLINE.join(["git commit -F - <<EOF", "fix: ((x))", "EOF"]),
+                "printf -v a %s 5; git status",
+                "shopt -s nullglob; git status",
+        ):
+            with self.subTest(command=command):
+                self.assertAdmitted(command)
+
     def test_an_opener_the_scan_cannot_close_is_refused(self):
         # **The substitution scan stopped at an opener it could not close, and
         # nothing after it was read** (blueprint-frontend#125). `_closing_paren`
