@@ -4426,7 +4426,8 @@ LINK_PROGRAMS = LINK_MAKERS | ARCHIVE_UNPACKERS
 # The long `cp` options that make a link or copy one, each with the
 # shortest abbreviation `cp` takes for it.
 COPY_LINK_OPTIONS = {"--symbolic-link": 4, "--archive": 4,
-                     "--no-dereference": 6, "--recursive": 5}
+                     "--no-dereference": 6, "--recursive": 5,
+                     "--link": 4}
 
 
 def symbolic_copy_flag(token):
@@ -4438,14 +4439,15 @@ def symbolic_copy_flag(token):
     options (round 1 of PR 217's review).
 
     **So does a flag that copies a link already there** (blueprint-frontend
-    #218): `-a`, `-d`, `-P`, `-R` and `-r`, and `--archive`,
-    `--no-dereference`, `--recursive` and `--preserve=links` (or `=all`),
+    #218): `-a`, `-d`, `-P`, `-R`, `-r` and `-l` (a hard link to a link),
+    and `--archive`, `--no-dereference`, `--recursive`, `--link` and
+    `--preserve=links` (or `=all`),
     each with the abbreviations `cp` takes. The new name does not exist
     when the hook resolves it, so `escapes_checkout` cannot see it, and
     the copy is read as a link maker for the same reason `cp -s` is. A
     bare `--preserve` and `-p` keep mode, ownership and times only.
     """
-    if re.match(r"^-[A-Za-z]*[sadPRr][A-Za-z]*$", token):
+    if re.match(r"^-[A-Za-z]*[sadPRrl][A-Za-z]*$", token):
         return True
     name, _, value = token.partition("=")
     if any(len(name) >= shortest and long.startswith(name)
@@ -4473,8 +4475,22 @@ GIT_WORD = re.compile(r"(?<![\w.-])git(?![\w.-])", re.IGNORECASE)
 SCRIPT_RUNNERS = frozenset({
     "bash", "sh", "zsh", "dash", "ksh", "fish", "pwsh", "powershell", "cmd",
     "eval", "busybox", "python", "perl", "ruby", "node", "deno", "bun", "php",
-    "lua", "osascript", "wsl", "cscript", "wscript", "mshta", "env",
+    "lua", "osascript", "wsl", "cscript", "wscript", "mshta", "env", "py",
+    "pythonw",
 })
+
+
+def archive_module_selected(previous, token):
+    """Whether `token` selects an archive module of an interpreter's `-m`.
+
+    `-m tarfile`, the attached `-mtarfile` and a cluster ending in `m`
+    (`-Im tarfile`, `-Imtarfile`) all run `tarfile` (PR 219's review).
+    """
+    word = token.lower()
+    if word in ARCHIVE_MODULES:
+        return bool(re.match(r"^-[A-Za-z]*m$", previous))
+    attached = re.match(r"^-[A-Za-z]*m(\w+)$", word)
+    return bool(attached and attached.group(1) in ARCHIVE_MODULES)
 
 
 def link_made_beside_git_offence(tokens):
@@ -4518,8 +4534,7 @@ def link_made_beside_git_offence(tokens):
                 makes = True
             elif symbolic_copy and symbolic_copy_flag(token):
                 makes = True
-            elif (runs_script and previous == "-m"
-                  and token.lower() in ARCHIVE_MODULES):
+            elif runs_script and archive_module_selected(previous, token):
                 makes = True
             elif runs_script and re.search(r"\s", token):
                 makes = makes or bool(LINK_WORD.search(token)
@@ -5407,10 +5422,12 @@ def escapes_checkout(operand):
     # POSIX class, an equivalence class, a collating symbol and an extglob
     # opener are not modelled by `glob` at all, so a pattern holding one
     # is refused rather than resolved wrongly.
+    # An extglob opener holds none of `*?[` when it is `@(` `+(` or `!(`, so
+    # this runs before the glob gate and not inside it (PR 219's review).
+    if re.search(r"\[[:=.]|[?*+@!]\(", operand):
+        return True
     joined = os.path.join(base, operand.replace("[^", "[!"))
     if any(char in operand for char in "*?["):
-        if re.search(r"\[[:=.]|[?*+@!]\(", operand):
-            return True
         candidates = glob.glob(joined)
         if len(candidates) > LINK_GLOB_LIMIT:
             return True

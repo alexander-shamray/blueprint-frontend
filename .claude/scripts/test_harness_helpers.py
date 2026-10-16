@@ -5123,6 +5123,11 @@ class TheGitArgvGuard(unittest.TestCase):
                 "cp -P a b && git diff a README.md",
                 "cp -R a b && git diff a README.md",
                 "cp -r a b && git diff a README.md",
+                "cp -l a b && git diff a README.md",
+                "cp --link a b && git diff a README.md",
+                "python3 -mtarfile -e a.tar out && git diff a README.md",
+                "python -Im zipfile -e a.zip out && git diff a README.md",
+                "py -m tarfile -e a.tar out && git diff a README.md",
                 "cp --archive a b && git diff a README.md",
                 "cp --arch a b && git diff a README.md",
                 "cp --no-dereference a b && git diff a README.md",
@@ -5258,6 +5263,12 @@ class TheGitArgvGuard(unittest.TestCase):
                         "ssh-agent lib2/[[:alpha:]]it mergetool",
                         "ssh-agent lib2/[[=g=]]it mergetool",
                         "ssh-agent lib2/[[.g.]]it mergetool"):
+            with self.subTest(command=command):
+                self.assertRefused(command, cwd=repo)
+        # An extglob opener holds none of `*?[`, and was not read (PR 219).
+        for command in ("git diff -- 'lib2/@(git)'",
+                        "git diff -- 'lib2/+(x)'",
+                        "git diff -- 'lib2/!(x)'"):
             with self.subTest(command=command):
                 self.assertRefused(command, cwd=repo)
         # A negated class over a directory holding no link stays an
