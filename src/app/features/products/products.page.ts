@@ -181,6 +181,14 @@ export class ProductsPage {
    * is still waiting.
    */
   private readonly loadingSignal = signal(false);
+  /**
+   * The rows on screen belong to a sequence `reload()` discarded, and the
+   * first page of the new one has not landed. They stay until it does (#202),
+   * so the reply replaces them rather than extending them, and a failed
+   * restart keeps them with the error beside them; `retryLoad()` is then
+   * still a restart. Cleared only by a first page that lands.
+   */
+  private readonly restartingSignal = signal(false);
   private readonly selectedSignal = signal<ProductSummary | null>(null);
   /** A publish asked for a refresh inside a blocked window; the listing is stale until it is taken. */
   private readonly refreshHeld = signal(false);
@@ -260,8 +268,8 @@ export class ProductsPage {
    * of a cold start, a pull to refresh or a `CatalogRefresh` reload is still
    * out — and the skeleton gives the content something to scroll — would ask
    * for page one again under the same generation, and both replies would be
-   * appended. Each of those empties the list before it asks, so "loading with
-   * no rows" is exactly that state. A later page the scroll itself started is
+   * appended. A cold start has no rows yet and a restart keeps the old ones
+   * (#202), so the state is "loading with no rows, or restarting". A later page the scroll itself started is
    * not stopped here: Ionic's own `isLoading` already holds the scroll until
    * `complete()`, and disabling it mid-load would clear that flag, hide the
    * spinner and turn `complete()` into a no-op.
@@ -271,7 +279,7 @@ export class ProductsPage {
       this.hasMoreSignal() &&
       this.errorSignal() === null &&
       !this.rateLimit.blocked() &&
-      !(this.loadingSignal() && this.productsSignal().length === 0),
+      !(this.loadingSignal() && (this.productsSignal().length === 0 || this.restartingSignal())),
   );
 
   constructor() {
@@ -293,9 +301,8 @@ export class ProductsPage {
     // app start.
     //
     // A request that arrives while the catalogue window is open is held, not
-    // taken: `reload()` empties the list before it asks, so taking it would
-    // blank a listing the buyer can still read and send a request the client
-    // already expects to be refused, which reopens the window (#161), as
+    // taken: it would send a request the client already expects to be
+    // refused, which reopens the window (#161), as
     // `OrdersPage.ionViewWillEnter()` skips an entry for the same reason. The
     // list stays as it is; the hold is taken by the second effect once the
     // window closes, and `reload()` clears it, so a pull to refresh that
@@ -317,14 +324,14 @@ export class ProductsPage {
   /**
    * Restarts the listing from the first page. Reached two ways: the effect
    * above, when a publish elsewhere bumps `CatalogRefresh` (spec §5.5), and
-   * `refresh()`, pull to refresh.
+   * `refresh()`, pull to refresh. The rows stay on screen until the first page
+   * replaces them (#202).
    */
   reload(done?: () => void): void {
     this.refreshHeld.set(false);
     this.generation++;
     this.cursor = null;
-    this.productsSignal.set([]);
-    this.hasMoreSignal.set(true);
+    this.restartingSignal.set(true);
     this.load(done);
   }
 
@@ -407,7 +414,10 @@ export class ProductsPage {
         this.loadingSignal.set(false);
         this.errorSignal.set(null);
         this.availability.record(page.items);
-        this.productsSignal.update((existing) => [...existing, ...page.items]);
+        this.productsSignal.update((existing) =>
+          this.restartingSignal() ? page.items : [...existing, ...page.items],
+        );
+        this.restartingSignal.set(false);
         this.cursor = page.nextCursor;
         this.hasMoreSignal.set(page.nextCursor !== null);
       },
