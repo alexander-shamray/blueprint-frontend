@@ -76,6 +76,7 @@ that gets worked around rather than fixed.
 
 import collections
 import fnmatch
+import glob
 import json
 import os
 import re
@@ -152,7 +153,8 @@ FORBIDDEN_SUBSTRINGS = ("ext::",)
 # `archive` and `format-patch`, and `submodule--helper`, the builtin
 # `submodule foreach` calls, typed directly (blueprint-frontend#124's review).
 EXECUTING_SHORT_FLAGS = {
-    "rebase": "x", "difftool": "x", "clone": "u", "ls-remote": "u",
+    "rebase": "xs", "pull": "s", "difftool": "x", "clone": "u",
+    "ls-remote": "u",
     "archive": "o", "format-patch": "o", "grep": "O",
 }
 EXECUTING_FORMS = {"bisect": "run", "submodule": "foreach",
@@ -161,16 +163,23 @@ EXECUTING_FORMS = {"bisect": "run", "submodule": "foreach",
 # **The long flags that run something on one subcommand only, and the
 # subcommands that exist to run something (blueprint-frontend#133).** These
 # lists are deny-lists over git's grammar and trail it: what is named here is
-# what the review lenses traced, and the end state that stops trailing is an
-# allow-list of the subcommands this repository runs, a larger change than a
-# list. `--template` copies a directory's hooks into the new repository and a
+# what the review lenses traced. `ALLOWED_SUBCOMMANDS` below is the change that
+# stops the trailing (blueprint-frontend#209): a subcommand it does not name is
+# refused whatever its flags, so these lists judge only the subcommands that
+# stay. `--template` copies a directory's hooks into the new repository and a
 # clone's `post-checkout` hook runs on the clone itself; it is per subcommand
 # because `git commit --template=<file>` only reads one. `filter-branch`,
 # `send-email`, `instaweb`, `daemon`, `http-backend` and `web--browse` take a
 # command or a server program in an option. None is granted, so each reaches
 # the hook only under the user-level `auto` mode or on an approval, and inside
 # a substitution each is refused already.
-EXECUTING_LONG_FLAGS = {"clone": ("--template",), "init": ("--template",)}
+EXECUTING_LONG_FLAGS = {
+    "clone": ("--template",), "init": ("--template",),
+    # `-s <name>` and `--strategy=<name>` run `git-merge-<name>` from the exec
+    # path or `PATH` (blueprint-frontend#209); `merge` and `cherry-pick` take
+    # the same option and are not on the allow-list.
+    "pull": ("--strategy",), "rebase": ("--strategy",),
+}
 REFUSED_SUBCOMMANDS = {
     "filter-branch": "runs the shell commands its --*-filter options carry",
     "send-email": "runs the programs its --*-cmd and --smtp-server options name",
@@ -179,6 +188,37 @@ REFUSED_SUBCOMMANDS = {
     "http-backend": "is a CGI program that runs git for whoever calls it",
     "web--browse": "starts the browser program it is given",
 }
+
+# **The subcommands git is admitted for, and an allow-list**
+# (blueprint-frontend#209). The deny-lists above name what the review lenses
+# traced and trail git's grammar on its own schedule; the hook's docstring
+# records the same class (#23) as the reason the push half became an
+# allow-list. This is the other half: a `git` whose subcommand is not named
+# here is refused, so `mergetool`, `difftool --tool`, `gui`, `citool`,
+# `help --web`, `merge -s <name>` and an alias a configuration defines are
+# stopped without anyone having listed them.
+#
+# **What is named is what this repository's commands, agents, scripts and
+# docs run, plus the read-only plumbing a session reaches for**, so a name is
+# added only with the case in the suite that runs it. It is matched on the
+# word as typed: `git LOG`, `git log.` and `git log.exe` are not `log`, and
+# naming a file git would look up is the lookup the folded `REFUSED_SUBCOMMANDS`
+# test above exists for. `config`, `merge`, `cherry-pick`, `clone`, `init`,
+# `submodule`, `stash` and `help` are left out on purpose: each either sets a
+# key git executes, names a strategy program, or runs what it is handed, and
+# an approval is the right size for the occasional need.
+ALLOWED_SUBCOMMANDS = frozenset({
+    # reads
+    "status", "log", "diff", "show", "blame", "shortlog", "rev-parse",
+    "rev-list", "ls-files", "ls-tree", "cat-file", "show-ref",
+    "for-each-ref", "merge-base", "describe", "cherry", "check-ignore",
+    "grep", "version",
+    # the working tree, the index and the refs
+    "add", "rm", "mv", "restore", "switch", "checkout", "reset", "clean",
+    "commit", "branch", "tag", "worktree", "rebase",
+    # the remote
+    "fetch", "pull", "push", "remote",
+})
 
 # **The trees a redirection or a writing verb may not write into (#20, #26),
 # and the reason this list is here rather than read off the deny rules is that
@@ -4213,8 +4253,11 @@ def patterned(token):
     return any(char in program_name(token) for char in "*?[")
 
 
-def git_segments(tokens):
-    """Yield the argv slice of every `git` invocation in a compound command.
+def git_invocations(tokens):
+    """Yield `(run, index)` for every `git` invocation in a compound command.
+
+    `run[index]` is the word that names git, and `git_segments` hands back the
+    argv after it.
 
     **A `git` token is only an invocation where a command can stand.**
     `echo git push origin +HEAD:main` was refused, and a guard that refuses
@@ -4243,7 +4286,48 @@ def git_segments(tokens):
                     (launched(run, index) or (open_lead and patterned(token)))
                     and names_program(token, "git")):
                 continue
-            yield run[index + 1:]
+            yield run, index
+
+
+def git_segments(tokens):
+    """Yield the argv slice of every `git` invocation in a compound command."""
+    for run, index in git_invocations(tokens):
+        yield run[index + 1:]
+
+
+def unlisted_subcommand_offence(tokens):
+    """The reason to refuse a `git` whose subcommand is not allowed, or `None`.
+
+    **Judged where a program is launched and nowhere else**
+    (blueprint-frontend#209): `grep -rn git src/app` and `apt install git
+    curl` yield a segment as well, and the word after `git` there is data.
+    `launched` is the test `git_segments`'s own callers already trust for a
+    wrapper, so `ssh-agent git mergetool` and `timeout 5 git mergetool` are
+    read. A segment with no subcommand (`git`, `git --version`) names nothing
+    to refuse.
+
+    **A computed word is left to the readings that expand it**: `git
+    ${x:-mergetool}` is judged again as `git mergetool` by the default
+    expansion's reading, and refusing the raw word here would pre-empt the
+    reason that reading gives. A variable on its own (`git $SUB`) is not
+    expanded by any of them, so it passes; that residual is recorded in
+    `docs/harness-boundaries.md`.
+    """
+    for run, index in git_invocations(tokens):
+        if not launched(run, index):
+            continue
+        word = subcommand_of(run[index + 1:])
+        if word and not computed_word(word) and (
+                word not in ALLOWED_SUBCOMMANDS):
+            return (
+                f"`git {word}` is not a subcommand this guard admits. The "
+                "lists of options that run a program trail git's grammar "
+                "(blueprint-frontend#133), so only the subcommands in "
+                "`ALLOWED_SUBCOMMANDS` — those this repository's commands "
+                "run, and git's read-only plumbing — pass; any other is an "
+                "approval, not a grant (blueprint-frontend#209)."
+            )
+    return None
 
 
 def brace_git_runs(tokens):
@@ -5025,6 +5109,54 @@ def outside_checkout():
         directory = parent
 
 
+# The most matches of a glob operand that are resolved: a pattern over a
+# huge directory must not be what the hook's time limit is spent on.
+LINK_GLOB_LIMIT = 256
+
+
+def escapes_checkout(operand):
+    """Whether `operand` names an existing path that a link carries out.
+
+    **The lexical rules read the spelling, and git opens the file**
+    (blueprint-frontend#208): a branch can carry `docs/out -> /etc/hosts`, and
+    `docs/out` holds no absolute path, drive, `~` or `..`. So each existing
+    path the operand names (a glob is expanded, bounded by
+    `LINK_GLOB_LIMIT`) is resolved through the filesystem, and it escapes when
+    the resolution lies outside the real root of the checkout that holds it.
+    The root is the nearest ancestor of the path's own DIRECTORY with a
+    `.git`, so a link to a repository elsewhere is not mistaken for the
+    checkout, and it is resolved too, which keeps a checkout under a linked
+    temporary root from reading as a link on every operand. A path that does
+    not exist is left to the lexical checks.
+    """
+    joined = os.path.join(EVENT_CWD or os.getcwd(), operand)
+    if any(char in operand for char in "*?["):
+        candidates = glob.glob(joined)[:LINK_GLOB_LIMIT]
+    else:
+        candidates = [joined]
+    for candidate in candidates:
+        if not os.path.lexists(candidate):
+            continue
+        root = os.path.dirname(os.path.normpath(os.path.abspath(candidate)))
+        while not os.path.exists(os.path.join(root, ".git")):
+            parent = os.path.dirname(root)
+            if parent == root:
+                root = None
+                break
+            root = parent
+        if root is None:
+            continue
+        real_root = os.path.normcase(os.path.realpath(root))
+        resolved = os.path.normcase(os.path.realpath(candidate))
+        try:
+            inside = os.path.commonpath([real_root, resolved]) == real_root
+        except ValueError:
+            inside = False
+        if not inside:
+            return True
+    return False
+
+
 def diff_offence(segment, command):
     """The reason to refuse a `git diff` that may read outside the repository.
 
@@ -5044,9 +5176,10 @@ def diff_offence(segment, command):
     `cd` in the command that also gives two operands. **A working directory
     that lies under no repository is the third**, where git compares two paths
     with no repository to be outside of; the hook is given it in the event.
-    What stays open is a symbolic link a branch carries to a path outside
-    (`docs/out -> /etc`), the residual `docs/harness-boundaries.md` names with
-    the `--no-index` rationale.
+    **A symbolic link a branch carries to a path outside** (`docs/out ->
+    /etc`) is read as well: an operand that names an existing path is
+    resolved through the filesystem, and refused when it lands outside the
+    checkout that holds it (blueprint-frontend#208).
     """
     if subcommand_of(segment) != "diff":
         return None
@@ -5074,6 +5207,8 @@ def diff_offence(segment, command):
             reason = "is an absolute path"
         elif ".." in re.split(r"[\\/]", operand):
             reason = "climbs out of the checkout with `..`"
+        elif escapes_checkout(operand):
+            reason = "is, or lies under, a link that leads out of the checkout"
         else:
             continue
         return (
@@ -5665,9 +5800,11 @@ def _offence(command, depth, judged):
                         "spelling. This hook compares the resolved argv, and "
                         "any unambiguous abbreviation of it."
                     )
-            letter = EXECUTING_SHORT_FLAGS.get(subcommand)
-            if (letter is not None and element.startswith("-")
-                    and not element.startswith("--") and letter in element[1:]):
+            letter = next(
+                (each for each in EXECUTING_SHORT_FLAGS.get(subcommand, "")
+                 if element.startswith("-") and not element.startswith("--")
+                 and each in element[1:]), None)
+            if letter is not None:
                 return (
                     f"`git {subcommand} -{letter}` is the short spelling of a "
                     "flag that runs a command or writes, bundled or not; the long "
@@ -5682,7 +5819,7 @@ def _offence(command, depth, judged):
                         "argument as a command, and no Bash permission rule can "
                         "express it."
                     )
-    return None
+    return unlisted_subcommand_offence(tokens)
 
 
 # **Every scan here must finish inside the hook's timeout, because a hook that

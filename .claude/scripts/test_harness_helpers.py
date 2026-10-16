@@ -4845,6 +4845,190 @@ class TheGitArgvGuard(unittest.TestCase):
             with self.subTest(command=command):
                 self.assertAdmitted(command)
 
+    def test_a_diff_operand_that_is_a_link_out_of_the_checkout_is_refused(self):
+        # **The lexical rules read the spelling and git opens the file**
+        # (blueprint-frontend#208). Each case links INTO a scratch checkout
+        # from outside it, so the operand holds none of the spellings the
+        # lexical rules refuse. A link needs a privilege some hosts withhold,
+        # so a file link and a directory link (a junction on Windows) are
+        # each made when they can be, and the case is skipped when neither can.
+        base = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, base, True)
+        repo = os.path.join(base, "repo")
+        outside = os.path.join(base, "outside")
+        os.makedirs(os.path.join(repo, ".git"))
+        os.makedirs(os.path.join(repo, "docs"))
+        os.makedirs(outside)
+        for directory, name in ((repo, "README.md"), (outside, "secret.txt"),
+                                (repo, "inner.txt")):
+            with open(os.path.join(directory, name), "w") as handle:
+                handle.write("x\n")
+
+        def link(target, name, directory):
+            path = os.path.join(repo, "docs", name)
+            try:
+                os.symlink(target, path, target_is_directory=directory)
+                return True
+            except (OSError, NotImplementedError):
+                pass
+            if directory and os.name == "nt":
+                made = subprocess.run(
+                    ["cmd", "/c", "mklink", "/J", path, target],
+                    capture_output=True)
+                return made.returncode == 0
+            return False
+
+        escaping = []
+        if link(os.path.join(outside, "secret.txt"), "out", False):
+            escaping += ["docs/out", "docs/o*"]
+        if link(outside, "dir", True):
+            escaping += ["docs/dir", "docs/dir/secret.txt", "docs/d*/secret.txt"]
+        if not escaping:
+            self.skipTest("this host lets no link be created")
+        for operand in escaping:
+            for command in (f"git diff {operand} README.md",
+                            f"git diff README.md {operand}",
+                            f"git diff -- {operand}"):
+                with self.subTest(command=command):
+                    reason = self.assertRefused(command, cwd=repo)
+                    self.assertIn("blueprint-frontend#132", reason)
+        # A link that stays inside, a plain file, a missing path and a
+        # revision are none of them an escape.
+        if link(os.path.join(repo, "inner.txt"), "self", False):
+            self.assertAdmitted("git diff docs/self README.md", cwd=repo)
+        for command in ("git diff inner.txt README.md",
+                        "git diff docs/absent README.md",
+                        "git diff HEAD~1 -- docs",
+                        "git diff docs/n* README.md"):
+            with self.subTest(command=command):
+                self.assertAdmitted(command, cwd=repo)
+
+    def test_only_the_subcommands_on_the_allow_list_are_admitted(self):
+        # **The deny-lists trail git** (blueprint-frontend#133, #209). One
+        # command per admitted subcommand, so that a name added to
+        # `ALLOWED_SUBCOMMANDS` without a case here, or a case without the
+        # name, fails this test and not the delivery chain.
+        admitted = {
+            "status": "git status --short",
+            "log": "git log --oneline -5",
+            "diff": "git diff HEAD~1",
+            "show": "git show HEAD",
+            "blame": "git blame README.md",
+            "shortlog": "git shortlog -sn",
+            "rev-parse": "git rev-parse --show-toplevel",
+            "rev-list": "git rev-list --count HEAD",
+            "ls-files": "git ls-files docs",
+            "ls-tree": "git ls-tree HEAD",
+            "cat-file": "git cat-file -p HEAD",
+            "show-ref": "git show-ref --heads",
+            "for-each-ref": "git for-each-ref refs/heads",
+            "merge-base": "git merge-base origin/main HEAD",
+            "describe": "git describe --tags",
+            "cherry": "git cherry origin/main",
+            "check-ignore": "git check-ignore -v x",
+            "grep": "git grep -n foo",
+            "version": "git version",
+            "add": "git add README.md",
+            "rm": "git rm --cached x",
+            "mv": "git mv a b",
+            "restore": "git restore --staged x",
+            "switch": "git switch main",
+            "checkout": "git checkout main",
+            "reset": "git reset HEAD x",
+            "clean": "git clean -n",
+            "commit": "git commit -m x",
+            "branch": "git branch --list",
+            "tag": "git tag --list",
+            "worktree": "git worktree list",
+            "rebase": "git rebase origin/main",
+            "fetch": "git fetch origin main",
+            "pull": "git pull --ff-only",
+            "push": "git push origin feat/x",
+            "remote": "git remote -v",
+        }
+        self.assertEqual(set(admitted),
+                         set(self.guard_module().ALLOWED_SUBCOMMANDS))
+        for subcommand, command in admitted.items():
+            with self.subTest(subcommand=subcommand):
+                self.assertAdmitted(command)
+        # The subcommands the issue named as unmeasured, a few that run what
+        # they are handed, and every spelling of a name that is not `log`.
+        for command in (
+                "git mergetool",
+                "git difftool --tool=x a b",
+                "git gui",
+                "git citool",
+                "git help --web log",
+                "git merge -s ours main",
+                "git config alias.x '!echo hi'",
+                "git config core.pager cat",
+                "git cherry-pick HEAD",
+                "git stash",
+                "git apply x.patch",
+                "git am x.patch",
+                "git clone https://example.com/x",
+                "git init",
+                "git submodule update",
+                "git archive HEAD",
+                "git update-ref -d refs/heads/x",
+                "git x",
+                "git LOG",
+                "git log.",
+                "git 'log '",
+                "git log.exe",
+                "git -C docs mergetool",
+                "git --no-pager mergetool",
+                "timeout 5 git mergetool",
+                "git ${x:-mergetool}",
+                "git bisect start",
+                "git cherry-pick -x abc123",
+                "echo $(git mergetool)",
+        ):
+            with self.subTest(command=command):
+                self.assertRefused(command)
+        self.assertIn("blueprint-frontend#209",
+                      self.assertRefused("git mergetool"))
+        # A word after `git` that is data, and a `git` with no subcommand.
+        for command in (
+                "grep -rn git src/app",
+                "apt install git curl",
+                "which git npm",
+                "echo git mergetool",
+                "cat git mergetool.md",
+                "git",
+                "git --version",
+                # A residual, pinned: nothing expands a bare variable, so the
+                # word is not judged, and a wrapper nobody named
+                # (`ssh-agent git mergetool`) is not read as a launch.
+                "git $SUB",
+                "ssh-agent git mergetool",
+        ):
+            with self.subTest(command=command):
+                self.assertAdmitted(command)
+
+    def test_a_merge_strategy_is_refused_on_pull_and_rebase(self):
+        # `-s <name>` runs `git-merge-<name>` from the exec path or `PATH`
+        # (blueprint-frontend#209).
+        for command in (
+                "git pull -s ours",
+                "git pull --strategy=ours",
+                "git pull --strat=ours",
+                "git rebase -s ours origin/main",
+                "git rebase --strategy ours main",
+        ):
+            with self.subTest(command=command):
+                self.assertRefused(command)
+        for command in (
+                "git pull --ff-only",
+                "git rebase origin/main",
+                "git rebase -X ours origin/main",
+                # `-s` means something else on other subcommands.
+                "git log -s -1",
+                "git commit -s -m x",
+        ):
+            with self.subTest(command=command):
+                self.assertAdmitted(command)
+
     def test_git_options_that_run_a_command_are_refused_at_the_top_level(self):
         # **The deny-lists trailed git** (blueprint-frontend#133): a comment
         # in the hook named `--open-files-in-pager` as the reason `grep` stays
@@ -5192,10 +5376,15 @@ class TheGitArgvGuard(unittest.TestCase):
             with self.subTest(command=command):
                 self.assertRefused(command)
         # A letter that runs a command on one subcommand is harmless on another.
-        for command in ("git cherry-pick -x abc123", "git rebase -i HEAD~2",
-                        "git bisect start", "git submodule status"):
+        for command in ("git clean -nx", "git rebase -i HEAD~2",
+                        "git log -s -1", "git commit -s -m x"):
             with self.subTest(command=command):
                 self.assertAdmitted(command)
+        # Off the allow-list since blueprint-frontend#209, so refused whole.
+        for command in ("git cherry-pick -x abc123", "git bisect start",
+                        "git submodule status"):
+            with self.subTest(command=command):
+                self.assertRefused(command)
 
     def test_xargs_cannot_supply_a_git_argv(self):
         # **`xargs` appends stdin to the argv it runs, and `-I` substitutes it
@@ -5275,7 +5464,7 @@ class TheGitArgvGuard(unittest.TestCase):
                 "git ls-files | xargs grep -l foo",
                 "grep -rn xargs docs",
                 "echo xargs env",
-                "git archive --format=tar HEAD",
+                "git ls-tree HEAD | xargs wc -l",
         ):
             with self.subTest(command=command):
                 self.assertAdmitted(command)
@@ -5723,7 +5912,7 @@ class TheGitArgvGuard(unittest.TestCase):
             "git checkout HEAD -- .claude/hooks/guard-git-argv.py",
             "git switch main",
             "git ls-files docs/",
-            "git config user.name",
+            # `git config` left the corpus with #209: it can set a key git runs.
             "git remote -v",
             "git restore --staged file",
             "git clean -nd",
@@ -7049,7 +7238,10 @@ class TheGitArgvGuard(unittest.TestCase):
         self.assertRefused("git ${a:-${b:-${c:-push}}} origin +HEAD:main")
         self.assertRefused("git log ${x:-${y:---output=/tmp/probe}}")
 
-        reason = self.judge("git ${x:-${y:-push}} origin +HEAD:main")
+        # The first case now falls to the empty reading, where `git origin
+        # +HEAD:main` has no allowed subcommand (blueprint-frontend#209), so
+        # the layer count is read off one whose empty reading is ordinary.
+        reason = self.judge("git log ${x:-${y:---output=/tmp/probe}}")
         self.assertEqual(2, reason.count("taken as its default"))
 
     def test_a_printer_reaches_a_shell_through_the_whole_pipeline(self):
