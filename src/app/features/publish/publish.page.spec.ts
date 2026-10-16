@@ -428,6 +428,26 @@ describe('PublishPage', () => {
     controller.expectNone('http://localhost:5000/api/v1/catalog/products');
   });
 
+  it('keeps the one replay when an earlier sign-in was dismissed and sent nothing (#157)', async () => {
+    signIn.mockRejectedValueOnce(new Error('Sign-in was dismissed before it completed.'));
+
+    fixture.componentInstance.publish();
+    controller
+      .expectOne('http://localhost:5000/api/v1/catalog/products')
+      .flush({ title: 'Unauthorized', status: 401 }, { status: 401, statusText: 'Unauthorized' });
+    await fixture.whenStable();
+    controller.expectNone('http://localhost:5000/api/v1/catalog/products');
+
+    fixture.componentInstance.publish();
+    controller
+      .expectOne('http://localhost:5000/api/v1/catalog/products')
+      .flush({ title: 'Unauthorized', status: 401 }, { status: 401, statusText: 'Unauthorized' });
+    await fixture.whenStable();
+
+    expect(signIn).toHaveBeenCalledTimes(2);
+    controller.expectOne('http://localhost:5000/api/v1/catalog/products');
+  });
+
   it('disables Publish while a 429 window is open', async () => {
     fixture.componentInstance.publish();
     controller.expectOne('http://localhost:5000/api/v1/catalog/products').flush(

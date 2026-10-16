@@ -509,6 +509,27 @@ describe('CheckoutPage', () => {
     controller.expectNone('http://localhost:5000/api/v1/orders');
   });
 
+  it('keeps the one replay when an earlier sign-in was dismissed and sent nothing (#157)', async () => {
+    signIn.mockRejectedValueOnce(new Error('Sign-in was dismissed before it completed.'));
+
+    fixture.componentInstance.placeOrder();
+    controller
+      .expectOne('http://localhost:5000/api/v1/orders')
+      .flush({ title: 'Unauthorized', status: 401 }, { status: 401, statusText: 'Unauthorized' });
+    await fixture.whenStable();
+    controller.expectNone('http://localhost:5000/api/v1/orders');
+
+    // The buyer presses again, is refused again, and this time completes the sign-in.
+    fixture.componentInstance.placeOrder();
+    controller
+      .expectOne('http://localhost:5000/api/v1/orders')
+      .flush({ title: 'Unauthorized', status: 401 }, { status: 401, statusText: 'Unauthorized' });
+    await fixture.whenStable();
+
+    expect(signIn).toHaveBeenCalledTimes(2);
+    controller.expectOne('http://localhost:5000/api/v1/orders');
+  });
+
   it('disables Place order while a 429 window is open', async () => {
     fixture.componentInstance.placeOrder();
     controller.expectOne('http://localhost:5000/api/v1/orders').flush(

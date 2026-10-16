@@ -485,7 +485,6 @@ export class OrderDetailPage {
    */
   private signInAndReplay(issuedForId: string): void {
     const replay = !this.replayedAfterSignIn;
-    this.replayedAfterSignIn = true;
     // Who was refused. With nobody signed in there is no principal to hold
     // the replay to, so the buyer presses Cancel again instead.
     const refusedSubject = this.subject();
@@ -498,6 +497,8 @@ export class OrderDetailPage {
           this.stillFor(issuedForId, refusedSubject) &&
           !this.cancelled()
         ) {
+          // Spent where the replay is sent (#157); see CheckoutPage.
+          this.replayedAfterSignIn = true;
           this.cancel();
         }
       },
