@@ -4324,14 +4324,19 @@ def listed_as_a_launch(run, index):
     """
     if launched(run, index):
         return True
-    # **A pattern is not judged here**: `cp src/* dest` names `*`, which
-    # matches `git`, and `dest` is not a subcommand.
-    if program_name(run[index]) != "git":
-        return False
     lead = program_name(leading_command(run))
     if (lead in DATA_ONLY_COMMANDS or lead in NAMES_GIT_AS_DATA
             or (lead in READING_COMMANDS and lead != "git")):
         return False
+    if program_name(run[index]) != "git":
+        # **A bare pattern is judged, a pattern with a directory is not**
+        # (blueprint-frontend#214): `ssh-agent gi[t] mergetool` runs `git`
+        # where a file of that name is in the working directory. `src/*`
+        # expands to `src/git`, a path that is an argument and never the
+        # program, so `cp src/* dest` passes; `cp * dest` is over-refused,
+        # since no reading tells it from a wrapper's `*`.
+        return lead != "git" and "/" not in run[index] and patterned(
+            run[index])
     return lead != "git"
 
 
@@ -4372,6 +4377,38 @@ def computed_option_value(segment):
             index += 2
         else:
             index += 1
+    return None
+
+
+# Programs that make a link. `escapes_checkout` and `linked_protected_path`
+# resolve a path when the hook runs, so a link made by an earlier command on
+# the same line is not there to be seen (blueprint-frontend#213).
+LINK_MAKERS = frozenset({"ln", "mklink", "junction", "new-item"})
+
+
+def link_made_beside_git_offence(tokens):
+    """The reason to refuse a line that makes a link and runs `git`, or `None`.
+
+    **A stateless hook cannot see the link** (blueprint-frontend#213): `ln -s
+    /etc/hosts docs/out && git diff docs/out /dev/null` is judged before the
+    link exists, so `docs/out` reads as a path inside the checkout. The
+    issue's own remedy is taken: a line that runs git does not also make a
+    link. The two are separate commands, and the second is judged against the
+    link the first made.
+    """
+    if not any(True for _ in git_invocations(tokens)):
+        return None
+    for run in command_runs(tokens):
+        for index, token in enumerate(run):
+            if (program_name(token).lower() in LINK_MAKERS
+                    and launched(run, index)):
+                return (
+                    f"`{program_name(token)}` makes a link on a line that "
+                    "also runs `git`, and the checks that resolve a path "
+                    "through the filesystem judge it before the link exists. "
+                    "Run the two as separate commands "
+                    "(blueprint-frontend#213)."
+                )
     return None
 
 
@@ -5953,7 +5990,8 @@ def _offence(command, depth, judged):
                         "argument as a command, and no Bash permission rule can "
                         "express it."
                     )
-    return unlisted_subcommand_offence(tokens)
+    return (link_made_beside_git_offence(tokens)
+            or unlisted_subcommand_offence(tokens))
 
 
 # **Every scan here must finish inside the hook's timeout, because a hook that
