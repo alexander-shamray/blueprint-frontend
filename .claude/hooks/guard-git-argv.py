@@ -4399,7 +4399,7 @@ def computed_option_value(segment):
 LINK_MAKERS = frozenset({"ln", "mklink", "junction", "link", "fsutil",
                          "new-item", "ni"})
 LINK_WORD = re.compile(
-    r"(?<![\w.-])(?:ln|mklink|junction|link|fsutil|new-item|ni|symlink|"
+    r"(?<![\w-])(?:ln|mklink|junction|link|fsutil|new-item|ni|symlink|"
     r"createsymboliclink)(?![\w.-])", re.IGNORECASE)
 GIT_WORD = re.compile(r"(?<![\w.-])git(?![\w.-])", re.IGNORECASE)
 # Programs that run a script they are handed. Only a run holding one has its
@@ -4407,7 +4407,8 @@ GIT_WORD = re.compile(r"(?<![\w.-])git(?![\w.-])", re.IGNORECASE)
 # docs"` is prose and not a script (PR 215's review).
 SCRIPT_RUNNERS = frozenset({
     "bash", "sh", "zsh", "dash", "ksh", "fish", "pwsh", "powershell", "cmd",
-    "eval", "busybox",
+    "eval", "busybox", "python", "perl", "ruby", "node", "deno", "bun", "php",
+    "lua",
 })
 
 
@@ -4437,8 +4438,9 @@ def link_made_beside_git_offence(tokens):
         if (lead in DATA_ONLY_COMMANDS or lead in NAMES_GIT_AS_DATA
                 or lead in READING_COMMANDS):
             continue
-        runs_script = any(program_name(token).lower() in SCRIPT_RUNNERS
-                          for token in run)
+        runs_script = any(
+            re.sub(r"[\d.]+$", "", program_name(token).lower())
+            in SCRIPT_RUNNERS for token in run)
         for token in run:
             if program_name(token).lower() in LINK_MAKERS:
                 makes = True
