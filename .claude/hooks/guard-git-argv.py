@@ -4365,13 +4365,14 @@ ASSIGNMENT_ALLOWED_NAMES = frozenset({
 # only `ASSIGNMENT_ALLOWED_NAMES` or a loop variable may be assigned. **The
 # pass over the commands that the issue asked for** found `CI=true npm test`
 # the only assignment any of them makes, and the grants' own prefixes are the
-# set below; a line that runs only `cat`, `grep` or `echo` keeps the list,
-# because nothing is granted there for a variable to redirect. Matched as a
-# word anywhere in the line, as `GIT_WORD` is, so a program behind a wrapper or
-# a quote counts, at the price of a line that merely names one.
+# set below (`rm` is granted for one file only, `rm suggestions.md`, and is
+# here for the line around it); a line that runs only `cat`, `grep` or `echo`
+# keeps the list, because nothing is granted there for a variable to redirect.
+# Matched as a word anywhere in the line, as `GIT_WORD` is, so a program behind
+# a wrapper or a quote counts, at the price of a line that merely names one.
 GRANTED_WORD = re.compile(
     r"(?<![\w.-])(?:bash|cygpath|gh|git|ls|mktemp|node|npm|npx|py|python3?"
-    r"|sleep|wc)(?:\.(?:exe|cmd|bat|com))?(?![\w.-])", re.IGNORECASE)
+    r"|rm|sleep|wc)(?:\.(?:exe|cmd|bat|com))?(?![\w.-])", re.IGNORECASE)
 PLAIN_LOWERCASE = re.compile(r"^[a-z][a-z0-9]*$")
 
 # **The builtins that assign in the current shell with no name a check can
@@ -5005,7 +5006,11 @@ def push_offence(segment):
 
 # ---- what `git diff` may read, and what a granted helper is handed ---------
 
-DRIVE_PATH = re.compile(r"^[A-Za-z]:(?:[\\/]|$)")
+# **A drive prefix needs no separator**: `C:../../x` is a path on Windows, and
+# splitting on separators leaves it the component `C:..` (PR #206's review). A
+# one-letter revision followed by a colon is refused with it, which is the
+# direction to be wrong in.
+DRIVE_PATH = re.compile(r"^[A-Za-z]:")
 
 
 def outside_checkout():
@@ -5589,8 +5594,13 @@ def _offence(command, depth, judged):
         # by a name the filesystem compares ignoring case** (PR #206's
         # review): measured on Windows, `git FILTER-BRANCH` and `git
         # SubModule` ran the scripts, and a builtin such as `git LOG` did not.
-        # Folding only widens what the lookups below match.
-        subcommand = subcommand_of(segment).lower()
+        # Folding only widens what the lookups below match. **A trailing dot or
+        # space is dropped too**, since Windows opens `git-filter-branch.` as
+        # `git-filter-branch`: measured, git reaches the spawn with either and
+        # the script then fails with `Exec format error`, which is luck about
+        # the shebang rather than a refusal (PR #206's review). The 8.3 short
+        # name is not resolved, measured.
+        subcommand = program_name(subcommand_of(segment).lower().rstrip(" ."))
         if subcommand in REFUSED_SUBCOMMANDS:
             return (
                 f"`git {subcommand}` {REFUSED_SUBCOMMANDS[subcommand]}, and "

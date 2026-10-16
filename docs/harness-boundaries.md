@@ -814,7 +814,8 @@ named. A lowercase word as an assignment word is refused too, because Windows
 reads `perl5opt` as `PERL5OPT`. **A line that runs any other granted program
 is judged as a `git` line is** (blueprint-frontend#205): `GRANTED_WORD` names
 the prefixes the grants hold — `bash`, `npm`, `npx`, `py`, `python`, `node`,
-`gh`, `ls`, `wc`, `sleep`, `mktemp` and `cygpath` — and a variable nobody
+`gh`, `ls`, `wc`, `sleep`, `mktemp`, `cygpath` and `rm`, which is granted for
+`suggestions.md` alone — and a variable nobody
 listed, `NODE_REPL_EXTERNAL_MODULE`, `PYTHONINSPECT` or `RUBYGEMS_GEMDEPS`,
 is refused there without being named. A pass over the commands found
 `CI=true npm test` the only assignment any of them makes; `NODE_ENV` and
