@@ -263,7 +263,7 @@ export class OrderDetailPage {
    * payment_declined and payment_timeout are one dimension value apart on the
    * orders.cancelled metric and a different incident. The order read keys the
    * status on the origin first (§10.7), so a user-origin `payment_declined`
-   * still read `cancelled`.
+   * still reads `cancelled`.
    */
   private static readonly USER_REASON: CancelOrderReason = 'customer_request';
 
