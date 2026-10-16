@@ -334,6 +334,28 @@ describe('OrderDetailPage', () => {
     expect(mounted.fixture.componentInstance.cancelled()).toBe(true);
   });
 
+  it('keeps the one replay when an earlier sign-in was dismissed and sent nothing (#157)', async () => {
+    const mounted = await mountWith(order());
+    controller = mounted.controller;
+    signIn.mockRejectedValueOnce(new Error('Sign-in was dismissed before it completed.'));
+
+    mounted.fixture.componentInstance.cancel();
+    controller
+      .expectOne((r) => r.url.endsWith('/cancel'))
+      .flush({ title: 'Unauthorized', status: 401 }, { status: 401, statusText: 'Unauthorized' });
+    await mounted.fixture.whenStable();
+    controller.expectNone((r) => r.url.endsWith('/cancel'));
+
+    mounted.fixture.componentInstance.cancel();
+    controller
+      .expectOne((r) => r.url.endsWith('/cancel'))
+      .flush({ title: 'Unauthorized', status: 401 }, { status: 401, statusText: 'Unauthorized' });
+    await mounted.fixture.whenStable();
+
+    expect(signIn).toHaveBeenCalledTimes(2);
+    controller.expectOne((r) => r.url.endsWith('/cancel'));
+  });
+
   it('does not replay a cancellation onto a different order the route handed this instance', async () => {
     const mounted = await mountWith(order());
     controller = mounted.controller;

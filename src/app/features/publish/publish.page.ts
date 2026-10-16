@@ -333,14 +333,17 @@ export class PublishPage {
    */
   private signInAndReplay(): void {
     const replay = !this.replayedAfterSignIn;
-    this.replayedAfterSignIn = true;
     const refusedSubject = this.auth.user()()?.subject ?? null;
 
     this.auth.signIn().then(
       () => {
         const sameSubject =
           refusedSubject !== null && this.auth.user()()?.subject === refusedSubject;
-        if (replay && sameSubject) this.publish();
+        if (replay && sameSubject) {
+          // Spent where the replay is sent (#157); see CheckoutPage.
+          this.replayedAfterSignIn = true;
+          this.publish();
+        }
       },
       (failure: unknown) => this.errorState.set(mapError(failure)),
     );

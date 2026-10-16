@@ -472,7 +472,6 @@ export class CheckoutPage {
    */
   private signInAndReplay(): void {
     const replay = !this.replayedAfterSignIn;
-    this.replayedAfterSignIn = true;
     const refusedSubject = this.auth.user()()?.subject ?? null;
     const changesAtRefusal = this.subjectChanges;
 
@@ -482,7 +481,13 @@ export class CheckoutPage {
           refusedSubject !== null &&
           this.auth.user()()?.subject === refusedSubject &&
           this.subjectChanges === changesAtRefusal;
-        if (replay && sameSubject) this.placeOrder();
+        if (replay && sameSubject) {
+          // Spent where the replay is sent, not before the sign-in settles: a
+          // dismissed or foreign sign-in sent nothing, so the bound has not
+          // been used (#157).
+          this.replayedAfterSignIn = true;
+          this.placeOrder();
+        }
       },
       (failure: unknown) => this.errorState.set(mapError(failure)),
     );
