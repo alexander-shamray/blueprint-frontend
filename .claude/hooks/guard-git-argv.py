@@ -5594,13 +5594,18 @@ def _offence(command, depth, judged):
         # by a name the filesystem compares ignoring case** (PR #206's
         # review): measured on Windows, `git FILTER-BRANCH` and `git
         # SubModule` ran the scripts, and a builtin such as `git LOG` did not.
-        # Folding only widens what the lookups below match. **A trailing dot or
-        # space is dropped too**, since Windows opens `git-filter-branch.` as
-        # `git-filter-branch`: measured, git reaches the spawn with either and
-        # the script then fails with `Exec format error`, which is luck about
-        # the shebang rather than a refusal (PR #206's review). The 8.3 short
-        # name is not resolved, measured.
-        subcommand = program_name(subcommand_of(segment).lower().rstrip(" ."))
+        # Folding only widens what the lookups below match.
+        #
+        # **And cut at the first `.`, `:` or blank** (PR #206's review, three
+        # times): Windows opens `git-filter-branch.`, `git-filter-branch ` and
+        # `git-filter-branch::$DATA` as `git-filter-branch`. Measured, git
+        # reaches the spawn with each and the script then fails with `Exec
+        # format error`, which is luck about the shebang and not a refusal; the
+        # 8.3 short name is not resolved. **A lookup and not a refusal**,
+        # because this scan also yields the `git` in `grep -rn git src/app`,
+        # where refusing a word that is not a subcommand over-fires; a name
+        # like `src/app` cuts to itself and matches nothing.
+        subcommand = re.split(r"[.:\s]", subcommand_of(segment).lower(), 1)[0]
         if subcommand in REFUSED_SUBCOMMANDS:
             return (
                 f"`git {subcommand}` {REFUSED_SUBCOMMANDS[subcommand]}, and "

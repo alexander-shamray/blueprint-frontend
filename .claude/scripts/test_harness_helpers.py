@@ -4877,6 +4877,9 @@ class TheGitArgvGuard(unittest.TestCase):
                 # or space.
                 "git filter-branch. --msg-filter cat",
                 "git 'filter-branch ' --msg-filter cat",
+                "git 'filter-branch::$DATA' --msg-filter cat",
+                "git 'submodule::$DATA' foreach ./tools/x",
+                "git 'filter-branch.exe' --msg-filter cat",
         ):
             with self.subTest(command=command):
                 self.assertRefused(command)
