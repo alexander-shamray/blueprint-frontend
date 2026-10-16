@@ -4424,8 +4424,13 @@ def assigning_word(run):
             target = _option_target(rest, "v")
             if target is not None and sensitive_target(target):
                 return word
+        # `set -a` exports every later assignment, which would carry a `for`
+        # or `read` target into the environment — where Windows reads `Path`
+        # as `PATH` — and so undo comparing targets as spelled (PR #190's
+        # review).
         if word == "set" and any(
-                later == "keyword" or re.match(r"^[-+][A-Za-z]*k", later)
+                later in ("keyword", "allexport")
+                or re.match(r"^[-+][A-Za-z]*[ak]", later)
                 for later in rest):
             return word
         return None
@@ -4481,6 +4486,44 @@ def assigning_expansion(command):
                 if match is not None and sensitive_assignment(
                         match.group("name")):
                     return match.group()
+    return None
+
+
+# `${!name…}`, read as an indirection unless what follows the name only lists
+# names or keys: `${!prefix*}`, `${!prefix@}`, `${!arr[@]}`, `${!arr[*]}`.
+INDIRECT_EXPANSION = re.compile(
+    r"\$\{!(?:[A-Za-z_][A-Za-z0-9_]*|[0-9]+)(?P<rest>[^}]*)\}")
+
+# `${…@P}`, which expands its value as a prompt string.
+PROMPT_EXPANSION = re.compile(r"\$\{[^{}]*@P\}")
+
+
+def evaluating_expansion(command):
+    """The first expansion in `command` that evaluates a variable's value.
+
+    **The value is code to these two, and the value is not in any word this
+    hook reads** (PR #190's review). `${x@P}` expands a value as a prompt,
+    which runs a command substitution held in it, so
+    `x='$(./tools/run)'; ls ${x@P}` runs a branch program behind the granted
+    `ls`; and `${!x}` evaluates the subscript in the value it names, so
+    `x='y[PATH=5]'; ls ${!x}` assigns `PATH` while the line assigns only `x`.
+    Both measured with Git Bash. Neither has a use in a command here, so both
+    are refused on every line, wherever bash expands.
+    """
+    for text, quotes in expandable_regions(command):
+        text = join_continuations(text, quotes=quotes)
+        for index, state, escaped in _quoting(text, quotes=quotes):
+            if escaped or state == "single" or (state == "comment" and quotes):
+                continue
+            if text[index] != "$":
+                continue
+            match = PROMPT_EXPANSION.match(text, index)
+            if match is not None:
+                return match.group()
+            match = INDIRECT_EXPANSION.match(text, index)
+            if match is not None and match.group("rest") not in (
+                    "*", "@", "[@]", "[*]"):
+                return match.group()
     return None
 
 
@@ -5045,6 +5088,15 @@ def _offence(command, depth, judged):
     refusal = xargs_offence(tokens)
     if refusal is not None:
         return refusal
+
+    found = evaluating_expansion(command)
+    if found is not None:
+        return (
+            f"`{found}` expands a variable's value as code — a prompt "
+            "expansion runs a substitution held in it, an indirection "
+            "evaluates a subscript in it — so what runs is not in the command "
+            "this hook reads (PR #190's review)."
+        )
 
     refusal = assignment_offence(command, tokens)
     if refusal is not None:

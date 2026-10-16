@@ -4646,6 +4646,10 @@ class TheGitArgvGuard(unittest.TestCase):
                 # review).
                 "mapfile -c 1 -C 'X=1; PATH=5; :' a <<< z; git status",
                 "readarray -tC 'PATH=5; :' -c 1 a <<< z; git status",
+                # `set -a` exports a target compared as spelled, so `Path`
+                # would reach the environment (PR #190's review).
+                "set -a; for Path in 5; do git status; done",
+                "set -o allexport; read Path <<< 5; git status",
         ):
             with self.subTest(command=command):
                 self.assertRefused(command)
@@ -4672,6 +4676,35 @@ class TheGitArgvGuard(unittest.TestCase):
                               "fix: ${x[PATH=5]}, $((1 + 2)), PATH=5", "EOF"]),
                 '[[ -n "$(git status --porcelain)" ]] && echo dirty',
                 "CI=true npm test",
+        ):
+            with self.subTest(command=command):
+                self.assertAdmitted(command)
+
+    def test_an_expansion_that_evaluates_a_value_is_refused(self):
+        # **`${x@P}` runs a substitution held in a value, and `${!x}`
+        # evaluates a subscript held in one** (PR #190's review), each
+        # measured with Git Bash: the code is in a quoted assignment this
+        # hook reads as data. The first two run a branch program behind the
+        # granted `ls` on a line with no `git` at all. Each was admitted
+        # before the fix.
+        for command in (
+                "x='$(./tools/run)'; ls ${x@P}",
+                'x=\'$(./tools/run)\'; ls "${x@P}"',
+                "y='$((PATH=5))'; echo ${y@P}; git status",
+                "x='y[PATH=5]'; ls ${!x}; git status",
+                "x='y[PATH=5]'; ls \"${!x}\"; git status",
+                "ls ${!x:-y}",
+                "ls ${!1}",
+        ):
+            with self.subTest(command=command):
+                self.assertRefused(command)
+        # Listing names or keys evaluates nothing, and a quote bash leaves
+        # alone is text.
+        for command in (
+                "ls ${!HOME*}",
+                'echo "${!arr[@]}"',
+                "echo ${x@Q}",
+                "echo '${x@P} ${!x}'",
         ):
             with self.subTest(command=command):
                 self.assertAdmitted(command)
