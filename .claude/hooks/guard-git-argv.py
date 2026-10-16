@@ -5108,8 +5108,12 @@ def _offence(command, depth, judged):
         # point of the path.
         # Read with the quoting gone as well, since `g""it push` and `gi\t
         # push` are each a push to bash and a different string here (PR
-        # #190's review).
-        if any(re.search(r"\bgit\b[^;&|\n]*\bpush\b", text) for text in (
+        # #190's review). **And across a separator**: this path cannot tell a
+        # `;` or `|` inside a quote from one outside it, so
+        # `git -c "a;b" push origin +HEAD:main` hid the push from a pattern
+        # that stopped at the first one. Any `push` after a `git` on the same
+        # line is refused here; the path is only for a line `shlex` failed on.
+        if any(re.search(r"\bgit\b[^\n]*\bpush\b", text) for text in (
                 stripped, re.sub(r"[\"'\\]", "", stripped))):
             return (
                 "a `git push` appears in a command this guard could not "
