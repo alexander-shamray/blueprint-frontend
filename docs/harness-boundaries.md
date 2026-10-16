@@ -913,7 +913,10 @@ reads `[^` as the negation bash accepts beside `[!`, which Python's
 equivalence class, a collating symbol (`[[:alpha:]]`, `[[=g=]]`,
 `[[.g.]]`) or an extglob opener (`@(`, `+(`, `*(`, `?(`, `!(`), which
 `glob` does not model at all. **Not modelled:** an archive program or
-interpreter module missing from `ARCHIVE_UNPACKERS` and `ARCHIVE_MODULES`.
+interpreter module missing from `ARCHIVE_UNPACKERS` and `ARCHIVE_MODULES`,
+and a copier or mover other than `cp` and `gcp` (`rsync -a`, `mv`, `xcopy`,
+`robocopy`, `Copy-Item`), which carries a link to a name that does not exist
+yet exactly as `cp -a` does but is far too common beside `git` to refuse.
 The suggested allow-list of programs beside git was not taken, because it
 over-refuses every `git` after a program nobody listed; the lists stay
 fail-closed on the names they hold.
