@@ -4883,6 +4883,14 @@ class TheGitArgvGuard(unittest.TestCase):
             escaping += ["docs/out", "docs/o*"]
         if link(outside, "dir", True):
             escaping += ["docs/dir", "docs/dir/secret.txt", "docs/d*/secret.txt"]
+        # A link to a directory that holds a `.git` of its own: the root is
+        # the checkout the command runs in, so this is not taken for it.
+        elsewhere = os.path.join(base, "elsewhere")
+        os.makedirs(os.path.join(elsewhere, ".git"))
+        with open(os.path.join(elsewhere, "f.txt"), "w") as handle:
+            handle.write("x\n")
+        if link(elsewhere, "repolink", True):
+            escaping += ["docs/repolink", "docs/repolink/f.txt"]
         if not escaping:
             self.skipTest("this host lets no link be created")
         for operand in escaping:
@@ -4902,6 +4910,22 @@ class TheGitArgvGuard(unittest.TestCase):
                         "git diff docs/n* README.md"):
             with self.subTest(command=command):
                 self.assertAdmitted(command, cwd=repo)
+
+    def test_a_glob_operand_with_more_matches_than_can_be_resolved_is_refused(
+            self):
+        # The matches past `LINK_GLOB_LIMIT` are never resolved, so the one
+        # link among them could be any of the rest (round 1 of PR 210).
+        base = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, base, True)
+        repo = os.path.join(base, "repo")
+        os.makedirs(os.path.join(repo, ".git"))
+        os.makedirs(os.path.join(repo, "many"))
+        limit = self.guard_module().LINK_GLOB_LIMIT
+        for number in range(limit + 1):
+            with open(os.path.join(repo, "many", f"f{number}.txt"), "w") as h:
+                h.write("x\n")
+        self.assertRefused("git diff many/* README.md", cwd=repo)
+        self.assertAdmitted("git diff many/f1* README.md", cwd=repo)
 
     def test_only_the_subcommands_on_the_allow_list_are_admitted(self):
         # **The deny-lists trail git** (blueprint-frontend#133, #209). One
@@ -4983,6 +5007,11 @@ class TheGitArgvGuard(unittest.TestCase):
                 "git bisect start",
                 "git cherry-pick -x abc123",
                 "echo $(git mergetool)",
+                # Text `shlex` fails on reaches the allow-list crudely (round
+                # 1 of PR 210).
+                'git mergetool "',
+                "git -C x mergetool 'a",
+                "echo 'a'; git gui \"",
         ):
             with self.subTest(command=command):
                 self.assertRefused(command)
@@ -5002,6 +5031,9 @@ class TheGitArgvGuard(unittest.TestCase):
                 # (`ssh-agent git mergetool`) is not read as a launch.
                 "git $SUB",
                 "ssh-agent git mergetool",
+                # An untokenisable line whose subcommand is allowed.
+                'git status "',
+                "git log -1 'a",
         ):
             with self.subTest(command=command):
                 self.assertAdmitted(command)
@@ -5022,6 +5054,9 @@ class TheGitArgvGuard(unittest.TestCase):
                 "git pull --ff-only",
                 "git rebase origin/main",
                 "git rebase -X ours origin/main",
+                # `--stat` is its own option, not an abbreviation of
+                # `--strategy` (round 1 of PR 210 claimed otherwise).
+                "git pull --stat",
                 # `-s` means something else on other subcommands.
                 "git log -s -1",
                 "git commit -s -m x",
