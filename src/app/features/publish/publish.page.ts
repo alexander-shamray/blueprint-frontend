@@ -334,11 +334,18 @@ export class PublishPage {
   private signInAndReplay(): void {
     const replay = !this.replayedAfterSignIn;
     const refusedSubject = this.auth.user()()?.subject ?? null;
+    const changesAtRefusal = this.subjectChanges;
 
     this.auth.signIn().then(
       () => {
+        // Nor is anything replayed when the subject effect has started the form
+        // again in between, even for the refused subject coming back: what it
+        // would send is no longer the publish that was refused (#160), as in
+        // `CheckoutPage`.
         const sameSubject =
-          refusedSubject !== null && this.auth.user()()?.subject === refusedSubject;
+          refusedSubject !== null &&
+          this.auth.user()()?.subject === refusedSubject &&
+          this.subjectChanges === changesAtRefusal;
         if (replay && sameSubject) {
           // Spent where the replay is sent (#157); see CheckoutPage.
           this.replayedAfterSignIn = true;
