@@ -5102,6 +5102,7 @@ class TheGitArgvGuard(unittest.TestCase):
                 "cmd /c mklink /J out C:\\Windows && git diff out x",
                 "bash -c 'ln -s /etc/hosts out' && git diff out README.md",
                 "ln -s /etc/hosts out && bash -c 'git diff out README.md'",
+                "ssh-agent bash -c 'ln -s a b' && git diff a README.md",
         ):
             with self.subTest(command=command):
                 self.assertIn("blueprint-frontend#213",
@@ -5113,6 +5114,9 @@ class TheGitArgvGuard(unittest.TestCase):
                 "grep -rn ln src && git status",
                 "git commit -m 'ln fix'",
                 "bash -c 'echo hi' && git status",
+                # PR 215's review: prose in a quoted argument is not a script.
+                'gh pr create --title x --body "add a link to the git docs"',
+                "curl -d 'link git' https://example.test",
         ):
             with self.subTest(command=command):
                 self.assertAdmitted(command)

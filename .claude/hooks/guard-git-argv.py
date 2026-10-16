@@ -4397,10 +4397,18 @@ def computed_option_value(segment):
 # resolve a path when the hook runs, so a link made by an earlier command on
 # the same line is not there to be seen (blueprint-frontend#213).
 LINK_MAKERS = frozenset({"ln", "mklink", "junction", "link", "fsutil",
-                         "new-item"})
-LINK_WORD = re.compile(r"(?<![\w.-])(?:ln|mklink|junction|link|fsutil|new-item)"
-                       r"(?![\w.-])", re.IGNORECASE)
-GIT_WORD = re.compile(r"(?<![\w.-])git(?![\w.-])")
+                         "new-item", "ni"})
+LINK_WORD = re.compile(
+    r"(?<![\w.-])(?:ln|mklink|junction|link|fsutil|new-item|ni|symlink|"
+    r"createsymboliclink)(?![\w.-])", re.IGNORECASE)
+GIT_WORD = re.compile(r"(?<![\w.-])git(?![\w.-])", re.IGNORECASE)
+# Programs that run a script they are handed. Only a run holding one has its
+# quoted arguments searched, so `gh pr create --body "a link to the git
+# docs"` is prose and not a script (PR 215's review).
+SCRIPT_RUNNERS = frozenset({
+    "bash", "sh", "zsh", "dash", "ksh", "fish", "pwsh", "powershell", "cmd",
+    "eval", "busybox",
+})
 
 
 def link_made_beside_git_offence(tokens):
@@ -4416,7 +4424,8 @@ def link_made_beside_git_offence(tokens):
     **Read the way `listed_as_a_launch` reads a run** (PR 215's review): a
     link maker anywhere in a run that no printer, reader or package manager
     leads counts, so `ssh-agent ln -s …`, `xargs ln` and `cmd /c mklink` are
-    seen, and a script handed to a shell is searched for the word, in either
+    seen, and a script handed to a shell (a run holding one of
+    `SCRIPT_RUNNERS`) is searched for the word, in either
     direction (`bash -c 'ln -s a b' && git diff a`, `ln -s a b && bash -c
     'git diff a'`). A script that holds both is judged by its own pass.
     Not modelled: `cp -s`, `busybox`, an archive that unpacks a link, and a
@@ -4428,10 +4437,12 @@ def link_made_beside_git_offence(tokens):
         if (lead in DATA_ONLY_COMMANDS or lead in NAMES_GIT_AS_DATA
                 or lead in READING_COMMANDS):
             continue
+        runs_script = any(program_name(token).lower() in SCRIPT_RUNNERS
+                          for token in run)
         for token in run:
             if program_name(token).lower() in LINK_MAKERS:
                 makes = True
-            elif re.search(r"\s", token):
+            elif runs_script and re.search(r"\s", token):
                 makes = makes or bool(LINK_WORD.search(token))
                 script_git = script_git or bool(GIT_WORD.search(token))
     if not makes:
