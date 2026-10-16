@@ -5103,6 +5103,7 @@ class TheGitArgvGuard(unittest.TestCase):
                 "bash -c 'ln -s /etc/hosts out' && git diff out README.md",
                 "ln -s /etc/hosts out && bash -c 'git diff out README.md'",
                 "ssh-agent bash -c 'ln -s a b' && git diff a README.md",
+                "python3.12 -c 'import os; os.symlink(1, 2)' && git diff a b",
         ):
             with self.subTest(command=command):
                 self.assertIn("blueprint-frontend#213",
@@ -5113,6 +5114,10 @@ class TheGitArgvGuard(unittest.TestCase):
                 "echo ln -s a b && git status",
                 "grep -rn ln src && git status",
                 "git commit -m 'ln fix'",
+                # PR 215's review (R5): a git run is a reader, whatever its
+                # operands are called.
+                "git diff -- src/ni",
+                "git log -- docs/link",
                 "bash -c 'echo hi' && git status",
                 # PR 215's review: prose in a quoted argument is not a script.
                 'gh pr create --title x --body "add a link to the git docs"',
