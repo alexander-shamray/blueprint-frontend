@@ -5053,8 +5053,15 @@ def diff_offence(segment, command):
                 "it is given as plain files; run `git diff` in the checkout "
                 "(blueprint-frontend#132)."
             )
-    operands = [element for element in after_global_options(segment)[1:]
-                if not element.startswith("-")]
+    # **Every word after `--` is an operand, a dash-led one included** (PR
+    # #206's review): git reads them as pathspecs and never compares plain
+    # files there, so this closes nothing it could reach, and costs nothing.
+    operands, options_ended = [], False
+    for element in after_global_options(segment)[1:]:
+        if element == "--":
+            options_ended = True
+        elif options_ended or not element.startswith("-"):
+            operands.append(element)
     for operand in operands:
         if "$" in operand or "`" in operand:
             reason = "is computed by the shell, so what it names is not here"
@@ -5578,7 +5585,12 @@ def _offence(command, depth, judged):
                     "the option is refused rather than its value guessed at."
                 )
 
-        subcommand = subcommand_of(segment)
+        # **Folded, because the files git runs a subcommand from are looked up
+        # by a name the filesystem compares ignoring case** (PR #206's
+        # review): measured on Windows, `git FILTER-BRANCH` and `git
+        # SubModule` ran the scripts, and a builtin such as `git LOG` did not.
+        # Folding only widens what the lookups below match.
+        subcommand = subcommand_of(segment).lower()
         if subcommand in REFUSED_SUBCOMMANDS:
             return (
                 f"`git {subcommand}` {REFUSED_SUBCOMMANDS[subcommand]}, and "
