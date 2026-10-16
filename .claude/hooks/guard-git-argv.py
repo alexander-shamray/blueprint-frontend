@@ -4300,10 +4300,12 @@ def git_segments(tokens):
 # behind a wrapper nobody named (`ssh-agent git mergetool`), so a command that
 # only mentions git has to be exempted by name: `apt install git curl` and
 # `which git npm` are not invocations. A list, so it fails closed: a program
-# missing here is over-refused, never admitted.
+# missing here is over-refused, never admitted. **Only programs that never run
+# what they are handed** (PR 212's review): `brew`, `choco`, `scoop`, `winget`
+# and `man` can launch a command, so a `git` behind them is judged.
 NAMES_GIT_AS_DATA = frozenset({
-    "apt", "apt-get", "apk", "brew", "choco", "dnf", "dpkg", "man", "pacman",
-    "scoop", "type", "where", "whereis", "which", "winget", "yum",
+    "apt", "apt-get", "apk", "dnf", "dpkg", "pacman", "type", "where",
+    "whereis", "which", "yum",
 })
 
 
@@ -4315,9 +4317,10 @@ def listed_as_a_launch(run, index):
     list, so `ssh-agent git mergetool` was not read. The test is the one
     `brace_git_runs` uses instead: a printer, a reader other than `git`, or a
     program on `NAMES_GIT_AS_DATA` leads the run and the word is data;
-    anything else leads it and a `git` in it counts. A `git` that follows an
-    earlier `git` in the same run is that command's argument (`git mv git
-    x`), not a second invocation.
+    anything else leads it and a `git` in it counts. Where `git` itself leads
+    the run a later `git` is its argument (`git mv git x`); behind any other
+    lead every `git` is judged, so `find . -exec git status -exec git
+    mergetool` is read to the end (PR 212's review).
     """
     if launched(run, index):
         return True
@@ -4329,7 +4332,28 @@ def listed_as_a_launch(run, index):
     if (lead in DATA_ONLY_COMMANDS or lead in NAMES_GIT_AS_DATA
             or (lead in READING_COMMANDS and lead != "git")):
         return False
-    return not any(program_name(token) == "git" for token in run[:index])
+    return lead != "git"
+
+
+def computed_option_value(segment):
+    """The computed value of a leading global option in `segment`, or `None`.
+
+    **The tokens keep no quoting, so a quoted `"$work"` and a bare `$work`
+    look alike**, and they are not alike: an unset unquoted variable is
+    removed by bash, so `git -C $work log mergetool` hands `-C` the word
+    `log` and runs `mergetool`, while `subcommand_of` skips `$work` and reads
+    `log` (PR 212's review). No reading removes a whole-word variable, so the
+    value is refused whatever its quoting.
+    """
+    index = 0
+    while index < len(segment) and segment[index].startswith("-"):
+        if segment[index] in GLOBAL_VALUE_FLAGS:
+            if index + 1 < len(segment) and computed_word(segment[index + 1]):
+                return segment[index + 1]
+            index += 2
+        else:
+            index += 1
+    return None
 
 
 def unlisted_subcommand_offence(tokens):
@@ -4348,12 +4372,21 @@ def unlisted_subcommand_offence(tokens):
     $SUB` is not rewritten by any reading, so it was admitted, and leaving
     `git ${x:-mergetool}` to the default expansion's reading only chose
     whose reason was given. Which subcommand runs is not in the command, so
-    the word has to be spelled. A computed global-option VALUE is untouched
-    (`git -C "$work" status`), since `subcommand_of` skips it.
+    the word has to be spelled. So does a global option's value (`git -C
+    $work log`), for the reason `computed_option_value` gives.
     """
     for run, index in git_invocations(tokens):
         if not listed_as_a_launch(run, index):
             continue
+        value = computed_option_value(run[index + 1:])
+        if value is not None:
+            return (
+                f"`{value}` is the value of a global option of `git`, and "
+                "bash removes an unquoted expansion that is empty, so the "
+                "option would take the next word and the subcommand that "
+                "runs is not the one this hook reads. Spell the value "
+                "literally (blueprint-frontend#211)."
+            )
         word = subcommand_of(run[index + 1:])
         if word and computed_word(word):
             return (

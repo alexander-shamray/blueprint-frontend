@@ -5018,6 +5018,19 @@ class TheGitArgvGuard(unittest.TestCase):
                 # Refused by design: an unquoted substitution that prints
                 # nothing removes its word, so `-C` would take `commit`.
                 "git -C $(pwd) commit -m msg",
+                # PR 212's review: an unset unquoted variable is removed,
+                # and the tokens do not say whether it was quoted.
+                "git -C $work log mergetool",
+                'git -C "$work" status',
+                # A `git` behind a lead other than `git` is judged each time,
+                # and a program that runs what it is handed is not data.
+                "ssh-agent git status ; ssh-agent git mergetool",
+                "find . -exec git status -exec git mergetool",
+                "brew install git mergetool",
+                # Quoting a value with a space moves the subcommand, which
+                # the crude reading takes for the word after the first.
+                'git -C "a b" mergetool "',
+                'git -C a\\ b mergetool "',
                 "git bisect start",
                 "git cherry-pick -x abc123",
                 "echo $(git mergetool)",
@@ -5042,8 +5055,6 @@ class TheGitArgvGuard(unittest.TestCase):
                 "git --version",
                 # A wrapper nobody named, running an allowed subcommand.
                 "ssh-agent git status",
-                # A computed global-option value is not the subcommand.
-                'git -C "$work" status',
                 # An untokenisable line whose subcommand is allowed.
                 'git status "',
                 "git log -1 'a",
