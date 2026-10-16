@@ -5106,7 +5106,11 @@ def _offence(command, depth, judged):
         # with no closing quotation; the push then sat in plain text and was
         # admitted. Here the check can only be the crude one, which is the
         # point of the path.
-        if re.search(r"\bgit\b[^;&|\n]*\bpush\b", stripped):
+        # Read with the quoting gone as well, since `g""it push` and `gi\t
+        # push` are each a push to bash and a different string here (PR
+        # #190's review).
+        if any(re.search(r"\bgit\b[^;&|\n]*\bpush\b", text) for text in (
+                stripped, re.sub(r"[\"'\\]", "", stripped))):
             return (
                 "a `git push` appears in a command this guard could not "
                 "tokenise, so its remote and refspec cannot be read; refusing "

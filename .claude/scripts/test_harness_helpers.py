@@ -4728,6 +4728,9 @@ class TheGitArgvGuard(unittest.TestCase):
                 'x=\'$(./tools/run)\'; ls "${x[${z:-0}]@P}"',
                 "PS4='$(./tools/run)'; set -x; git status",
                 "VIMINIT='!./tools/run' git commit",
+                # The fallback reads a push with the quoting gone too.
+                'g""it push origin +HEAD:main' + NEWLINE + "echo '",
+                "gi\\t push origin +HEAD:main" + NEWLINE + "echo '",
         ):
             with self.subTest(command=command):
                 self.assertRefused(command)
