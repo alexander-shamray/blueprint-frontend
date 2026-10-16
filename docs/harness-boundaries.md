@@ -793,28 +793,30 @@ runs `git` the same arithmetic is refused wherever it stands, and so is an
 assignment, an `env NAME=…` operand, a `for`, a `read` or a `printf -v`
 naming a variable git reads — `PATH`, `HOME`, a `GIT_*` name and the rest of
 `ASSIGNMENT_SENSITIVE_NAMES` — or a name bash computes, and every builtin
-whose target no check can read, `export`, `trap`, `mapfile -C` and `set -k`
-among them (blueprint-frontend#185). **That name list is an
-enumeration too**, chosen over refusing every assignment because `X=1 git
-log` and a `for f in …` loop are ordinary; and a line that runs no `git` is
-not judged for any of it, the route blueprint-frontend#188 records. The
-scanner still
-miscounts a parenthesis inside `${…}`, `$[…]` or a heredoc body within
-`$(…)`, in both directions, and both are refused rather than read past: an
-opener it cannot close, and a body holding one of those constructs. In a run
-led by a wrapper with operands of its own — `timeout 5`, `nice -n 5`,
-`winpty` and the rest of `ARGUMENT_RUNNERS` — every later word counts as
-launched, so a computed or pattern `git` behind one is judged; a reserved
-word in front — `!`, `if`, `then`, `do`, `coproc` and the rest — is grammar
-and leads nothing, so the word after it is the command; and a comma
-brace expansion the shell would perform in any run that names `git` and that
-a reader or a printer does not lead is refused rather than read as one word
-(blueprint-frontend#129) — launched or not, since the launch test is the one
-that knew no wrapper outside the list (blueprint-frontend#186). **That list is
-an enumeration, so it fails open on a wrapper nobody named**, for a computed
-or pattern `git` behind one (blueprint-frontend#189); inverting it was
-rejected because a computed argument is ordinary traffic. A value assembled at
-run time is the residual the `F=--output=x` paragraphs record.
+whose target no check can read, `export`, `trap`, `mapfile -C`, `set -k` and
+`set -a` among them (blueprint-frontend#185). A prompt expansion `${x@P}` and
+an indirection `${!x}` evaluate a variable's value as code — the first runs a
+substitution held in it — so both are refused on every line. **That name
+list is an enumeration too**, chosen over refusing every assignment because
+`X=1 git log` and a `for f in …` loop are ordinary; and a line that runs no
+`git` is not judged for any of it, the route blueprint-frontend#188 records.
+The scanner still miscounts a parenthesis inside `${…}`, `$[…]` or a heredoc
+body within `$(…)`, in both directions, and both are refused rather than
+read past: an opener it cannot close, and a body holding one of those
+constructs. In a run led by a wrapper with operands of its own — `timeout
+5`, `nice -n 5`, `winpty` and the rest of `ARGUMENT_RUNNERS` — every later
+word counts as launched, so a computed or pattern `git` behind one is
+judged; a reserved word in front — `!`, `if`, `then`, `do`, `coproc` and
+the rest — is grammar and leads nothing, so the word after it is the
+command; and a comma brace expansion the shell would perform in any run
+that names `git` and that a reader or a printer does not lead is refused
+rather than read as one word (blueprint-frontend#129) — launched or not,
+since the launch test is the one that knew no wrapper outside the list
+(blueprint-frontend#186). **That list is an enumeration, so it fails open on
+a wrapper nobody named**, for a computed or pattern `git` behind one
+(blueprint-frontend#189); inverting it was rejected because a computed
+argument is ordinary traffic. A value assembled at run time is the residual
+the `F=--output=x` paragraphs record.
 
 **And the script run is the checkout's copy, which `Edit(.claude/scripts/**)`
 protects from neither a branch nor the session.** A branch can carry an
