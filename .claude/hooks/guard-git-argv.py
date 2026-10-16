@@ -5111,9 +5111,10 @@ def _offence(command, depth, judged):
         # #190's review). **And across a separator**: this path cannot tell a
         # `;` or `|` inside a quote from one outside it, so
         # `git -c "a;b" push origin +HEAD:main` hid the push from a pattern
-        # that stopped at the first one. Any `push` after a `git` on the same
-        # line is refused here; the path is only for a line `shlex` failed on.
-        if any(re.search(r"\bgit\b[^\n]*\bpush\b", text) for text in (
+        # that stopped at the first one, and a newline inside a quote hides
+        # it the same way. Any `push` after a `git` is refused here, across
+        # lines; the path is only for text `shlex` failed on.
+        if any(re.search(r"\bgit\b[\s\S]*\bpush\b", text) for text in (
                 stripped, re.sub(r"[\"'\\]", "", stripped))):
             return (
                 "a `git push` appears in a command this guard could not "
