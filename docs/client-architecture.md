@@ -829,7 +829,9 @@ publish page cannot call `ProductsPage.reload()` — a feature never imports
 another feature, enforced by an ESLint rule and by `core/boundaries.spec.ts` —
 so it calls `CatalogRefresh.request()`, which bumps a version signal that
 `ProductsPage` watches in an `effect()`. A publish must *ask* the catalogue to
-reload; nothing about arriving there does it. The smoke proves the mechanism
+reload; nothing about arriving there does it. A request that lands inside an
+open catalogue window is held and taken when the window closes, so the listing
+is not emptied into a limiter that is refusing (#161). The smoke proves the mechanism
 rather than the outcome: the new product appears after a tab click, with no
 `page.reload()` anywhere in the test.
 

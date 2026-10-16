@@ -1,5 +1,5 @@
 import {
-  ChangeDetectionStrategy, Component, Signal, computed, effect, inject, signal,
+  ChangeDetectionStrategy, Component, Signal, computed, effect, inject, signal, untracked,
 } from '@angular/core';
 import { HttpErrorResponse } from '@angular/common/http';
 import {
@@ -182,6 +182,8 @@ export class ProductsPage {
    */
   private readonly loadingSignal = signal(false);
   private readonly selectedSignal = signal<ProductSummary | null>(null);
+  /** A publish asked for a refresh inside a blocked window; the listing is stale until it is taken. */
+  private readonly refreshHeld = signal(false);
 
   // Writable only inside this class — CartStore.lines and CommandIdentity's
   // current/isSpent make the same choice, for the same reason: `readonly` on
@@ -289,10 +291,26 @@ export class ProductsPage {
     // and compared against: the first run is this same construction's own
     // load() above, and reloading again for it would double-fetch on every
     // app start.
+    //
+    // A request that arrives while the catalogue window is open is held, not
+    // taken: `reload()` empties the list before it asks, so taking it would
+    // blank a listing the buyer can still read and send a request the client
+    // already expects to be refused, which reopens the window (#161), as
+    // `OrdersPage.ionViewWillEnter()` skips an entry for the same reason. The
+    // list stays as it is; the hold is taken by the second effect once the
+    // window closes, and `reload()` clears it, so a pull to refresh that
+    // gets there first takes it instead of leaving a second reload behind.
     const constructedAtVersion = this.catalogRefresh.current();
     effect(() => {
       if (this.catalogRefresh.current() === constructedAtVersion) return;
-      this.reload();
+      untracked(() => {
+        if (this.rateLimit.blocked()) this.refreshHeld.set(true);
+        else this.reload();
+      });
+    });
+    effect(() => {
+      if (!this.refreshHeld() || this.rateLimit.blocked()) return;
+      untracked(() => this.reload());
     });
   }
 
@@ -302,6 +320,7 @@ export class ProductsPage {
    * `refresh()`, pull to refresh.
    */
   reload(done?: () => void): void {
+    this.refreshHeld.set(false);
     this.generation++;
     this.cursor = null;
     this.productsSignal.set([]);
