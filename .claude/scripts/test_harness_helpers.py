@@ -5116,6 +5116,30 @@ class TheGitArgvGuard(unittest.TestCase):
                 "unrar x a.rar && git diff a README.md",
                 "env -S 'ln -s a b' && git diff a README.md",
                 "osascript -e 'do shell script \"ln -s a b\"' && git diff a x",
+                # Blueprint-frontend#218: a copy that carries a link, a
+                # prefixed name, and the unpackers the lists lacked.
+                "cp -a a b && git diff a README.md",
+                "cp -d a b && git diff a README.md",
+                "cp -P a b && git diff a README.md",
+                "cp -R a b && git diff a README.md",
+                "cp -r a b && git diff a README.md",
+                "cp --archive a b && git diff a README.md",
+                "cp --arch a b && git diff a README.md",
+                "cp --no-dereference a b && git diff a README.md",
+                "cp --recursive a b && git diff a README.md",
+                "cp --preserve=links a b && git diff a README.md",
+                "cp --preserve=mode,all a b && git diff a README.md",
+                "gcp -s a b && git diff a README.md",
+                "gln -s a b && git diff a README.md",
+                "xar -x -f a.xar && git diff a README.md",
+                "lha x a.lzh && git diff a README.md",
+                "cabextract a.cab && git diff a README.md",
+                "python3 -m tarfile -e a.tar out && git diff a README.md",
+                "python -m zipfile -e a.zip out && git diff a README.md",
+                "python -c 'import shutil; shutil.unpack_archive(1)' "
+                "&& git diff a README.md",
+                "python -c 'import tarfile; tarfile.open(1).extractall()' "
+                "&& git diff a README.md",
         ):
             with self.subTest(command=command):
                 self.assertIn("blueprint-frontend#213",
@@ -5137,7 +5161,13 @@ class TheGitArgvGuard(unittest.TestCase):
                 # Blueprint-frontend#216: a plain copy, and an archive read
                 # without git beside it.
                 "cp a b && git status",
-                "cp -r a b && git status",
+                # Blueprint-frontend#218: `-p` and a bare `--preserve` keep
+                # no link, and the same flags without git beside them.
+                "cp -p a b && git status",
+                "cp --preserve a b && git status",
+                "cp --preserve=mode,timestamps a b && git status",
+                "python -m json.tool a.json && git status",
+                "cp -r a b",
                 "cp -s a b",
                 "tar tf a.tar",
                 "env LC_ALL=C git status",
@@ -5198,6 +5228,41 @@ class TheGitArgvGuard(unittest.TestCase):
         # A real directory, and one that does not exist, stay arguments.
         for command in ("cp lib/* dest", "ssh-agent lib/gi[t] status",
                         "cp absent/* dest"):
+            with self.subTest(command=command):
+                self.assertAdmitted(command, cwd=repo)
+
+    def test_a_glob_is_resolved_in_the_dialect_bash_expands_it_in(self):
+        # Blueprint-frontend#218: bash negates a class with `[^` as well as
+        # `[!`, and Python's `glob` knows only `[!`, so `lib2/[^x]it` --
+        # which bash expands to `lib2/git` -- matched nothing and passed.
+        base = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, base, True)
+        repo = os.path.join(base, "repo")
+        target = os.path.join(base, "outside", "realgit")
+        os.makedirs(os.path.join(repo, ".git"))
+        os.makedirs(os.path.join(repo, "lib"))
+        os.makedirs(os.path.join(repo, "lib2"))
+        os.makedirs(target)
+        match = os.path.join(repo, "lib2", "git")
+        try:
+            os.symlink(target, match, target_is_directory=True)
+        except (OSError, NotImplementedError):
+            made = (subprocess.run(["cmd", "/c", "mklink", "/J", match,
+                                    target], capture_output=True)
+                    if os.name == "nt" else None)
+            if made is None or made.returncode != 0:
+                self.skipTest("this host lets no link be created")
+        for command in ("ssh-agent lib2/[^x]it mergetool",
+                        "ssh-agent lib2/[!x]it mergetool",
+                        # Not modelled by `glob`, so refused unresolved.
+                        "ssh-agent lib2/[[:alpha:]]it mergetool",
+                        "ssh-agent lib2/[[=g=]]it mergetool",
+                        "ssh-agent lib2/[[.g.]]it mergetool"):
+            with self.subTest(command=command):
+                self.assertRefused(command, cwd=repo)
+        # A negated class over a directory holding no link stays an
+        # argument.
+        for command in ("cp lib/[^x]* dest", "cp lib/[!x]* dest"):
             with self.subTest(command=command):
                 self.assertAdmitted(command, cwd=repo)
 

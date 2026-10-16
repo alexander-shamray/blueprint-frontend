@@ -907,12 +907,26 @@ directory is itself a link out of the checkout** (`src/gi[t]` under `src ->
 /usr/bin`), **or a match is** (`src/git -> /usr/bin/git`): the directory part
 and the whole pattern both go through `escapes_checkout` (#216), so `cp src/*
 dest` is refused there and still passes for a real `src`.
+**The glob is resolved in bash's dialect** (#218): `escapes_checkout`
+reads `[^` as the negation bash accepts beside `[!`, which Python's
+`glob` does not, and refuses a pattern holding a POSIX class, an
+equivalence class, a collating symbol (`[[:alpha:]]`, `[[=g=]]`,
+`[[.g.]]`) or an extglob opener (`@(`, `+(`, `*(`, `?(`, `!(`), which
+`glob` does not model at all. **Not modelled:** an archive program or
+interpreter module missing from `ARCHIVE_UNPACKERS` and `ARCHIVE_MODULES`.
+The suggested allow-list of programs beside git was not taken, because it
+over-refuses every `git` after a program nobody listed; the lists stay
+fail-closed on the names they hold.
 **A link made earlier on the same line**
 (`ln -s /etc/hosts out && git diff out README.md`)
 cannot be seen by `escapes_checkout` and `linked_protected_path`, which judge
 the filesystem when the hook runs, so a line that makes a link (`ln`, `mklink`,
-`junction`, `link`, `fsutil`, `New-Item`, `cp -s`, `cp --symbolic-link` and
-any abbreviation `cp` accepts such as `--sym`, an archive program on
+`junction`, `link`, `fsutil`, `New-Item`, `gln`, a `cp` or `gcp` that makes
+or carries a link (`-s`, `-a`, `-d`, `-P`, `-R`, `-r`, `--symbolic-link`,
+`--archive`, `--no-dereference`, `--recursive`, `--preserve=links` or
+`=all`, and any abbreviation `cp` accepts such as `--sym`), `python -m
+tarfile` or `zipfile`, a script naming `tarfile`, `zipfile`,
+`unpack_archive` or `extractall`, an archive program on
 `ARCHIVE_UNPACKERS` (`tar`, `unzip`, `7z`, `cpio`, `jar`, `ditto` and the
 rest, extracting or not), anywhere in a run no reader leads, or in the text of
 a script handed to a shell or to one of the interpreters in `SCRIPT_RUNNERS`,

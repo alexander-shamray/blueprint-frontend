@@ -4405,36 +4405,67 @@ def computed_option_value(segment):
 # Programs that make a link. `escapes_checkout` and `linked_protected_path`
 # resolve a path when the hook runs, so a link made by an earlier command on
 # the same line is not there to be seen (blueprint-frontend#213).
-LINK_MAKERS = frozenset({"ln", "mklink", "junction", "link", "fsutil",
-                         "new-item", "ni"})
+LINK_MAKERS = frozenset({"ln", "gln", "mklink", "junction", "link",
+                         "fsutil", "new-item", "ni"})
 # Programs that unpack a link out of an archive (blueprint-frontend#216). They
 # are listed whole, extracting or not: a list fails closed, and `tar tf` beside
 # git is an over-refusal that costs a second command.
 ARCHIVE_UNPACKERS = frozenset({
     "tar", "bsdtar", "gtar", "unzip", "7z", "7za", "7zr", "cpio", "pax",
     "unar", "expand-archive", "jar", "bsdcpio", "7zz", "unrar", "rar",
-    "dpkg-deb", "ditto",
+    "dpkg-deb", "ditto", "gnutar", "star", "xar", "lha", "lhasa", "arj",
+    "unarj", "cabextract", "patool", "atool", "aunpack", "dtrx", "unp",
 })
+# `cp` as GNU installs it under a prefix, and the interpreter modules that
+# unpack an archive from the command line (blueprint-frontend#218).
+COPY_PROGRAMS = frozenset({"cp", "gcp"})
+ARCHIVE_MODULES = frozenset({"tarfile", "zipfile"})
 LINK_PROGRAMS = LINK_MAKERS | ARCHIVE_UNPACKERS
 
 
+# The long `cp` options that make a link or copy one, each with the
+# shortest abbreviation `cp` takes for it.
+COPY_LINK_OPTIONS = {"--symbolic-link": 4, "--archive": 4,
+                     "--no-dereference": 6, "--recursive": 5}
+
+
 def symbolic_copy_flag(token):
-    """Whether `token` is a `cp` flag that makes a symbolic link.
+    """Whether `token` is a `cp` flag that makes or carries a link.
 
     `cp -s` and `cp --symbolic-link` make links; a plain `cp` does not. A
     short cluster holding `s` counts (`cp -rs`), and so does any abbreviation
     of the long form that `cp` accepts: `--sy` is unambiguous among its
     options (round 1 of PR 217's review).
+
+    **So does a flag that copies a link already there** (blueprint-frontend
+    #218): `-a`, `-d`, `-P`, `-R` and `-r`, and `--archive`,
+    `--no-dereference`, `--recursive` and `--preserve=links` (or `=all`),
+    each with the abbreviations `cp` takes. The new name does not exist
+    when the hook resolves it, so `escapes_checkout` cannot see it, and
+    the copy is read as a link maker for the same reason `cp -s` is. A
+    bare `--preserve` and `-p` keep mode, ownership and times only.
     """
-    if re.match(r"^-[A-Za-z]*s[A-Za-z]*$", token):
+    if re.match(r"^-[A-Za-z]*[sadPRr][A-Za-z]*$", token):
         return True
-    name = token.split("=", 1)[0]
-    return len(name) >= 4 and "--symbolic-link".startswith(name)
+    name, _, value = token.partition("=")
+    if any(len(name) >= shortest and long.startswith(name)
+           for long, shortest in COPY_LINK_OPTIONS.items()):
+        return True
+    return (len(name) >= 4 and "--preserve".startswith(name)
+            and any(item and ("links".startswith(item)
+                              or "all".startswith(item))
+                    for item in value.split(",")))
 
 
 LINK_WORD = re.compile(
-    r"(?<![\w-])(?:ln|mklink|junction|link|fsutil|new-item|ni|symlink|"
+    r"(?<![\w-])(?:ln|gln|mklink|junction|link|fsutil|new-item|ni|symlink|"
     r"createsymboliclink)(?![\w.-])", re.IGNORECASE)
+# What a script says to unpack an archive, which keeps its links
+# (blueprint-frontend#218). Not `LINK_WORD`: `tarfile.open` has a dot after
+# the word, which that expression refuses.
+ARCHIVE_WORD = re.compile(
+    r"(?<![\w-])(?:tarfile|zipfile|unpack_archive|extractall)(?![\w-])",
+    re.IGNORECASE)
 GIT_WORD = re.compile(r"(?<![\w.-])git(?![\w.-])", re.IGNORECASE)
 # Programs that run a script they are handed. Only a run holding one has its
 # quoted arguments searched, so `gh pr create --body "a link to the git
@@ -4479,16 +4510,22 @@ def link_made_beside_git_offence(tokens):
         runs_script = any(
             re.sub(r"[\d.]+$", "", program_name(token).lower())
             in SCRIPT_RUNNERS for token in run)
-        symbolic_copy = any(program_name(token).lower() == "cp"
+        symbolic_copy = any(program_name(token).lower() in COPY_PROGRAMS
                             for token in run)
+        previous = ""
         for token in run:
             if program_name(token).lower() in LINK_PROGRAMS:
                 makes = True
             elif symbolic_copy and symbolic_copy_flag(token):
                 makes = True
+            elif (runs_script and previous == "-m"
+                  and token.lower() in ARCHIVE_MODULES):
+                makes = True
             elif runs_script and re.search(r"\s", token):
-                makes = makes or bool(LINK_WORD.search(token))
+                makes = makes or bool(LINK_WORD.search(token)
+                                      or ARCHIVE_WORD.search(token))
                 script_git = script_git or bool(GIT_WORD.search(token))
+            previous = token
     if not makes:
         return None
     if not script_git and not any(True for _ in git_invocations(tokens)):
@@ -5364,8 +5401,16 @@ def escapes_checkout(operand):
             return False
         root = parent
     real_root = os.path.normcase(os.path.realpath(root))
-    joined = os.path.join(base, operand)
+    # **Bash's dialect, not Python's** (blueprint-frontend#218): bash
+    # negates a class with `[^` as well as `[!`, and `glob` knows only the
+    # second, so a pattern bash expands to a link matched nothing here. A
+    # POSIX class, an equivalence class, a collating symbol and an extglob
+    # opener are not modelled by `glob` at all, so a pattern holding one
+    # is refused rather than resolved wrongly.
+    joined = os.path.join(base, operand.replace("[^", "[!"))
     if any(char in operand for char in "*?["):
+        if re.search(r"\[[:=.]|[?*+@!]\(", operand):
+            return True
         candidates = glob.glob(joined)
         if len(candidates) > LINK_GLOB_LIMIT:
             return True
