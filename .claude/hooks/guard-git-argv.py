@@ -4335,6 +4335,18 @@ def listed_as_a_launch(run, index):
     return lead != "git"
 
 
+def expanded_word(word):
+    """Whether bash may make `word` other words than it spells.
+
+    Computed, a glob, or the opener of an extglob: the tokeniser splits
+    `-@(C)` at its parenthesis and leaves `-@`, as `computed_program_offence`
+    reads it for a program name (PR 212's review). A real option or path
+    does not end in `@`, `+` or `!`, so the test costs nothing.
+    """
+    return bool(computed_word(word) or any(char in word for char in "*?[")
+                or word[-1:] in ("@", "+", "!"))
+
+
 def computed_option_value(segment):
     """The computed value of a leading global option in `segment`, or `None`.
 
@@ -4352,13 +4364,10 @@ def computed_option_value(segment):
     """
     index = 0
     while index < len(segment) and segment[index].startswith("-"):
-        if computed_word(segment[index]) or any(
-                char in segment[index] for char in "*?["):
+        if expanded_word(segment[index]):
             return segment[index]
         if segment[index] in GLOBAL_VALUE_FLAGS:
-            if index + 1 < len(segment) and (
-                    computed_word(segment[index + 1])
-                    or any(char in segment[index + 1] for char in "*?[")):
+            if index + 1 < len(segment) and expanded_word(segment[index + 1]):
                 return segment[index + 1]
             index += 2
         else:
