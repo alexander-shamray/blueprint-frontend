@@ -74,7 +74,7 @@ describe('PublishPage', () => {
     await hydrated(fixture.nativeElement);
 
     fixture.componentInstance.form.setValue({
-      name: 'A widget', thumbnailUrl: '', amount: 12.5, currency: 'EUR',
+      name: 'A widget', amount: 12.5, currency: 'EUR',
     });
   });
 
@@ -86,15 +86,17 @@ describe('PublishPage', () => {
     await hydrated(fixture.nativeElement);
   });
 
-  it('sends a PublishProductCommand with a null thumbnail when blank', async () => {
+  it('sends exactly the members Catalog binds, and no thumbnail', async () => {
     fixture.componentInstance.publish();
 
     const request = controller.expectOne('http://localhost:5000/api/v1/catalog/products');
     const body = request.request.body;
 
-    expect(body).toMatchObject({
-      name: 'A widget', thumbnailUrl: null, amount: 12.5, currency: 'EUR',
-    });
+    // The keys, not just the values: a member the backend does not bind is
+    // dropped without a word (#175), so an extra key here is a lost input.
+    expect(Object.keys(body).sort()).toEqual(['amount', 'commandId', 'currency', 'name']);
+    expect(body).toMatchObject({ name: 'A widget', amount: 12.5, currency: 'EUR' });
+    expect(fixture.nativeElement.querySelector('[formcontrolname="thumbnailUrl"]')).toBeNull();
     expect(body.commandId).toMatch(/^[0-9a-f-]{36}$/);
 
     // Not left dangling — see "reuses the commandId across a retried 503"
@@ -183,7 +185,7 @@ describe('PublishPage', () => {
     expect(fixture.componentInstance.form.invalid).toBe(true);
 
     fixture.componentInstance.form.setValue({
-      name: 'Another widget', thumbnailUrl: '', amount: 3, currency: 'EUR',
+      name: 'Another widget', amount: 3, currency: 'EUR',
     });
     fixture.componentInstance.publish();
 
@@ -269,7 +271,7 @@ describe('PublishPage', () => {
 
   it('publishes a free product, because the backend allows an amount of zero', async () => {
     fixture.componentInstance.form.setValue({
-      name: 'A free widget', thumbnailUrl: '', amount: 0, currency: 'EUR',
+      name: 'A free widget', amount: 0, currency: 'EUR',
     });
 
     // Validators.required treats 0 as present (isEmptyInputValue checks
@@ -470,7 +472,7 @@ describe('PublishPage', () => {
     expect(fixture.componentInstance.publishedId()).not.toBeNull();
 
     fixture.componentInstance.form.setValue({
-      name: 'Another widget', thumbnailUrl: '', amount: 3, currency: 'EUR',
+      name: 'Another widget', amount: 3, currency: 'EUR',
     });
     fixture.componentInstance.publish();
 
