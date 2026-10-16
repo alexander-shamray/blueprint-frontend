@@ -152,7 +152,7 @@ export interface PlaceOrderCommand {
 
 /** Ordering.Api/Endpoints/OrderEndpoints.cs — `CancelOrderRequest`. */
 export interface CancelOrderRequest {
-  readonly reason: CancelReason;
+  readonly reason: CancelOrderReason;
 }
 
 /**
@@ -171,6 +171,14 @@ export const CANCEL_REASONS = [
 ] as const;
 
 export type CancelReason = (typeof CANCEL_REASONS)[number];
+
+/**
+ * What `POST /v1/orders/{id}/cancel` accepts: the backend's ADR-087 refuses
+ * every other `CancelReasons` code with a 400 keyed `Reason`, as it does an
+ * unknown one. `CancelReason` stays the whole vocabulary, which is what an
+ * order's `cancelReason` can read.
+ */
+export type CancelOrderReason = Extract<CancelReason, 'customer_request'>;
 
 /** Web.Bff/Orders/OrderResponses.cs — `Money`. The server's numbers; the client formats, never computes. */
 export interface Money {

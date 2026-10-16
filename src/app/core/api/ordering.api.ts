@@ -3,7 +3,7 @@ import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 import { environment } from '@core/config/environment';
 import { noSuchOrder, orderPathSegment } from './order-path';
-import { CancelOrderRequest, CancelReason, PlaceOrderCommand } from './types';
+import { CancelOrderReason, CancelOrderRequest, PlaceOrderCommand } from './types';
 
 /**
  * Ordering.Api/Endpoints/OrderEndpoints.cs, through the gateway.
@@ -25,15 +25,14 @@ export class OrderingApi {
   }
 
   /**
-   * Requires `orders:cancel`. Replies 204. An unknown reason code would be a
-   * 400 keyed `Reason` — the backend refuses a code it does not know rather
-   * than defaulting, so CANCEL_REASONS is the whole vocabulary and a caller
-   * may send nothing outside it. Which of the five a given caller may
-   * truthfully send is the caller's own question: the tracking detail
-   * (`OrderDetailPage.USER_REASON`) answers it with `customer_request` and
-   * explains why.
+   * Requires `orders:cancel`. Replies 204. The backend's ADR-087 accepts
+   * `customer_request` alone on this route: any other `CancelReasons` code,
+   * like an unknown one, is a 400 keyed `Reason`. The parameter is typed to
+   * match, while CANCEL_REASONS keeps the whole vocabulary for reading
+   * `cancelReason` off an order. The tracking detail
+   * (`OrderDetailPage.USER_REASON`) says why the customer's reason is that one.
    */
-  cancel(orderId: string, reason: CancelReason): Observable<void> {
+  cancel(orderId: string, reason: CancelOrderReason): Observable<void> {
     const body: CancelOrderRequest = { reason };
 
     // One path segment or no request at all: `orderPathSegment` says why a
