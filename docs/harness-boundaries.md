@@ -902,17 +902,24 @@ wrapper nobody named** (`ssh-agent gi[t] mergetool`), **or one that leaves the
 checkout** (`ssh-agent /usr/bin/gi[t] mergetool`), **is judged** (#214); a
 pattern under a relative directory (`src/*`) is not, since it expands to a file
 inside the checkout, so `cp src/* dest` passes while `cp * dest` and `cp /tmp/*
-dest` are over-refused, because the tokens keep no quoting. **A link made
+dest` are over-refused, because the tokens keep no quoting. **Unless that
+directory is itself a link out of the checkout** (`src/gi[t]` under `src ->
+/usr/bin`): its directory part goes through `escapes_checkout` (#216), so
+`cp src/* dest` is refused there and still passes for a real `src`. **A link made
 earlier on the same line** (`ln -s /etc/hosts out && git diff out README.md`)
 cannot be seen by `escapes_checkout` and `linked_protected_path`, which judge
 the filesystem when the hook runs, so a line that makes a link (`ln`, `mklink`,
-`junction`, `link`, `fsutil`, `New-Item`, anywhere in a run no reader leads, or
-in the text of a script handed to a shell or to one of the interpreters in
-`SCRIPT_RUNNERS`) and runs git is refused (#213). **Not modelled:** `cp -s`,
-`busybox`, an archive that unpacks a link, a link maker behind a substitution,
-the script of an interpreter that list lacks (`osascript`, `env -S`), and a
-relative directory that is itself a link out of the checkout (`src/gi[t]` under
-`src -> /usr/bin`).
+`junction`, `link`, `fsutil`, `New-Item`, `cp -s` and `cp --symbolic-link`, an
+archive program on `ARCHIVE_UNPACKERS` (`tar`, `unzip`, `7z`, `cpio` and the
+rest, extracting or not), anywhere in a run no reader leads, or in the text of
+a script handed to a shell or to one of the interpreters in `SCRIPT_RUNNERS`,
+which now holds `osascript`, `wsl`, `cscript`, `wscript`, `mshta` and `env`)
+and runs git is refused (#213, #216). `busybox ln` and a link maker behind a
+substitution were already read, and a test holds each. **Not modelled, and no
+stateless reading can model it:** an interpreter missing from those lists, and
+a link made by a program no list names; each needs a link or a planted file
+the hook would judge as its own command, and the subcommands off the allow-list
+are not granted.
 `git diff` reads the files it names
 without `--no-index` when one is outside the working tree
 (blueprint-frontend#132, `git diff ~/.gitconfig /dev/null` printed the
