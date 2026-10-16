@@ -138,10 +138,12 @@ test('demo browses, quotes, orders and tracks the ending', async ({ page }) => {
   // And the status it arrives at is an ending. The two products this test
   // published were never stocked — the client has no way to stock one — so
   // the fulfilment saga cancels the order as `out_of_stock` within seconds of
-  // placing it, and the read reports that. Waiting for the page to say the
-  // order is final, rather than for any chip, is what keeps the next step
-  // from racing the saga.
-  await expect(page.getByText('This order has reached its last status.')).toBeVisible({
+  // placing it, and the read reports that. Waiting for that ending, rather
+  // than for any chip, is what keeps the next step from racing the saga. It
+  // is the chip and not the page's "last status" note, because a cancellation
+  // is not final: a later delivery outranks it (#158), so the page keeps
+  // polling and says so only for `delivered`.
+  await expect(page.locator('app-order-placed').getByText('Out of stock')).toBeVisible({
     timeout: 30_000,
   });
 
