@@ -4173,16 +4173,15 @@ def computed_program_offence(tokens):
 
 
 def patterned(token):
-    """Whether `token` is a glob that spells at least two letters literally.
+    """Whether `token` is a glob, which `names_program` then tests for `git`.
 
-    `gi[t]` and `g?t` can be `git`; `src/*` and `*t` leave too little of the
-    name to be one. Read only where no wrapper is known to launch a program,
-    so an argument such as `src/*` is not taken for `git`
-    (blueprint-frontend#189).
+    **No minimum of literal letters** (PR #204's review): `ssh-agent g* push
+    origin +HEAD:main` and `ssh-agent * push …` are `git` wherever a file of
+    that name is the first the pattern matches, as `gi[t]` is. An argument
+    such as `src/*` is a pattern too and yields a segment with nothing in it,
+    which no check refuses (blueprint-frontend#189).
     """
-    name = program_name(token)
-    return (any(char in name for char in "*?[")
-            and len(re.sub(r"[*?\[\]]", "", name)) >= 2)
+    return any(char in program_name(token) for char in "*?[")
 
 
 def git_segments(tokens):
@@ -4310,14 +4309,17 @@ ASSIGNMENT_SENSITIVE_NAMES = frozenset({
 ASSIGNMENT_SENSITIVE_PREFIXES = ("DYLD_", "GIT_", "LD_", "NPM_CONFIG_", "SSH_")
 
 # **On a line that runs `git` the rule is inverted** (blueprint-frontend#191):
-# a name is refused unless it is listed here or is a plain lowercase word. The
-# list above is a guess in the safe direction and a longer one is still a
-# guess — `PERL5OPT`, `LESSKEY` and `GCONV_PATH` were each outside it — so
-# the lines that run `git` admit only what is known to be harmless. A plain
-# lowercase word (`f`, `line`, `path`) is a loop variable or a scratch value;
-# one with an underscore is not, since `http_proxy` and `no_proxy` are read
-# by git. A pass over the commands here found `CI=true npm test` the only
-# assignment any of them makes, and it runs no `git`.
+# a name is refused unless it is listed here, or is a plain lowercase word
+# that a `for`, `read` or other builtin assigns. The list above is a guess in
+# the safe direction and a longer one is still a guess — `PERL5OPT`, `LESSKEY`
+# and `GCONV_PATH` were each outside it — so the lines that run `git` admit
+# only what is known to be harmless. A plain lowercase word (`f`, `line`,
+# `path`) is a loop variable and stays in the shell; one with an underscore is
+# not, since `http_proxy` and `no_proxy` are read by git. **As an assignment
+# word it is refused**, because it may reach the environment, where Windows
+# reads `perl5opt` as `PERL5OPT` (PR #204's review). A pass over the commands
+# here found `CI=true npm test` the only assignment any of them makes, and it
+# runs no `git`.
 ASSIGNMENT_ALLOWED_NAMES = frozenset({
     "CI", "COLUMNS", "FORCE_COLOR", "LANG", "LANGUAGE", "LC_ALL", "LC_COLLATE",
     "LC_CTYPE", "LC_MESSAGES", "LC_NUMERIC", "LC_TIME", "LINES", "NO_COLOR",
@@ -4396,7 +4398,8 @@ def sensitive_assignment(word, fold=True, strict=True):
     # `strict` is a line that runs `git`, where a name must be known to be
     # harmless (blueprint-frontend#191).
     return strict and not (
-        name in ASSIGNMENT_ALLOWED_NAMES or PLAIN_LOWERCASE.match(spelled))
+        name in ASSIGNMENT_ALLOWED_NAMES
+        or (not fold and PLAIN_LOWERCASE.match(spelled)))
 
 
 def sensitive_target(word, strict=True):
@@ -4480,11 +4483,13 @@ def assigning_word(run, strict=True):
                 return word
             # Off a `git` line the targets are read instead
             # (blueprint-frontend#188): `declare -i` makes a later value
-            # arithmetic, and a computed or subscripted target is one no
-            # check can name.
+            # arithmetic, `-n` makes a nameref whose target is in the value
+            # (`declare -n r=PATH; r=5`, PR #204's review), and a computed or
+            # subscripted target is one no check can name.
             operands = run[position + 1:]
             if word in ("declare", "local", "typeset") and any(
-                    re.match(r"^-[A-Za-z]*i", operand) for operand in operands):
+                    re.match(r"^-[A-Za-z]*[in]", operand)
+                    for operand in operands):
                 return word
             if any(sensitive_target(operand.split("=", 1)[0], strict=False)
                    for operand in operands if not operand.startswith("-")):
@@ -4579,7 +4584,7 @@ def assigning_expansion(command, strict=True):
             else:
                 match = DESCRIPTOR_VARIABLE.match(text, index)
                 if match is not None and sensitive_assignment(
-                        match.group("name"), strict=strict):
+                        match.group("name"), fold=not strict, strict=strict):
                     return match.group()
     return None
 
@@ -4724,7 +4729,8 @@ def assignment_offence(command, tokens):
         "which program git is or what it runs (blueprint-frontend#185), or "
         "a name not known to be harmless (blueprint-frontend#191): only "
         "`LC_ALL`, `TZ`, `CI` and the rest of `ASSIGNMENT_ALLOWED_NAMES`, or "
-        "a plain lowercase word, may be assigned on a line that runs `git`. "
+        "a plain lowercase loop variable, may be assigned on a line that "
+        "runs `git`. "
         "Run the `git` command on a line of its own."
     )
 

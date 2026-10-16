@@ -4657,7 +4657,7 @@ class TheGitArgvGuard(unittest.TestCase):
         # leaves alone, a heredoc it does not expand, and a line that names
         # no variable git reads are ordinary (blueprint-frontend#188, #191).
         for command in (
-                "x=1 git log --oneline -5",
+                "CI=1 git log --oneline -5",
                 "LC_ALL=C git log -1",
                 "TZ=UTC git status",
                 "for f in a b; do git log -1 $f; done",
@@ -4705,6 +4705,10 @@ class TheGitArgvGuard(unittest.TestCase):
                 "unset 'x[PATH=5]'; ls",
                 "declare -i x; x=PATH=5; ls",
                 "typeset -ix y; ls",
+                # A nameref hides its target in the value (PR #204's review).
+                "declare -n ref=PATH; ref=5; ls",
+                "local -n r=PATH; ls",
+                "typeset -gn r=PATH; ls",
                 "for PATH in ./tools; do ls; done",
                 "read PATH <<< 5; ls",
                 "printf -v PATH %s 5; ls",
@@ -4755,6 +4759,12 @@ class TheGitArgvGuard(unittest.TestCase):
                 "MYVIMRC=./v git commit",
                 "UNLISTED=1 git status",
                 "X=1 git log --oneline -5",
+                # Windows reads a lowercase name as its upper-case one, so as
+                # an assignment word it may be `PERL5OPT` (PR #204's review).
+                "perl5opt=-Mx git send-email",
+                "lesskey=./k git log",
+                "x=1 git log --oneline -5",
+                "x=1; git status",
                 "http_proxy=./x git fetch",
                 "no_proxy=x git fetch",
                 "env UNLISTED=1 git status",
@@ -4772,7 +4782,7 @@ class TheGitArgvGuard(unittest.TestCase):
                 "TZ=UTC git status",
                 "CI=true git status",
                 "LANG=C TERM=dumb git log -1",
-                "x=1 git log --oneline -5",
+                "LC_ALL=C TZ=UTC git log -1",
                 "for f in a b; do git log -1 $f; done",
                 'for path in a b; do git log -1 -- "$path"; done',
                 "git log -1 | while read line; do echo $line; done",
@@ -4796,6 +4806,10 @@ class TheGitArgvGuard(unittest.TestCase):
                 "script -qc x gi[t] push origin +HEAD:main",
                 "ssh-agent gi[t] push --force origin fix/some-branch",
                 "ssh-agent git push origin +HEAD:main",
+                # Little of the name is literal (PR #204's review).
+                "ssh-agent g* push origin +HEAD:main",
+                "ssh-agent ?it push origin +HEAD:main",
+                "ssh-agent * push origin +HEAD:main",
         ):
             with self.subTest(command=command):
                 self.assertRefused(command)
@@ -5939,7 +5953,7 @@ class TheGitArgvGuard(unittest.TestCase):
         # was closed. If either of these starts being refused, this test fails
         # and the paragraph in `docs/harness-boundaries.md` that names the
         # bound is what needs rewriting.
-        self.assertAdmitted("f=--output=/tmp/x; git log $f")
+        self.assertAdmitted("CI=--output=/tmp/x; git log $CI")
         # The other two shapes narrowed when a computed word in program
         # position — one that could name the review helpers — started being
         # refused: a command WORD taken from a variable, and a substitution
@@ -5966,7 +5980,7 @@ class TheGitArgvGuard(unittest.TestCase):
         # What actually remains is the run-time half, which no reading here can
         # reach: a value the shell is TOLD at run time rather than one written
         # in the source.
-        self.assertAdmitted("n=2; git log -${n}")
+        self.assertAdmitted("CI=2; git log -${CI}")
 
     def test_a_redirection_is_not_an_argument_to_the_program(self):
         # **#183, and the file descriptor is the whole of it.**
@@ -6807,12 +6821,12 @@ class TheGitArgvGuard(unittest.TestCase):
 
         # The controls: an assignment prefix on honest traffic is ordinary, and
         # a printer with no shell behind it is still text.
-        self.assertAdmitted("x=1 git log --oneline -5")
+        self.assertAdmitted("CI=1 git log --oneline -5")
         # `GIT_DIR=/tmp/x` was a control here, and points git at another
         # repository's configuration and hooks — refused now, as `-C ..` is
         # inside a substitution (blueprint-frontend#185, #125).
         self.assertAdmitted("TZ=UTC git status")
-        self.assertAdmitted("x=1 echo 'git push origin +HEAD:main'")
+        self.assertAdmitted("CI=1 echo 'git push origin +HEAD:main'")
 
     def test_a_nested_default_is_unwrapped_one_layer_at_a_time(self):
         # Raised in review as a miss, and it is not one — recorded because the
