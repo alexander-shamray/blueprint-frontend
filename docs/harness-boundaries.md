@@ -866,16 +866,42 @@ flag lists, `--template` is refused on `clone` and `init`, and
 `filter-branch`, `send-email`, `instaweb`, `daemon`, `http-backend` and
 `web--browse` are refused whole. **Those are deny-lists and trail git**; the
 `--*-cmd` and `--*-filter` options are reached through their subcommand
-rather than named, and an allow-list of the subcommands this repository runs
-is the change that stops the trailing. `git diff` reads the files it names
+rather than named. blueprint-frontend#209 is the change that stops the
+trailing: `ALLOWED_SUBCOMMANDS` names the subcommands this repository's
+commands run and git's read-only plumbing, and a `git` whose subcommand is
+anything else is refused, so `mergetool`, `difftool --tool`, `gui`, `citool`,
+`help --web` and an alias a configuration defines need no line of their own.
+The word is matched as typed, so `git LOG`, `git log.` and `git log.exe` are
+not `log`; `config`, `merge`, `cherry-pick`, `clone`, `init`, `submodule`,
+`stash` and `help` are left off on purpose, each setting a key git runs,
+naming a strategy program or running what it is handed, and a `-s` or
+`--strategy` on `pull` and `rebase` (`git-merge-<name>` from the exec path or
+`PATH`) is refused beside the other executing options. **The allow-list is
+judged where a program is launched**, so `grep -rn git src/app` and `apt
+install git curl` are not read as git invocations. **Its residuals are
+stated:** a subcommand that is a bare variable (`git $SUB`) is not judged,
+because no reading expands it; a wrapper the guard has not named
+(`ssh-agent git mergetool`) is not read as a launch, and the older option
+lists still judge what follows it; and the empty-substitution reading
+shifts a word into the subcommand position after a value-taking global
+option (`git -C $(pwd) commit -m msg`, unquoted), which over-refuses.
+`git diff` reads the files it names
 without `--no-index` when one is outside the working tree
 (blueprint-frontend#132, `git diff ~/.gitconfig /dev/null` printed the
 file), so its operands are read: an absolute path, `~`, a drive, a `..`
 component, a `$` or a backtick is refused, as are `-C`, `--git-dir` and
 `--work-tree` in front of it, two operands after a `cd`, and a working
-directory under no repository. **The residual is a link a branch carries**
-(`docs/out -> /etc/hosts`, named as `docs/out`), which a lexical check cannot
-see; reading a link that way is accepted here, not closed.
+directory under no repository. **A link a branch carries** (`docs/out ->
+/etc/hosts`, named as `docs/out`), which a lexical check cannot see, is
+closed by blueprint-frontend#208: each operand that names an existing path
+(a glob is expanded, to at most 256 matches) is resolved through the
+filesystem and refused when it lands outside the real root of the checkout
+that holds it. A path that does not exist is left to the lexical rules. **The
+read through such a link was not reproduced on the host this was built on**:
+it withholds the privilege a symbolic link needs, and git did not follow a
+directory junction, so the case is held by the suite's own link (a symbolic
+link where one can be made, a junction on Windows) and skips where neither
+can.
 
 **And the script run is the checkout's copy, which `Edit(.claude/scripts/**)`
 protects from neither a branch nor the session.** A branch can carry an
