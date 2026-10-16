@@ -884,9 +884,11 @@ each `git`, past any option, must be on the list, which also over-refuses a
 sentence that merely mentions git. **The gaps #209 left are closed by
 blueprint-frontend#211:** a computed subcommand (`git $SUB`) is refused
 whole, since no reading rewrites a bare variable, and so is a computed value
-after a global option (`git -C $work log`), because an unset unquoted variable
-is removed, `-C` takes `log` and the word after it runs; a wrapper the guard has not
-named (`ssh-agent git mergetool`) is read, every run no printer, reader or
+after a global option (`git -C $work log`, or attached, `git -C$work log`),
+because an unset unquoted variable is removed, `-C` takes `log` and the word
+after it runs, or a glob there, which expands to as many names as match; a
+wrapper the guard has not named (`ssh-agent git mergetool`)
+is read, every run no printer, reader or
 `NAMES_GIT_AS_DATA` program (`apt`, `which` and the like) leads being
 judged, so a program missing from that list is over-refused and never
 admitted; and the untokenisable-line reading skips a global option's value
@@ -898,10 +900,10 @@ Skipping the judgement when the value was removed, as the issue suggested,
 would admit that; spell the value literally. **A pattern for `git` behind
 a wrapper nobody named** (`ssh-agent gi[t] mergetool`) **is not judged**,
 since `cp src/* dest` has the same shape and must pass; the push checks still
-read it. **A race remains
-unfixed:** `escapes_checkout` and `linked_protected_path` judge the
-filesystem when the hook runs, so a link made earlier on the same command
-line is not seen; a stateless hook cannot close it.
+read it. **A race remains unfixed:** `escapes_checkout` and
+`linked_protected_path` judge the filesystem when the hook runs, so a link
+made earlier on the same command line is not seen; a stateless hook cannot
+close it.
 `git diff` reads the files it names
 without `--no-index` when one is outside the working tree
 (blueprint-frontend#132, `git diff ~/.gitconfig /dev/null` printed the

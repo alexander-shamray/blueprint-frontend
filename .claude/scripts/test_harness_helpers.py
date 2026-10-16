@@ -5022,6 +5022,10 @@ class TheGitArgvGuard(unittest.TestCase):
                 # and the tokens do not say whether it was quoted.
                 "git -C $work log mergetool",
                 'git -C "$work" status',
+                "git -C$work log mergetool",
+                "git -C [a-z]* log",
+                "git -C ? log",
+                "git --work-tree$x log mergetool",
                 # A `git` behind a lead other than `git` is judged each time,
                 # and a program that runs what it is handed is not data.
                 "ssh-agent git status ; ssh-agent git mergetool",

@@ -4343,12 +4343,21 @@ def computed_option_value(segment):
     removed by bash, so `git -C $work log mergetool` hands `-C` the word
     `log` and runs `mergetool`, while `subcommand_of` skips `$work` and reads
     `log` (PR 212's review). No reading removes a whole-word variable, so the
-    value is refused whatever its quoting.
+    value is refused whatever its quoting. **A glob is refused as well**: it
+    expands to as many file names as match, and `git -C [a-z]* log` runs
+    `mergetool` where the checkout holds a file of that name. **So is a computed option token**
+    (`git -C$work log mergetool`): it matches no flag and is skipped as one
+    without a value, but unset it collapses to `-C`, which takes `log` (round
+    2 of PR 212's review).
     """
     index = 0
     while index < len(segment) and segment[index].startswith("-"):
+        if computed_word(segment[index]):
+            return segment[index]
         if segment[index] in GLOBAL_VALUE_FLAGS:
-            if index + 1 < len(segment) and computed_word(segment[index + 1]):
+            if index + 1 < len(segment) and (
+                    computed_word(segment[index + 1])
+                    or any(char in segment[index + 1] for char in "*?[")):
                 return segment[index + 1]
             index += 2
         else:
