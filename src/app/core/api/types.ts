@@ -218,13 +218,15 @@ export const CANCELLATION_STATUSES: readonly BuyerStatus[] = [
 ];
 
 /**
- * The members no later event moves an order off. `delivered` outranks a
- * cancellation and every cancellation member outranks `dispatched`
- * (`BuyerStatus.Of`), so nothing reaches past any of these four. What it
- * decides here is only when a poll stops asking; the timeline draws from the
- * timestamps, never from this list.
+ * The one member no later event moves an order off. `delivered` outranks a
+ * cancellation (`BuyerStatus.Of`), and the projection absorbs Ordering and
+ * Shipping events in whatever order they arrive, so an order read as
+ * cancelled can still read delivered once a `ShipmentDelivered` lands (#158).
+ * A cancellation member is therefore not final. What this decides is only
+ * when a poll stops asking; the timeline draws from the timestamps, never
+ * from this list.
  */
-export const TERMINAL_STATUSES: readonly BuyerStatus[] = [...CANCELLATION_STATUSES, 'delivered'];
+export const TERMINAL_STATUSES: readonly BuyerStatus[] = ['delivered'];
 
 /** Web.Bff/Orders/OrderResponses.cs — `OrderTimeline`. Keyed by name, so a screen never draws by position. */
 export interface OrderTimeline {

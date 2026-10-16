@@ -218,9 +218,32 @@ export class OrderPlacedPage {
       });
     });
 
+    // A renewed token for the same buyer. On native `user()` stays set while
+    // the access token expires and renews on a timer, so a poll sent in that
+    // gap is answered 401 and stops (#156); the renewal replaces the user
+    // with a later `expiresAt` and nothing else changes. That is the signal
+    // the stop was waiting for. A different subject is the effect above's.
+    let lastExpiry = untracked(() => this.user()?.expiresAt ?? null);
+    effect(() => {
+      const expiry = this.user()?.expiresAt ?? null;
+      if (expiry === lastExpiry) return;
+      lastExpiry = expiry;
+      untracked(() => {
+        this.liftSignInStop();
+        this.resume();
+      });
+    });
+
     const onVisibility = (): void => {
-      if (this.document.visibilityState === 'hidden') this.stop();
-      else this.resume();
+      if (this.document.visibilityState === 'hidden') {
+        this.stop();
+      } else {
+        // Backgrounded past the token's life, the poll that fires on return
+        // can beat a native renewal and stop on its 401 (#156); the page is
+        // being looked at again, so ask once more.
+        this.liftSignInStop();
+        this.resume();
+      }
     };
     this.document.addEventListener('visibilitychange', onVisibility);
 
@@ -247,10 +270,15 @@ export class OrderPlacedPage {
     // refusal no longer holds, so the poll resumes; a change of subject is
     // the effect's to restart, so this is the same buyer signing in again.
     // A 403 is a refusal a session does not lift, and stays a stop.
+    this.liftSignInStop();
+    this.resume();
+  }
+
+  /** A 401 stopped the poll for want of a session; with one signed in, it no longer holds. */
+  private liftSignInStop(): void {
     if (this.errorState()?.kind === 'signIn' && this.user() !== null) {
       this.errorState.set(null);
     }
-    this.resume();
   }
 
   private restart(): void {

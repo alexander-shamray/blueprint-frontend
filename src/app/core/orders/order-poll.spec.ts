@@ -17,14 +17,10 @@ describe('order polling', () => {
     expect(nextPollDelay(0)).toBe(6_000);
   });
 
-  it('stops on delivered and on every cancellation member, and on nothing earlier', () => {
+  it('stops on delivered alone: a cancellation can still be outranked by a later delivery', () => {
     expect(['placed', 'confirmed', 'dispatched'].map(isTerminal)).toEqual([false, false, false]);
-    expect(['delivered', 'cancelled', 'out_of_stock', 'declined'].map(isTerminal)).toEqual([
-      true,
-      true,
-      true,
-      true,
-    ]);
+    expect(['cancelled', 'out_of_stock', 'declined'].map(isTerminal)).toEqual([false, false, false]);
+    expect(isTerminal('delivered')).toBe(true);
   });
 
   it('keeps asking about a status outside the contract rather than calling it final', () => {

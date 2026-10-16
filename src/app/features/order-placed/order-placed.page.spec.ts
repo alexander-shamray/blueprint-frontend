@@ -145,13 +145,31 @@ describe('OrderPlacedPage', () => {
   it('stops on a terminal status and asks nothing more', () => {
     const mounted = mount(GUID_A);
     controller = mounted.controller;
-    reads(controller)[0].flush(detail(GUID_A, 'out_of_stock'));
+    reads(controller)[0].flush(detail(GUID_A, 'delivered'));
     mounted.fixture.detectChanges();
 
     vi.advanceTimersByTime(120_000);
     expect(reads(controller)).toEqual([]);
-    expect(mounted.fixture.nativeElement.textContent).toContain('Out of stock');
+    expect(mounted.fixture.nativeElement.textContent).toContain('Delivered');
     expect(mounted.fixture.nativeElement.textContent).toContain('reached its last status');
+  });
+
+  it('keeps asking after a cancellation, which a later delivery outranks (#158)', () => {
+    const mounted = mount(GUID_A);
+    controller = mounted.controller;
+    reads(controller)[0].flush(detail(GUID_A, 'cancelled'));
+    mounted.fixture.detectChanges();
+
+    vi.advanceTimersByTime(3_000);
+    const [again] = reads(controller);
+    expect(again).toBeDefined();
+    again.flush(detail(GUID_A, 'delivered'));
+    mounted.fixture.detectChanges();
+
+    expect(mounted.fixture.componentInstance.status()).toBe('delivered');
+    expect(mounted.fixture.nativeElement.textContent).toContain('reached its last status');
+    vi.advanceTimersByTime(120_000);
+    expect(reads(controller)).toEqual([]);
   });
 
   it('reads a 404 as not recorded yet and keeps polling, rather than reporting a missing order', () => {
@@ -450,5 +468,58 @@ describe('OrderPlacedPage', () => {
 
     expect(reads(controller)).toEqual([]);
     expect(mounted.fixture.componentInstance.error()).toMatchObject({ kind: 'forbidden' });
+  });
+
+  it('resumes after a 401 when a renewed token arrives for the same subject (#156)', () => {
+    const mounted = mount(GUID_A);
+    controller = mounted.controller;
+    reads(controller)[0].flush(
+      { title: 'Unauthorized', status: 401 },
+      { status: 401, statusText: 'Unauthorized' },
+    );
+    mounted.fixture.detectChanges();
+    expect(mounted.fixture.componentInstance.error()).toMatchObject({ kind: 'signIn' });
+
+    // The native renewal lands: same buyer, a later expiry.
+    mounted.user.set({ ...demo, expiresAt: 1_800_000_000 });
+    mounted.fixture.detectChanges();
+
+    expect(mounted.fixture.componentInstance.error()).toBeNull();
+    expect(reads(controller)).toHaveLength(1);
+    mounted.fixture.destroy();
+    reads(controller).forEach((r) => r.flush(detail(GUID_A, 'placed')));
+  });
+
+  it('lifts a sign-in stop when the page becomes visible again (#156)', () => {
+    const mounted = mount(GUID_A);
+    controller = mounted.controller;
+    reads(controller)[0].flush(
+      { title: 'Unauthorized', status: 401 },
+      { status: 401, statusText: 'Unauthorized' },
+    );
+    expect(mounted.fixture.componentInstance.error()).toMatchObject({ kind: 'signIn' });
+
+    setVisibility('hidden');
+    setVisibility('visible');
+
+    expect(mounted.fixture.componentInstance.error()).toBeNull();
+    expect(reads(controller)).toHaveLength(1);
+    mounted.fixture.destroy();
+  });
+
+  it('does not lift a 403 on a renewed token (#156)', () => {
+    const mounted = mount(GUID_A);
+    controller = mounted.controller;
+    reads(controller)[0].flush(
+      { title: 'Forbidden', status: 403 },
+      { status: 403, statusText: 'Forbidden' },
+    );
+
+    mounted.user.set({ ...demo, expiresAt: 1_800_000_000 });
+    mounted.fixture.detectChanges();
+
+    expect(reads(controller)).toEqual([]);
+    expect(mounted.fixture.componentInstance.error()).toMatchObject({ kind: 'forbidden' });
+    mounted.fixture.destroy();
   });
 });
