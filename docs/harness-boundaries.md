@@ -811,8 +811,21 @@ inverted** (blueprint-frontend#191): only the names in
 target of a `for` or a `read`, a plain lowercase word may be assigned, so a
 variable nobody listed, `PERL5OPT` or `LESSKEY`, is refused without being
 named. A lowercase word as an assignment word is refused too, because Windows
-reads `perl5opt` as `PERL5OPT`. **Off a `git` line the list is an
-enumeration still**, and fails open on a variable nobody listed.
+reads `perl5opt` as `PERL5OPT`. **A line that runs any other granted program
+is judged as a `git` line is** (blueprint-frontend#205): `GRANTED_WORD` names
+the prefixes the grants hold — `bash`, `npm`, `npx`, `py`, `python`, `node`,
+`gh`, `ls`, `wc`, `sleep`, `mktemp` and `cygpath` — and a variable nobody
+listed, `NODE_REPL_EXTERNAL_MODULE`, `PYTHONINSPECT` or `RUBYGEMS_GEMDEPS`,
+is refused there without being named. A pass over the commands found
+`CI=true npm test` the only assignment any of them makes; `NODE_ENV` and
+`PYTHONUTF8` join the allowed names beside it. A line that runs only
+programs nothing grants — `cat`, `grep`, `echo` — **keeps the list, which is
+an enumeration still and fails open on a variable nobody listed**, for the
+reason that nothing is granted there for a variable to redirect. The
+program is matched as a word anywhere in the line, as `git` is, so a line
+that merely names one is judged by the stricter rule: `S=…; py "$S/x"` and
+`declare -r y=1; ls` are refused now, and an assignment goes on a line of its
+own.
 The scanner still miscounts a parenthesis inside `${…}`, `$[…]` or a heredoc
 body within `$(…)`, in both directions, and both are refused rather than
 read past: an opener it cannot close, and a body holding one of those
@@ -834,6 +847,34 @@ the pattern spells (`patterned`), so `ssh-agent gi[t] push origin
 nothing in it, which nothing refuses. Inverting the list for a computed word
 was rejected because a computed argument is ordinary traffic. A value
 assembled at run time is the residual the `F=--output=x` paragraphs record.
+
+**A helper's arguments are held to plain words, and a `git` option that
+runs something is refused at the top level.** The first is
+blueprint-frontend#179: a `bash .claude/scripts/*.sh` handed a command or
+process substitution, a backtick, a `$` that is not a variable on its own, or
+a glob or brace outside any quote is refused (`helper_argument_offence`),
+because bash computes each before the helper checks a word. It reads the raw
+words, since the quoting that decides whether a `*` expands is what `shlex`
+removes. **Quoting is read rather than refused**, which departs from the
+issue's list: a quoted word is the word the helper receives, and single
+quotes hold every construct inert. **A variable is admitted**, quoted or
+not, for the same reason the suite already admitted `$MODE`: expanding it
+runs nothing, and the sweeps pass `"$pinned"` to two helpers. The second is
+blueprint-frontend#133: `--open-files-in-pager` and `grep -O` are in the
+flag lists, `--template` is refused on `clone` and `init`, and
+`filter-branch`, `send-email`, `instaweb`, `daemon`, `http-backend` and
+`web--browse` are refused whole. **Those are deny-lists and trail git**; the
+`--*-cmd` and `--*-filter` options are reached through their subcommand
+rather than named, and an allow-list of the subcommands this repository runs
+is the change that stops the trailing. `git diff` reads the files it names
+without `--no-index` when one is outside the working tree
+(blueprint-frontend#132, `git diff ~/.gitconfig /dev/null` printed the
+file), so its operands are read: an absolute path, `~`, a drive, a `..`
+component, a `$` or a backtick is refused, as are `-C`, `--git-dir` and
+`--work-tree` in front of it, two operands after a `cd`, and a working
+directory under no repository. **The residual is a link a branch carries**
+(`docs/out -> /etc/hosts`, named as `docs/out`), which a lexical check cannot
+see; reading a link that way is accepted here, not closed.
 
 **And the script run is the checkout's copy, which `Edit(.claude/scripts/**)`
 protects from neither a branch nor the session.** A branch can carry an
@@ -1422,9 +1463,11 @@ the words, the grant has to be a helper.
 thing this paragraph exists to refuse.** The grant is a **prefix** grant, so
 nothing in the rule constrains the text after the script path — which is the
 class recorded further up for every `bash .claude/scripts/*.sh:*` grant,
-including the command substitution in an argument position that runs before the
-helper validates anything, and it is spent here on the one operation that
-rewrites published history. And "carries the flags itself" means the five
+spent here on the one operation that rewrites published history. **The hook
+holds the arguments to plain words now** (blueprint-frontend#179), so a
+substitution, a backtick or an unquoted glob there is refused before it runs;
+what stays is a plain word that is wrong. And "carries the flags itself"
+means the five
 `rebase.*` keys that decide which commits are replayed; the repository's own
 `pre-rebase` and `post-rewrite` hooks are still the host's, which granting a
 rebase at all grants. A third is smaller and is written down for the same
