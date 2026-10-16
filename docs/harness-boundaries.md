@@ -573,7 +573,10 @@ carriage return, which bash keeps inside a word, so `x=1<CR>echo {git,push}
 origin +HEAD:main` was a run led by `echo` to the hook and an assignment and a
 force push to bash. Both tokenisers, and the splits of a here-string and of a
 redirection target, now split on space, tab and newline alone
-(blueprint-frontend#187).
+(blueprint-frontend#187). A backslash that ends the command is a literal to
+bash and an error to `shlex`, which handed the line to the substring fallback
+with every check after the tokeniser off; it is now doubled first, and the
+fallback refuses a line that runs `git` and may assign (PR #190's review).
 
 **And then the bound was wrong for a fourth reason, which had nothing to do
 with the shell at all.** Every version of this paragraph has named the residual
