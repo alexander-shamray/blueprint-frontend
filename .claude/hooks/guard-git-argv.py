@@ -4172,6 +4172,19 @@ def computed_program_offence(tokens):
     return None
 
 
+def patterned(token):
+    """Whether `token` is a glob that spells at least two letters literally.
+
+    `gi[t]` and `g?t` can be `git`; `src/*` and `*t` leave too little of the
+    name to be one. Read only where no wrapper is known to launch a program,
+    so an argument such as `src/*` is not taken for `git`
+    (blueprint-frontend#189).
+    """
+    name = program_name(token)
+    return (any(char in name for char in "*?[")
+            and len(re.sub(r"[*?\[\]]", "", name)) >= 2)
+
+
 def git_segments(tokens):
     """Yield the argv slice of every `git` invocation in a compound command.
 
@@ -4191,9 +4204,16 @@ def git_segments(tokens):
     for run in command_runs(tokens):
         if not run or program_name(run[0]) in DATA_ONLY_COMMANDS:
             continue
+        # **A wrapper nobody named launches a pattern `git` as well as a
+        # literal one** (blueprint-frontend#189): `ssh-agent gi[t] push origin
+        # +HEAD:main` pushes where a file named `git` is in the working
+        # directory. So where a reader does not lead the run, a word that is
+        # a pattern for `git` counts without `launched` placing it.
+        open_lead = program_name(leading_command(run)) not in READING_COMMANDS
         for index, token in enumerate(run):
             if program_name(token) != "git" and not (
-                    launched(run, index) and names_program(token, "git")):
+                    (launched(run, index) or (open_lead and patterned(token)))
+                    and names_program(token, "git")):
                 continue
             yield run[index + 1:]
 
@@ -4270,15 +4290,40 @@ def live_comma_brace(command):
 # `diff.external` — and the pager, the editor, `BASH_ENV` and the loader each
 # run something no word on the line names. `PS4` runs a substitution held in
 # it before each command under `set -x`, and `VIMINIT` and `EXINIT` are Ex
-# commands the editor git starts runs first (PR #190's review). **It is an
-# enumeration, so it fails open on a variable nobody listed**; naming no
-# variable at all was the alternative, and it refused the ordinary `X=1 git
-# log` and `for f in a b; do git log -1 $f; done` this suite records.
+# commands the editor git starts runs first (PR #190's review). **That list
+# is the whole rule on a line that runs no `git`** (blueprint-frontend#188),
+# because `CI=true npm test` and `S=…; py "$S/x"` are ordinary there and name
+# nothing in it. It fails open on a variable nobody listed, so the programs
+# those lines start are added as they are found: `NODE_OPTIONS` and
+# `PYTHONPATH` each load a file, and `IFS` and `CDPATH` re-resolve a word.
 ASSIGNMENT_SENSITIVE_NAMES = frozenset({
-    "BASH_ENV", "EDITOR", "ENV", "EXINIT", "HOME", "LESS", "LESSCLOSE",
-    "LESSOPEN", "PAGER", "PATH", "PS4", "VIMINIT", "VISUAL", "XDG_CONFIG_HOME",
+    "BASHOPTS", "BASH_ENV", "CDPATH", "CLASSPATH", "COMSPEC", "EDITOR", "ENV",
+    "EXINIT", "GCONV_PATH", "GVIMINIT", "HOME", "IFS", "JAVA_TOOL_OPTIONS",
+    "JDK_JAVA_OPTIONS", "LESS", "LESSCLOSE", "LESSEDIT", "LESSKEY",
+    "LESSOPEN", "LOCPATH", "MANPAGER", "MYVIMRC", "NLSPATH",
+    "NODE_EXTRA_CA_CERTS", "NODE_OPTIONS", "NODE_PATH", "PAGER", "PATH",
+    "PATHEXT", "PERL5LIB", "PERL5OPT", "PROMPT_COMMAND", "PS4",
+    "PYTHONBREAKPOINT", "PYTHONHOME", "PYTHONPATH", "PYTHONSTARTUP",
+    "PYTHONUSERBASE", "RUBYLIB", "RUBYOPT", "SHELL", "SHELLOPTS", "TERMINFO",
+    "VIMINIT", "VIMRUNTIME", "VISUAL", "XDG_CONFIG_HOME", "_JAVA_OPTIONS",
 })
-ASSIGNMENT_SENSITIVE_PREFIXES = ("DYLD_", "GIT_", "LD_", "SSH_")
+ASSIGNMENT_SENSITIVE_PREFIXES = ("DYLD_", "GIT_", "LD_", "NPM_CONFIG_", "SSH_")
+
+# **On a line that runs `git` the rule is inverted** (blueprint-frontend#191):
+# a name is refused unless it is listed here or is a plain lowercase word. The
+# list above is a guess in the safe direction and a longer one is still a
+# guess — `PERL5OPT`, `LESSKEY` and `GCONV_PATH` were each outside it — so
+# the lines that run `git` admit only what is known to be harmless. A plain
+# lowercase word (`f`, `line`, `path`) is a loop variable or a scratch value;
+# one with an underscore is not, since `http_proxy` and `no_proxy` are read
+# by git. A pass over the commands here found `CI=true npm test` the only
+# assignment any of them makes, and it runs no `git`.
+ASSIGNMENT_ALLOWED_NAMES = frozenset({
+    "CI", "COLUMNS", "FORCE_COLOR", "LANG", "LANGUAGE", "LC_ALL", "LC_COLLATE",
+    "LC_CTYPE", "LC_MESSAGES", "LC_NUMERIC", "LC_TIME", "LINES", "NO_COLOR",
+    "TERM", "TZ",
+})
+PLAIN_LOWERCASE = re.compile(r"^[a-z][a-z0-9]*$")
 
 # **The builtins that assign in the current shell with no name a check can
 # read**, refused on a line that runs `git` whatever they assign: `export`,
@@ -4292,6 +4337,15 @@ ASSIGNMENT_SENSITIVE_PREFIXES = ("DYLD_", "GIT_", "LD_", "SSH_")
 ASSIGNING_BUILTINS = frozenset({
     ".", "alias", "coproc", "declare", "enable", "eval", "export", "hash",
     "let", "local", "readonly", "source", "trap", "typeset", "unset", "wait",
+})
+
+# **The builtins refused on every line**, the line that runs no `git`
+# included (blueprint-frontend#188): each runs text or computes a target, so
+# no operand of theirs can be read. The rest of `ASSIGNING_BUILTINS` —
+# `export`, `readonly`, `unset`, `wait`, and `declare`, `typeset` and `local`
+# without `-i` — name their targets, which are read there.
+ALWAYS_ASSIGNING_BUILTINS = frozenset({
+    ".", "alias", "coproc", "enable", "eval", "hash", "let", "source", "trap",
 })
 
 # **The builtins and reserved words that assign the names among their
@@ -4320,7 +4374,7 @@ GIT_WORD = re.compile(
     r"(?<![\w.-])git(?:\.(?:exe|cmd|bat|com))?(?![\w.-])", re.IGNORECASE)
 
 
-def sensitive_assignment(word, fold=True):
+def sensitive_assignment(word, fold=True, strict=True):
     """Whether assigning the name `word` begins with matters to a later `git`.
 
     A subscript is arithmetic whatever the name, so `a[PATH=5]=1` counts. An
@@ -4334,12 +4388,18 @@ def sensitive_assignment(word, fold=True):
         return False
     if word[match.end():match.end() + 1] == "[":
         return True
-    name = match.group().upper() if fold else match.group()
-    return (name in ASSIGNMENT_SENSITIVE_NAMES
-            or name.startswith(ASSIGNMENT_SENSITIVE_PREFIXES))
+    spelled = match.group()
+    name = spelled.upper() if fold else spelled
+    if (name in ASSIGNMENT_SENSITIVE_NAMES
+            or name.startswith(ASSIGNMENT_SENSITIVE_PREFIXES)):
+        return True
+    # `strict` is a line that runs `git`, where a name must be known to be
+    # harmless (blueprint-frontend#191).
+    return strict and not (
+        name in ASSIGNMENT_ALLOWED_NAMES or PLAIN_LOWERCASE.match(spelled))
 
 
-def sensitive_target(word):
+def sensitive_target(word, strict=True):
     """Whether a builtin assigning the name `word` matters to a later `git`.
 
     **A name bash computes is one no check can read** (PR #190's review):
@@ -4348,7 +4408,7 @@ def sensitive_target(word):
     `ASSIGNING_BUILTINS` member does.
     """
     return bool(computed_word(word) or any(char in word for char in "*?")
-                or sensitive_assignment(word, fold=False))
+                or sensitive_assignment(word, fold=False, strict=strict))
 
 
 def naming_targets(word, rest):
@@ -4367,7 +4427,7 @@ def naming_targets(word, rest):
     return [later[2:] if later.startswith("-") else later for later in rest]
 
 
-def environment_operand(run):
+def environment_operand(run, strict=True):
     """A sensitive `NAME=value` operand `run` hands a program, or `None`.
 
     **`env PATH=./tools git status` sets `PATH` for the `git` it runs** (PR
@@ -4382,7 +4442,8 @@ def environment_operand(run):
     if not command or lead in READING_COMMANDS or lead in DATA_ONLY_COMMANDS:
         return None
     for word in run[run.index(command) + 1:]:
-        if ASSIGNMENT.match(word) and sensitive_assignment(word):
+        if ASSIGNMENT.match(word) and sensitive_assignment(
+                word, strict=strict):
             return word
     return None
 
@@ -4406,16 +4467,29 @@ def _option_targets(rest, letter):
     return targets
 
 
-def assigning_word(run):
+def assigning_word(run, strict=True):
     """The word that makes `run` assign something a later `git` reads."""
     wrapped = False
     for position, word in enumerate(run):
         if ASSIGNMENT.match(word):
-            if sensitive_assignment(word):
+            if sensitive_assignment(word, strict=strict):
                 return word
             continue
         if word in ASSIGNING_BUILTINS:
-            return word
+            if strict or word in ALWAYS_ASSIGNING_BUILTINS:
+                return word
+            # Off a `git` line the targets are read instead
+            # (blueprint-frontend#188): `declare -i` makes a later value
+            # arithmetic, and a computed or subscripted target is one no
+            # check can name.
+            operands = run[position + 1:]
+            if word in ("declare", "local", "typeset") and any(
+                    re.match(r"^-[A-Za-z]*i", operand) for operand in operands):
+                return word
+            if any(sensitive_target(operand.split("=", 1)[0], strict=False)
+                   for operand in operands if not operand.startswith("-")):
+                return word
+            continue
         rest = run[position + 1:]
         if word in NAMING_BUILTINS:
             # `mapfile -C` evaluates a string in this shell, as `eval` and
@@ -4423,7 +4497,7 @@ def assigning_word(run):
             if word in ("mapfile", "readarray") and any(
                     later.startswith("-") and "C" in later for later in rest):
                 return word
-            if any(sensitive_target(target)
+            if any(sensitive_target(target, strict=strict)
                    for target in naming_targets(word, rest)):
                 return word
             return None
@@ -4436,7 +4510,8 @@ def assigning_word(run):
         # subscript, as in a substitution; `set -k` hands a later `NAME=value`
         # argument to the command as its environment.
         if word in ("printf", "test", "[") and any(
-                sensitive_target(target) for target in _option_targets(rest, "v")):
+                sensitive_target(target, strict=strict)
+                for target in _option_targets(rest, "v")):
             return word
         # `set -a` exports every later assignment, which would carry a `for`
         # or `read` target into the environment — where Windows reads `Path`
@@ -4471,7 +4546,7 @@ def double_bracket_arithmetic(tokens):
     return False
 
 
-def assigning_expansion(command):
+def assigning_expansion(command, strict=True):
     """The first expansion in `command` that may assign as bash performs it.
 
     **Arithmetic is refused whatever it names**, because the name is not
@@ -4504,7 +4579,7 @@ def assigning_expansion(command):
             else:
                 match = DESCRIPTOR_VARIABLE.match(text, index)
                 if match is not None and sensitive_assignment(
-                        match.group("name")):
+                        match.group("name"), strict=strict):
                     return match.group()
     return None
 
@@ -4576,6 +4651,24 @@ UNTOKENISED_ASSIGNMENT = re.compile(
     + r")(?=[\s;&|()]|$))")
 
 
+# The same two readings as `assigning_word` makes off a `git` line, done the
+# crude way for text the tokeniser failed on (blueprint-frontend#188): a
+# builtin that runs text, and `NAME=` or `NAME[…]=` naming a listed variable.
+UNTOKENISED_EVALUATOR = re.compile(
+    r"(?:^|[\s;&|(){}`])(?:"
+    + "|".join(sorted(re.escape(word) for word in ALWAYS_ASSIGNING_BUILTINS))
+    + r")(?=[\s;&|()]|$)")
+UNTOKENISED_NAME = re.compile(
+    r"(?:^|[\s;&|(){}`])(?P<name>[A-Za-z_][A-Za-z0-9_]*(?:\[[^\]]*\])?)\+?=")
+
+
+def untokenised_sensitive(text):
+    """Whether text the tokeniser failed on may assign a listed variable."""
+    return bool(UNTOKENISED_EVALUATOR.search(text) or any(
+        sensitive_assignment(match.group("name"), strict=False)
+        for match in UNTOKENISED_NAME.finditer(text)))
+
+
 def assignment_offence(command, tokens):
     """The reason to refuse an assignment on a line that runs `git`, or `None`.
 
@@ -4587,17 +4680,22 @@ def assignment_offence(command, tokens):
     `.gitconfig` the same way, and `GIT_EXTERNAL_DIFF` a branch program
     directly.
 
-    **A line that does not run `git` is not judged**: `CI=true npm test` is
-    ordinary, and an assignment that re-resolves a later granted program there
-    is blueprint-frontend#188.
+    **A line that does not run `git` is judged too, by less**
+    (blueprint-frontend#188): `ls ${x[PATH=5]}; ls` re-resolves the `ls` that
+    runs after it as `./5/ls`, behind a granted prefix. Arithmetic is refused
+    on every line, and so is an assignment of a name in
+    `ASSIGNMENT_SENSITIVE_NAMES`; `CI=true npm test` and `S=…; py "$S/x"` name
+    nothing in it and stay ordinary. **On a line that runs `git` the names are
+    inverted** (blueprint-frontend#191): only a name known to be harmless may
+    be assigned.
     """
-    if not (spells_git(command)
-            or any(True for _ in git_segments(tokens))):
-        return None
-    found = assigning_expansion(command)
+    strict = (spells_git(command)
+              or any(True for _ in git_segments(tokens)))
+    found = assigning_expansion(command, strict)
     if found is None:
         for run in command_runs(tokens):
-            found = assigning_word(run) or environment_operand(run)
+            found = (assigning_word(run, strict)
+                     or environment_operand(run, strict))
             if found is not None:
                 break
     if found is None:
@@ -4607,16 +4705,27 @@ def assignment_offence(command, tokens):
         found = next((
             word for payload in split_string_payloads(tokens)
             for word in re.sub(r"[\"']", "", payload).split()
-            if ASSIGNMENT.match(word) and sensitive_assignment(word)), None)
+            if ASSIGNMENT.match(word)
+            and sensitive_assignment(word, strict=strict)), None)
     if found is None and double_bracket_arithmetic(tokens):
         found = "[["
     if found is None:
         return None
+    if not strict:
+        return (
+            f"`{found}` may assign, on this line, `PATH`, `HOME` or another "
+            "variable that changes which program a later command is or what "
+            "it runs (blueprint-frontend#188). Assign it on a line of its "
+            "own, or not at all."
+        )
     return (
         f"`{found}` may assign, in the shell that runs `git` on this line, "
         "`PATH`, `HOME`, a `GIT_*` name or another variable that changes "
-        "which program git is or what it runs (blueprint-frontend#185). Run "
-        "the `git` command on a line of its own."
+        "which program git is or what it runs (blueprint-frontend#185), or "
+        "a name not known to be harmless (blueprint-frontend#191): only "
+        "`LC_ALL`, `TZ`, `CI` and the rest of `ASSIGNMENT_ALLOWED_NAMES`, or "
+        "a plain lowercase word, may be assigned on a line that runs `git`. "
+        "Run the `git` command on a line of its own."
     )
 
 
@@ -5130,13 +5239,15 @@ def _offence(command, depth, judged):
         # And the assignment check, which reads tokens, done the crude way:
         # on a line that runs `git`, any word that may assign (PR #190's
         # review).
-        if spells_git(stripped) and (assigning_expansion(command) or
-                                     UNTOKENISED_ASSIGNMENT.search(stripped)):
+        runs_git = spells_git(stripped)
+        if assigning_expansion(command, runs_git) or (
+                UNTOKENISED_ASSIGNMENT.search(stripped) if runs_git
+                else untokenised_sensitive(stripped)):
             return (
-                "a command this guard could not tokenise runs `git` and may "
-                "assign a variable git reads, so what it assigns cannot be "
-                "read; refusing rather than admitting it "
-                "(blueprint-frontend#185)."
+                "a command this guard could not tokenise may assign a "
+                "variable that changes which program a command is or what it "
+                "runs, so what it assigns cannot be read; refusing rather "
+                "than admitting it (blueprint-frontend#185, #188)."
             )
         return None
 

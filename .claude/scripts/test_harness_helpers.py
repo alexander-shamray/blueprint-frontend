@@ -4653,11 +4653,11 @@ class TheGitArgvGuard(unittest.TestCase):
         ):
             with self.subTest(command=command):
                 self.assertRefused(command)
-        # A name git does not read, a quote bash leaves alone, a heredoc it
-        # does not expand, and a line with no `git` on it are ordinary. The
-        # last is blueprint-frontend#188's residual, not a decision.
+        # A name known to be harmless or a plain lowercase word, a quote bash
+        # leaves alone, a heredoc it does not expand, and a line that names
+        # no variable git reads are ordinary (blueprint-frontend#188, #191).
         for command in (
-                "X=1 git log --oneline -5",
+                "x=1 git log --oneline -5",
                 "LC_ALL=C git log -1",
                 "TZ=UTC git status",
                 "for f in a b; do git log -1 $f; done",
@@ -4676,6 +4676,140 @@ class TheGitArgvGuard(unittest.TestCase):
                               "fix: ${x[PATH=5]}, $((1 + 2)), PATH=5", "EOF"]),
                 '[[ -n "$(git status --porcelain)" ]] && echo dirty',
                 "CI=true npm test",
+        ):
+            with self.subTest(command=command):
+                self.assertAdmitted(command)
+
+    def test_an_assignment_on_a_line_that_runs_no_git_is_refused(self):
+        # **The assignment checks ran on a line that runs `git` and nowhere
+        # else** (blueprint-frontend#188), so the same assignment
+        # re-resolved whatever granted program ran after it: with `PATH` the
+        # relative directory `5`, the later `ls`, `npm` or `gh` is
+        # `./5/<name>`, a file a branch can carry. Each was admitted before
+        # the fix, measured with `offence()`.
+        for command in (
+                "ls ${x[PATH=5]}; ls",
+                "ls $[PATH=5]; npm test",
+                "PATH=5 bash .claude/scripts/npm-checks.sh fast",
+                "ls; PATH=./tools; gh pr view 1",
+                "HOME=. npm test",
+                "ls $((PATH=5)); ls",
+                "y=PATH=5; ls ${x[y]}; ls",
+                "[[ 1 -eq PATH=5 ]] && ls",
+                "test -v 'x[PATH=5]'; ls",
+                "env PATH=./tools ls",
+                "env -SPATH=./tools ls",
+                "export PATH=5; ls",
+                "export $n; ls",
+                "readonly PATH=5; ls",
+                "unset 'x[PATH=5]'; ls",
+                "declare -i x; x=PATH=5; ls",
+                "typeset -ix y; ls",
+                "for PATH in ./tools; do ls; done",
+                "read PATH <<< 5; ls",
+                "printf -v PATH %s 5; ls",
+                "eval 'PATH=5'; ls",
+                "source ./env.sh; ls",
+                "trap 'PATH=5' DEBUG; ls",
+                "set -a; Path=5; ls",
+                "NODE_OPTIONS=--require=./x npm test",
+                "PYTHONPATH=./x py -3.12 -m unittest",
+                "npm_config_script_shell=./x npm test",
+                # A line the tokeniser cannot read keeps the checks.
+                "PATH=5 ls \\",
+                "ls $((PATH=5)) 'unclosed",
+                "eval x; ls 'unclosed",
+        ):
+            with self.subTest(command=command):
+                self.assertRefused(command)
+        # Names nothing in the list, a quote bash leaves alone, and a heredoc
+        # it does not expand are ordinary.
+        for command in (
+                "CI=true npm test",
+                "NODE_ENV=production npm run build",
+                'S=.claude/scripts; py "$S/x"',
+                "export CI=true",
+                "export FOO=$(pwd)",
+                "declare -r y=1; ls",
+                "for f in a b; do ls $f; done",
+                "ls | while read line; do echo $line; done",
+                "bash .claude/scripts/npm-checks.sh fast",
+                "echo ${HOME:-x}; ls",
+                "echo '$((1 + 2))' '${x[PATH=5]}'",
+                NEWLINE.join(["cat <<'EOF'", "$((1 + 2)) PATH=5", "EOF"]),
+                "grep -rn PATH=5 src",
+        ):
+            with self.subTest(command=command):
+                self.assertAdmitted(command)
+
+    def test_only_a_name_known_to_be_harmless_is_assigned_before_git(self):
+        # **The name list is an enumeration, so a variable nobody listed
+        # was admitted** (blueprint-frontend#191): `PERL5OPT`, `LESSKEY`,
+        # `GCONV_PATH`, `MYVIMRC` and the rest are each read by a program git
+        # starts. On a line that runs `git` the rule is inverted, so none of
+        # them needs to be named. Each was admitted before the fix.
+        for command in (
+                "PERL5OPT=-Mx git send-email",
+                "LESSKEY=./k git log",
+                "GCONV_PATH=. git log",
+                "MYVIMRC=./v git commit",
+                "UNLISTED=1 git status",
+                "X=1 git log --oneline -5",
+                "http_proxy=./x git fetch",
+                "no_proxy=x git fetch",
+                "env UNLISTED=1 git status",
+                "UNLISTED=1; git status",
+                "UNLISTED=1; ls; git status",
+                "for UNLISTED in a; do git log; done",
+                "read UNLISTED <<< 1; git status",
+                "printf -v UNLISTED %s 1; git status",
+                "git status; {UNLISTED}>/dev/null",
+        ):
+            with self.subTest(command=command):
+                self.assertRefused(command)
+        for command in (
+                "LC_ALL=C git log -1",
+                "TZ=UTC git status",
+                "CI=true git status",
+                "LANG=C TERM=dumb git log -1",
+                "x=1 git log --oneline -5",
+                "for f in a b; do git log -1 $f; done",
+                'for path in a b; do git log -1 -- "$path"; done',
+                "git log -1 | while read line; do echo $line; done",
+                "git push origin fix/some-branch {fd}>&1",
+        ):
+            with self.subTest(command=command):
+                self.assertAdmitted(command)
+
+    def test_a_pattern_for_git_behind_a_wrapper_nobody_named_is_a_git(self):
+        # **`launched` knows the wrappers `ARGUMENT_RUNNERS` lists, so behind
+        # any other a pattern `git` was an argument** (blueprint-frontend#189):
+        # bash expands `gi[t]` to `git` wherever a file named `git` is in the
+        # working directory, which a branch can carry at its root, and the
+        # wrapper then runs the push. A literal `git` behind the same wrapper
+        # was refused. Each was admitted before the fix.
+        for command in (
+                "ssh-agent gi[t] push origin +HEAD:main",
+                "ssh-agent g?t push origin +HEAD:main",
+                "dbus-launch gi* push origin +HEAD:main",
+                "ccache /usr/bin/gi[t] push origin +HEAD:main",
+                "script -qc x gi[t] push origin +HEAD:main",
+                "ssh-agent gi[t] push --force origin fix/some-branch",
+                "ssh-agent git push origin +HEAD:main",
+        ):
+            with self.subTest(command=command):
+                self.assertRefused(command)
+        # An argument is not a program: a pattern that leaves too little of
+        # the name, a reader's operands, and a push that is allowed.
+        for command in (
+                "ssh-agent ls src/*",
+                "ccache cc src/*.c",
+                "npm run lint -- src/*",
+                "cp src/* dest",
+                "ls gi[t]*",
+                "grep -rn gi[t] src",
+                "ssh-agent git push -u origin fix/some-branch",
+                "ssh-agent gi[t] log --oneline -5",
         ):
             with self.subTest(command=command):
                 self.assertAdmitted(command)
@@ -5805,7 +5939,7 @@ class TheGitArgvGuard(unittest.TestCase):
         # was closed. If either of these starts being refused, this test fails
         # and the paragraph in `docs/harness-boundaries.md` that names the
         # bound is what needs rewriting.
-        self.assertAdmitted("F=--output=/tmp/x; git log $F")
+        self.assertAdmitted("f=--output=/tmp/x; git log $f")
         # The other two shapes narrowed when a computed word in program
         # position — one that could name the review helpers — started being
         # refused: a command WORD taken from a variable, and a substitution
@@ -5832,7 +5966,7 @@ class TheGitArgvGuard(unittest.TestCase):
         # What actually remains is the run-time half, which no reading here can
         # reach: a value the shell is TOLD at run time rather than one written
         # in the source.
-        self.assertAdmitted("N=2; git log -${N}")
+        self.assertAdmitted("n=2; git log -${n}")
 
     def test_a_redirection_is_not_an_argument_to_the_program(self):
         # **#183, and the file descriptor is the whole of it.**
@@ -6673,12 +6807,12 @@ class TheGitArgvGuard(unittest.TestCase):
 
         # The controls: an assignment prefix on honest traffic is ordinary, and
         # a printer with no shell behind it is still text.
-        self.assertAdmitted("X=1 git log --oneline -5")
+        self.assertAdmitted("x=1 git log --oneline -5")
         # `GIT_DIR=/tmp/x` was a control here, and points git at another
         # repository's configuration and hooks — refused now, as `-C ..` is
         # inside a substitution (blueprint-frontend#185, #125).
         self.assertAdmitted("TZ=UTC git status")
-        self.assertAdmitted("X=1 echo 'git push origin +HEAD:main'")
+        self.assertAdmitted("x=1 echo 'git push origin +HEAD:main'")
 
     def test_a_nested_default_is_unwrapped_one_layer_at_a_time(self):
         # Raised in review as a miss, and it is not one — recorded because the
