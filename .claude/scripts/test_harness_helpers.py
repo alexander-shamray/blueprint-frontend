@@ -5004,6 +5004,20 @@ class TheGitArgvGuard(unittest.TestCase):
                 "git --no-pager mergetool",
                 "timeout 5 git mergetool",
                 "git ${x:-mergetool}",
+                # Blueprint-frontend#211: a computed subcommand, a wrapper the
+                # guard has not named, and a global option's value taken for
+                # the subcommand in text `shlex` fails on.
+                "git $SUB",
+                "git ${SUB}",
+                "git $(echo mergetool)",
+                "ssh-agent git mergetool",
+                "ssh-agent git -C x mergetool",
+                'git -C log mergetool "',
+                'git -C dir mergetool "',
+                'git ; "',
+                # Refused by design: an unquoted substitution that prints
+                # nothing removes its word, so `-C` would take `commit`.
+                "git -C $(pwd) commit -m msg",
                 "git bisect start",
                 "git cherry-pick -x abc123",
                 "echo $(git mergetool)",
@@ -5026,14 +5040,14 @@ class TheGitArgvGuard(unittest.TestCase):
                 "cat git mergetool.md",
                 "git",
                 "git --version",
-                # A residual, pinned: nothing expands a bare variable, so the
-                # word is not judged, and a wrapper nobody named
-                # (`ssh-agent git mergetool`) is not read as a launch.
-                "git $SUB",
-                "ssh-agent git mergetool",
+                # A wrapper nobody named, running an allowed subcommand.
+                "ssh-agent git status",
+                # A computed global-option value is not the subcommand.
+                'git -C "$work" status',
                 # An untokenisable line whose subcommand is allowed.
                 'git status "',
                 "git log -1 'a",
+                'git -C dir status "',
         ):
             with self.subTest(command=command):
                 self.assertAdmitted(command)
