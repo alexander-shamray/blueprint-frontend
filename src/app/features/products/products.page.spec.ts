@@ -1,5 +1,6 @@
 import { HttpClient, provideHttpClient, withInterceptors } from '@angular/common/http';
 import { rateLimitInterceptor } from '@core/errors/rate-limit.interceptor';
+import { RateLimitWindows } from '@core/errors/rate-limit';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -378,6 +379,63 @@ describe('ProductsPage', () => {
     await fixture.whenStable();
 
     expect(fixture.componentInstance.products()).toHaveLength(3);
+  });
+
+  describe('a refresh asked for inside a blocked catalogue window (#161)', () => {
+    const URL = 'http://localhost:5000/api/v1/catalog/products';
+
+    const openWindow = async (): Promise<void> => {
+      controller.expectOne((r) => r.url === URL).flush(page(20, 'cursor-2'));
+      await fixture.whenStable();
+      // A refusal on a read this page did not make, as the test above opens it.
+      TestBed.inject(HttpClient).get(URL).subscribe({ error: () => undefined });
+      controller.expectOne((r) => r.url === URL).flush(null, {
+        status: 429,
+        statusText: 'Too Many Requests',
+        headers: { 'Retry-After': '30' },
+      });
+      await fixture.whenStable();
+      expect(fixture.componentInstance.rateLimit.blocked()).toBe(true);
+    };
+
+    it('keeps the list and sends nothing while the window is open', async () => {
+      await openWindow();
+
+      TestBed.inject(CatalogRefresh).request();
+      await fixture.whenStable();
+
+      controller.expectNone((r) => r.url === URL);
+      expect(fixture.componentInstance.products()).toHaveLength(20);
+    });
+
+    it('takes the held refresh from the first page once the window closes', async () => {
+      await openWindow();
+      TestBed.inject(CatalogRefresh).request();
+      await fixture.whenStable();
+
+      TestBed.inject(RateLimitWindows).forPartition('catalogue').close();
+      await fixture.whenStable();
+
+      const refreshed = controller.expectOne((r) => r.url === URL);
+      expect(refreshed.request.params.has('cursor')).toBe(false);
+      refreshed.flush(page(3, null));
+      await fixture.whenStable();
+      expect(fixture.componentInstance.products()).toHaveLength(3);
+    });
+
+    it('does not reload a second time when a pull to refresh took the hold first', async () => {
+      await openWindow();
+      TestBed.inject(CatalogRefresh).request();
+      await fixture.whenStable();
+
+      fixture.componentInstance.refresh();
+      controller.expectOne((r) => r.url === URL).flush(page(3, null));
+      await fixture.whenStable();
+
+      TestBed.inject(RateLimitWindows).forPartition('catalogue').close();
+      await fixture.whenStable();
+      controller.expectNone((r) => r.url === URL);
+    });
   });
 
   it('a reload triggered by CatalogRefresh drops a stale loadMore() the same way a manual reload() does', async () => {
