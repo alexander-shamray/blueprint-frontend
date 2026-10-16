@@ -5035,6 +5035,12 @@ class TheGitArgvGuard(unittest.TestCase):
                 "ssh-agent git status ; ssh-agent git mergetool",
                 "find . -exec git status -exec git mergetool",
                 "brew install git mergetool",
+                # Blueprint-frontend#214: a bare pattern for `git` behind a
+                # wrapper nobody named is the program.
+                "ssh-agent gi[t] mergetool",
+                "ssh-agent g?t mergetool",
+                "ssh-agent g* mergetool",
+                "timeout 5 gi[t] mergetool",
                 # Quoting a value with a space moves the subcommand, which
                 # the crude reading takes for the word after the first.
                 'git -C "a b" mergetool "',
@@ -5063,10 +5069,37 @@ class TheGitArgvGuard(unittest.TestCase):
                 "git --version",
                 # A wrapper nobody named, running an allowed subcommand.
                 "ssh-agent git status",
+                "ssh-agent gi[t] status",
+                # A pattern with a directory is an argument, and a reader
+                # leads the run.
+                "cp src/* dest",
+                "ls *",
+                "grep -rn gi[t] src",
                 # An untokenisable line whose subcommand is allowed.
                 'git status "',
                 "git log -1 'a",
                 'git -C dir status "',
+        ):
+            with self.subTest(command=command):
+                self.assertAdmitted(command)
+
+    def test_a_line_that_makes_a_link_and_runs_git_is_refused(self):
+        # Blueprint-frontend#213: the operand checks resolve the filesystem
+        # when the hook runs, and the link does not exist yet.
+        for command in (
+                "ln -s /etc/hosts out && git diff out README.md",
+                "git status ; ln -s a b",
+                "mklink /J out C:\\Windows && git diff out x",
+                "ssh-agent git status ; ln a b",
+        ):
+            with self.subTest(command=command):
+                self.assertIn("blueprint-frontend#213",
+                              self.assertRefused(command))
+        for command in (
+                "ln -s a b",
+                "git status",
+                "echo ln -s a b && git status",
+                "grep -rn ln src && git status",
         ):
             with self.subTest(command=command):
                 self.assertAdmitted(command)

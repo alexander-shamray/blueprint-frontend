@@ -897,13 +897,15 @@ purpose:** an unquoted `git -C $(pwd) commit -m msg` is refused, because a
 substitution that prints nothing removes its word and bash then hands `-C`
 the value `commit`, so `git -C $(true) log mergetool` runs `mergetool`.
 Skipping the judgement when the value was removed, as the issue suggested,
-would admit that; spell the value literally. **A pattern for `git` behind
-a wrapper nobody named** (`ssh-agent gi[t] mergetool`) **is not judged**,
-since `cp src/* dest` has the same shape and must pass; the push checks still
-read it. **A race remains unfixed:** `escapes_checkout` and
-`linked_protected_path` judge the filesystem when the hook runs, so a link
-made earlier on the same command line is not seen; a stateless hook cannot
-close it.
+would admit that; spell the value literally. **A bare pattern for `git` behind a wrapper nobody named** (`ssh-agent
+gi[t] mergetool`) **is judged** (#214), and a pattern with a directory
+(`src/*`) is not, since it expands to a path and is never the program, so
+`cp src/* dest` passes; `cp * dest` is over-refused, since no reading
+tells it from a wrapper's `*`. **A link made earlier on the same line**
+(`ln -s /etc/hosts docs/out && git diff docs/out /dev/null`) cannot be
+seen by `escapes_checkout` and `linked_protected_path`, which judge the
+filesystem when the hook runs, so a line that makes a link (`ln`,
+`mklink`, `junction`, `New-Item`) and runs git is refused (#213).
 `git diff` reads the files it names
 without `--no-index` when one is outside the working tree
 (blueprint-frontend#132, `git diff ~/.gitconfig /dev/null` printed the
