@@ -67,7 +67,7 @@ comment naming the backend file or realm setting that fixes it.
 ## Testing
 
 ```bash
-npm test                                        # 257 unit and component tests
+npm test                                        # the unit and component suite
 npm run lint
 npm run build
 npm run e2e                                     # Playwright, needs the stack up
