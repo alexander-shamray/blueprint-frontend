@@ -133,8 +133,8 @@ and `JAVA_HOME` on a JDK; an AVD whose image carries Google APIs, since sign-in
 runs in Chrome; the Compose stack healthy; `npm ci` done here. Nothing here
 starts the emulator for you.
 
-**Three reads before the first run.** Each one has been the reason a first
-device run failed, and none changes anything:
+**Four reads before the first run.** Each one has been the reason a first
+device run failed; the first three change nothing:
 
 1. **An emulator is attached.** `adb devices` lists a line ending `device`
    (`emulator-5554  device`). An empty list, or `offline` or `unauthorized`,
@@ -153,6 +153,16 @@ device run failed, and none changes anything:
    `https://localhost` and `capacitor://localhost`. Keycloak imports the realm
    only into an empty database, so a container that predates the origins serves
    the old values until it is recreated; read the running realm, not the file.
+4. **The emulator's `localhost` is the host's for Keycloak's port.**
+   `adb reverse tcp:8080 tcp:8080` once per emulator boot (`adb reverse
+   --list` shows it, and it is lost when the emulator restarts). Keycloak pins
+   its frontend URL to `localhost` (`KC_HOSTNAME` in the backend's
+   `infrastructure.yml`; backend `14.1` says why the pin stays), so the
+   login form and every redirect name `localhost`, and `environment.android.ts`
+   therefore uses `localhost` as the issuer, not the `10.0.2.2` alias the
+   gateway uses. Without the reverse, sign-in loads the login page and then
+   the browser lands on a refused connection. This one changes the emulator's
+   forwarding, not the host.
 
 **The commands, in order.** From the repository root:
 
@@ -187,21 +197,20 @@ cross-origin read, over cleartext, from `https://localhost`, and it needs no
 sign-in. A `Mixed Content` line in `adb logcat` for that request is a console
 warning, not a refusal.
 
-**A hand on the device is needed, and the round trip does not yet complete.**
+**A hand on the device is needed.** Two steps, both in the system browser:
 
-- *Chrome's first-run screen.* A fresh AVD opens "Make Chrome your own" when
-  Sign in is first tapped; choose "Use without an account" once. Manual.
-- *Typing the credentials.* The login form is in the system browser, so it is
-  the person at the device (or `adb shell input`) who types `demo` / `demo`.
-  Manual.
-- *The return.* After the credentials are accepted the custom tab navigates to
-  `localhost`, not to the host alias, and fails with `ERR_CONNECTION_REFUSED`:
-  Keycloak's pinned `KC_HOSTNAME` makes it name `localhost` in every browser URL
-  it generates, wherever the page was loaded from. `adb reverse` for that port
-  does not help, because the session cookie belongs to the other host
-  ("Cookie not found"). The `blueprint://auth/callback` return, the token in
-  secure storage, and everything after sign-in have therefore **not** been
-  observed. Tracked in blueprint-backend #1069, and in this repository under #77.
+- *Chrome's first-run screen.* A freshly booted AVD opens "Make Chrome your
+  own" when Sign in is first tapped; choose "Use without an account". Manual.
+- *Typing the credentials.* `demo` / `demo`, by hand or with `adb shell input
+  text`. Manual.
+
+**Sign-in, then.** Observed on 2026-10-16: with the reverse in place and the
+credentials accepted, the custom tab closes, the return lands in the running
+app (not a second copy), and Account shows `demo` with its five permissions
+and "Refresh token in secure storage". Force-stopping the app and starting it
+again keeps the session. Not observed: browsing to an order and cancelling it
+(§15 step 4), the sign-in-sign-out-sign-in race (step 3's second half), and
+that the cart survives a relaunch.
 
 ## What no unit test covers
 

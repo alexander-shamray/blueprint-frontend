@@ -1267,7 +1267,8 @@ thing the configuration is supposed to decide.
 
 **The emulator's cleartext is two blocks, and it takes two keys.**
 `environment.android.ts` points at `http://10.0.2.2:5000` and
-`http://10.0.2.2:8080`, while Capacitor serves the page from
+`http://localhost:8080` (the issuer, for the reason the end of this section
+gives), while Capacitor serves the page from
 `https://localhost` — `androidScheme` defaults to `https`. Those requests are
 refused twice over and by different parts of the system, which is why the
 obvious single fix is half a fix:
@@ -1402,10 +1403,12 @@ order:
    and the sentence the account page shows because of it.
 
 Steps 1 and 2 were run on 2026-10-16 and `docs/testing.md`, *The emulator round
-trip*, records how, and what a hand has to do. The run stopped at step 3: the
-login page opens in Chrome, and submitting it sends the browser to
-`localhost`, because the backend's Keycloak pins its frontend URL to that host
-(blueprint-backend #1069). So the claim about this client on a device is that
-it installs, starts and reads the catalogue through the gateway from its own
-origin; sign-in, the return, secure storage and steps 4 and 5 have not been
-observed.
+trip*, records how, and what a hand has to do. Step 3's first half ran too: the
+login page opens in Chrome, the return lands in the running app, and the
+session survives a force-stop and relaunch. It needed one change here and one
+reverse on the host. Keycloak's frontend URL is pinned to `localhost`
+(blueprint-backend #1069, whose answer is that the pin stays), so the
+emulator's issuer is `http://localhost:8080/realms/commerce` rather than the
+`10.0.2.2` alias, and `adb reverse tcp:8080 tcp:8080` makes that the host's.
+Not observed: steps 4 and 5's cart and order path, and step 3's
+sign-out-and-in race.

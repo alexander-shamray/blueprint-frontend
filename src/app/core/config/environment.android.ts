@@ -18,10 +18,15 @@ import type { Environment } from './environment.model';
  *    `Cors__Origins__*` list. See docs/client-architecture.md, "A packaged
  *    native build is a different origin".
  * 2. Keycloak must be reachable at the issuer below from inside the
- *    emulator, which for the Compose stack means the host's 8080 is
- *    published — it is — and that the realm's `mobile-app` client keeps
- *    `blueprint://auth/callback` as its redirect URI, which does not depend
- *    on the host address at all.
+ *    emulator, and the issuer is `localhost`, not the `10.0.2.2` alias the
+ *    gateway uses: Compose's Keycloak pins `KC_HOSTNAME` to
+ *    `http://localhost:8080`, so every URL it puts in a login page names that
+ *    host whichever host served the page, and a page reached at `10.0.2.2`
+ *    posts its form to the emulator itself. The emulator's `localhost:8080`
+ *    is the host's only after `adb reverse tcp:8080 tcp:8080`, which
+ *    `docs/testing.md` lists among the reads before a run. The realm's
+ *    `mobile-app` client keeps `blueprint://auth/callback` as its redirect
+ *    URI, which does not depend on the host address at all.
  *
  * Selected with `ng build --configuration android` (angular.json), not by
  * anything at runtime: which environment file a build carries is a build-time
@@ -41,7 +46,7 @@ export const environment: Environment = {
   production: false,
   gatewayBaseUrl: 'http://10.0.2.2:5000',
   auth: {
-    issuer: 'http://10.0.2.2:8080/realms/commerce',
+    issuer: 'http://localhost:8080/realms/commerce',
     webClientId: 'web-app',
     nativeClientId: 'mobile-app',
     // Unused on a device — the factory in auth.providers.ts picks the native
