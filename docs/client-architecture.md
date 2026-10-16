@@ -831,9 +831,9 @@ so it calls `CatalogRefresh.request()`, which bumps a version signal that
 `ProductsPage` watches in an `effect()`. A publish must *ask* the catalogue to
 reload; nothing about arriving there does it. A request that lands inside an
 open catalogue window is held and taken when the window closes, so the listing
-is not emptied into a limiter that is refusing (#161). The smoke proves the mechanism
-rather than the outcome: the new product appears after a tab click, with no
-`page.reload()` anywhere in the test.
+is not emptied into a limiter that is refusing (#161). The smoke proves the
+mechanism rather than the outcome: the new product appears after a tab click,
+with no `page.reload()` anywhere in the test.
 
 `ProductsPage`'s `constructedAtVersion` watches through that idiom: it captures
 the value it was built with and compares against it, because an `effect()`
