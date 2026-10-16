@@ -881,13 +881,22 @@ judged where a program is launched**, so `grep -rn git src/app` and `apt
 install git curl` are not read as git invocations. **A line the guard cannot
 tokenise reaches it crudely**, as the push check does: the first word after
 each `git`, past any option, must be on the list, which also over-refuses a
-sentence that merely mentions git. **Its residuals are stated:** a
-subcommand that is a bare variable (`git $SUB`) is not judged,
-because no reading expands it; a wrapper the guard has not named
-(`ssh-agent git mergetool`) is not read as a launch, and the older option
-lists still judge what follows it; and the empty-substitution reading
-shifts a word into the subcommand position after a value-taking global
-option (`git -C $(pwd) commit -m msg`, unquoted), which over-refuses.
+sentence that merely mentions git. **The gaps #209 left are closed by
+blueprint-frontend#211:** a computed subcommand (`git $SUB`) is refused
+whole, since no reading rewrites a bare variable; a wrapper the guard has not
+named (`ssh-agent git mergetool`) is read, every run no printer, reader or
+`NAMES_GIT_AS_DATA` program (`apt`, `which`, `man` and the like) leads being
+judged, so a program missing from that list is over-refused and never
+admitted; and the untokenisable-line reading skips a global option's value
+and refuses a first word that is no name at all. **One over-refusal stays on
+purpose:** an unquoted `git -C $(pwd) commit -m msg` is refused, because a
+substitution that prints nothing removes its word and bash then hands `-C`
+the value `commit`, so `git -C $(true) log mergetool` runs `mergetool`.
+Skipping the judgement when the value was removed, as the issue suggested,
+would admit that; spell the value literally or quote it. **A race remains
+unfixed:** `escapes_checkout` and `linked_protected_path` judge the
+filesystem when the hook runs, so a link made earlier on the same command
+line is not seen; a stateless hook cannot close it.
 `git diff` reads the files it names
 without `--no-index` when one is outside the working tree
 (blueprint-frontend#132, `git diff ~/.gitconfig /dev/null` printed the
