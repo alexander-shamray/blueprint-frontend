@@ -5110,6 +5110,10 @@ class TheGitArgvGuard(unittest.TestCase):
                 "cp -rs a b && git diff a README.md",
                 "tar xf a.tar && git diff a README.md",
                 "unzip a.zip && git diff a README.md",
+                "cp --sym /etc/hosts out && git diff out README.md",
+                "jar xf a.jar && git diff a README.md",
+                "ditto -x a.zip out && git diff out README.md",
+                "unrar x a.rar && git diff a README.md",
                 "env -S 'ln -s a b' && git diff a README.md",
                 "osascript -e 'do shell script \"ln -s a b\"' && git diff a x",
         ):
@@ -5144,7 +5148,7 @@ class TheGitArgvGuard(unittest.TestCase):
                 "busybox ln -s a b && git diff a README.md",
                 "echo $(ln -s a b) && git diff a README.md",
                 "x=$(ln -s a b); git diff a README.md",
-                "wsl ln -s a b && git diff a README.md",
+                "wsl 'ln -s a b' && git diff a README.md",
         ):
             with self.subTest(command=command):
                 self.assertRefused(command)
@@ -5172,6 +5176,23 @@ class TheGitArgvGuard(unittest.TestCase):
         for command in ("ssh-agent src/gi[t] mergetool",
                         "ssh-agent src/g* mergetool",
                         "cp src/* dest"):
+            with self.subTest(command=command):
+                self.assertRefused(command, cwd=repo)
+        # A link among the MATCHES, under a directory that is not one.
+        os.makedirs(os.path.join(repo, "lib2"))
+        os.makedirs(os.path.join(outside, "realgit"))
+        match = os.path.join(repo, "lib2", "git")
+        target = os.path.join(outside, "realgit")
+        try:
+            os.symlink(target, match, target_is_directory=True)
+            made = True
+        except (OSError, NotImplementedError):
+            made = os.name == "nt" and subprocess.run(
+                ["cmd", "/c", "mklink", "/J", match, target],
+                capture_output=True).returncode == 0
+        self.assertTrue(made, "the first link was made, so this one can be")
+        for command in ("ssh-agent lib2/gi[t] mergetool",
+                        "ssh-agent lib2/g* mergetool"):
             with self.subTest(command=command):
                 self.assertRefused(command, cwd=repo)
         # A real directory, and one that does not exist, stay arguments.
