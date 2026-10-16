@@ -5596,16 +5596,22 @@ def _offence(command, depth, judged):
         # SubModule` ran the scripts, and a builtin such as `git LOG` did not.
         # Folding only widens what the lookups below match.
         #
-        # **And cut at the first `.`, `:` or blank** (PR #206's review, three
-        # times): Windows opens `git-filter-branch.`, `git-filter-branch ` and
-        # `git-filter-branch::$DATA` as `git-filter-branch`. Measured, git
+        # **And read as Windows reads it** (PR #206's review, three times):
+        # `git-filter-branch.`, `git-filter-branch ` and
+        # `git-filter-branch::$DATA` all open `git-filter-branch`. Measured, git
         # reaches the spawn with each and the script then fails with `Exec
         # format error`, which is luck about the shebang and not a refusal; the
-        # 8.3 short name is not resolved. **A lookup and not a refusal**,
-        # because this scan also yields the `git` in `grep -rn git src/app`,
-        # where refusing a word that is not a subcommand over-fires; a name
-        # like `src/app` cuts to itself and matches nothing.
-        subcommand = re.split(r"[.:\s]", subcommand_of(segment).lower(), 1)[0]
+        # 8.3 short name is not resolved. So a stream suffix, a trailing dot or
+        # blank and one executable suffix are dropped, and **nothing else**: a
+        # cut at the first dot turned `daemon.json` into `daemon`. **A lookup
+        # and not a refusal**, because this scan also yields the `git` in `grep
+        # -rn git src/app`, where refusing a word that is not a subcommand
+        # over-fires; a name like `src/app` matches nothing.
+        subcommand = subcommand_of(segment).lower().split(":", 1)[0].rstrip(" .")
+        for suffix in EXECUTABLE_SUFFIXES:
+            if subcommand.endswith(suffix):
+                subcommand = subcommand[:-len(suffix)].rstrip(" .")
+                break
         if subcommand in REFUSED_SUBCOMMANDS:
             return (
                 f"`git {subcommand}` {REFUSED_SUBCOMMANDS[subcommand]}, and "
