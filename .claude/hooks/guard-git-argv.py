@@ -124,8 +124,15 @@ import traceback
 # `--extcmd` joins them, and unlike the two above it carries its command
 # outright: `git difftool --extcmd=<cmd>` runs `<cmd>` on every changed file
 # (blueprint-frontend#122).
+#
+# `--open-files-in-pager` is `git grep`'s: it hands the files that matched to
+# the pager command it carries, and `-O<cmd>` is its short spelling, below. A
+# comment beside `SUBSTITUTION_GIT_SUBCOMMANDS` named it as the reason `grep`
+# stays out of a substitution, and the top level admitted it
+# (blueprint-frontend#133).
 FORBIDDEN_FLAGS = ("--output", "--upload-pack", "--receive-pack", "--exec",
-                   "--no-index", "--ext-diff", "--textconv", "--extcmd")
+                   "--no-index", "--ext-diff", "--textconv", "--extcmd",
+                   "--open-files-in-pager")
 
 # Judged against a whole element, and only on a subcommand that takes a
 # repository — a branch name, a path or a commit body may carry the sequence
@@ -146,10 +153,32 @@ FORBIDDEN_SUBSTRINGS = ("ext::",)
 # `submodule foreach` calls, typed directly (blueprint-frontend#124's review).
 EXECUTING_SHORT_FLAGS = {
     "rebase": "x", "difftool": "x", "clone": "u", "ls-remote": "u",
-    "archive": "o", "format-patch": "o",
+    "archive": "o", "format-patch": "o", "grep": "O",
 }
 EXECUTING_FORMS = {"bisect": "run", "submodule": "foreach",
                    "submodule--helper": "foreach"}
+
+# **The long flags that run something on one subcommand only, and the
+# subcommands that exist to run something (blueprint-frontend#133).** These
+# lists are deny-lists over git's grammar and trail it: what is named here is
+# what the review lenses traced, and the end state that stops trailing is an
+# allow-list of the subcommands this repository runs, a larger change than a
+# list. `--template` copies a directory's hooks into the new repository and a
+# clone's `post-checkout` hook runs on the clone itself; it is per subcommand
+# because `git commit --template=<file>` only reads one. `filter-branch`,
+# `send-email`, `instaweb`, `daemon`, `http-backend` and `web--browse` take a
+# command or a server program in an option. None is granted, so each reaches
+# the hook only under the user-level `auto` mode or on an approval, and inside
+# a substitution each is refused already.
+EXECUTING_LONG_FLAGS = {"clone": ("--template",), "init": ("--template",)}
+REFUSED_SUBCOMMANDS = {
+    "filter-branch": "runs the shell commands its --*-filter options carry",
+    "send-email": "runs the programs its --*-cmd and --smtp-server options name",
+    "instaweb": "starts the web server its --httpd option names",
+    "daemon": "starts a server that runs the services it is told to",
+    "http-backend": "is a CGI program that runs git for whoever calls it",
+    "web--browse": "starts the browser program it is given",
+}
 
 # **The trees a redirection or a writing verb may not write into (#20, #26),
 # and the reason this list is here rather than read off the deny rules is that
@@ -4322,9 +4351,27 @@ ASSIGNMENT_SENSITIVE_PREFIXES = ("DYLD_", "GIT_", "LD_", "NPM_CONFIG_", "SSH_")
 # runs no `git`.
 ASSIGNMENT_ALLOWED_NAMES = frozenset({
     "CI", "COLUMNS", "FORCE_COLOR", "LANG", "LANGUAGE", "LC_ALL", "LC_COLLATE",
-    "LC_CTYPE", "LC_MESSAGES", "LC_NUMERIC", "LC_TIME", "LINES", "NO_COLOR",
-    "TERM", "TZ",
+    "LC_CTYPE", "LC_MESSAGES", "LC_NUMERIC", "LC_TIME", "LINES", "NODE_ENV",
+    "NO_COLOR", "PYTHONUTF8", "TERM", "TZ",
 })
+
+# **The same inversion, for the programs `.claude/settings.json` and the
+# commands' frontmatter grant by prefix** (blueprint-frontend#205). The list
+# of listed names stayed the whole rule on a line that runs none of `git`, and
+# an enumeration fails open on the variable nobody listed: `PERL5OPT` and
+# `NODE_OPTIONS` were named from memory, and `NODE_REPL_EXTERNAL_MODULE`,
+# `PYTHONINSPECT`, `RUBYGEMS_GEMDEPS` and `JAVA_OPTIONS` were not. A line that
+# runs a granted program is therefore judged as a line that runs `git` is:
+# only `ASSIGNMENT_ALLOWED_NAMES` or a loop variable may be assigned. **The
+# pass over the commands that the issue asked for** found `CI=true npm test`
+# the only assignment any of them makes, and the grants' own prefixes are the
+# set below; a line that runs only `cat`, `grep` or `echo` keeps the list,
+# because nothing is granted there for a variable to redirect. Matched as a
+# word anywhere in the line, as `GIT_WORD` is, so a program behind a wrapper or
+# a quote counts, at the price of a line that merely names one.
+GRANTED_WORD = re.compile(
+    r"(?<![\w.-])(?:bash|cygpath|gh|git|ls|mktemp|node|npm|npx|py|python3?"
+    r"|sleep|wc)(?:\.(?:exe|cmd|bat|com))?(?![\w.-])", re.IGNORECASE)
 PLAIN_LOWERCASE = re.compile(r"^[a-z][a-z0-9]*$")
 
 # **The builtins that assign in the current shell with no name a check can
@@ -4626,8 +4673,11 @@ def evaluating_expansion(command):
     return None
 
 
-def spells_git(command):
+def spells_git(command, pattern=GIT_WORD):
     """Whether `command`, or a substitution in it, spells `git` to bash.
+
+    `pattern` widens the question to any program a grant names
+    (`GRANTED_WORD`, blueprint-frontend#205); the reading is the same.
 
     **Read with the quoting gone and `$'…'` decoded** (PR #190's review):
     `g""it`, `gi\\t` and `$'g\\x69t'` are each `git` to bash, and inside a
@@ -4641,7 +4691,7 @@ def spells_git(command):
         texts.extend(substitutions(
             join_continuations(text, quotes=quotes), quotes=quotes))
     return any(
-        GIT_WORD.search(re.sub(r"[\"'\\]", "", strip_dollar_quotes(text)))
+        pattern.search(re.sub(r"[\"'\\]", "", strip_dollar_quotes(text)))
         for text in texts)
 
 
@@ -4689,12 +4739,13 @@ def assignment_offence(command, tokens):
     (blueprint-frontend#188): `ls ${x[PATH=5]}; ls` re-resolves the `ls` that
     runs after it as `./5/ls`, behind a granted prefix. Arithmetic is refused
     on every line, and so is an assignment of a name in
-    `ASSIGNMENT_SENSITIVE_NAMES`; `CI=true npm test` and `S=…; py "$S/x"` name
-    nothing in it and stay ordinary. **On a line that runs `git` the names are
+    `ASSIGNMENT_SENSITIVE_NAMES`. **On a line that runs `git` the names are
     inverted** (blueprint-frontend#191): only a name known to be harmless may
-    be assigned.
+    be assigned. **So they are on a line that runs any other granted
+    program** (blueprint-frontend#205), `GRANTED_WORD`'s: what is left to the
+    list is a line that runs only programs nothing grants.
     """
-    strict = (spells_git(command)
+    strict = (spells_git(command, GRANTED_WORD)
               or any(True for _ in git_segments(tokens)))
     found = assigning_expansion(command, strict)
     if found is None:
@@ -4724,14 +4775,15 @@ def assignment_offence(command, tokens):
             "own, or not at all."
         )
     return (
-        f"`{found}` may assign, in the shell that runs `git` on this line, "
-        "`PATH`, `HOME`, a `GIT_*` name or another variable that changes "
-        "which program git is or what it runs (blueprint-frontend#185), or "
-        "a name not known to be harmless (blueprint-frontend#191): only "
-        "`LC_ALL`, `TZ`, `CI` and the rest of `ASSIGNMENT_ALLOWED_NAMES`, or "
-        "a plain lowercase loop variable, may be assigned on a line that "
-        "runs `git`. "
-        "Run the `git` command on a line of its own."
+        f"`{found}` may assign, in the shell that runs `git` or another "
+        "granted program (`npm`, `py`, `gh`, `bash` and the rest of "
+        "`GRANTED_WORD`) on this line, `PATH`, `HOME`, a `GIT_*` name or "
+        "another variable that changes which program that is or what it runs "
+        "(blueprint-frontend#185), or a name not known to be harmless "
+        "(blueprint-frontend#191, #205): only `LC_ALL`, `TZ`, `CI`, "
+        "`NODE_ENV` and the rest of `ASSIGNMENT_ALLOWED_NAMES`, or a plain "
+        "lowercase loop variable, may be assigned on a line that runs one. "
+        "Run the command on a line of its own."
     )
 
 
@@ -4948,6 +5000,192 @@ def push_offence(segment):
             f"pushing to `{destination}` is a decision, not a step, in every "
             "spelling of the refspec"
         )
+    return None
+
+
+# ---- what `git diff` may read, and what a granted helper is handed ---------
+
+DRIVE_PATH = re.compile(r"^[A-Za-z]:(?:[\\/]|$)")
+
+
+def outside_checkout():
+    """Whether the directory the command runs in lies under no repository."""
+    directory = os.path.abspath(EVENT_CWD or os.getcwd())
+    while True:
+        if os.path.exists(os.path.join(directory, ".git")):
+            return False
+        parent = os.path.dirname(directory)
+        if parent == directory:
+            return True
+        directory = parent
+
+
+def diff_offence(segment, command):
+    """The reason to refuse a `git diff` that may read outside the repository.
+
+    **`--no-index` is refused as a flag and git does not need the flag**
+    (blueprint-frontend#132): `git diff ~/.gitconfig /dev/null` compares two
+    paths as plain files by itself when one of them is outside the working
+    tree, and prints the file — past the bound the `Read` tool keeps, under a
+    grant this repository gives everywhere and inside a substitution as well.
+    Measured against `main` before this check, with `offence()`.
+
+    So the operands are read, lexically and over-refusing: an absolute path,
+    one starting `~`, a drive, one whose `..` climbs out (`origin/main..HEAD`
+    is a range, not a component), and a `$` or a backtick, which computes the
+    operand where this hook cannot read it. A revision is never any of them.
+    The two spellings that would put a repository under another working
+    tree's name are closed with it: `-C`, `--git-dir` and `--work-tree`, and a
+    `cd` in the command that also gives two operands. **A working directory
+    that lies under no repository is the third**, where git compares two paths
+    with no repository to be outside of; the hook is given it in the event.
+    What stays open is a symbolic link a branch carries to a path outside
+    (`docs/out -> /etc`), the residual `docs/harness-boundaries.md` names with
+    the `--no-index` rationale.
+    """
+    if subcommand_of(segment) != "diff":
+        return None
+    for element in global_options(segment):
+        if element.startswith(("-C", "--git-dir", "--work-tree")):
+            return (
+                f"`git {element} … diff` moves the repository `git diff` "
+                "reads from, and one with no repository compares the paths "
+                "it is given as plain files; run `git diff` in the checkout "
+                "(blueprint-frontend#132)."
+            )
+    operands = [element for element in after_global_options(segment)[1:]
+                if not element.startswith("-")]
+    for operand in operands:
+        if "$" in operand or "`" in operand:
+            reason = "is computed by the shell, so what it names is not here"
+        elif operand.startswith(("/", "~", "\\")) or DRIVE_PATH.match(operand):
+            reason = "is an absolute path"
+        elif ".." in re.split(r"[\\/]", operand):
+            reason = "climbs out of the checkout with `..`"
+        else:
+            continue
+        return (
+            f"`git diff {operand}` {reason}: git compares two paths as plain "
+            "files, with no repository involved, when one of them lies "
+            "outside the working tree, which reads any file the user can "
+            "read past the bound the `Read` tool keeps. Name a revision or a "
+            "path inside the checkout (blueprint-frontend#132)."
+        )
+    if len(operands) >= 2 and changes_directory(command):
+        return (
+            "a `git diff` with two operands follows a command that may change "
+            "directory, and in a directory outside the checkout git compares "
+            "them as plain files; run `git diff` on a line of its own "
+            "(blueprint-frontend#132)."
+        )
+    if outside_checkout():
+        return (
+            "`git diff` is run from a directory under no repository, where "
+            "git compares two paths as plain files and reads either "
+            "(blueprint-frontend#132)."
+        )
+    return None
+
+
+# The scripts the grants name, in the one spelling they take. A `bash` handed
+# one of them, whatever precedes it in the run, is a helper invocation.
+HELPER_PATH = re.compile(
+    r"^(?:\./)?\.claude/(?:scripts/[A-Za-z0-9._-]+\.sh"
+    r"|skills/[A-Za-z0-9._-]+/scripts/run-index)$")
+
+# A variable that is the whole of a word, quoted or not: `"$pinned"`, which the
+# sweeps hand `git-worktree-detach.sh` and `-drop.sh`, and `$MODE`, which the
+# suite has admitted since the review-helper refusals were archived. Expanding
+# it runs nothing, which is the whole of what this check is for; what it holds
+# is a value the same line assigned, under `assignment_offence`.
+PLAIN_VARIABLE = re.compile(
+    r'^"?\$(?:[A-Za-z_][A-Za-z0-9_]*|\{[A-Za-z_][A-Za-z0-9_]*\})"?$')
+
+
+def computed_helper_argument(word):
+    """The construct in raw `word` that bash computes first, or `None`.
+
+    A command or process substitution, a backtick, a `$` that is not a quoted
+    variable on its own, and a glob or brace outside any quote. **Quoting is
+    read rather than refused** (the issue listed it with the rest): a quoted
+    word is the word the helper receives, and single quotes hold every one of
+    these inert, so the scan tracks them.
+    """
+    if PLAIN_VARIABLE.match(word):
+        return None
+    if word.startswith("("):
+        # A process substitution in argument position, whose `<` the
+        # redirection strip has already taken (`raw_runs`).
+        return "<("
+    quote = None
+    index = 0
+    while index < len(word):
+        char = word[index]
+        if quote == "'":
+            if char == "'":
+                quote = None
+        elif char == "\\":
+            index += 1
+        elif char == "'" and quote is None:
+            quote = "'"
+        elif char == '"':
+            quote = None if quote == '"' else '"'
+        elif char in "`$":
+            return char
+        elif word[index:index + 2] in ("<(", ">("):
+            return word[index:index + 2]
+        elif quote is None and char in "*?[{":
+            return char
+        index += 1
+    return None
+
+
+def helper_argument_offence(command):
+    """The reason to refuse a computed argument to a granted helper, or `None`.
+
+    **A prefix grant constrains nothing after the script's path**
+    (blueprint-frontend#179): a substitution or a process substitution in an
+    argument position runs while bash builds the argv, and a glob expands to
+    whatever files the checkout holds, before the helper validates a word of
+    it. The sharpest case is `git-rebase-onto-main.sh`, the one helper that
+    rewrites published history; `docs/harness-boundaries.md`'s eleventh entry
+    records its free tail. Read here on the RAW words, since `shlex` has
+    already removed the quoting that decides whether a `$` or a `*` expands.
+    This is narrower than #125's routes and lands without them: it holds a
+    helper's arguments to plain words, and says nothing about the rest of the
+    line.
+    """
+    for run in raw_runs(command):
+        start = 0
+        while start < len(run) and ASSIGNMENT.match(run[start]):
+            start += 1
+        words = run[start:]
+        # A printer or a reader holds the helper's name as text: `echo bash
+        # .claude/scripts/x.sh $(date)` runs nothing it names.
+        if words and program_name(re.sub(r"[\"'\\]", "", words[0])) in (
+                DATA_ONLY_COMMANDS | READING_COMMANDS):
+            continue
+        for position, word in enumerate(words):
+            if program_name(re.sub(r"[\"'\\]", "", word)) != "bash":
+                continue
+            rest = words[position + 1:]
+            script = next((index for index, later in enumerate(rest)
+                           if not later.startswith("-")), None)
+            if script is None or not HELPER_PATH.match(
+                    re.sub(r"[\"'\\]", "", rest[script])):
+                continue
+            for argument in rest[script + 1:]:
+                found = computed_helper_argument(argument)
+                if found is not None:
+                    return (
+                        f"`{argument}` is handed to a granted helper with a "
+                        f"`{found}` in it, which bash computes before the "
+                        "helper checks a word of its arguments; the grant is "
+                        "a prefix and constrains nothing after the script. "
+                        "Spell the argument out, or quote a variable on its "
+                        "own (blueprint-frontend#179)."
+                    )
+            break
     return None
 
 
@@ -5177,6 +5415,13 @@ def _offence(command, depth, judged):
     if refusal is not None:
         return refusal
 
+    # **Raw words, for the reason the verb check above gives**
+    # (blueprint-frontend#179): whether a `$` or a `*` in a helper's argument
+    # expands is decided by the quoting `shlex` removes.
+    refusal = helper_argument_offence(resolved)
+    if refusal is not None:
+        return refusal
+
     # `strip_dollar_quotes` turns `$'…'` and `$"…"` into the ordinary quoting
     # `shlex` resolves, on the string just checked.
     stripped = strip_dollar_quotes(resolved)
@@ -5245,7 +5490,7 @@ def _offence(command, depth, judged):
         # And the assignment check, which reads tokens, done the crude way:
         # on a line that runs `git`, any word that may assign (PR #190's
         # review).
-        runs_git = spells_git(stripped)
+        runs_git = spells_git(stripped, GRANTED_WORD)
         if assigning_expansion(command, runs_git) or (
                 UNTOKENISED_ASSIGNMENT.search(stripped) if runs_git
                 else untokenised_sensitive(stripped)):
@@ -5334,6 +5579,15 @@ def _offence(command, depth, judged):
                 )
 
         subcommand = subcommand_of(segment)
+        if subcommand in REFUSED_SUBCOMMANDS:
+            return (
+                f"`git {subcommand}` {REFUSED_SUBCOMMANDS[subcommand]}, and "
+                "nothing here runs it; the flag lists trail git, so the "
+                "subcommand is refused whole (blueprint-frontend#133)."
+            )
+        refusal = diff_offence(segment, performed)
+        if refusal is not None:
+            return refusal
         operand = EXECUTING_FORMS.get(subcommand)
         if operand is not None and operand in after_global_options(segment)[1:]:
             return (
@@ -5364,7 +5618,8 @@ def _offence(command, depth, judged):
             # direction to be wrong in, and `--u` was never going to work.
             name = element.split("=", 1)[0]
             abbreviation = name.startswith("--") and len(name) > 2
-            for flag in FORBIDDEN_FLAGS:
+            for flag in FORBIDDEN_FLAGS + EXECUTING_LONG_FLAGS.get(
+                    subcommand, ()):
                 if element.startswith(flag) or (
                         abbreviation and flag.startswith(name)):
                     return (
