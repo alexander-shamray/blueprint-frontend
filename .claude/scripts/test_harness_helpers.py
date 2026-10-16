@@ -4735,6 +4735,8 @@ class TheGitArgvGuard(unittest.TestCase):
                 "git -c 'a|b' push origin +HEAD:main" + NEWLINE + "echo '",
                 'git --git-dir="x&y" push origin +HEAD:main' + NEWLINE
                 + "echo '",
+                'git -c "a' + NEWLINE + 'b" push origin +HEAD:main' + NEWLINE
+                + "echo '",
         ):
             with self.subTest(command=command):
                 self.assertRefused(command)
