@@ -390,10 +390,10 @@ and keeps polling. The poll's intervals are `ORDER_POLL` in
 the intervals. That list is `delivered` alone: `BuyerStatus.Of` ranks a
 delivery above every cancellation and the projection absorbs Ordering and
 Shipping events in whatever order they arrive, so a cancellation is not a
-status nothing can outrank (#158). It never sends inside a blocked `authenticated` window, and a
-429 on a poll lengthens the next wait instead of raising a banner for a
-request the buyer did not make. There is no stream, so polling is the honest
-mechanism, and it is deleted when one exists.
+status nothing can outrank (#158). It never sends inside a blocked
+`authenticated` window, and a 429 on a poll lengthens the next wait instead of
+raising a banner for a request the buyer did not make. There is no stream, so
+polling is the honest mechanism, and it is deleted when one exists.
 
 **`cancellable` is a hint.** The backend says so in as many words: the field
 is computed from a projection that lags `Order.Cancel`, so it can read true
