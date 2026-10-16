@@ -83,7 +83,6 @@ import { ErrorBannerComponent } from '@shared/error-banner.component';
 
       <form [formGroup]="form" (ngSubmit)="publish()">
         <ion-item><ion-input label="Name" formControlName="name" required></ion-input></ion-item>
-        <ion-item><ion-input label="Thumbnail URL" formControlName="thumbnailUrl"></ion-input></ion-item>
         <ion-item>
           <ion-input label="Amount" type="number" formControlName="amount" required></ion-input>
         </ion-item>
@@ -138,7 +137,6 @@ export class PublishPage {
 
   readonly form = new FormGroup({
     name: new FormControl('', { nonNullable: true, validators: Validators.required }),
-    thumbnailUrl: new FormControl('', { nonNullable: true }),
     amount: new FormControl<number | null>(null, { validators: Validators.required }),
     currency: new FormControl('', { nonNullable: true, validators: Validators.required }),
   });
@@ -193,7 +191,7 @@ export class PublishPage {
       if (previous === null) return;
       untracked(() => {
         this.subjectChanges++;
-        this.form.reset({ name: '', thumbnailUrl: '', amount: null, currency: '' });
+        this.form.reset({ name: '', amount: null, currency: '' });
         this.errorState.set(null);
         this.publishedIdState.set(null);
         this.replayedAfterSignIn = false;
@@ -222,7 +220,6 @@ export class PublishPage {
     const command: PublishProductCommand = {
       commandId: this.identity.current(),
       name: value.name,
-      thumbnailUrl: value.thumbnailUrl.trim() === '' ? null : value.thumbnailUrl,
       // The form's required validator guarantees a number here. Sending null
       // would be met with the backend's own NotNull, keyed `Amount` — correct,
       // and still a client bug.
@@ -245,7 +242,7 @@ export class PublishPage {
         this.errorState.set(null);
         this.publishedIdState.set(productId);
         this.identity.onSuccess();
-        this.form.reset({ name: '', thumbnailUrl: '', amount: null, currency: '' });
+        this.form.reset({ name: '', amount: null, currency: '' });
 
         // "On success the products tab refreshes from the first page"
         // (spec §5.5). Navigation cannot deliver that: Ionic caches a tab's
@@ -288,7 +285,7 @@ export class PublishPage {
           this.errorState.set(null);
           this.publishedIdState.set(ALREADY_COMMITTED);
           this.identity.onSuccess();
-          this.form.reset({ name: '', thumbnailUrl: '', amount: null, currency: '' });
+          this.form.reset({ name: '', amount: null, currency: '' });
           this.catalogRefresh.request();
           return;
         }

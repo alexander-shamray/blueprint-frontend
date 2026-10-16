@@ -39,7 +39,13 @@ export interface ProductSummary {
 export interface PublishProductCommand {
   readonly commandId: string;
   readonly name: string;
-  readonly thumbnailUrl: string | null;
+  /**
+   * The key a BFF upload returned, never a URL (backend §10.8). Optional, and
+   * never set until #108 adds the upload: `PublishProductCommand.cs` no longer
+   * has a `ThumbnailUrl`, and the backend ignores a member it does not bind,
+   * so a URL sent here would publish the product bare without a word (#175).
+   */
+  readonly imageKey?: string;
   /**
    * `decimal?` on the backend, and the nullability is load-bearing there: an
    * omitted amount would bind as 0 and publish a free product. The client
