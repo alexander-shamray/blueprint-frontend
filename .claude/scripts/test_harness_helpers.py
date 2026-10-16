@@ -4731,10 +4731,8 @@ class TheGitArgvGuard(unittest.TestCase):
         for command in (
                 "CI=true npm test",
                 "NODE_ENV=production npm run build",
-                'S=.claude/scripts; py "$S/x"',
                 "export CI=true",
                 "export FOO=$(pwd)",
-                "declare -r y=1; ls",
                 "for f in a b; do ls $f; done",
                 "ls | while read line; do echo $line; done",
                 "bash .claude/scripts/npm-checks.sh fast",
@@ -4742,6 +4740,191 @@ class TheGitArgvGuard(unittest.TestCase):
                 "echo '$((1 + 2))' '${x[PATH=5]}'",
                 NEWLINE.join(["cat <<'EOF'", "$((1 + 2)) PATH=5", "EOF"]),
                 "grep -rn PATH=5 src",
+        ):
+            with self.subTest(command=command):
+                self.assertAdmitted(command)
+
+    def test_only_a_name_known_to_be_harmless_is_assigned_before_a_granted_program(
+            self):
+        # **The list of sensitive names stayed the whole rule on a line that
+        # runs no `git`, and an enumeration fails open on the variable nobody
+        # listed** (blueprint-frontend#205): `NODE_REPL_EXTERNAL_MODULE`,
+        # `PYTHONINSPECT`, `RUBYGEMS_GEMDEPS` and `JAVA_OPTIONS` each load
+        # code from a program a granted prefix starts, and none was named.
+        # A line that runs a granted program is judged as one that runs `git`
+        # is. Each was admitted before the fix.
+        for command in (
+                "NODE_REPL_EXTERNAL_MODULE=./x npm test",
+                "PYTHONINSPECT=1 py -3.12 x.py",
+                "RUBYGEMS_GEMDEPS=- npm test",
+                "JAVA_OPTIONS=-javaagent:./x npm run build",
+                "UNLISTED=1 gh pr view 1",
+                "UNLISTED=1 bash .claude/scripts/npm-checks.sh fast",
+                "env UNLISTED=1 npm test",
+                "UNLISTED=1; ls",
+                'S=.claude/scripts; py "$S/x"',
+                "x=1; ls",
+                "declare -r y=1; ls",
+                "for UNLISTED in a; do ls; done",
+                "read UNLISTED <<< 1; npm test",
+                # A line the tokeniser cannot read is judged the same way.
+                "UNLISTED=1 npm test 'unclosed",
+        ):
+            with self.subTest(command=command):
+                self.assertRefused(command)
+        # A name known to be harmless, a loop variable, and a line that runs
+        # only programs nothing grants keep the list.
+        for command in (
+                "CI=true npm test",
+                "NODE_ENV=production npm run build",
+                "PYTHONUTF8=1 py -3.12 -m unittest",
+                "LC_ALL=C ls",
+                "LANG=C.UTF-8 wc -l README.md",
+                "for f in a b; do ls $f; done",
+                "FOO=1 cat README.md",
+                "FOO=1; echo $FOO",
+        ):
+            with self.subTest(command=command):
+                self.assertAdmitted(command)
+
+    def test_a_git_diff_that_reads_outside_the_repository_is_refused(self):
+        # **`--no-index` is refused as a flag and git does not need it**
+        # (blueprint-frontend#132): with two paths and one of them outside
+        # the working tree, `git diff` compares plain files by itself and
+        # prints either. Each was admitted before the fix, `~/.gitconfig`
+        # printed.
+        for command in (
+                "git diff ~/.gitconfig /dev/null",
+                "git diff /etc/hosts README.md",
+                "git diff README.md /etc/hosts",
+                "git diff ../x README.md",
+                "git diff -- ../../x",
+                "git diff a/../../x README.md",
+                r"git diff C:/Users/x/.gitconfig README.md",
+                r"git diff 'C:\Users\x\.gitconfig' README.md",
+                r"git diff '\\server\share\x' README.md",
+                "git diff $HOME/.gitconfig README.md",
+                "git diff `echo /etc/hosts` README.md",
+                "git diff --stat /etc/hosts README.md",
+                "git -C /tmp diff a b",
+                "git -C../elsewhere diff a b",
+                "git --git-dir=/tmp/x diff a b",
+                "git --work-tree=/tmp diff a b",
+                "echo $(git diff ~/.gitconfig /dev/null)",
+                "cd /etc && git diff hosts passwd",
+        ):
+            with self.subTest(command=command):
+                self.assertRefused(command)
+        # A directory under no repository is the case git needs no flag for.
+        outside = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, outside, True)
+        self.assertRefused("git diff README.md package.json", cwd=outside)
+        # A revision, a range, a path inside the checkout and a stash ref are
+        # none of those.
+        for command in (
+                "git diff",
+                "git diff HEAD~1",
+                "git diff origin/main...HEAD",
+                "git diff HEAD~1..HEAD",
+                "git diff 0123abc..4567def",
+                "git diff --stat --name-only origin/main...HEAD",
+                "git diff -- src/app",
+                "git diff -- docs/*.md",
+                "git diff README.md package.json",
+                "git diff HEAD:README.md HEAD~1:README.md",
+                "git diff stash@{0}",
+                "cd src && git diff",
+                "echo $(git diff --name-only origin/main...HEAD)",
+        ):
+            with self.subTest(command=command):
+                self.assertAdmitted(command)
+
+    def test_git_options_that_run_a_command_are_refused_at_the_top_level(self):
+        # **The deny-lists trailed git** (blueprint-frontend#133): a comment
+        # in the hook named `--open-files-in-pager` as the reason `grep` stays
+        # out of a substitution, and the top level admitted it. Each was
+        # admitted before the fix.
+        for command in (
+                "git grep -O./tools/x foo",
+                "git grep -nO./tools/x foo",
+                "git grep --open-files-in-pager=./tools/x foo",
+                "git grep --open-files-in-pager ./tools/x foo",
+                "git grep --open-files=./tools/x foo",
+                "git filter-branch --tree-filter ./tools/x HEAD",
+                "git filter-branch --msg-filter cat",
+                "git send-email --to-cmd=./tools/x a.patch",
+                "git instaweb --httpd=./tools/x",
+                "git daemon --base-path=.",
+                "git http-backend",
+                "git web--browse ./tools/x",
+                "git clone --template=./tools/t ./src dest",
+                "git init --template=./tools/t",
+                "git init --templ=./tools/t",
+        ):
+            with self.subTest(command=command):
+                self.assertRefused(command)
+        for command in (
+                "git grep -n foo",
+                "git grep -o foo",
+                "git grep -e foo -- src",
+                "git grep -c --no-color foo",
+                "git commit --template=msg.txt -F -",
+                "git log --oneline -5",
+        ):
+            with self.subTest(command=command):
+                self.assertAdmitted(command)
+
+    def test_a_granted_helper_is_handed_plain_words_only(self):
+        # **A prefix grant constrains nothing after the script's path**
+        # (blueprint-frontend#179): a substitution runs, and a glob expands,
+        # while bash builds the argv, before the helper validates a word. The
+        # sharpest case rewrites published history. Each was admitted before
+        # the fix.
+        for command in (
+                "bash .claude/scripts/git-rebase-onto-main.sh "
+                "$(git branch --show-current) start",
+                "bash .claude/scripts/pr-state.sh `echo 1`",
+                "bash .claude/scripts/git-rebase-onto-main.sh <(echo x) start",
+                "bash .claude/scripts/git-rebase-onto-main.sh >(cat) start",
+                "bash .claude/scripts/git-rebase-onto-main.sh * start",
+                "bash .claude/scripts/pr-state.sh 1?",
+                "bash .claude/scripts/pr-state.sh [0-9]",
+                'bash .claude/scripts/pr-state.sh "$(echo 1)"',
+                'bash .claude/scripts/pr-state.sh "a$b"',
+                'bash .claude/scripts/pr-state.sh "${b:-$(id)}"',
+                "bash .claude/scripts/pr-state.sh $((1 + 1))",
+                "bash .claude/scripts/pr-state.sh $'1'",
+                "bash .claude/scripts/gh-pr-merge.sh 1 $(git rev-parse HEAD)",
+                "bash -x .claude/scripts/pr-state.sh $(echo 1)",
+                "bash ./.claude/scripts/pr-state.sh $(echo 1)",
+                "CI=1 bash .claude/scripts/pr-state.sh $(echo 1)",
+                "ls; bash .claude/scripts/pr-state.sh $(echo 1)",
+                "bash .claude/scripts/pr-state.sh 1 && bash "
+                ".claude/scripts/pr-state.sh $(echo 1)",
+                "bash .claude/skills/codebase-index/scripts/run-index search "
+                "$(echo x)",
+                "env bash .claude/scripts/pr-state.sh $(echo 1)",
+        ):
+            with self.subTest(command=command):
+                self.assertRefused(command)
+        # A plain word, a variable on its own, a quoted word, a quoted glob
+        # and a heredoc body are what the helpers are handed today.
+        for command in (
+                "bash .claude/scripts/pr-state.sh 123",
+                "bash .claude/scripts/git-rebase-onto-main.sh "
+                "chore/guard-git-argv-hardening start",
+                "bash .claude/scripts/gh-pr-merge.sh 1 0123abcdef",
+                'bash .claude/scripts/git-worktree-drop.sh "$posix"',
+                "bash .claude/scripts/git-worktree-drop.sh $posix",
+                "bash .claude/scripts/npm-checks.sh $MODE",
+                "bash .claude/scripts/pr-state.sh '*'",
+                "bash .claude/scripts/pr-state.sh '$(echo)'",
+                'bash .claude/scripts/pr-state.sh "a b"',
+                "bash .claude/scripts/pr-state.sh 1 && ls $(date +%s)",
+                "echo bash .claude/scripts/pr-state.sh $(date +%s)",
+                "grep -rn 'bash .claude/scripts/pr-state.sh' $(ls docs)",
+                "bash .claude/scripts/gh-issue-create.sh bug high "
+                "<<'EOF'\ntitle $(x)\n\nbody `y` *\nEOF",
         ):
             with self.subTest(command=command):
                 self.assertAdmitted(command)
@@ -7409,7 +7592,7 @@ class TheGitArgvGuard(unittest.TestCase):
         # out of the hook. **A crash is empty stdout and `PreToolUse` reads
         # empty stdout as non-blocking**, which makes every crash in this file
         # a fail-open. Raised in review; verified as a crash.
-        for command in ("X=1 | bash", "X=1 Y=2 | sh", "X=1 | bash -c true"):
+        for command in ("CI=1 | bash", "X=1 Y=2 | sh", "CI=1 | bash -c true"):
             with self.subTest(command=command):
                 self.assertAdmitted(command)
 
