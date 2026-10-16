@@ -908,8 +908,10 @@ cannot be seen by `escapes_checkout` and `linked_protected_path`, which judge
 the filesystem when the hook runs, so a line that makes a link (`ln`, `mklink`,
 `junction`, `link`, `fsutil`, `New-Item`, anywhere in a run no reader leads, or
 in a script handed to a shell) and runs git is refused (#213). **Not modelled:**
-`cp -s`, `busybox`, an archive that unpacks a link, and a link maker behind a
-substitution.
+`cp -s`, `busybox`, an archive that unpacks a link, a link maker behind a
+substitution, an interpreter's own script (`python -c`), and a relative
+directory that is itself a link out of the checkout (`src/gi[t]` under `src ->
+/usr/bin`).
 `git diff` reads the files it names
 without `--no-index` when one is outside the working tree
 (blueprint-frontend#132, `git diff ~/.gitconfig /dev/null` printed the
