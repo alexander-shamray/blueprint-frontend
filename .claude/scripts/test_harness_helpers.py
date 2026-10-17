@@ -1856,6 +1856,9 @@ class BothSweepsAgreeOnWhatSuppresses(unittest.TestCase):
 
 class NoCommandHoldsAPrefixGrantThatAdmitsAForbiddenFlag(unittest.TestCase):
     """#16 — three allow rules whose trailing position defeated the workflow.
+    #114 withdrew two more the same way: `Bash(git fetch origin:*)` and
+    `Bash(git pull --ff-only)`, for `git-fetch-origin.sh` and
+    `git-pull-ff-only.sh` (`test_git_transport_helpers.py` drives those).
 
     An allow rule cannot exclude a trailing flag; only a deny takes `*` at any
     position. So `gh pr merge --merge <n> --admin` bypassed step 6's
@@ -1875,10 +1878,11 @@ class NoCommandHoldsAPrefixGrantThatAdmitsAForbiddenFlag(unittest.TestCase):
     """
 
     WITHDRAWN = ("Bash(gh pr merge", "Bash(gh pr create",
-                 "Bash(git worktree remove")
+                 "Bash(git worktree remove", "Bash(git fetch", "Bash(git pull")
 
     REPLACEMENTS = ("gh-pr-merge.sh", "gh-pr-create.sh",
-                    "git-worktree-remove.sh")
+                    "git-worktree-remove.sh", "git-fetch-origin.sh",
+                    "git-pull-ff-only.sh")
 
     def frontmatter(self, path):
         return path.read_text(encoding="utf-8").split("---")[1]
