@@ -44,6 +44,23 @@ case "$lowered" in
     echo "refusing to rebase or force-push main, spelled $branch" >&2; exit 3 ;;
 esac
 
+# The host's hooks never run inside this helper (#180). The helper spells the
+# `rebase.*` keys so that configuration cannot change which commits are
+# replayed, and `core.hooksPath` is the same kind of input: a `pre-rebase`,
+# `post-rewrite`, `pre-push` or `reference-transaction` hook in the
+# repository's hooks directory would otherwise run inside a replay that
+# rewrites published history. It is pointed at an empty directory made for the
+# run, and through the environment rather than a flag on each command, so it
+# is set once, before any git runs, and every git started after it — the
+# sequencer's own included — inherits it. The entry is appended to any the
+# caller already set, so theirs survive.
+no_hooks=$(mktemp -d)
+trap 'rmdir "$no_hooks" 2>/dev/null || :' EXIT
+hook_entry="${GIT_CONFIG_COUNT:-0}"
+export "GIT_CONFIG_KEY_$hook_entry=core.hooksPath" \
+  "GIT_CONFIG_VALUE_$hook_entry=$no_hooks" \
+  "GIT_CONFIG_COUNT=$((hook_entry + 1))"
+
 # Both backends, because which one runs is git's choice and not this file's:
 # the merge backend is the default and the am backend still appears behind
 # `--apply` and in older versions.
@@ -245,9 +262,9 @@ case "$mode" in
     # rewrite nobody asked for. Measured against git 2.45.1: a non-interactive
     # rebase accepts all five.
     #
-    # What is still inherited, and is not this file's to refuse: the
-    # repository's own `pre-rebase` and `post-rewrite` hooks, which granting a
-    # rebase at all grants.
+    # The repository's own `pre-rebase` and `post-rewrite` hooks are not
+    # inherited either: `core.hooksPath` is an empty directory for the whole
+    # run, set above (#180).
     git rebase --no-rebase-merges --no-update-refs --no-autosquash \
       --no-fork-point --no-autostash "refs/remotes/origin/main" || conflicted
     remember_replay

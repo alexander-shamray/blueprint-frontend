@@ -286,15 +286,20 @@ class TheHelperRefusesBeforeItRewrites(unittest.TestCase):
         # there. Left behind, it refuses the next `start` — "a replay is
         # waiting to be published" — about a branch git never touched, and
         # hands `publish` a lease approved for a rebase that did not run.
-        self.at('printf "#!/bin/sh\\nexit 1\\n" > "$(git rev-parse --git-path hooks)/pre-rebase" '
-                '&& chmod +x "$(git rev-parse --git-path hooks)/pre-rebase"')
+        #
+        # The failure is made with a FILE where git wants its state directory:
+        # a `pre-rebase` hook used to do it, and the helper now ignores every
+        # hook of the host's, so a hook is no longer a way to make `git
+        # rebase` fail. This one fails before any state exists, which is the
+        # shape the case is about, and is not a hook.
+        self.at('printf x > "$(git rev-parse --git-path rebase-merge)"')
         self.assertEqual(11, self.helper("feat/x").returncode)
         self.assertEqual(
             "absent",
             self.at('test -f "$(git rev-parse --git-path claude-rebase-pending)" '
                     '&& echo present || echo absent').stdout.strip())
 
-        self.at('rm -f "$(git rev-parse --git-path hooks)/pre-rebase"')
+        self.at('rm -f "$(git rev-parse --git-path rebase-merge)"')
         again = self.helper("feat/x")
         self.assertEqual(0, again.returncode, again.stderr)
 
@@ -327,11 +332,95 @@ class TheHelperRefusesBeforeItRewrites(unittest.TestCase):
     def test_a_rebase_that_never_started_is_not_called_a_conflict(self):
         # Every other way `git rebase` can fail leaves no state, and reporting
         # it as a conflict sends the caller to a `continue` with nothing to do.
-        self.at('printf "#!/bin/sh\\nexit 1\\n" > "$(git rev-parse --git-path hooks)/pre-rebase" '
-                '&& chmod +x "$(git rev-parse --git-path hooks)/pre-rebase"')
+        # A file where git wants its state directory, as the case above makes it.
+        self.at('printf x > "$(git rev-parse --git-path rebase-merge)"')
         result = self.helper("feat/x")
         self.assertEqual(11, result.returncode, result.stderr)
         self.assertIn("did not start", result.stderr)
+
+
+class TheHostsHooksNeverRunInAReplay(unittest.TestCase):
+    """#180. The helper spells the `rebase.*` keys itself and used to leave
+    `core.hooksPath` to the host, so a `pre-rebase`, `post-rewrite`, `pre-push`
+    or `reference-transaction` hook in the repository ran inside a replay that
+    rewrites published history. The helper now points `core.hooksPath` at an
+    empty directory for the whole run, through the environment so that every
+    git it starts — and every git those start, the sequencer's included —
+    inherits it.
+    """
+
+    HOOKS = ("pre-rebase", "post-rewrite", "pre-push", "reference-transaction")
+
+    def setUp(self):
+        self.root = run_bash(FIXTURE).stdout.strip()
+        self.assertTrue(self.root, "the fixture produced no path")
+        self.addCleanup(lambda: run_bash('rm -rf "$R"', R=self.root))
+        self.work = self.root + "/work"
+
+    def at(self, script, **env):
+        return run_bash('cd "$W" && ' + script, W=self.work, **env)
+
+    def helper(self, mode):
+        return run_bash('cd "$W" && bash "$H" feat/x "$M"',
+                        W=self.work, H=str(HELPER), M=mode)
+
+    def plant_every_hook(self):
+        # Each hook records that it ran and then FAILS, so a hook that fires
+        # either leaves its marker or stops the replay it fires in.
+        for name in self.HOOKS:
+            self.at('hooks="$(git rev-parse --git-path hooks)" && mkdir -p "$hooks" '
+                    '&& printf \'#!/bin/sh\\necho ran >> "%s"\\nexit 1\\n\' "$R/ran-$N" '
+                    '> "$hooks/$N" && chmod +x "$hooks/$N"',
+                    R=self.root, N=name)
+
+    def markers(self):
+        return self.at('ls "$R" | grep "^ran-" || true', R=self.root).stdout.split()
+
+    def test_a_clean_replay_ignores_every_hook_in_the_repository(self):
+        self.plant_every_hook()
+        result = self.helper("start")
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual([], self.markers(), "a hook of the host's ran inside the replay")
+        self.assertEqual(
+            self.at("git rev-parse HEAD").stdout.strip(),
+            self.at("git rev-parse refs/remotes/origin/feat/x").stdout.strip(),
+            "the replay was published")
+
+    def test_a_replay_finished_by_continue_ignores_them_too(self):
+        # `post-rewrite` fires when the sequencer finishes, which on a conflict
+        # is under `continue` and not under `start`.
+        self.at(CONFLICT)
+        self.assertEqual(8, self.helper("start").returncode)
+        self.at("echo resolved > a.txt && git add a.txt")
+        self.plant_every_hook()
+        result = self.helper("continue")
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual([], self.markers(), "a hook of the host's ran inside the replay")
+
+    def test_configuration_the_caller_already_injected_is_kept(self):
+        # The helper appends to `GIT_CONFIG_COUNT` rather than overwriting it,
+        # so a caller's own entry survives and the hooks path is still set.
+        self.plant_every_hook()
+        result = run_bash('cd "$W" && bash "$H" feat/x start', W=self.work, H=str(HELPER),
+                          GIT_CONFIG_COUNT="1", GIT_CONFIG_KEY_0="rebase.rebaseMerges",
+                          GIT_CONFIG_VALUE_0="true")
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual([], self.markers())
+
+    def test_the_path_is_set_before_the_first_command_that_can_run_a_hook(self):
+        # The behaviour above is the proof; this is what keeps it covering the
+        # newest command. A fetch updates refs and a rebase and a push run
+        # hooks of their own, so none of them may precede the export.
+        code = code_lines(HELPER.read_text(encoding="utf-8"))
+        text = "\n".join(code)
+        export = text.find("GIT_CONFIG_KEY_")
+        self.assertGreaterEqual(export, 0, "the hooks path is not set")
+        self.assertIn("core.hooksPath", text)
+        self.assertIn("mktemp -d", text, "the path is an empty directory made for the run")
+        for command in ("git fetch origin", "git rebase", "git push"):
+            with self.subTest(command=command):
+                self.assertIn(command, text)
+                self.assertLess(export, text.find(command))
 
 
 class AConflictIsTheCaseRebaseIsHereFor(unittest.TestCase):
@@ -521,10 +610,12 @@ class TheHelperPublishesWhatItRebased(unittest.TestCase):
         # with it: `start` then reads the rewritten tip as non-ancestral and
         # `continue` finds no rebase, so without the record nothing can reach
         # the branch again.
-        # A `pre-push` hook, because the fetch has to succeed for the replay to
-        # happen at all — a broken remote fails earlier and proves nothing.
-        hooks = 'h="$(git rev-parse --git-path hooks)"; mkdir -p "$h"'
-        self.at(hooks + '; printf "#!/bin/sh\\nexit 1\\n" > "$h/pre-push"; chmod +x "$h/pre-push"')
+        # The remote refuses a non-fast-forward, because the fetch has to
+        # succeed for the replay to happen at all — a broken remote fails
+        # earlier and proves nothing. It is a setting of the REMOTE and not a
+        # `pre-push` hook here, which the helper now ignores along with the
+        # rest of the host's.
+        self.at('git --git-dir=../remote.git config receive.denyNonFastForwards true')
         self.assertNotEqual(0, self.helper().returncode, "the push must fail for this to mean anything")
         rewritten = self.at("git rev-parse HEAD").stdout.strip()
         self.assertEqual("", self.at("git log --oneline HEAD..origin/main").stdout,
@@ -533,17 +624,16 @@ class TheHelperPublishesWhatItRebased(unittest.TestCase):
         blocked = self.helper("start")
         self.assertEqual(9, blocked.returncode, "start refuses while a replay waits")
         self.assertIn("waiting to be published", blocked.stderr)
-        self.at(hooks + '; rm -f "$h/pre-push"')
+        self.at('git --git-dir=../remote.git config --unset receive.denyNonFastForwards')
         result = self.helper("publish")
         self.assertEqual(0, result.returncode, result.stderr)
         self.assertEqual(rewritten, self.at("git rev-parse refs/remotes/origin/feat/x").stdout.strip())
 
     def failed_push(self):
         """Leave the branch replayed, unpublished, and a record waiting."""
-        hooks = 'h="$(git rev-parse --git-path hooks)"; mkdir -p "$h"'
-        self.at(hooks + '; printf "#!/bin/sh\\nexit 1\\n" > "$h/pre-push"; chmod +x "$h/pre-push"')
+        self.at('git --git-dir=../remote.git config receive.denyNonFastForwards true')
         self.assertNotEqual(0, self.helper().returncode, "the push must fail for this to mean anything")
-        self.at(hooks + '; rm -f "$h/pre-push"')
+        self.at('git --git-dir=../remote.git config --unset receive.denyNonFastForwards')
 
     def test_publish_refuses_a_head_that_is_not_what_the_replay_produced(self):
         # `continue` refuses a rebase this helper did not start, and by the
