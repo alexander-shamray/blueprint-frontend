@@ -26,14 +26,32 @@ CLAUDE = SCRIPTS.parent
 LAUNCHER = CLAUDE / "skills" / "codebase-index" / "scripts" / "mcp-launch.mjs"
 MCP_JSON = CLAUDE.parent / ".mcp.json"
 NODE = shutil.which("node")
-# What the launcher probes for, in its order; the first of these on this host.
-PYTHON = shutil.which("py") if os.name == "nt" else shutil.which("python3")
+FLOOR = "import sys; sys.exit(sys.version_info < (3, 12))"
+
+
+def interpreter():
+    """What the launcher would pick on this host, in its order: the first
+    candidate that meets the 3.12 floor, as a path and the arguments it takes.
+
+    `py` takes `-3.12`; the others are probed bare. A `python3` older than 3.12
+    beside a `python` that meets it is a host the launcher serves, and a test
+    that took only `python3` would fail there for a reason of its own.
+    """
+    for name, flags in (("py", ["-3.12"]), ("python3", []), ("python", [])):
+        found = shutil.which(name)
+        if found and subprocess.run([found, *flags, "-c", FLOOR],
+                                    capture_output=True).returncode == 0:
+            return found
+    return None
+
+
+PYTHON = interpreter()
 
 
 def setUpModule():
     # Not a skip: a skip on a missing tool reports a pass.
     if NODE is None or PYTHON is None:
-        raise RuntimeError("node and Python are required on PATH: these cases run the launcher")
+        raise RuntimeError("node and Python 3.12 are required on PATH: these cases run the launcher")
 
 
 def expose(directory, tool):
