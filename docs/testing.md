@@ -181,16 +181,21 @@ npm run emulator:android:run -- --target emulator-5554
 
 `cap run` asks which target to use when an AVD exists as well as an attached
 emulator, and the prompt cannot be answered from a script, so pass `--target`
-with the serial `adb devices` printed. **On a Windows host this step failed**
-(`'gradlew' is not recognized as an internal or external command`): Capacitor
-invokes `./gradlew`, which `cmd.exe` cannot run (#192). What worked instead, with the
-flagged sync left in place because Gradle does not sync:
+with the serial `adb devices` printed. **This form is for Linux and macOS.** On a
+Windows host it fails (`'gradlew' is not recognized as an internal or external
+command`): Capacitor invokes `./gradlew`, which `cmd.exe` cannot run (#192).
+Use the script that spells the platform's own wrapper instead; it keeps the
+flagged sync in place because Gradle does not sync:
 
 ```powershell
-cd android
-.\gradlew.bat installDebug
-adb shell am start -n dev.ashamray.blueprint/.MainActivity
+npm run emulator:android:run:windows
 ```
+
+It runs `gradlew.bat installDebug` and then `adb shell am start`, neither of
+which prompts, so it takes no `--target`: with more than one device attached,
+set `ANDROID_SERIAL` to the serial first (`$env:ANDROID_SERIAL = 'emulator-5554'`),
+which both Gradle and `adb` honour. The application id in it is the one in
+`capacitor.config.ts`; change both together.
 
 **What to expect.** The Products tab fills from the gateway: that is the
 cross-origin read, over cleartext, from `https://localhost`, and it needs no

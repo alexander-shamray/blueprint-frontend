@@ -77,7 +77,8 @@ npm run e2e                                     # Playwright, needs the stack up
 
 ```bash
 npm run emulator:android                        # 10.0.2.2, for an emulator
-npm run emulator:android:run                    # launches it; --no-sync, see below
+npm run emulator:android:run                    # launches it (Linux/macOS); --no-sync, see below
+npm run emulator:android:run:windows            # the same on a Windows host
 (cd android && ./gradlew assembleDebug)          # or just the APK, under android/app/build/outputs
 
 npm run build && npx cap sync ios               # generates on any OS; compiles on a Mac
