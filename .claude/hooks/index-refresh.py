@@ -996,6 +996,19 @@ def discard(partial):
             pass
 
 
+def late(limit):
+    """Raise once `limit` has passed. Called between the steps of the copy.
+
+    The progress handler `locked_down` installs only fires inside statements,
+    and SQLite's backup is a page copy it never reaches, so a large index a
+    branch supplied would be copied without a bound (the in-house review of
+    alexander-shamray/blueprint-frontend PR 232, R1). The backup runs in steps
+    and this is asked between them.
+    """
+    if time.monotonic() > limit:
+        raise sqlite3.OperationalError("the compaction's deadline passed")
+
+
 def compact(root):
     """Merge the root's full-text index and reclaim its free pages, when needed.
 
@@ -1052,12 +1065,22 @@ def compact(root):
     schema is the file's too: one whose tables are not the package's shape is
     left alone, which refuses a view at every name compaction reads, and a
     SQLite that cannot do all of this compacts nothing. `COMPACT_TIMEOUT`
-    interrupts whatever does not finish.
+    interrupts the statements, and the copy between its steps of 1024 pages,
+    which the progress handler never reaches.
 
     **Every failure leaves the index as it was.** The copy is the only thing
     written, and it is removed on every path; the rename is the last step. The
     cost of a refusal is a large index, which was the cost before this
     existed.
+
+    **Two residuals, named rather than discovered.** The copy and the index
+    must share a volume: a worktree added on another one makes the rename
+    raise, which is a skipped round every time, with no other sign. And a
+    connection that opens the index and writes a `-wal` between the last
+    look for sidecars and the rename would have that log replayed into the
+    new file, which the measurement above shows. The window is the width of
+    two calls and needs a writer inside it; nothing here narrows it
+    further.
     """
     path = os.path.join(root, CACHE, "index.sqlite")
     if not index_openable(root) or not os.path.isfile(path) or beside(path):
@@ -1079,7 +1102,7 @@ def compact(root):
                 return False
             writing = sqlite3.connect(partial, timeout=30, isolation_level=None)
             try:
-                reading.backup(writing)
+                reading.backup(writing, pages=1024, progress=lambda *step: late(limit))
                 if not locked_down(writing, limit):
                     return False
                 writing.execute("INSERT INTO fts_chunks(fts_chunks) VALUES('optimize')")

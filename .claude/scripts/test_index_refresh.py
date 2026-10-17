@@ -1642,9 +1642,30 @@ class TheIndexIsCompactedAfterARefresh(unittest.TestCase):
         self.assertEqual(["index.sqlite"], self.cache_files())
 
     def test_a_refused_compaction_leaves_no_copy_behind(self):
+        # Refused after the backup, so a copy exists when the refusal happens.
         self.build(segments=True, free=True)
-        with mock.patch.object(self.hook, "shaped", return_value=False):
+        real = self.hook.locked_down
+        calls = []
+
+        def second_fails(conn, limit):
+            calls.append(conn)
+            return real(conn, limit) and len(calls) < 2
+
+        with mock.patch.object(self.hook, "locked_down", second_fails):
             self.assertFalse(self.hook.compact(self.root))
+        self.assertEqual(2, len(calls))
+        self.assertEqual([], self.owned_files())
+
+    def test_the_copy_is_interrupted_between_its_steps(self):
+        # The progress handler never reaches the backup, a page copy in C, so
+        # the deadline is asked between the steps of the copy (R1 of PR 232).
+        self.build(segments=True, free=True)
+        before = self.snapshot()
+        with mock.patch.object(self.hook, "late",
+                               side_effect=sqlite3.OperationalError("deadline")) as late:
+            self.assertFalse(self.hook.compact(self.root))
+        late.assert_called()
+        self.assertEqual(before, self.snapshot())
         self.assertEqual([], self.owned_files())
 
     def test_a_copy_a_killed_worker_left_is_removed(self):
