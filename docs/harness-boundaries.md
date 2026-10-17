@@ -927,8 +927,9 @@ the filesystem when the hook runs, so a line that makes a link (`ln`, `mklink`,
 `junction`, `link`, `fsutil`, `New-Item`, `gln`, a `cp` or `gcp` that makes
 or carries a link (`-s`, `-a`, `-d`, `-P`, `-R`, `-r`, `--symbolic-link`,
 `--archive`, `--no-dereference`, `--recursive`, `--preserve=links` or
-`=all`, and any abbreviation `cp` accepts such as `--sym`), `python -m
-tarfile` or `zipfile`, a script naming `tarfile`, `zipfile`,
+`=all`, and any abbreviation `cp` accepts such as `--sym` or `--l`),
+`python -m tarfile` or `zipfile` (a dotted name such as
+`tarfile.__main__` included), a script naming `tarfile`, `zipfile`,
 `unpack_archive` or `extractall`, an archive program on
 `ARCHIVE_UNPACKERS` (`tar`, `unzip`, `7z`, `cpio`, `jar`, `ditto` and the
 rest, extracting or not), anywhere in a run no reader leads, or in the text of

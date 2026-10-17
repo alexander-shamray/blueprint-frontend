@@ -4424,10 +4424,13 @@ LINK_PROGRAMS = LINK_MAKERS | ARCHIVE_UNPACKERS
 
 
 # The long `cp` options that make a link or copy one, each with the
-# shortest abbreviation `cp` takes for it.
+# shortest abbreviation `cp` takes for it, dashes counted. Each is the
+# shortest prefix no other `cp` option shares, measured against GNU cp
+# 8.32: `--l` is `--link` alone, but `--a` and `--s` are ambiguous
+# (blueprint-frontend#218).
 COPY_LINK_OPTIONS = {"--symbolic-link": 4, "--archive": 4,
                      "--no-dereference": 6, "--recursive": 5,
-                     "--link": 4}
+                     "--link": 3}
 
 
 def symbolic_copy_flag(token):
@@ -4485,11 +4488,14 @@ def archive_module_selected(previous, token):
 
     `-m tarfile`, the attached `-mtarfile` and a cluster ending in `m`
     (`-Im tarfile`, `-Imtarfile`) all run `tarfile` (PR 219's review).
+    **A dotted name runs the package it starts with** (`-m
+    tarfile.__main__`, blueprint-frontend#218): the first component is
+    the one looked up, so it is the one compared.
     """
     word = token.lower()
-    if word in ARCHIVE_MODULES:
+    if word.partition(".")[0] in ARCHIVE_MODULES:
         return bool(re.match(r"^-[A-Za-z]*m$", previous))
-    attached = re.match(r"^-[A-Za-z]*m(\w+)$", word)
+    attached = re.match(r"^-[A-Za-z]*m(\w+)(?:\.[\w.]*)?$", word)
     return bool(attached and attached.group(1) in ARCHIVE_MODULES)
 
 

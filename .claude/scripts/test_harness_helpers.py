@@ -5125,6 +5125,16 @@ class TheGitArgvGuard(unittest.TestCase):
                 "cp -r a b && git diff a README.md",
                 "cp -l a b && git diff a README.md",
                 "cp --link a b && git diff a README.md",
+                "cp --lin a b && git diff a README.md",
+                "cp --li a b && git diff a README.md",
+                "cp --l a b && git diff a README.md",
+                "python -m tarfile.__main__ -e a.tar out "
+                "&& git diff a README.md",
+                "python3 -m zipfile.__main__ -e a.zip out "
+                "&& git diff a README.md",
+                "python -mtarfile.__main__ -e a.tar out "
+                "&& git diff a README.md",
+                "python -Im tarfile.anything a.tar && git diff a README.md",
                 "python3 -mtarfile -e a.tar out && git diff a README.md",
                 "python -Im zipfile -e a.zip out && git diff a README.md",
                 "py -m tarfile -e a.tar out && git diff a README.md",
