@@ -1695,7 +1695,16 @@ class TheDetachedWorkerReallyRuns(unittest.TestCase):
         deadline = time.time() + 60
         while time.time() < deadline and (not record.exists() or hook.held(owner, sibling)):
             time.sleep(0.5)
-        self.assertTrue(record.exists(), "the detached worker never ran the wrapper")
+        try:
+            left = sorted(os.listdir(os.path.join(owner, ".git", "index-refresh")))
+        except OSError:
+            left = None
+        self.assertTrue(
+            record.exists(),
+            "the detached worker never ran the wrapper within 60s; the hook's "
+            f"state directory held {left!r} (a lock beside a pending marker "
+            "and no wrapper record means a worker was started and stopped "
+            "without running it: see #194, where DETACHED_PROCESS did that)")
         args = record.read_text(encoding="utf-8").split("\n")
         self.assertEqual(["--quiet", "--root"], args[:2])
         self.assertEqual(real(sibling), real(args[2]))
@@ -1703,6 +1712,28 @@ class TheDetachedWorkerReallyRuns(unittest.TestCase):
         self.assertEqual(["main"], read_index(index_path(sibling)))
         self.assertFalse(hook.held(owner, sibling), "the worker finished without releasing")
         self.assertFalse(os.path.exists(hook.pending_path(owner, sibling)))
+
+
+@unittest.skipUnless(os.name == "nt", "creation flags exist on Windows only")
+class TheWorkerIsNotStartedWithoutAConsole(unittest.TestCase):
+    """#194. The wrapper never ran under `DETACHED_PROCESS`, and said nothing.
+
+    Measured on a Windows machine with Git Bash: the worker exited 0 and its
+    `bash` child did not run the wrapper, while the same worker with no flag,
+    with `CREATE_NEW_PROCESS_GROUP` alone, or with `CREATE_NO_WINDOW` did. CI's
+    Windows runners pass either way, so the case above cannot be what holds
+    this: it is green wherever the machine happens to tolerate the flag.
+    """
+
+    def test_the_flags_are_the_ones_measured_to_run_the_wrapper(self):
+        hook = load()
+        with mock.patch.object(hook.subprocess, "Popen") as popen:
+            hook.spawn(["worker"], os.getcwd())
+        flags = popen.call_args.kwargs["creationflags"]
+        self.assertFalse(flags & subprocess.DETACHED_PROCESS,
+                         "DETACHED_PROCESS stops the wrapper running (#194)")
+        self.assertTrue(flags & subprocess.CREATE_NO_WINDOW)
+        self.assertTrue(flags & subprocess.CREATE_NEW_PROCESS_GROUP)
 
 
 class TheRefreshIsWiredThroughTheLauncher(unittest.TestCase):

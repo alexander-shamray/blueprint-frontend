@@ -1076,8 +1076,13 @@ def spawn(argv, cwd):
         "close_fds": True,
     }
     if os.name == "nt":
+        # Not `DETACHED_PROCESS`: measured on a Windows machine with Git Bash
+        # (blueprint-frontend#194), a worker started with it exits 0 without
+        # its `bash` child ever running the wrapper, and says nothing, so the
+        # index went stale with every case green. `CREATE_NO_WINDOW` gives the
+        # worker a hidden console of its own and the wrapper runs.
         kwargs["creationflags"] = (
-            subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP)
+            subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP)
     else:
         kwargs["start_new_session"] = True
     subprocess.Popen(argv, **kwargs)
