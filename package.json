@@ -39,6 +39,7 @@
     "@angular/build": "22.1.8",
     "@angular/cli": "22.1.8",
     "@angular/compiler-cli": "22.1.6",
+    "@axe-core/playwright": "4.14.0",
     "@capacitor/cli": "8.5.1",
     "@eslint/js": "10.0.1",
     "@ionic/angular-toolkit": "13.0.0",
