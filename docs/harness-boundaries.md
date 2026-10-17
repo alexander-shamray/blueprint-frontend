@@ -669,17 +669,27 @@ harness does not already wave through, which means adding a rule to a file the
 session reads at startup — so it cannot be arranged from within the session it
 would govern.
 
-**Blueprint-frontend#114 retired the question without answering it, and the
-measurement is still owed.** `Bash(git pull --ff-only)` is withdrawn from
+**Blueprint-frontend#114 retired the question without answering it, and #225
+leaves it unanswered on purpose.** `Bash(git pull --ff-only)` is withdrawn from
 `ship.md` for `git-pull-ff-only.sh`, granted **exactly**, which takes no
 argument at all (anything else exits 2 before git runs), spells `origin` and
 `--ff-only` itself, and names the branch from the checkout. Whether an allow
 rule without `:*` is an exact match therefore no longer decides anything for
 this operation: a trailing `ext::<cmd>` reaches a script that refuses it, and
 a substitution in the tail is the hook's, which holds a granted helper's
-arguments to plain words (blueprint-frontend#179). The probe above would still
-settle the same question for `gh-pr-create.sh`'s exact grant; nobody has run
-it, and this paragraph does not claim otherwise.
+arguments to plain words (blueprint-frontend#179). `gh-pr-create.sh`'s exact
+grant is the same shape: the helper takes no argument and exits 2 on any,
+before it reads a file, so whether its grant is an exact match decides nothing
+there either.
+
+**The measurement is not owed, and a run on 2026-10-17 is why.**
+`git-pull-ff-only.sh "$(true)"` was refused by that hook before any grant was
+consulted. So even where a probe could be arranged, the grant alone cannot be
+observed from an ordinary session: the guard fires first, whichever way the
+grant would have answered. What the two grants rest on is the helper refusing
+an argument and the hook refusing a `$`. That an allow rule without `:*` is
+read as exact is neither measured nor relied on, and a reader who finds it
+relied on has found a defect.
 
 **A command's frontmatter is a grant like any other, and it is the one nobody
 reads twice.** The first five rows above were all found in command frontmatter,
