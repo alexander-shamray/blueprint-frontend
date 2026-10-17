@@ -1846,38 +1846,55 @@ replay acts on what a branch wrote; a WAL-mode index never makes one. The
 journal refusal is the control; the header check is depth behind it, since
 SQLite may take the first page from a `-wal` rather than the file the check
 read. A `-wal` is admitted, and so is an index with no header to read; the
-function's docstring owns the argument. `compact` then refuses a file whose
-tables are not the package's shape, judged from the parsed schema with names
-folded as SQLite folds them, ASCII only, and any other name refused, which
-refuses a view at every name it reads; switches triggers off on its own
-connection, and reads the setting back, so none the file carries runs whatever
-its names' case;
-distrusts schema functions; and
-interrupts itself at `COMPACT_TIMEOUT`. A SQLite that cannot do all of these
-compacts nothing. `index_openable` runs in
+function's docstring owns the argument. `index_openable` runs in
 `target_root`, again in `refresh` before every start of the wrapper, and again
 in `compact`, because the package's own `update` opens the file first, and a
 worker judges its root once and then refreshes for as long as edits keep
 coming. Each check still precedes SQLite's opens, and a checkout that puts a
 link, an ordinary `-journal` or a rollback-mode database on the path in
-between is left as a residual for the database and its sidecars alike
+between is left as a residual for the wrapper's open
 (alexander-shamray/blueprint-frontend#139); the seed's copy is judged the
 same way, before it opens the main checkout's index and again after it
-renames its copy in.
-`nofollow` is not used: SQLite applies it to the database alone, and the
-sidecars are where the window is. A compaction into a file the hook owns,
-renamed over the index, would close the compaction's window and is not taken
-(#139, left open). It needs a window of two branches checked out in turn to
-be reached, and the rename has a cost of its own that the issue's remedy does
-not name: a reader holding the index open (the MCP server, a `run-index` in
-another terminal) keeps a `-wal` and `-shm` beside the path, and SQLite
-recovers a `-wal` by its own header's salts and checksums, not by which
-database file sits beside it. So the compacted copy would have to be refused
-whenever either exists, which is most of the time a session is open, or the
-old log would be replayed into the new file. That is argued from SQLite's WAL
-documentation and not measured here; the wrapper's half of the issue needs the
-package to open its index with no-follow and journal refusal itself, which is
-upstream.
+renames its copy in. `nofollow` is not used: SQLite applies it to the
+database alone, and the sidecars are where the window is. **The compaction no
+longer has that window.**
+
+**The compaction works on a copy the hook owns, and renames it over the
+index (alexander-shamray/blueprint-frontend#139).** `compact` opens the index
+only through an immutable, read-only URI, which takes no lock, reads no `-wal`
+and replays no journal, so nothing the branch put beside the file can make
+SQLite write. It copies with SQLite's backup into `<common>/index-refresh/`,
+which no branch can write, compacts the copy there, and renames the result over
+the index. The rename replaces the entry at the path rather than following it,
+and it is the one write that reaches the branch's directory. The copy's
+connection distrusts schema functions and switches triggers off, reading each
+setting back, so none the file carries runs whatever its names' case, and the
+index is refused unless its tables are the package's shape, judged from the
+parsed schema with names folded as SQLite folds them, ASCII only, any other
+name refused, which refuses a view at every name it reads. Both connections
+interrupt themselves at `COMPACT_TIMEOUT`, and a SQLite that cannot do all of
+this compacts nothing.
+
+**The index has to be at rest, and that was measured, not assumed.** With a
+`-wal` of 400 rows laid beside a database replaced by one of 50, 400 and 900
+rows, SQLite opened the replacement and showed the log's 400 rows each time:
+it recovers a `-wal` by its own header's salts and checksums, not by which
+database file sits beside it. A control (the log beside its own database)
+replayed the same 400. So `compact` does nothing while a `-wal`, `-shm` or
+`-journal` exists, and asks again immediately before the rename. SQLite
+removes the sidecars when the last connection closes, which was also measured,
+and this checkout's own index had none while this session's MCP server was
+running, so the common case is an index at rest. Windows refuses the rename
+over a file a reader has open (measured), which skips the round, and a
+`PermissionError` on any platform does the same. An immutable connection
+ignores locks, so a write during the copy is caught by the file's size and
+modification time moving; a `run-index update` run by hand that finishes
+inside that window is lost, which costs nothing lasting because the index is
+derived. Neither measurement used a POSIX host, where a rename over an open
+file succeeds and leaves the reader on the old inode; the sidecar check is
+what stands there. The remaining half of the original issue, the wrapper's own
+open, needs the package to open its index with no-follow and journal refusal
+itself, which is upstream.
 
 **The skill's direct route is judged by the same function
 (alexander-shamray/blueprint-frontend#138).** `run-index` and `cbx` source
