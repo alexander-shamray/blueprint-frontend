@@ -217,16 +217,18 @@ rather than here. Four rules reach every session, so they stay:
   never by trying what it forbids.
 - **Every hook uses `run-guard.sh`** — the scripts `settings.json`'s
   `hooks` name — which locates a compatible Python launcher before invoking
-  the hook. The index refresh and the two hints are not guards. The refresh
+  the hook. The index refresh and the three hints are not guards. The refresh
   covers the checkout a change landed in — the edited file's, or the event's
   `cwd` for a Bash call — after an edit, after every Bash call and
   on a session start, seeding a worktree's index from the main checkout's,
   while the MCP server stays on the startup checkout. The query hint points a
   locate or impact prompt at the index, and the search hint refuses a
   session's first tree search for a named symbol once, naming the lookup that
-  answers it. Both commands end `|| :` because the launcher's exit 2 would
-  erase the prompt, or block every Grep and shell call
-  (`docs/harness-boundaries.md` says why, for all three).
+  answers it. The MCP root guard refuses an index tool call made from another
+  checkout than the server reads, naming the `run-index` line for this one.
+  The hints' commands end `|| :` because the launcher's exit 2 would erase the
+  prompt, or block every Grep, shell and index-tool call
+  (`docs/harness-boundaries.md` says why, for all of them).
 - **`python -m unittest discover -s .claude/scripts -p 'test_*.py'` is the
   harness's own suite** — it covers the deny lists, the frontmatter grants,
   the helper shapes and the hooks. It reads `git ls-files`, so a new tracked
