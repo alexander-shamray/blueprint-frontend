@@ -93,7 +93,7 @@ import { stockLabel, stockOf } from './stock';
               button is neither valid nor reachable by keyboard in an order a
               screen reader can explain.
             -->
-            <button type="button" class="open" (click)="open(product)">
+            <button type="button" class="open" (click)="open(product, $event)">
               <ion-label>
                 <h2>{{ product.name }}</h2>
                 <ion-note>{{ product.amount | money: product.currency }}</ion-note>
@@ -118,7 +118,7 @@ import { stockLabel, stockOf } from './stock';
       </ion-infinite-scroll>
 
       <ion-modal [isOpen]="selected() !== null" [initialBreakpoint]="0.75" [breakpoints]="[0, 0.75, 1]"
-        (didPresent)="nameSheet($event)" (didDismiss)="close()">
+        (didPresent)="nameSheet($event)" (didDismiss)="dismissed()">
         <ng-template>
           @if (selected(); as product) {
             <app-product-sheet [product]="product" (added)="addFromSheet(product, $event)"
@@ -142,6 +142,7 @@ export class ProductsPage {
   private readonly catalogRefresh = inject(CatalogRefresh);
   private readonly availability = inject(CatalogAvailability);
   private cursor: string | null = null;
+  private opener: HTMLElement | null = null;
 
   /**
    * Bumped by `reload()`. `load()` captures the generation it was called
@@ -370,12 +371,23 @@ export class ProductsPage {
     this.cart.add(product);
   }
 
-  open(product: ProductSummary): void {
+  open(product: ProductSummary, event?: Event): void {
+    // Kept because Ionic returns focus to whatever was focused when the sheet
+    // opened, and WebKit does not focus a button on click: there that is the
+    // body, and a keyboard or screen-reader user is dropped at the top.
+    this.opener = event?.currentTarget instanceof HTMLElement ? event.currentTarget : null;
     this.selectedSignal.set(product);
   }
 
   close(): void {
     this.selectedSignal.set(null);
+  }
+
+  /** The sheet has gone, however it was closed: focus goes back to the row that opened it. */
+  dismissed(): void {
+    this.close();
+    this.opener?.focus();
+    this.opener = null;
   }
 
   /**

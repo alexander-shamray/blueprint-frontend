@@ -665,5 +665,19 @@ describe('ProductsPage', () => {
       expect(TestBed.inject(CartStore).count()).toBe(3);
       expect(fixture.componentInstance.selected()).toBeNull();
     });
+
+    it('returns focus to the row that opened the sheet once it is dismissed', async () => {
+      listing().flush(stocked(10));
+      await fixture.whenStable();
+      const opener = fixture.nativeElement.querySelector('button.open') as HTMLElement;
+
+      opener.click();
+      // A browser that does not focus a button on click leaves it elsewhere.
+      (document.activeElement as HTMLElement | null)?.blur();
+      fixture.componentInstance.dismissed();
+
+      expect(fixture.componentInstance.selected()).toBeNull();
+      expect(document.activeElement).toBe(opener);
+    });
   });
 });
