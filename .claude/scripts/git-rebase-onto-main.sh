@@ -195,7 +195,8 @@ require_no_merge_invented_anything() {
 }
 
 # Only a rebase that actually stopped is left in progress. Every other way
-# `git rebase` can fail — a pre-rebase hook, a refused argument — leaves no
+# `git rebase` can fail — a refused argument, say; a host hook cannot, as
+# `core.hooksPath` is an empty directory for the whole run — leaves no
 # state at all, and saying "resolve these" there names no files and sends the
 # caller to a `continue` that has nothing to finish.
 #

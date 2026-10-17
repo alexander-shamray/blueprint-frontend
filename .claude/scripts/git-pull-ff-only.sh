@@ -27,7 +27,7 @@ case "$branch" in
   -*) echo "branch name may not start with '-'" >&2; exit 2 ;;
   *..*) echo "branch name may not contain '..'" >&2; exit 2 ;;
 esac
-[[ "$branch" =~ ^[A-Za-z0-9][A-Za-z0-9._/()-]*$ ]] ||
+[[ "$branch" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ ]] ||
   { echo "not a branch name this helper will take: $branch" >&2; exit 2; }
 
 git pull --ff-only origin "$branch"
