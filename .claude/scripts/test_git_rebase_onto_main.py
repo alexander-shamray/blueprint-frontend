@@ -287,19 +287,20 @@ class TheHelperRefusesBeforeItRewrites(unittest.TestCase):
         # waiting to be published" — about a branch git never touched, and
         # hands `publish` a lease approved for a rebase that did not run.
         #
-        # The failure is made with a FILE where git wants its state directory:
-        # a `pre-rebase` hook used to do it, and the helper now ignores every
-        # hook of the host's, so a hook is no longer a way to make `git
-        # rebase` fail. This one fails before any state exists, which is the
-        # shape the case is about, and is not a hook.
-        self.at('printf x > "$(git rev-parse --git-path rebase-merge)"')
+        # The failure is made with a held index lock: a `pre-rebase` hook used
+        # to do it, and the helper now ignores every hook of the host's, so a
+        # hook is no longer a way to make `git rebase` fail. A file where git
+        # wants its state directory was tried and fails the rebase on Windows
+        # only. A lock on the index fails it before any state exists on every
+        # platform, which is the shape the case is about, and is not a hook.
+        self.at('printf x > "$(git rev-parse --git-path index.lock)"')
         self.assertEqual(11, self.helper("feat/x").returncode)
         self.assertEqual(
             "absent",
             self.at('test -f "$(git rev-parse --git-path claude-rebase-pending)" '
                     '&& echo present || echo absent').stdout.strip())
 
-        self.at('rm -f "$(git rev-parse --git-path rebase-merge)"')
+        self.at('rm -f "$(git rev-parse --git-path index.lock)"')
         again = self.helper("feat/x")
         self.assertEqual(0, again.returncode, again.stderr)
 
@@ -332,8 +333,8 @@ class TheHelperRefusesBeforeItRewrites(unittest.TestCase):
     def test_a_rebase_that_never_started_is_not_called_a_conflict(self):
         # Every other way `git rebase` can fail leaves no state, and reporting
         # it as a conflict sends the caller to a `continue` with nothing to do.
-        # A file where git wants its state directory, as the case above makes it.
-        self.at('printf x > "$(git rev-parse --git-path rebase-merge)"')
+        # A held index lock, as the case above makes it.
+        self.at('printf x > "$(git rev-parse --git-path index.lock)"')
         result = self.helper("feat/x")
         self.assertEqual(11, result.returncode, result.stderr)
         self.assertIn("did not start", result.stderr)
