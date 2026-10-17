@@ -1,7 +1,7 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { signal } from '@angular/core';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { AuthService } from '@core/auth/auth.service';
 import { CartPersistence } from '@core/cart/cart.persistence';
 import { TabsPage } from './tabs.page';
@@ -102,6 +102,52 @@ describe('TabsPage', () => {
       'orders',
       'account',
     ]);
+  });
+
+  describe('focus on entering a page (#240)', () => {
+    // Dispatched the way Ionic does it: `bubbles: false`, on the page element.
+    // The first version of this listened on the document in the bubble phase,
+    // passed a spec that called the function directly, and never ran in a browser.
+    function enter(page: HTMLElement) {
+      page.dispatchEvent(new CustomEvent('ionViewDidEnter', { bubbles: false }));
+    }
+
+    function mountPage(): HTMLElement {
+      const page = document.createElement('div');
+      page.className = 'ion-page';
+      const header = document.createElement('ion-header');
+      header.append(document.createElement('ion-title'));
+      page.append(header);
+      document.body.append(page);
+      return page;
+    }
+
+    afterEach(() => {
+      document.body.querySelectorAll('div.ion-page').forEach((page) => page.remove());
+    });
+
+    it('focuses the title of the second page entered, and leaves the first alone', async () => {
+      await mount([]);
+      const first = mountPage();
+      const second = mountPage();
+
+      enter(first);
+      expect(document.activeElement).not.toBe(first.querySelector('ion-title'));
+
+      enter(second);
+      expect(document.activeElement).toBe(second.querySelector('ion-title'));
+    });
+
+    it('stops listening once the shell is destroyed', async () => {
+      const fixture = await mount([]);
+      const page = mountPage();
+      enter(page);
+      fixture.destroy();
+
+      enter(page);
+
+      expect(document.activeElement).not.toBe(page.querySelector('ion-title'));
+    });
   });
 
   it('adds the publish tab for a holder of catalog:write', async () => {
