@@ -1928,13 +1928,33 @@ a refusal (exit 4), not a pass**, because the CLI would otherwise open an index
 nobody judged. That is a behaviour change for a host with only a standalone
 `codebase-index` binary and no Python 3.12, which the harness could not run on
 anyway. The check precedes the CLI's own open and is subject to the same
-window as the hook's (#139). **The MCP server is not covered, and #138 stays
-open for it.** Claude Code starts it from `.mcp.json` as the CLI itself, never
-through `bash` (#134), so there is no launch seam to put a check in, and the
-server opens its index at the root it started in whatever a hook says
-afterwards. `index-mcp-root.py` below refuses calls from another checkout; it
-does not judge the served root's index. The lasting fix is the package
-opening its index only after checking for a journal and for links.
+window as the hook's (#139).
+
+**The MCP server starts through a Node launcher that asks the same question
+(alexander-shamray/blueprint-frontend#138).** Claude Code starts a stdio server
+from `.mcp.json` with the Windows PATH and not inside Git Bash, where the first
+`bash` is WSL's launcher (#134), so there was no seam to put a check in while
+the server was the CLI itself. `.mcp.json` now runs
+`node .claude/skills/codebase-index/scripts/mcp-launch.mjs`. The launcher
+probes `py -3.12`, `python3` and `python` as `run-guard.sh` does, runs
+`gate-index.py` with the first that meets the floor, and starts the server only
+if that exits 0: the binary on `PATH`, then `python -m codebase_index`, the
+order `run-index` uses, with the auto-update disabled in its environment and
+its exit status passed on. It judges nothing itself, so the rule keeps one
+owner. **A refusal exits 3 and no Python 3.12 exits 4, both with the reason on
+stderr and nothing on stdout**, which is the protocol; `/mcp` shows the server
+as failed rather than the session running on an index nobody judged. Node is
+not a new prerequisite for the project (`.nvmrc`), but it is one for the
+harness suite, which `docs/testing.md` lists. A real `initialize` handshake
+through the launcher answered on a clean root and was refused on a root with a
+planted journal, before any case was written.
+
+What it does not cover is stated: an index a branch changes after the server
+started, and the instant between the gate's look and the server's own open,
+which is the window every check here has (#139). `index-mcp-root.py` below is
+a separate control, refusing calls from another checkout. The lasting fix is
+still the package opening its index only after checking for a journal and for
+links.
 `compact`'s docstring owns what a failed compaction leaves behind.
 `trusted_schema` is kept beside the shape check because it governs what the
 statements only this hook runs may call, which nothing the package does
@@ -2153,7 +2173,7 @@ sees the mismatch. **It fails open everywhere it cannot judge** (unreadable
 input, no `cwd`, no `CLAUDE_PROJECT_DIR`), its command ends `|| :` for the
 reason the search hint's does, and a session launched in the worktree is not
 refused, since both directories name the worktree. It does not judge the
-served root's index: that half of #138 stays open above. The refusal text is
+served root's index: the launcher above does that, once, at start. The refusal text is
 the part no test shows a session taking; `test_index_mcp_root.py` holds every
 subcommand it names to a prefix the skill's `allowed-tools` approves.
 

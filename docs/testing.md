@@ -52,7 +52,9 @@ walk still reaches `main`'s tree for anything the worktree's lacks, so a
 dependency dropped from `package.json` but still imported passes locally and
 fails in CI.
 
-**The harness suite needs bash, grep, git, jq and **Python 3.12**.** How you
+**The harness suite needs bash, grep, git, jq, **Node** (`test_mcp_launch.py`
+runs the MCP launcher; the runners ship it, and `.nvmrc` pins the project's)
+and **Python 3.12**.** How you
 reach that interpreter is a local choice: `py -3.12` works on Windows and
 exists nowhere else, `python` or `python3` elsewhere. **CI does not make that
 choice** — `actions/setup-python` puts 3.12 on PATH and the `harness` job runs
