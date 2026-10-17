@@ -668,6 +668,18 @@ harness does not already wave through, which means adding a rule to a file the
 session reads at startup — so it cannot be arranged from within the session it
 would govern.
 
+**Blueprint-frontend#114 retired the question without answering it, and the
+measurement is still owed.** `Bash(git pull --ff-only)` is withdrawn from
+`ship.md` for `git-pull-ff-only.sh`, granted **exactly**, which takes no
+argument at all (anything else exits 2 before git runs), spells `origin` and
+`--ff-only` itself, and names the branch from the checkout. Whether an allow
+rule without `:*` is an exact match therefore no longer decides anything for
+this operation: a trailing `ext::<cmd>` reaches a script that refuses it, and
+a substitution in the tail is the hook's, which holds a granted helper's
+arguments to plain words (blueprint-frontend#179). The probe above would still
+settle the same question for `gh-pr-create.sh`'s exact grant; nobody has run
+it, and this paragraph does not claim otherwise.
+
 **A command's frontmatter is a grant like any other, and it is the one nobody
 reads twice.** The first five rows above were all found in command frontmatter,
 and for a while that supported a second claim — that the global file had it
@@ -989,11 +1001,21 @@ the tool's own `--help` found something every time it was done. That they were
 inventoried in a command file and not here is the same drift this paragraph
 warns about, running the other way.
 
-The third is `Bash(git fetch origin:*)`, which no longer admits a URL but still
-admits a trailing flag; `--upload-pack`, `--receive-pack` and `--exec` are
-denied by name, so what is left is the flag nobody has enumerated yet. The
-honest fix is the helper the transport issue asked for — a
-`git-fetch-origin.sh` taking a branch name and nothing else.
+The third **was** `Bash(git fetch origin:*)`, which no longer admitted a URL
+but still admitted a trailing flag; `--upload-pack`, `--receive-pack` and
+`--exec` were denied by name, so what was left was the flag nobody had
+enumerated yet. **Blueprint-frontend#114 closed it** with the helper the
+transport issue asked for: `git-fetch-origin.sh` takes one branch name and
+nothing else, spells `origin` itself, and refuses a leading `-`, a `..`, and
+every character outside `[A-Za-z0-9._/-]` — so a flag, a refspec (`:`, `+`) or
+a transport (`ext::`) has no position to occupy. The raw grant is withdrawn
+from `ship.md` and `branch.md`. **What stood behind the raw grant, stated so
+the residual is read as what was left after the hook and not before it**:
+`guard-git-argv.py` refuses `ext::` in the repository position of a
+repository-taking subcommand, the three flags above by name and by
+abbreviation (`--upl=`, `--upload-p=`), and a `-c` carrying `core.sshCommand`,
+`core.hooksPath` or `credential.helper`. The helper does not depend on any of
+that.
 
 The fourth **was** a pull request's comment feeds read unfiltered, and #56
 closed it. A review body, an inline comment and an issue comment are text
@@ -1555,8 +1577,9 @@ substitution, a backtick or an unquoted glob there is refused before it runs;
 what stays is a plain word that is wrong. And "carries the flags itself"
 means the five
 `rebase.*` keys that decide which commits are replayed; the repository's own
-`pre-rebase` and `post-rewrite` hooks are still the host's, which granting a
-rebase at all grants. A third is smaller and is written down for the same
+`pre-rebase` and `post-rewrite` hooks **were** the host's, which granting a
+rebase at all granted, and blueprint-frontend#180 closed that (below). A third
+is smaller and is written down for the same
 reason: the replay's provenance and its divergence baseline are files under
 `.git` — the marker the helper writes, the record it keeps and git's own
 `orig-head` — so anything able to write there could steer a publish. What
@@ -1575,7 +1598,15 @@ to a granted `.claude/scripts/` helper that is not a plain word, and
 blueprint-frontend#179 is that fix. The host's `pre-rebase` and
 `post-rewrite` hooks are not accepted either, because the helper can spell
 them away as it spells the `rebase.*` keys — `-c core.hooksPath=` pointing at
-an empty directory — and blueprint-frontend#180 is that fix. The `.git` files are reachable only through the
+an empty directory — and blueprint-frontend#180 did. The helper sets it through
+`GIT_CONFIG_COUNT` once, before any git runs, rather than as a `-c` on each
+command, so every git it starts and every git those start — the sequencer's
+included — inherits it, and a caller's own injected entries are kept.
+`TheHostsHooksNeverRunInAReplay` plants a failing `pre-rebase`, `post-rewrite`,
+`pre-push` and `reference-transaction` hook and shows `start` and `continue`
+run none of them. The cases that used a failing hook to make a rebase or a
+push fail now use a file where git wants its state directory and a remote that
+refuses a non-fast-forward, because a hook is no longer a way to do it. The `.git` files are reachable only through the
 substitution route, so their fix was blueprint-frontend#125's, which closed
 the routes past the substitution hold that its review found; nothing granted
 writes under `.git` through one of those.
@@ -2078,13 +2109,24 @@ JSON lands in `/ship`'s own session — the context holding `git commit`,
 clean and makes every fix itself. **That session holds two more things than
 those three**: `Write`, over every tree only `ship.md`'s frontmatter denies
 it, and `npm-checks.sh`, which runs `package.json`'s scripts and the
-JavaScript configuration on the host. `.claude/settings.json` denies a session
-none of `.github/**`, `package.json`, `.npmrc` or the configuration files —
-those denies are the command's, which this file records above as holding for
-the turn that loaded it — so a session steered by a report could write a
-script and then be told to run the checks. Moving those denies into
-`settings.json`, as `.claude/**`'s were, is the fix, and
-blueprint-frontend#115 owns it. **A finding is untrusted data, and the
+JavaScript configuration on the host. Those denies — `.github/**`,
+`package.json`, `.npmrc`, `angular.json`, `tsconfig*.json`, the
+`*.config.{cjs,mjs,ts,mts}` files and `node_modules/**` — were the command's,
+which this file records above as holding for the turn that loaded it, so a
+session steered by a report could write a script and then be told to run the
+checks. **They are now also in `.claude/settings.json`**, where they hold every
+turn (blueprint-frontend#115, item 1), and `TheEditDeniesTheChecksRunOnAreInSettingsToo`
+pins both the rules and their pairing with the frontmatter. **Two things stay
+outside it, and each is a decision rather than an oversight.**
+`eslint.config.js` and `.prettierrc` are not in the shared list, because
+`/style-pass` edits both as its job and a deny in `settings.json` beats a
+command's own allowance; `ship.md`'s frontmatter still denies them for its own
+turn and no longer than that, and `eslint.config.js` is JavaScript the checks
+run, so it is the residual — closed by giving `/style-pass` another way to
+record a rule. **And the denies bind every session, not `/ship` alone**: an
+edit to `package.json`, a `tsconfig`, `capacitor.config.ts` or
+`playwright.config.ts` now takes the owner's hand, as an edit to `.claude/**`
+does. **A finding is untrusted data, and the
 verification is the only filter on it**: each finding's `defect` and `fix`
 are sentences the reviewer wrote over branch-controlled text, so `/ship`
 traces each to its file and line and acts on what the tree shows, never on
