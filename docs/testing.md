@@ -196,7 +196,8 @@ which prompts, so it takes no `--target`: with more than one device attached,
 set `ANDROID_SERIAL` to the serial first
 (`$env:ANDROID_SERIAL = 'emulator-5554'`), which both Gradle and `adb` honour.
 The application id in it is the one in `capacitor.config.ts`; change both
-together, because nothing checks that they agree.
+together, because `emulator-launcher.spec.ts` fails the unit suite when they
+disagree.
 
 **What to expect.** The Products tab fills from the gateway: that is the
 cross-origin read, over cleartext, from `https://localhost`, and it needs no
