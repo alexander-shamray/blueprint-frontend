@@ -82,6 +82,10 @@ class TheRootFollowsTheActiveWorktree(unittest.TestCase):
         self.main = os.path.join(self.base, "repo")
         os.mkdir(self.main)
         git("init", "-q", cwd=self.main)
+        # The seed is refused where git does not ignore the index path
+        # (#148), so the repository ignores it as this one does.
+        Path(self.main, ".gitignore").write_text(".claude/cache/\n", encoding="utf-8")
+        git("add", ".gitignore", cwd=self.main)
         git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q",
             "--allow-empty", "-m", "root", cwd=self.main)
         self.sibling = os.path.join(self.base, "repo-feature")
@@ -375,6 +379,7 @@ class TheRootFollowsTheActiveWorktree(unittest.TestCase):
         # Found before `Popen` is replaced, as the worker finds it before its
         # first refresh: `git` itself is started through `Popen`.
         self.hook.main_checkout(self.main)
+        self.hook.index_ignored(self.sibling)
         lock = mock.Mock()
         with mock.patch.object(self.hook.subprocess, "Popen") as popen:
             popen.return_value.pid = 4242
@@ -506,6 +511,40 @@ class TheRootFollowsTheActiveWorktree(unittest.TestCase):
         self.assertFalse(self.hook.refreshable(self.main, self.sibling))
         self.assertFalse(self.hook.seed(self.main, self.sibling))
         self.assertEqual(b"placeholder", Path(placeholder).read_bytes())
+
+    def test_a_path_the_branch_stopped_ignoring_is_never_seeded(self):
+        # #148: a branch in the worktree drops the .gitignore line, and the
+        # seed would leave the main checkout's indexed text as an untracked
+        # file for an unscoped commit to sweep up.
+        write_index(self.main)
+        Path(self.sibling, ".gitignore").write_text("", encoding="utf-8")
+        self.assertFalse(self.hook.index_ignored(self.sibling))
+        self.assertIsNone(self.hook.seed_source(self.main, self.sibling))
+        self.assertFalse(self.hook.refreshable(self.main, self.sibling))
+        self.assertFalse(self.hook.seed(self.main, self.sibling))
+        self.assertFalse(os.path.lexists(index_path(self.sibling)))
+
+    def test_an_ignored_path_is_remembered_past_the_git_budget(self):
+        # The worker seeds after the event's budget is spent, so the answer
+        # is asked for before it and kept.
+        write_index(self.main)
+        self.assertTrue(self.hook.index_ignored(self.sibling))
+        self.hook.main_checkout(self.main)
+        self.hook._DEADLINE = time.monotonic() - 1
+        self.assertTrue(self.hook.index_ignored(self.sibling))
+        self.assertIsNotNone(self.hook.seed_source(self.main, self.sibling))
+
+    def test_an_answer_git_did_not_give_is_a_no_and_is_not_remembered(self):
+        self.hook._DEADLINE = time.monotonic() - 1
+        self.assertFalse(self.hook.index_ignored(self.sibling))
+        self.hook._DEADLINE = time.monotonic() + 30
+        self.assertTrue(self.hook.index_ignored(self.sibling))
+
+    def test_the_worker_asks_before_its_git_budget_is_spent(self):
+        with mock.patch.object(self.hook, "refresh"), \
+                mock.patch.object(self.hook, "index_ignored") as ignored:
+            self.hook.work(self.main, self.sibling)
+        ignored.assert_called_once_with(self.sibling)
 
     def test_a_killed_workers_partial_is_removed_by_the_next_seed(self):
         # The partial is named for the worker that made it, so one left by a
@@ -1031,6 +1070,64 @@ class OneWorkerPerRootAndNoEditDropped(unittest.TestCase):
             self.assertIsNone(self.hook.take_pending(self.root, self.root))
         self.assertIs(True, self.hook.take_pending(self.root, self.root))
 
+    def test_a_marker_the_worker_could_not_take_is_served_once_it_goes(self):
+        # #149: the worker returned from inside the lock when a removal
+        # failed, so the look after letting go never ran and an edit that
+        # marked meanwhile went unserved. The lock is released between tries,
+        # which is what lets that edit start a worker of its own.
+        pending = self.hook.pending_path(self.root, self.root)
+        outcomes = iter([None, None, True, False])
+        free = []
+
+        def take(owner, root):
+            outcome = next(outcomes)
+            if outcome is not None:
+                try:
+                    os.remove(pending)
+                except FileNotFoundError:
+                    pass
+            return outcome
+
+        self.hook.mark_pending(self.root, self.root)
+        with mock.patch.object(self.hook, "take_pending", side_effect=take), \
+                mock.patch.object(self.hook, "refresh") as refresh, \
+                mock.patch.object(self.hook.time, "sleep", side_effect=lambda _: free.append(
+                    not self.hook.held(self.root, self.root))):
+            self.hook.work(self.root, self.root)
+        refresh.assert_called_once()
+        self.assertEqual([True, True], free)
+
+    def test_a_marker_that_never_goes_costs_a_bounded_number_of_tries(self):
+        self.hook.mark_pending(self.root, self.root)
+        with mock.patch.object(self.hook, "take_pending", return_value=None) as take, \
+                mock.patch.object(self.hook, "refresh") as refresh, \
+                mock.patch.object(self.hook.time, "sleep") as sleep:
+            worker = threading.Thread(
+                target=self.hook.work, args=(self.root, self.root), daemon=True)
+            worker.start()
+            worker.join(30)
+        self.assertFalse(worker.is_alive(), "the worker is spinning on the marker")
+        refresh.assert_not_called()
+        self.assertEqual(self.hook.MARKER_RETRIES + 1, take.call_count)
+        self.assertEqual(self.hook.MARKER_RETRIES, sleep.call_count)
+        self.assertFalse(self.hook.held(self.root, self.root))
+
+    @unittest.skipUnless(os.name == "nt", "only Windows refuses to remove an open file")
+    def test_a_marker_the_hook_holds_open_is_served_when_it_is_closed(self):
+        # The hook holds the marker open while it creates it, and Windows
+        # refuses the worker's removal until it lets go.
+        self.hook.mark_pending(self.root, self.root)
+        pending = self.hook.pending_path(self.root, self.root)
+        handle = open(pending, "a", encoding="ascii")
+        self.addCleanup(handle.close)
+        closer = threading.Timer(0.3, handle.close)
+        self.addCleanup(closer.cancel)
+        closer.start()
+        with mock.patch.object(self.hook, "refresh") as refresh:
+            self.hook.work(self.root, self.root)
+        refresh.assert_called_once()
+        self.assertFalse(os.path.exists(pending))
+
     def test_an_indexer_left_running_by_a_killed_worker_keeps_the_tree(self):
         # Copilot, round 8: the lock is the worker's, not the indexer's, so a
         # worker killed mid-run left `run-index` behind and the next edit
@@ -1103,10 +1200,87 @@ class OneWorkerPerRootAndNoEditDropped(unittest.TestCase):
         child.kill.side_effect = lambda: order.append("killed")
         lock = mock.Mock()
         lock.write.side_effect = lambda text: order.append(f"write {text!r}")
-        with mock.patch.object(self.hook.subprocess, "Popen", return_value=child):
+        with mock.patch.object(self.hook.subprocess, "Popen", return_value=child), \
+                mock.patch.object(self.hook, "kill_tree"):
             self.hook.refresh(self.root, self.root, lock)
         self.assertEqual("killed", order[order.index("reaped") - 1])
         self.assertEqual("write ''", order[-1])
+
+    def test_a_timed_out_child_is_stopped_through_its_tree_first(self):
+        # #153: on Windows the child is Git Bash's stub, `kill` ends only
+        # that, and the indexer under it keeps writing the cache.
+        order = []
+        write_index(self.root)
+        child = mock.Mock(pid=4242)
+        waits = []
+
+        def wait(timeout=None):
+            waits.append(timeout)
+            if len(waits) == 1:
+                raise subprocess.TimeoutExpired("run-index", 1)
+            order.append("reaped")
+
+        child.wait.side_effect = wait
+        child.kill.side_effect = lambda: order.append("killed")
+        lock = mock.Mock()
+        lock.write.side_effect = lambda text: order.append(f"write {text!r}")
+        with mock.patch.object(self.hook.subprocess, "Popen", return_value=child), \
+                mock.patch.object(self.hook, "kill_tree",
+                                  side_effect=lambda pid: order.append(f"tree {pid}")):
+            self.hook.refresh(self.root, self.root, lock)
+        expected = ["tree 4242"] if os.name == "nt" else []
+        # After the two records the claim writes.
+        self.assertEqual(expected + ["killed", "reaped", "write ''"], order[2:])
+
+    def test_a_child_that_outlives_the_kill_keeps_its_record(self):
+        # Cleared only once the child is reaped: one still running after the
+        # kill is the indexer the next worker must stand off from.
+        write_index(self.root)
+        child = mock.Mock(pid=4242)
+        child.wait.side_effect = subprocess.TimeoutExpired("run-index", 1)
+        lock = mock.Mock()
+        with mock.patch.object(self.hook.subprocess, "Popen", return_value=child), \
+                mock.patch.object(self.hook, "kill_tree"):
+            self.hook.refresh(self.root, self.root, lock)
+        self.assertEqual([mock.call(str(os.getpid())), mock.call("4242")],
+                         lock.write.call_args_list)
+
+    def test_a_tree_kill_that_cannot_run_ends_nothing_and_raises_nothing(self):
+        for error in (OSError("no taskkill"), subprocess.TimeoutExpired("taskkill", 10)):
+            with self.subTest(error=error), \
+                    mock.patch.object(self.hook.subprocess, "run", side_effect=error):
+                self.hook.kill_tree(4242)
+
+    def test_a_child_already_gone_is_not_an_error(self):
+        child = mock.Mock(pid=4242)
+        child.kill.side_effect = PermissionError(13, "gone")
+        with mock.patch.object(self.hook, "kill_tree"):
+            self.hook.stop(child)
+
+    @unittest.skipUnless(os.name == "nt", "POSIX `exec` keeps the pid, so `kill` reaches it")
+    def test_stopping_a_child_ends_what_it_started(self):
+        script = ("import subprocess, sys, time\n"
+                  "g = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(120)'])\n"
+                  "print(g.pid, flush=True)\n"
+                  "time.sleep(120)\n")
+        child = subprocess.Popen([sys.executable, "-c", script],
+                                 stdout=subprocess.PIPE, text=True)
+
+        def clean_up():
+            subprocess.run(["taskkill", "/T", "/F", "/PID", str(child.pid)],
+                           capture_output=True, check=False)
+            child.stdout.close()
+            child.wait(timeout=30)
+
+        self.addCleanup(clean_up)
+        grandchild = int(child.stdout.readline())
+        self.assertTrue(self.hook.alive(grandchild))
+        self.hook.stop(child)
+        child.wait(timeout=30)
+        limit = time.time() + 30
+        while time.time() < limit and self.hook.alive(grandchild):
+            time.sleep(0.2)
+        self.assertFalse(self.hook.alive(grandchild), "the child's own child kept running")
 
     def test_a_process_is_alive_only_while_it_runs(self):
         self.assertTrue(self.hook.alive(os.getpid()))
@@ -1379,6 +1553,7 @@ class TheIndexIsCompactedAfterARefresh(unittest.TestCase):
         child = mock.Mock(pid=4242)
         child.wait.side_effect = wait
         with mock.patch.object(self.hook.subprocess, "Popen", return_value=child), \
+                mock.patch.object(self.hook, "kill_tree"), \
                 mock.patch.object(self.hook, "compact") as compact:
             self.hook.refresh(self.root, self.root, mock.Mock())
         return compact
@@ -1788,6 +1963,8 @@ class TheDetachedWorkerReallyRuns(unittest.TestCase):
         owner = os.path.join(base, "owner")
         os.mkdir(owner)
         git("init", "-q", cwd=owner)
+        Path(owner, ".gitignore").write_text(".claude/cache/\n", encoding="utf-8")
+        git("add", ".gitignore", cwd=owner)
         git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q",
             "--allow-empty", "-m", "root", cwd=owner)
         sibling = os.path.join(base, "owner-feature")
