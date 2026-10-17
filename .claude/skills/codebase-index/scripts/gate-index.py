@@ -19,8 +19,8 @@ nothing to judge and the CLI runs. Exit 3 is a refusal; 0 lets the CLI run.
 
 The hook is loaded without writing bytecode: a `__pycache__` under
 `.claude/hooks/` would be one more file whose contents decide what a guard
-does. The MCP server is the route this does not cover; `docs/harness-boundaries.md`
-owns why.
+does. `mcp-launch.mjs` runs this file before it starts the MCP server, so that route
+is judged too; `docs/harness-boundaries.md` owns the window that remains.
 """
 
 import importlib.util
