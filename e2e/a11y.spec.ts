@@ -25,6 +25,15 @@ async function settle(page: Page) {
 }
 
 /**
+ * Focus is on the title of the page the user has just reached. Axe cannot see
+ * this: it reads the page at rest, not where the cursor went after a
+ * navigation (#240). Retried, because Ionic focuses once the transition ends.
+ */
+async function expectTitleFocused(page: Page, title: string) {
+  await expect(page.locator('ion-title:focus')).toHaveText(title);
+}
+
+/**
  * The address a route is reached at, with the one parameter any route takes.
  * The sign-in callback leaves `?iss=…` on the address (the app never strips
  * it), so that query is allowed; a guard's bounce carries `denied=` or
@@ -90,8 +99,10 @@ for (const colorScheme of ['light', 'dark'] as const) {
       await expect(page.getByRole('tab', { name: 'Products' })).toBeVisible();
       await scan('products', 'signed out');
       await page.getByRole('tab', { name: 'Cart' }).click();
+      await expectTitleFocused(page, 'Cart');
       await scan('cart', 'empty');
       await page.getByRole('tab', { name: 'Account' }).click();
+      await expectTitleFocused(page, 'Account');
       await scan('account', 'signed out');
 
       // Signed in as the user who holds `catalog:write`, which is what puts the
@@ -104,6 +115,7 @@ for (const colorScheme of ['light', 'dark'] as const) {
       await scan('publish', 'after publishing');
 
       await page.getByRole('tab', { name: 'Products' }).click();
+      await expectTitleFocused(page, 'Products');
       await page.getByRole('button', { name }).click();
       // By its name, so the scan waits for the sheet to be presented and
       // named, and a dialog that lost its name fails here with a clearer
@@ -112,6 +124,9 @@ for (const colorScheme of ['light', 'dark'] as const) {
       await scan('products', 'with the product sheet open');
       await page.getByRole('button', { name: 'Add to cart' }).click();
       await expect(page.getByTestId('sheet-price')).toBeHidden();
+      // Back on the row that opened it, not the body: WebKit does not focus a
+      // button on click, so Ionic alone would have nowhere to return to there.
+      await expect(page.getByRole('button', { name })).toBeFocused();
       await scan('products', 'sheet closed');
 
       await page.getByRole('tab', { name: 'Cart' }).click();
@@ -120,6 +135,7 @@ for (const colorScheme of ['light', 'dark'] as const) {
       await scan('cart', 'quoted');
 
       await page.getByRole('button', { name: 'Checkout' }).click();
+      await expectTitleFocused(page, 'Checkout');
       await scan('cart/checkout', 'empty form');
       await page.getByLabel('Line 1').fill('1 Example Street');
       await page.getByLabel('City').fill('Doha');
@@ -135,14 +151,17 @@ for (const colorScheme of ['light', 'dark'] as const) {
       await expect(page.locator('app-order-placed').getByText('Out of stock')).toBeVisible({
         timeout: 30_000,
       });
+      await expectTitleFocused(page, 'Order placed');
       await scan('cart/placed/:id', 'order placed');
 
       await page.getByRole('link', { name: 'Track this order' }).click();
       await expect(page.locator('app-order-detail').getByTestId('timeline')).toBeVisible();
+      await expectTitleFocused(page, 'Order');
       await scan('orders/:id', 'a finished timeline');
 
       await page.getByRole('tab', { name: 'History' }).click();
       await expect(page.locator('app-orders')).toBeVisible();
+      await expectTitleFocused(page, 'History');
       await scan('orders', 'with an order in it');
 
       // The other half of the gate: every route above was reached, and every
