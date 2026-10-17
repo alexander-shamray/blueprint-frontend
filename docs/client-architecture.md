@@ -384,16 +384,17 @@ absorbed an Ordering event, and an order nobody has attributed is invisible to
 everyone, with the same 404 as one that does not exist. Order placed reads the
 order the moment it arrives, which is exactly when the projection is most
 likely to be behind, so `OrderPlacedPage` treats a 404 as "not recorded yet"
-and keeps polling. The poll's intervals are `ORDER_POLL` in
-`core/orders/order-poll.ts`, and the statuses it stops on are
+and keeps trying. It follows the order on the stream the BFF serves beside the
+read (`OrdersApi.stream`, §12's *The order status is a stream, and the client
+reads it with `HttpClient`*), and reopens it on the back-off `ORDER_STREAM`
+in `core/orders/order-stream.ts` sets. The statuses it closes on are
 `TERMINAL_STATUSES` in `core/api/types.ts`, read through `isTerminal` beside
-the intervals. That list is `delivered` alone: `BuyerStatus.Of` ranks a
+the back-off. That list is `delivered` alone: `BuyerStatus.Of` ranks a
 delivery above every cancellation and the projection absorbs Ordering and
 Shipping events in whatever order they arrive, so a cancellation is not a
-status nothing can outrank (#158). It never sends inside a blocked
-`authenticated` window, and a 429 on a poll lengthens the next wait instead of
-raising a banner for a request the buyer did not make. There is no stream, so
-polling is the honest mechanism, and it is deleted when one exists.
+status nothing can outrank (#158). It never opens a stream inside a blocked
+`authenticated` window, and a 429 on one lengthens the next wait instead of
+raising a banner for a request the buyer did not make.
 
 **`cancellable` is a hint.** The backend says so in as many words: the field
 is computed from a projection that lags `Order.Cancel`, so it can read true
@@ -647,10 +648,10 @@ The honest caveat: 300 requests a minute with a queue of 10, and 100 a minute
 for the catalogue. No human tapping buttons reaches either. This was never a
 bug users were hitting. It is the model being wrong in a way that becomes a
 real one the moment a retry loop is added — and the catalogue's infinite
-scroll and Order placed's poll (`core/orders/order-poll.ts`, §7) are the
-nearest things this client has to one. The poll draws on the `authenticated`
-window and consults it before sending; the scroll is why `canLoadMore`
-consults the window and not just its own last error.
+scroll and Order placed's stream reopening (`core/orders/order-stream.ts`, §7)
+are the nearest things this client has to one. The reopening draws on the
+`authenticated` window and consults it before sending; the scroll is why
+`canLoadMore` consults the window and not just its own last error.
 
 ## 11. The gateway is the only host the client calls — and Publish needed a route for that to stay true
 
@@ -1090,6 +1091,43 @@ The test runner is Vitest **4.1.11**, not 5: `@angular/build@22.1.8` declares
 `"vitest": "^4.0.8"` in its peer dependencies, and `@angular/build:unit-test` is
 what `ng test` runs. Its `coverage` option is a plain boolean rather than an
 object — worth recording, because the obvious object form fails.
+
+### The order status is a stream, and the client reads it with `HttpClient`
+
+*The claim.* Spec §5.4: the status is polled, "because the read is a
+projection and nothing pushes", and §7's paragraph on the lag said the polling
+is deleted when a stream exists.
+
+*What was true.* blueprint-backend `8c04435` serves
+`GET /bff/v1/orders/{id}/events` (`OrderEndpoints`, `OrderEventStream`, ADR-108):
+`text/event-stream`, an `order` event carrying the whole `OrderDetail` with the
+row's `AsOf` as its `id:`, a `retry:` hint, a `: keep-alive` comment, and resume
+from `Last-Event-ID`. The detail route's answer comes first, so a 404 is
+answered *before* a stream opens — the "not recorded yet" case is a failed
+open, not an event. The server ends the stream on `delivered`, on its own
+lifetime and on an erasure, and the client opens it again.
+
+*Why not `EventSource`.* It cannot set `Authorization`, and the access token
+does not go in a query string. A reader over `fetch` was the issue's suggestion;
+`HttpClient` with `reportProgress` and a text response is the same thing one
+layer up, because a download progress event carries the text received so far.
+That keeps the auth interceptor, the rate-limit interceptor and `mapError` on a
+request they would otherwise have to be re-implemented for, and it needs no
+change to `app.config.ts`. The cost is that the response is held whole until
+the stream ends, which its lifetime bounds. A text response also keeps an
+error body as a string, so `OrdersApi.stream` parses it back into the object
+`mapError` reads.
+
+*What the client did.* `OrdersApi.stream` yields events, `core/api/order-events.ts`
+frames them, and `OrderPlacedPage` closes the stream on a terminal status, while
+hidden and on leaving — the stops the polling had — and reopens it on
+`core/orders/order-stream.ts`'s back-off, which starts again after an event. The
+server's `retry:` hint is not read. When no stream can be opened the page says
+so in a note and keeps trying at the cap until it is left. Spec §5.4's
+description of polling is superseded by this entry and left as written. The
+native WebViews (§15) are cross-origin to the gateway for this request as for
+every other, and the gateway allows any header, so `Last-Event-ID` passes the
+preflight; no device has run it yet.
 
 ## 13. The bundle budget is set above the bundle, not at it
 
