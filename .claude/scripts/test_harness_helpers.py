@@ -10300,9 +10300,10 @@ class TestCodebaseIndexSkillGrants(unittest.TestCase):
         # server with the Windows PATH, not inside Git Bash, and the first
         # `bash` there is WSL's launcher, which exits at once on a host with
         # no distribution, so every session ran without the server. The
-        # server is the CLI itself now, and the one thing the wrapper added
-        # that a server needs, the auto-update disable, is in its own
-        # environment. Every stdio server here is held to no shell.
+        # server starts through a Node launcher now, which judges the index
+        # first (#138; `test_mcp_launch.py` runs it), and the auto-update
+        # disable is in the server's own environment. Every stdio server
+        # here is held to no shell.
         mcp = json.loads(
             (SCRIPTS.parent.parent / ".mcp.json").read_text(encoding="utf-8"))
         servers = mcp["mcpServers"]
@@ -10312,8 +10313,9 @@ class TestCodebaseIndexSkillGrants(unittest.TestCase):
                 command = os.path.basename(server.get("command", "")).lower()
                 self.assertNotIn(command, {"bash", "bash.exe", "sh", "sh.exe"})
         server = servers["codebase-index"]
-        self.assertEqual("codebase-index", server["command"])
-        self.assertEqual(["mcp", "--root", "."], server["args"])
+        self.assertEqual("node", server["command"])
+        self.assertEqual([".claude/skills/codebase-index/scripts/mcp-launch.mjs"],
+                         server["args"])
         self.assertEqual({"CBX_NO_SKILL_AUTO_UPDATE": "1"}, server["env"])
 
     def test_the_hook_example_goes_through_run_index(self):
