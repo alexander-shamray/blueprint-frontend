@@ -55,7 +55,7 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
-      - run: npx playwright install --with-deps chromium
+      - run: npx playwright install --with-deps chromium webkit
 
       # The recipe is the backend's own (docs/backend-architecture/
       # 14-local-development.md): pull what is published, build the one
