@@ -118,7 +118,7 @@ import { stockLabel, stockOf } from './stock';
       </ion-infinite-scroll>
 
       <ion-modal [isOpen]="selected() !== null" [initialBreakpoint]="0.75" [breakpoints]="[0, 0.75, 1]"
-        (didDismiss)="close()">
+        (didPresent)="nameSheet($event)" (didDismiss)="close()">
         <ng-template>
           @if (selected(); as product) {
             <app-product-sheet [product]="product" (added)="addFromSheet(product, $event)"
@@ -376,6 +376,18 @@ export class ProductsPage {
 
   close(): void {
     this.selectedSignal.set(null);
+  }
+
+  /**
+   * Gives the sheet's dialog a name. The `role="dialog"` element is Ionic's
+   * `.modal-wrapper`, inside the modal's shadow root, and nothing Ionic
+   * exposes labels it: `htmlAttributes` lands on the host, which is not the
+   * dialog, and axe (rule `aria-dialog-name`) and a screen reader both read
+   * the wrapper. So the label goes on the wrapper itself, once it is drawn.
+   */
+  nameSheet(event: Event): void {
+    const wrapper = (event.target as HTMLElement).shadowRoot?.querySelector('.modal-wrapper');
+    wrapper?.setAttribute('aria-label', this.selectedSignal()?.name ?? 'Product details');
   }
 
   addFromSheet(product: ProductSummary, quantity: number): void {

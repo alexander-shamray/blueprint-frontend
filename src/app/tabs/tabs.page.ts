@@ -20,12 +20,12 @@ import { CartStore } from '@core/cart/cart.store';
     <ion-tabs>
       <ion-tab-bar slot="bottom">
         <ion-tab-button tab="products">
-          <ion-icon name="grid-outline"></ion-icon>
+          <ion-icon name="grid-outline" aria-hidden="true"></ion-icon>
           <ion-label>Products</ion-label>
         </ion-tab-button>
 
         <ion-tab-button tab="cart">
-          <ion-icon name="cart-outline"></ion-icon>
+          <ion-icon name="cart-outline" aria-hidden="true"></ion-icon>
           <ion-label>Cart</ion-label>
           @if (cartCount() > 0) {
             <ion-badge>{{ cartCount() }}</ion-badge>
@@ -34,20 +34,20 @@ import { CartStore } from '@core/cart/cart.store';
 
         @if (signedIn()) {
           <ion-tab-button tab="orders">
-            <ion-icon name="receipt-outline"></ion-icon>
+            <ion-icon name="receipt-outline" aria-hidden="true"></ion-icon>
             <ion-label>History</ion-label>
           </ion-tab-button>
         }
 
         @if (canPublish()) {
           <ion-tab-button tab="publish">
-            <ion-icon name="cloud-upload-outline"></ion-icon>
+            <ion-icon name="cloud-upload-outline" aria-hidden="true"></ion-icon>
             <ion-label>Publish</ion-label>
           </ion-tab-button>
         }
 
         <ion-tab-button tab="account">
-          <ion-icon name="person-outline"></ion-icon>
+          <ion-icon name="person-outline" aria-hidden="true"></ion-icon>
           <ion-label>Account</ion-label>
         </ion-tab-button>
       </ion-tab-bar>
