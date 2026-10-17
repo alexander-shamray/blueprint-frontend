@@ -179,6 +179,14 @@ class PullFfOnlyTakesNoArgumentAndPullsTheCurrentBranch(AFixture):
         self.assertEqual(4, result.returncode)
         self.assertIn("detached HEAD", result.stderr)
 
+    def test_a_parenthesised_branch_is_refused_like_the_fetch_helper_refuses_it(self):
+        # #229: the pull helper's pattern once held `()` that the fetch and
+        # rebase helpers do not, so a name could be pulled but not fetched.
+        self.at("git checkout -q -b 'feat(x)/y'")
+        result = self.pull()
+        self.assertEqual(2, result.returncode, result.stderr)
+        self.assertIn("not a branch name this helper will take", result.stderr)
+
     def test_a_diverged_branch_is_a_refusal_not_a_merge(self):
         self.other_pushes()
         self.at("echo local > d.txt && git add -A && git commit -qm local")
@@ -222,8 +230,9 @@ class TheEditDeniesTheChecksRunOnAreInSettingsToo(unittest.TestCase):
     ALSO_IN_SETTINGS = (
         ".github/**", "package.json", "**/package.json", ".npmrc", "**/.npmrc",
         "angular.json", "tsconfig.json", "tsconfig.app.json", "tsconfig.spec.json",
-        "**/tsconfig*.json", "**/*.config.cjs", "**/*.config.mjs", "**/*.config.ts",
-        "**/*.config.mts", "node_modules/**",
+        "**/tsconfig*.json", "**/*.config.cjs", "**/*.config.mjs", "**/*.config.mts",
+        "**/vitest.config.ts", "**/vite.config.ts", "**/playwright.config.ts",
+        "**/capacitor.config.ts", "node_modules/**",
     )
 
     def deny(self):
@@ -264,6 +273,17 @@ class TheEditDeniesTheChecksRunOnAreInSettingsToo(unittest.TestCase):
                      "./.prettierrc", "**/*.config.js"):
             with self.subTest(path=path):
                 self.assertNotIn(f"Edit({path})", deny)
+
+    def test_the_composition_root_is_not_denied(self):
+        # #227: `**/*.config.ts` matched src/app/app.config.ts, which ordinary
+        # changes edit. The build configs are named instead of the extension.
+        import fnmatch
+        for rule in self.deny():
+            if not rule.startswith("Edit("):
+                continue
+            with self.subTest(rule=rule):
+                self.assertFalse(
+                    fnmatch.fnmatchcase("src/app/app.config.ts", rule[len("Edit("):-1]))
 
     def test_the_rules_are_edit_and_never_write(self):
         for rule in self.deny():
