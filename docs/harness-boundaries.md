@@ -2171,8 +2171,16 @@ outside it, and each is a decision rather than an oversight.**
 `/style-pass` edits both as its job and a deny in `settings.json` beats a
 command's own allowance; `ship.md`'s frontmatter still denies them for its own
 turn and no longer than that, and `eslint.config.js` is JavaScript the checks
-run, so it is the residual — closed by giving `/style-pass` another way to
-record a rule. **And the denies bind every session, not `/ship` alone**: an
+run, so it is the residual. **It is accepted, as blueprint-frontend#224's
+decision (2026-10-17).** Closing it would take a way for `/style-pass` to write
+these two files that no other command can, and a flat deny list cannot say
+"this command only"; a second mechanism for one residual costs more than the
+residual does. The residual needs a session already steered into editing the
+linter's configuration and then a `/ship` run that executes
+`npm-checks.sh lint`, and the edit would sit in the diff the reviewer reads.
+It is revisited if `/style-pass` gains another way to record a rule, which is
+what would make the two denies free to join the shared list.
+**And the denies bind every session, not `/ship` alone**: an
 edit to `package.json`, a `tsconfig`, `capacitor.config.ts` or
 `playwright.config.ts` now takes the owner's hand, as an edit to `.claude/**`
 does. **So does `src/app/app.config.ts`, the composition root**, because
