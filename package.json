@@ -8,6 +8,7 @@
     "build:android": "ng build --configuration android",
     "emulator:android": "ng build --configuration android && cap sync android",
     "emulator:android:run": "cap run android --no-sync",
+    "emulator:android:run:windows": "cd android && gradlew.bat installDebug && adb shell am start -n dev.ashamray.blueprint/.MainActivity",
     "watch": "ng build --watch --configuration development",
     "test": "ng test",
     "lint": "ng lint",
