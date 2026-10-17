@@ -1262,9 +1262,13 @@ def work(owner, root):
     while lock.acquire():
         blocked = False
         try:
-            if running_indexer(lock) is not None:
-                return
             while True:
+                # Asked before every marker and not once per lock: a refresh
+                # whose child outlived the kill leaves its pid on the record,
+                # and the next marker must not start a second indexer beside
+                # it from this same worker.
+                if running_indexer(lock) is not None:
+                    return
                 taken = take_pending(owner, root)
                 if taken is None:
                     blocked = True
