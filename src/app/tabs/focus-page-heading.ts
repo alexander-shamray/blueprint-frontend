@@ -5,9 +5,9 @@
  * activated, or falls to the body, and a screen reader says nothing about the
  * page that arrived.
  *
- * Ionic dispatches `ionViewDidEnter` on the page element, bubbling, after the
- * transition has made it visible — the only point a `focus()` can land, since
- * an entering page is hidden until then. The title is an `ion-title`, which is
+ * Ionic dispatches `ionViewDidEnter` on the page element, without bubbling,
+ * after the transition has made it visible — the only point a `focus()` can
+ * land, since an entering page is hidden until then. The title is an `ion-title`, which is
  * not focusable, so it takes `tabindex="-1"`: focusable by script, absent from
  * the tab order.
  */

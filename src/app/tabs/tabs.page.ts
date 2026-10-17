@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject } from '@angular/core';
 import { IonBadge, IonIcon, IonLabel, IonTabBar, IonTabButton, IonTabs } from '@ionic/angular';
 import { PERMISSIONS } from '@core/api/types';
 import { AuthService } from '@core/auth/auth.service';
@@ -17,9 +17,6 @@ import { focusPageHeading } from './focus-page-heading';
   standalone: true,
   imports: [IonBadge, IonIcon, IonLabel, IonTabBar, IonTabButton, IonTabs],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  // The shell owns this because every page is entered through it, and a page
-  // that managed its own focus would be one more thing a new page forgets.
-  host: { '(document:ionViewDidEnter)': 'enteredPage($event)' },
   template: `
     <ion-tabs>
       <ion-tab-bar slot="bottom">
@@ -74,7 +71,21 @@ export class TabsPage {
    */
   private opened = false;
 
-  protected enteredPage(event: Event): void {
+  constructor() {
+    // The shell owns this because every page is entered through it, and a page
+    // that managed its own focus would be one more thing a new page forgets.
+    //
+    // Captured, because Ionic dispatches `ionViewDidEnter` with `bubbles:
+    // false` (`lifecycle()` in @ionic/core): a bubble-phase listener on the
+    // document, which `host: { '(document:…)' }` is, never hears it.
+    const entered = (event: Event) => this.enteredPage(event);
+    document.addEventListener('ionViewDidEnter', entered, { capture: true });
+    inject(DestroyRef).onDestroy(() =>
+      document.removeEventListener('ionViewDidEnter', entered, { capture: true }),
+    );
+  }
+
+  private enteredPage(event: Event): void {
     if (!this.opened) {
       this.opened = true;
       return;
