@@ -125,8 +125,10 @@ address before each scan, so a guard's bounce fails the walk instead of being
 scanned as the page it was bounced to. `e2e/a11y-routes.ts` is the list of
 routes the walk claims; `src/app/app.routes.spec.ts` fails the unit suite when
 that list and the router disagree, which is what stops the gate silently
-missing the next route added. Axe cannot see focus management, so what follows
-from a navigation or a closed modal is not covered by it.
+missing the next route added. Axe cannot see focus management, so the walk
+asserts it itself (#240): after each navigation the focused element is the
+page's `ion-title` (the shell moves it, `src/app/tabs/focus-page-heading.ts`),
+and after the product sheet closes it is the row's `button.open`.
 
 **There is no skip path, and that is the rule rather than an omission.**
 `e2e/smoke.spec.ts`'s `beforeAll` asserts the gateway is answering and fails
