@@ -3,6 +3,7 @@ import { IonBadge, IonIcon, IonLabel, IonTabBar, IonTabButton, IonTabs } from '@
 import { PERMISSIONS } from '@core/api/types';
 import { AuthService } from '@core/auth/auth.service';
 import { CartStore } from '@core/cart/cart.store';
+import { focusPageHeading } from './focus-page-heading';
 
 /**
  * Spec §5: Products, Cart, Account, plus History, which appears only while
@@ -16,6 +17,9 @@ import { CartStore } from '@core/cart/cart.store';
   standalone: true,
   imports: [IonBadge, IonIcon, IonLabel, IonTabBar, IonTabButton, IonTabs],
   changeDetection: ChangeDetectionStrategy.OnPush,
+  // The shell owns this because every page is entered through it, and a page
+  // that managed its own focus would be one more thing a new page forgets.
+  host: { '(document:ionViewDidEnter)': 'enteredPage($event)' },
   template: `
     <ion-tabs>
       <ion-tab-bar slot="bottom">
@@ -62,4 +66,19 @@ export class TabsPage {
   protected readonly canPublish = computed(() => this.auth.hasPermission(PERMISSIONS.catalogWrite));
   /** History needs a session and no permission: the BFF binds the subject from the principal. */
   protected readonly signedIn = computed(() => this.auth.user()() !== null);
+
+  /**
+   * The first entry is the page the app opened on: nothing was activated to
+   * get there, and taking focus on load would also pull it off a field the
+   * user had already reached.
+   */
+  private opened = false;
+
+  protected enteredPage(event: Event): void {
+    if (!this.opened) {
+      this.opened = true;
+      return;
+    }
+    focusPageHeading(event);
+  }
 }
