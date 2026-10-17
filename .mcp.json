@@ -2,11 +2,9 @@
   "mcpServers": {
     "codebase-index": {
       "type": "stdio",
-      "command": "codebase-index",
+      "command": "node",
       "args": [
-        "mcp",
-        "--root",
-        "."
+        ".claude/skills/codebase-index/scripts/mcp-launch.mjs"
       ],
       "env": {
         "CBX_NO_SKILL_AUTO_UPDATE": "1"
