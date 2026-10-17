@@ -639,9 +639,10 @@ argument below about which grant pins what remains worth reading, because a
 hook is one file and defence in depth is the reason the allow side was narrowed
 in the first place.
 
-`Bash(git fetch origin:*)` **pins the remote**: a literal remote name occupies
-the repository position, so a URL never reaches it. That is the control the
-sentence describes, and it is real.
+`Bash(git fetch origin:*)` **pinned the remote**: a literal remote name occupied
+the repository position, so a URL never reached it. That was the control the
+sentence described, and it was real; `git-fetch-origin.sh` (#114) replaced the
+grant, and the paragraph below says why.
 
 `Bash(git pull --ff-only)` pinned **nothing** — no remote name appeared in it
 at all. What it did was drop the `:*`, so the grant was the documented
