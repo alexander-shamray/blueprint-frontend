@@ -1836,6 +1836,31 @@ left a check-then-act a takeover could slip between.
 forged ones, the lock from a second handle and from a second process that
 dies holding it, and the detached child end to end against a stub wrapper.
 
+**The seed is made only where git ignores the index path
+(alexander-shamray/blueprint-frontend#148).** `.gitignore` is what keeps the
+copy out of a commit, and a branch checked out in the worktree can drop that
+line. The copy would then sit there as an untracked, unignored file that an
+unscoped `/commit` or a hand-run `git add -A` commits and `/pr` pushes,
+carrying the main checkout's indexed text and any chunks its free pages kept
+from before a compaction. `seed_source` asks `git check-ignore` and seeds only
+on a yes; an answer git did not give is a no, and is not remembered. The worker
+asks before the event's git budget is spent and remembers the answer for its
+life, so a branch that drops the line while a worker runs is met by the next
+worker. The seed already refused any file at the path, which closes the
+force-tracked case; this is the other half. The in-house review of
+alexander-shamray/blueprint-frontend#144 raised it in its third round.
+
+**A marker the worker cannot remove is retried, not abandoned
+(alexander-shamray/blueprint-frontend#149).** On Windows `os.remove` fails on a
+file another process holds open, and the hook holds the marker open while it
+creates it. The worker used to return from inside the lock on that failure, so
+its look after letting go never ran: an edit whose `held` probe saw the lock
+held started no worker and was served by none. The pass now ends instead, the
+lock is released, and the worker tries again after `MARKER_WAIT`, at most
+`MARKER_RETRIES` times; a marker that never goes still ends the worker, and
+the next edit serves it. The fifth round of that review raised it, against
+code older than the branch.
+
 **The worker compacts what it refreshed, because the package never does
 (alexander-shamray/blueprint-frontend#128).** `codebase-index` deletes and
 reinserts a changed file's chunks on every `update`; FTS5 records each delete
@@ -2021,6 +2046,19 @@ record with its own pid before starting the child and reaps the child
 before clearing it, so neither the gap before the child is named nor the
 one after a kill lets a second indexer in. The window that remains is the
 instant between the child existing and its pid being written.
+
+**A timed-out `update` is stopped through its process tree on Windows
+(alexander-shamray/blueprint-frontend#153).** The child there is Git Bash's
+`bash.exe`, and `run-index` ends in `exec codebase-index "$@"`, which the MSYS
+runtime cannot turn into a replacement of the process. Measured on this
+workstation, `bash -c 'exec python …'` left `bash.exe` as the pid `Popen`
+returned with `python.exe` beneath it, and `kill` ended the first and left the
+second running: the record was cleared, and the next worker started a second
+indexer against the same cache. `stop` now runs `taskkill /T /F` on the child
+first, and `refresh` clears the record only once the child has been reaped, so
+one that survives the kill keeps its pid there and the next worker stands off.
+POSIX `exec` keeps the pid, and needs no such call. The sixth round of that
+review raised it, the one that spent the loop's ceiling.
 
 **A record left by a killed worker names a pid the system may reuse**, and
 that is the second residual. The record is cleared on every ordinary path,
