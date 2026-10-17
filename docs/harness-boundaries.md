@@ -1872,8 +1872,10 @@ setting back, so none the file carries runs whatever its names' case, and the
 index is refused unless its tables are the package's shape, judged from the
 parsed schema with names folded as SQLite folds them, ASCII only, any other
 name refused, which refuses a view at every name it reads. Both connections
-interrupt themselves at `COMPACT_TIMEOUT`, and a SQLite that cannot do all of
-this compacts nothing.
+interrupt their statements at `COMPACT_TIMEOUT`, and the copy, a page copy in C
+that the progress handler never reaches, runs in steps of 1024 pages with the
+deadline asked between them. A SQLite that cannot do all of this compacts
+nothing.
 
 **The index has to be at rest, and that was measured, not assumed.** With a
 `-wal` of 400 rows laid beside a database replaced by one of 50, 400 and 900
@@ -1892,7 +1894,15 @@ modification time moving; a `run-index update` run by hand that finishes
 inside that window is lost, which costs nothing lasting because the index is
 derived. Neither measurement used a POSIX host, where a rename over an open
 file succeeds and leaves the reader on the old inode; the sidecar check is
-what stands there. The remaining half of the original issue, the wrapper's own
+what stands there.
+
+**Two residuals.** The copy and the index must share a volume: a worktree
+added on another one makes the rename raise, which is a skipped round every
+time and shows nowhere else. And a connection that opens the index and writes
+a `-wal` between the last look for sidecars and the rename would have that
+log replayed into the new file, as the measurement shows; the window is the
+width of two calls and needs a writer inside it, and nothing narrows it
+further. The remaining half of the original issue, the wrapper's own
 open, needs the package to open its index with no-follow and journal refusal
 itself, which is upstream.
 
