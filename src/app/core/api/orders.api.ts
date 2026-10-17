@@ -1,7 +1,10 @@
-import { HttpClient, HttpParams } from '@angular/common/http';
+import {
+  HttpClient, HttpErrorResponse, HttpEventType, HttpHeaders, HttpParams,
+} from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
-import { Observable } from 'rxjs';
+import { EMPTY, Observable, catchError, concatMap, defer, from, throwError } from 'rxjs';
 import { environment } from '@core/config/environment';
+import { OrderStreamEvent, readOrderEvents } from './order-events';
 import { noSuchOrder, orderPathSegment } from './order-path';
 import { CursorPage, OrderDetail, OrderSummary } from './types';
 
@@ -47,5 +50,80 @@ export class OrdersApi {
     if (segment === null) return noSuchOrder();
 
     return this.http.get<OrderDetail>(`${this.base}/${segment}`);
+  }
+
+  /**
+   * ADR-108's stream over the same row: the detail route's answer first, then
+   * each change, as `text/event-stream`. A 404 is answered before a stream
+   * opens, with the three meanings `get` gives it.
+   *
+   * It is `HttpClient` and not `EventSource`, which cannot send the bearer —
+   * and the token does not go in the query string. Going through `HttpClient`
+   * keeps the auth and rate-limit interceptors on the request, and a download
+   * progress event carries the text received so far, which `readOrderEvents`
+   * cuts into events. Completes when the server ends the stream; unsubscribing
+   * closes the connection.
+   *
+   * `lastEventId` is the id of the last event received, sent back as
+   * `Last-Event-ID` so the server does not repeat a row the client holds.
+   */
+  stream(orderId: string, lastEventId: string | null = null): Observable<OrderStreamEvent> {
+    const segment = orderPathSegment(orderId);
+    if (segment === null) return noSuchOrder();
+
+    let headers = new HttpHeaders({ Accept: 'text/event-stream' });
+    if (lastEventId !== null) headers = headers.set('Last-Event-ID', lastEventId);
+
+    return defer(() => {
+      let consumed = 0;
+
+      return this.http
+        .get(`${this.base}/${segment}/events`, {
+          headers,
+          observe: 'events',
+          reportProgress: true,
+          responseType: 'text',
+        })
+        .pipe(
+          concatMap((event) => {
+            // The final response repeats the whole text; whatever progress
+            // events already delivered is behind `consumed`.
+            const text =
+              event.type === HttpEventType.DownloadProgress
+                ? event.partialText
+                : event.type === HttpEventType.Response
+                  ? event.body
+                  : null;
+            if (text == null) return EMPTY;
+
+            const read = readOrderEvents(text, consumed);
+            consumed = read.consumed;
+            return from(read.events);
+          }),
+          catchError((failure: unknown) => throwError(() => asProblem(failure))),
+        );
+    });
+  }
+}
+
+/**
+ * A text response keeps an error's body as the string it arrived in, so the
+ * problem details `mapError` reads would be lost; they are parsed back to the
+ * object any other call's error carries.
+ */
+function asProblem(failure: unknown): unknown {
+  if (!(failure instanceof HttpErrorResponse) || typeof failure.error !== 'string') return failure;
+
+  try {
+    const body: unknown = JSON.parse(failure.error);
+    return new HttpErrorResponse({
+      error: body,
+      headers: failure.headers,
+      status: failure.status,
+      statusText: failure.statusText,
+      url: failure.url ?? undefined,
+    });
+  } catch {
+    return failure;
   }
 }
