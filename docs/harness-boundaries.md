@@ -1605,8 +1605,10 @@ included — inherits it, and a caller's own injected entries are kept.
 `TheHostsHooksNeverRunInAReplay` plants a failing `pre-rebase`, `post-rewrite`,
 `pre-push` and `reference-transaction` hook and shows `start` and `continue`
 run none of them. The cases that used a failing hook to make a rebase or a
-push fail now use a file where git wants its state directory and a remote that
-refuses a non-fast-forward, because a hook is no longer a way to do it. The `.git` files are reachable only through the
+push fail now hold an `index.lock` and use a remote that refuses a
+non-fast-forward, because a hook is no longer a way to do it. (A file where git
+wants its `rebase-merge` directory was tried first and fails the rebase on
+Windows only.) The `.git` files are reachable only through the
 substitution route, so their fix was blueprint-frontend#125's, which closed
 the routes past the substitution hold that its review found; nothing granted
 writes under `.git` through one of those.
