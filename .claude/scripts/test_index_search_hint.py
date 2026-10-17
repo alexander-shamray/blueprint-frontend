@@ -22,7 +22,6 @@ CLAUDE = SCRIPTS.parent
 HINT = CLAUDE / "hooks" / "index-search-hint.py"
 LAUNCHER = CLAUDE / "hooks" / "run-guard.sh"
 SETTINGS = CLAUDE / "settings.json"
-SKILL = CLAUDE / "skills" / "codebase-index" / "SKILL.md"
 EVENT = "PreToolUse"
 MATCHER = "Grep|Bash|PowerShell"
 COMMAND = 'sh "${CLAUDE_PROJECT_DIR}/.claude/hooks/run-guard.sh" index-search-hint.py || :'
@@ -509,6 +508,12 @@ class WhenItAsks(Scratch):
 
 
 class OneRoute(Scratch):
+    """alexander-shamray/blueprint-frontend#195: the MCP tools for every checkout.
+
+    A session in a worktree is turned back by `index-mcp-root.py` when its
+    server reads another root, so the hint does not send it the CLI unasked.
+    """
+
     def test_the_main_checkout_is_sent_to_the_mcp_tools_alone(self):
         main, _tree = self.worktree()
         text = self.refused(*grep_call(), cwd=main)
@@ -517,32 +522,16 @@ class OneRoute(Scratch):
         self.assertIn("select:mcp__codebase-index__find_refs,mcp__codebase-index__find_symbol", text)
         self.assertNotIn("run-index", text)
 
-    def test_a_linked_worktree_is_sent_to_the_cli_alone(self):
+    def test_a_linked_worktree_is_sent_to_the_same_tools(self):
         _main, tree = self.worktree()
         text = self.refused(*bash_call('grep -rnE "MapPost|MapPut" .'), cwd=tree / "src")
 
-        self.assertIn('run-index refs "MapPost" --json', text)
-        self.assertIn('run-index refs "MapPut" --json', text)
-        self.assertIn('run-index symbol "MapPost" --json', text)
-        self.assertIn("codebase-index skill", text)
-        self.assertIn("from the worktree's root", text)
-        self.assertIn("each alone on its line", text)
-        self.assertIn("`--kind callers`", text)
-        self.assertNotIn("mcp__", text)
+        self.assertIn("`MapPost`, `MapPut`", text)
+        self.assertEqual(["find_refs", "find_symbol"], tools(text))
+        self.assertIn("select:mcp__codebase-index__find_refs,mcp__codebase-index__find_symbol", text)
+        self.assertNotIn("run-index", text)
 
-    def test_the_commands_it_names_are_each_one_plain_command(self):
-        """The skill's grant is a prefix, which a pipe, `;` or `&&` in the
-        same command line takes the command out of."""
-        _main, tree = self.worktree()
-        text = self.refused(*bash_call('grep -rnE "MapPost|MapPut" .'), cwd=tree)
-        commands = re.findall(r"`(bash \.claude/skills/codebase-index/scripts/run-index [^`]*)`", text)
-
-        self.assertEqual(3, len(commands), text)
-        for command in commands:
-            with self.subTest(command=command):
-                self.assertIsNone(re.search(r"[|;&<>$()\\]", command))
-
-    def test_a_submodule_is_not_a_worktree(self):
+    def test_a_submodule_gets_the_same_route(self):
         module = self.scratch / "module"
         (self.scratch / ".git" / "modules" / "module").mkdir(parents=True)
         module.mkdir()
@@ -567,22 +556,7 @@ class WhatItCannotRead(Scratch):
         _main, tree = self.worktree()
         text = self.refused(*grep_call("\u0141\u00f3d\u017aRelay"), cwd=tree)
 
-        self.assertIn('run-index refs "\u0141\u00f3d\u017aRelay"', text)
-
-
-class TheSkillAgrees(Scratch):
-    """A refusal naming a command the skill does not approve sends the session
-    to a permission prompt instead of the index."""
-
-    def test_every_cli_command_it_emits_is_one_the_skill_approves(self):
-        front = SKILL.read_text(encoding="utf-8").split("---")[1]
-        _main, tree = self.worktree()
-        commands = re.findall(r"`(bash [^`]+)`", self.refused(*grep_call(), cwd=tree))
-        self.assertTrue(commands)
-        for command in commands:
-            prefix = " ".join(command.split()[:3])
-            with self.subTest(command=command):
-                self.assertIn(f"Bash({prefix}:*)", front)
+        self.assertIn("`\u0141\u00f3d\u017aRelay`", text)
 
 
 if __name__ == "__main__":
