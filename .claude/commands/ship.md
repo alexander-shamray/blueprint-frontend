@@ -1,7 +1,7 @@
 ---
 description: Start from a clean main, fork a worktree where one can be forked, branch, commit, push and open a PR, run the local review until a round has nothing open, then merge the PR and tear the workspace down. Decides for itself rather than stopping to ask
 argument-hint: "[what the change does] — omit and each step derives its own"
-allowed-tools: Read, Grep, Glob, Write, Skill, Agent(branch-reviewer), EnterWorktree, ExitWorktree, Bash(git status:*), Bash(git diff:*), Bash(git branch --list:*), Bash(git branch --show-current), Bash(git branch -a), Bash(git log:*), Bash(git fetch origin:*), Bash(git show:*), Bash(bash .claude/scripts/git-branch-create.sh:*), Bash(bash .claude/scripts/git-worktree-fork.sh:*), Bash(bash .claude/scripts/git-switch-existing.sh:*), Bash(bash .claude/scripts/git-rebase-onto-main.sh:*), Bash(git rev-parse:*), Bash(git worktree list:*), Bash(ls:*), Bash(git add:*), Bash(git commit:*), Bash(bash .claude/scripts/git-unstage.sh:*), Bash(git push -u origin:*), Bash(git push origin:*), Bash(wc:*), Bash(bash .claude/scripts/gh-pr-create.sh), Bash(bash .claude/scripts/pr-state.sh:*), Bash(bash .claude/scripts/pr-for-branch.sh:*), Bash(gh pr checks:*), Bash(bash .claude/scripts/gh-pr-merge.sh:*), Bash(git pull --ff-only), Bash(git merge-base --is-ancestor:*), Bash(bash .claude/scripts/git-worktree-remove.sh:*), Bash(git worktree prune:*), Bash(sleep:*), Bash(bash .claude/scripts/pr-locality.sh:*), Bash(bash .claude/scripts/npm-checks.sh:*), Bash(bash .claude/scripts/gh-issue-create.sh:*)
+allowed-tools: Read, Grep, Glob, Write, Skill, Agent(branch-reviewer), EnterWorktree, ExitWorktree, Bash(git status:*), Bash(git diff:*), Bash(git branch --list:*), Bash(git branch --show-current), Bash(git branch -a), Bash(git log:*), Bash(bash .claude/scripts/git-fetch-origin.sh:*), Bash(git show:*), Bash(bash .claude/scripts/git-branch-create.sh:*), Bash(bash .claude/scripts/git-worktree-fork.sh:*), Bash(bash .claude/scripts/git-switch-existing.sh:*), Bash(bash .claude/scripts/git-rebase-onto-main.sh:*), Bash(git rev-parse:*), Bash(git worktree list:*), Bash(ls:*), Bash(git add:*), Bash(git commit:*), Bash(bash .claude/scripts/git-unstage.sh:*), Bash(git push -u origin:*), Bash(git push origin:*), Bash(wc:*), Bash(bash .claude/scripts/gh-pr-create.sh), Bash(bash .claude/scripts/pr-state.sh:*), Bash(bash .claude/scripts/pr-for-branch.sh:*), Bash(gh pr checks:*), Bash(bash .claude/scripts/gh-pr-merge.sh:*), Bash(bash .claude/scripts/git-pull-ff-only.sh), Bash(git merge-base --is-ancestor:*), Bash(bash .claude/scripts/git-worktree-remove.sh:*), Bash(git worktree prune:*), Bash(sleep:*), Bash(bash .claude/scripts/pr-locality.sh:*), Bash(bash .claude/scripts/npm-checks.sh:*), Bash(bash .claude/scripts/gh-issue-create.sh:*)
 disallowed-tools: Edit(.claude/**), Edit(./.claude/**), Edit(.github/**), Edit(./.github/**), Edit(.remember/**), Edit(./.remember/**), Edit(android/**), Edit(./android/**), Edit(ios/**), Edit(./ios/**), Edit(.git/**), Edit(./.git/**), Edit(.git), Edit(./.git), Edit(package.json), Edit(./package.json), Edit(package-lock.json), Edit(./package-lock.json), Edit(npm-shrinkwrap.json), Edit(./npm-shrinkwrap.json), Edit(.npmrc), Edit(./.npmrc), Edit(angular.json), Edit(./angular.json), Edit(tsconfig.json), Edit(./tsconfig.json), Edit(tsconfig.app.json), Edit(./tsconfig.app.json), Edit(tsconfig.spec.json), Edit(./tsconfig.spec.json), Edit(eslint.config.js), Edit(./eslint.config.js), Edit(.prettierrc), Edit(./.prettierrc), Edit(capacitor.config.ts), Edit(./capacitor.config.ts), Edit(playwright.config.ts), Edit(./playwright.config.ts), Edit(ionic.config.json), Edit(./ionic.config.json), Edit(.nvmrc), Edit(./.nvmrc), Edit(.editorconfig), Edit(./.editorconfig), Edit(.gitattributes), Edit(./.gitattributes), Edit(.gitignore), Edit(./.gitignore), Edit(CLAUDE.md), Edit(./CLAUDE.md), Edit(README.md), Edit(./README.md), Edit(**/*.config.js), Edit(**/*.config.cjs), Edit(**/*.config.mjs), Edit(**/*.config.ts), Edit(**/*.config.mts), Edit(**/package.json), Edit(**/.npmrc), Edit(**/tsconfig*.json), Edit(**/.prettierrc*), Edit(node_modules/**), Edit(./node_modules/**), Edit(.mcp.json), Edit(./.mcp.json), Edit(.codeindexignore), Edit(./.codeindexignore), Agent(general-purpose), Agent(claude), Agent(Explore), Agent(Plan), Agent(claude-code-guide), Agent(statusline-setup), Bash(bash .claude/scripts/gh-sweep-issue-create.sh:*)
 ---
 
@@ -207,7 +207,7 @@ run.
    unused, and both of those Stay.
 
    ```bash
-   git fetch origin main                      # or the next read is stale
+   bash .claude/scripts/git-fetch-origin.sh main   # or the next read is stale
    git status --short                         # empty: nothing uncommitted
    git rev-parse HEAD                         # the tip, for the row below
    bash .claude/scripts/pr-for-branch.sh <branch>   # the one row it returns,
@@ -362,8 +362,8 @@ run.
    git worktree list                       # what is actually still there
    git log origin/main..HEAD               # on `main`: empty, or this checkout
                                            # carries commits origin/main does not
-   git pull --ff-only                      # ONLY on a clean main that is not
-                                           # ahead of origin/main — see below
+   bash .claude/scripts/git-pull-ff-only.sh  # ONLY on a clean main that is not
+                                             # ahead of origin/main — see below
    ```
 
    **That range read is not the finished predicate, and the difference is the
@@ -581,8 +581,8 @@ run.
    pushed to would have it reviewing commits the PR no longer carries:
 
    ```bash
-   git fetch origin <branch>
-   git pull --ff-only
+   bash .claude/scripts/git-fetch-origin.sh <branch>
+   bash .claude/scripts/git-pull-ff-only.sh
    ```
 
    A refused fast-forward is divergence rather than staleness, and it stops
@@ -723,7 +723,7 @@ run.
    than answer.
 
    ```bash
-   git fetch origin <branch>
+   bash .claude/scripts/git-fetch-origin.sh <branch>
    ```
 
    **Being behind strands nothing, but it is not harmless.** The review reads
@@ -913,7 +913,7 @@ run.
    bash .claude/scripts/pr-state.sh <n>                 # 1. MERGED, with an oid
    #    ExitWorktree({action: "keep"})                  # 2. forked runs only — a tool, not bash
    bash .claude/scripts/git-switch-existing.sh main     # 3. in-place runs only
-   git pull --ff-only                                   # 4. main, now containing the merge
+   bash .claude/scripts/git-pull-ff-only.sh             # 4. main, now containing the merge
    git merge-base --is-ancestor <merge-oid> HEAD        # 5. and it really does contain it
    bash .claude/scripts/git-worktree-remove.sh .claude/worktrees/<slug> <branch>  # 6. forked only
    git worktree prune                                   # 7.
