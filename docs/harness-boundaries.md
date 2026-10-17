@@ -2173,9 +2173,9 @@ sees the mismatch. **It fails open everywhere it cannot judge** (unreadable
 input, no `cwd`, no `CLAUDE_PROJECT_DIR`), its command ends `|| :` for the
 reason the search hint's does, and a session launched in the worktree is not
 refused, since both directories name the worktree. It does not judge the
-served root's index: the launcher above does that, once, at start. The refusal text is
-the part no test shows a session taking; `test_index_mcp_root.py` holds every
-subcommand it names to a prefix the skill's `allowed-tools` approves.
+served root's index: the launcher above does that, once, at start. The refusal
+text is the part no test shows a session taking; `test_index_mcp_root.py` holds
+every subcommand it names to a prefix the skill's `allowed-tools` approves.
 
 **A session started in a `/branch` worktree had no index tools, because the
 main checkout's approval of `.mcp.json` did not reach it
