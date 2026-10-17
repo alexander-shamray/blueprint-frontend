@@ -955,6 +955,47 @@ def bloated(conn):
     return free > pages * FREE_SHARE or rows > ROWS_PER_CHUNK * max(chunks, 1)
 
 
+def locked_down(conn, limit):
+    """Interrupt `conn` at `limit`, and switch off what a file's author could run.
+
+    A branch can force-track a crafted `index.sqlite`, so the connection
+    distrusts the schema, which governs what the statements only this hook
+    runs may call, and switches triggers off, whatever their names' case:
+    `sqlite_master` keeps the case a trigger was declared with and SQLite
+    resolves it folded. Each setting is read back, because a SQLite older than
+    3.31 ignores `trusted_schema` without an error and `setconfig` returns
+    nothing. False means a setting did not take, and the caller compacts
+    nothing. Asked of both connections `compact` opens.
+    """
+    conn.set_progress_handler(lambda: time.monotonic() > limit, 10000)
+    conn.execute("PRAGMA trusted_schema=OFF")
+    # A SQLite older than 3.31 ignores the pragma without an error.
+    if conn.execute("PRAGMA trusted_schema").fetchone() != (0,):
+        return False
+    if not hasattr(conn, "setconfig"):
+        return False
+    conn.setconfig(sqlite3.SQLITE_DBCONFIG_ENABLE_TRIGGER, False)
+    return not conn.getconfig(sqlite3.SQLITE_DBCONFIG_ENABLE_TRIGGER)
+
+
+def beside(path):
+    """Whether anything sits at a name SQLite opens beside the database `path`.
+
+    A `-wal` and a `-shm` mean a connection has the file open or died holding
+    it, and a `-journal` is a rollback log. Looked at without following a link.
+    """
+    return any(os.path.lexists(path + suffix) for suffix in SIDECARS)
+
+
+def discard(partial):
+    """Remove the compacted copy and the files SQLite keeps beside it, if any."""
+    for suffix in ("",) + SIDECARS:
+        try:
+            os.remove(partial + suffix)
+        except OSError:
+            pass
+
+
 def compact(root):
     """Merge the root's full-text index and reclaim its free pages, when needed.
 
@@ -970,65 +1011,103 @@ def compact(root):
     pages past `FREE_SHARE` of it, or more than `ROWS_PER_CHUNK` segment
     rows per chunk. A lean index is read and left as it was.
 
+    **Never in place (alexander-shamray/blueprint-frontend#139).** A branch
+    can force-track any file under the cache directory, and SQLite opens the
+    sidecars beside a database by name, lazily, during its statements, so a
+    link or a rollback journal that lands after the check is followed. The
+    compaction therefore opens nothing the branch can reach with a connection
+    that writes. The index is read through an immutable, read-only connection,
+    which takes no lock, reads no `-wal` and replays no journal; it is copied
+    with SQLite's backup into a file under `<common>/index-refresh/`, which no
+    branch can write; the copy is compacted there; and the result is renamed
+    over the index. The one write that reaches the branch's directory is that
+    rename, which replaces the entry at the path rather than following it.
+
+    **The index must be at rest, and the reason is measured.** A `-wal` left
+    beside a database that was then replaced is replayed into the new file:
+    a 400-row log laid beside a 50-row replacement left the replacement
+    holding the log's 400 rows. So nothing is done while a `-wal`, a `-shm` or
+    a `-journal` exists, which is when a connection has the file open or died
+    holding it, and that is asked again at the last moment before the rename.
+    An index with no sidecars is the ordinary state between sessions' lookups,
+    since SQLite removes them when the last connection closes; where Windows
+    refuses the rename because a reader has the file open, the compaction is
+    skipped and the next refresh tries again.
+
+    **A write during the copy is a refusal.** An immutable connection ignores
+    locks, so the copy is judged against the file as it was: if its size or
+    modification time moved, or a sidecar appeared, the copy is discarded. A
+    `run-index update` run by hand beside the hook can still finish inside
+    that window and be lost, which costs nothing lasting: the index is derived,
+    and the next `update` reads the files again.
+
     **Called only after `run-index` exited 0, and inside the worker's
     lock**, so no refresh of this hook's writes the file while it is
-    rewritten, and a failed `update` — which may be a package that cannot
+    copied, and a failed `update` — which may be a package that cannot
     read this index at all — is not followed by a rewrite of it.
 
-    **Judged again just before the open, and against whatever schema the
-    file carries.** A branch can force-track a crafted `index.sqlite`, so
-    `index_openable` runs again here, because the rewrite is this hook's own
-    and may run long after `target_root` judged the root: a worker judges it
-    once, then refreshes and compacts for as long as edits keep coming. A
-    link placed between that check and SQLite's opens is the residual
-    `docs/harness-boundaries.md` records. The schema is the file's too: a
-    file whose tables are not the package's shape is left alone, which
-    refuses a view at every name compaction reads; triggers are switched off
-    on this connection, so none the file carries runs, whatever its names'
-    case; schema functions are not trusted; and a SQLite that cannot do all
-    of these compacts nothing. `COMPACT_TIMEOUT` interrupts whatever does
-    not finish.
+    **Judged again just before the copy, and against whatever schema the
+    file carries.** `index_openable` runs here because the worker judged the
+    root long before, and `locked_down` is asked of both connections. The
+    schema is the file's too: one whose tables are not the package's shape is
+    left alone, which refuses a view at every name compaction reads, and a
+    SQLite that cannot do all of this compacts nothing. `COMPACT_TIMEOUT`
+    interrupts whatever does not finish.
 
-    **Every SQLite error leaves a valid index, never a broken one.** Each
-    statement commits alone — `VACUUM` cannot share a transaction — so an
-    error after `optimize` leaves the segments merged and the pages not yet
-    reclaimed. The worst cost is a large index, which is the cost before
-    this existed.
+    **Every failure leaves the index as it was.** The copy is the only thing
+    written, and it is removed on every path; the rename is the last step. The
+    cost of a refusal is a large index, which was the cost before this
+    existed.
     """
     path = os.path.join(root, CACHE, "index.sqlite")
-    if not index_openable(root) or not os.path.isfile(path):
+    if not index_openable(root) or not os.path.isfile(path) or beside(path):
+        return False
+    partial = state_path(root, root, "compact.sqlite")
+    if partial is None:
         return False
     try:
-        conn = sqlite3.connect(path, timeout=30, isolation_level=None)
-    except sqlite3.Error:
-        return False
-    deadline = time.monotonic() + COMPACT_TIMEOUT
-    conn.set_progress_handler(lambda: time.monotonic() > deadline, 10000)
-    try:
-        conn.execute("PRAGMA trusted_schema=OFF")
-        # A SQLite older than 3.31 ignores the pragma without an error.
-        if conn.execute("PRAGMA trusted_schema").fetchone() != (0,):
+        os.makedirs(os.path.dirname(partial), exist_ok=True)
+        # A killed worker's copy, under this lock no other compaction holds.
+        discard(partial)
+        if os.path.lexists(partial):
             return False
-        # Off on this connection, whatever the file's schema calls them, and
-        # read back: `setconfig` returns nothing, and a set that fails raises.
-        if not hasattr(conn, "setconfig"):
+        seen = os.stat(path)
+        limit = time.monotonic() + COMPACT_TIMEOUT
+        reading = sqlite3.connect(sqlite_uri(path, "ro") + "&immutable=1", uri=True, timeout=30)
+        try:
+            if not locked_down(reading, limit) or not shaped(reading) or not bloated(reading):
+                return False
+            writing = sqlite3.connect(partial, timeout=30, isolation_level=None)
+            try:
+                reading.backup(writing)
+                if not locked_down(writing, limit):
+                    return False
+                writing.execute("INSERT INTO fts_chunks(fts_chunks) VALUES('optimize')")
+                writing.execute("VACUUM")
+                # The copy is in WAL mode, so the file shrinks at the checkpoint.
+                if writing.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()[0] != 0:
+                    return False
+            finally:
+                writing.close()
+        finally:
+            reading.close()
+        with open(partial, "rb") as handle:
+            if handle.read(100)[18:20] != b"\x02\x02":
+                return False
+        if beside(partial):
             return False
-        conn.setconfig(sqlite3.SQLITE_DBCONFIG_ENABLE_TRIGGER, False)
-        if conn.getconfig(sqlite3.SQLITE_DBCONFIG_ENABLE_TRIGGER):
+        # Asked again at the last moment: the index must be what was copied.
+        after = os.stat(path)
+        if (after.st_size, after.st_mtime_ns) != (seen.st_size, seen.st_mtime_ns):
             return False
-        if not shaped(conn) or not bloated(conn):
+        if not index_openable(root) or beside(path):
             return False
-        conn.execute("INSERT INTO fts_chunks(fts_chunks) VALUES('optimize')")
-        conn.execute("VACUUM")
-        # The index is in WAL mode, so the file shrinks at the checkpoint;
-        # a reader holding a snapshot makes it report busy instead of raising,
-        # and the rewrite waits in the `-wal` for a later one.
-        busy = conn.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()[0]
-        return busy == 0
-    except sqlite3.Error:
+        os.replace(partial, path)
+    except (OSError, sqlite3.Error):
         return False
     finally:
-        conn.close()
+        discard(partial)
+    return written(root) and index_openable(root)
 
 
 def work(owner, root):
