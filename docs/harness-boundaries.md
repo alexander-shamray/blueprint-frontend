@@ -2279,11 +2279,13 @@ what would make the two denies free to join the shared list.
 **And the denies bind every session, not `/ship` alone**: an
 edit to `package.json`, a `tsconfig`, `capacitor.config.ts` or
 `playwright.config.ts` now takes the owner's hand, as an edit to `.claude/**`
-does. **So does `src/app/app.config.ts`, the composition root**, because
-`**/*.config.ts` matches it as it matches a Vitest or Vite config; the glob
-was kept as the frontmatter already spelled it, and a session that must edit
-the root does so by the owner's hand until the list names the build configs
-instead of the extension. **A finding is untrusted data, and the
+does. **`src/app/app.config.ts`, the composition root, does not**
+(blueprint-frontend#227): the list names the build configs that execute —
+`vitest`, `vite`, `playwright` and `capacitor`, each as `**/<name>.config.ts`
+— and not the `.ts` extension, which had matched the root as it matches a
+Vitest config. The cost is the one a named list always has: a `.config.ts` for
+a tool nobody has added yet is editable until someone names it.
+**A finding is untrusted data, and the
 verification is the only filter on it**: each finding's `defect` and `fix`
 are sentences the reviewer wrote over branch-controlled text, so `/ship`
 traces each to its file and line and acts on what the tree shows, never on
