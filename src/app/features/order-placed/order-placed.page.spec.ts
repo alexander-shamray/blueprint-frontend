@@ -1,5 +1,7 @@
-import { provideHttpClient, withInterceptors } from '@angular/common/http';
-import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
+import { HttpEventType, provideHttpClient, withInterceptors } from '@angular/common/http';
+import {
+  HttpTestingController, TestRequest, provideHttpClientTesting,
+} from '@angular/common/http/testing';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { ActivatedRoute, convertToParamMap, provideRouter } from '@angular/router';
 import { DOCUMENT, WritableSignal, signal } from '@angular/core';
@@ -54,8 +56,8 @@ function mount(id: string, signedIn: CurrentUser | null = demo): {
     imports: [OrderPlacedPage],
     providers: [
       provideRouter([]),
-      // The real interceptor, because the poll's 429 handling leans on the
-      // window it opens.
+      // The real interceptor, because the 429 handling leans on the window it
+      // opens.
       provideHttpClient(withInterceptors([rateLimitInterceptor])),
       provideHttpClientTesting(),
       { provide: AuthService, useValue: { user: () => user } },
@@ -74,9 +76,35 @@ function mount(id: string, signedIn: CurrentUser | null = demo): {
   return { fixture, paramMap, user, controller: TestBed.inject(HttpTestingController) };
 }
 
-/** Every read outstanding right now, which is how a test counts polls. */
-function reads(controller: HttpTestingController) {
-  return controller.match((r) => r.url.startsWith(READ));
+/** Every stream request outstanding right now, which is how a test counts openings. */
+function streams(controller: HttpTestingController): TestRequest[] {
+  return controller.match((r) => r.url.startsWith(READ) && r.url.endsWith('/events'));
+}
+
+/** What each request has been sent so far: a progress event carries the text whole. */
+const sent = new WeakMap<TestRequest, string>();
+
+/** The server writes an `order` event on a stream that stays open. */
+function emit(request: TestRequest, order: OrderDetail): void {
+  const text = `${sent.get(request) ?? ''}id: ${order.asOf}\nevent: order\ndata: ${JSON.stringify(order)}\n\n`;
+  sent.set(request, text);
+  request.event({ type: HttpEventType.DownloadProgress, loaded: text.length, partialText: text });
+}
+
+/** The server ends the stream, having written what `emit` did. */
+function end(request: TestRequest): void {
+  request.flush(sent.get(request) ?? '');
+}
+
+/** The first stream is opened, answers `order`, and stays open. */
+function openWith(controller: HttpTestingController, order: OrderDetail): TestRequest {
+  const [request] = streams(controller);
+  emit(request, order);
+  return request;
+}
+
+function fail(request: TestRequest, status: number, statusText: string, headers: Record<string, string> = {}): void {
+  request.flush(JSON.stringify({ title: statusText, status }), { status, statusText, headers });
 }
 
 function setVisibility(state: DocumentVisibilityState): void {
@@ -99,14 +127,15 @@ describe('OrderPlacedPage', () => {
     vi.useRealTimers();
   });
 
-  it('shows the order id, asks the order read for it at once, and links to tracking', () => {
+  it('shows the order id, opens the order stream at once, and links to tracking', () => {
     const mounted = mount(GUID_A);
     controller = mounted.controller;
 
     expect(mounted.fixture.nativeElement.textContent).toContain(GUID_A);
-    const [first] = reads(controller);
-    expect(first.request.url).toBe(`${READ}${GUID_A}`);
-    first.flush(detail(GUID_A, 'placed'));
+    const [first] = streams(controller);
+    expect(first.request.url).toBe(`${READ}${GUID_A}/events`);
+    expect(first.request.headers.get('Accept')).toBe('text/event-stream');
+    emit(first, detail(GUID_A, 'placed'));
     mounted.fixture.detectChanges();
 
     expect(mounted.fixture.nativeElement.textContent).toContain('Placed');
@@ -115,126 +144,193 @@ describe('OrderPlacedPage', () => {
     expect(mounted.fixture.nativeElement.textContent).not.toContain('Cancel order');
     // The sentence this page used to carry stopped being true when the read landed.
     expect(mounted.fixture.nativeElement.textContent).not.toContain('exposes no endpoint');
+    mounted.fixture.destroy();
   });
 
-  it('backs off from 3 seconds towards 15 while the status is not terminal', () => {
+  it('follows every change on the one stream, and opens no second while it is open', () => {
     const mounted = mount(GUID_A);
     controller = mounted.controller;
-    reads(controller)[0].flush(detail(GUID_A, 'placed'));
+    const stream = openWith(controller, detail(GUID_A, 'placed'));
+    expect(mounted.fixture.componentInstance.status()).toBe('placed');
+
+    emit(stream, detail(GUID_A, 'confirmed'));
+    expect(mounted.fixture.componentInstance.status()).toBe('confirmed');
+    emit(stream, detail(GUID_A, 'dispatched'));
+    expect(mounted.fixture.componentInstance.status()).toBe('dispatched');
+
+    vi.advanceTimersByTime(120_000);
+    expect(streams(controller)).toEqual([]);
+    mounted.fixture.destroy();
+  });
+
+  it('closes the stream on a terminal status and opens nothing more', () => {
+    const mounted = mount(GUID_A);
+    controller = mounted.controller;
+    const stream = openWith(controller, detail(GUID_A, 'delivered'));
+    mounted.fixture.detectChanges();
+
+    expect(stream.cancelled).toBe(true);
+    vi.advanceTimersByTime(120_000);
+    expect(streams(controller)).toEqual([]);
+    expect(mounted.fixture.nativeElement.textContent).toContain('Delivered');
+    expect(mounted.fixture.nativeElement.textContent).toContain('reached its last status');
+  });
+
+  it('does not open it again when the server ends it after a delivery', () => {
+    const mounted = mount(GUID_A);
+    controller = mounted.controller;
+    const [stream] = streams(controller);
+    // The final response lands with the event, before this page has acted.
+    stream.flush(`id: t\nevent: order\ndata: ${JSON.stringify(detail(GUID_A, 'delivered'))}\n\n`);
+
+    vi.advanceTimersByTime(120_000);
+    expect(streams(controller)).toEqual([]);
+    expect(mounted.fixture.componentInstance.status()).toBe('delivered');
+  });
+
+  it('keeps following after a cancellation, which a later delivery outranks (#158)', () => {
+    const mounted = mount(GUID_A);
+    controller = mounted.controller;
+    const stream = openWith(controller, detail(GUID_A, 'cancelled'));
+    mounted.fixture.detectChanges();
+
+    expect(stream.cancelled).toBe(false);
+    emit(stream, detail(GUID_A, 'delivered'));
+    mounted.fixture.detectChanges();
+
+    expect(mounted.fixture.componentInstance.status()).toBe('delivered');
+    expect(mounted.fixture.nativeElement.textContent).toContain('reached its last status');
+    vi.advanceTimersByTime(120_000);
+    expect(streams(controller)).toEqual([]);
+  });
+
+  it('opens the stream again after the server ends it, naming the last event it holds', () => {
+    const mounted = mount(GUID_A);
+    controller = mounted.controller;
+    const stream = openWith(controller, detail(GUID_A, 'confirmed'));
+    end(stream);
+
+    vi.advanceTimersByTime(2_999);
+    expect(streams(controller)).toEqual([]);
+    vi.advanceTimersByTime(1);
+    const [again] = streams(controller);
+    expect(again.request.headers.get('Last-Event-ID')).toBe('2026-10-05T10:00:01Z');
+    // The status stays on screen across the gap: nothing contradicted it.
+    expect(mounted.fixture.componentInstance.status()).toBe('confirmed');
+    mounted.fixture.destroy();
+  });
+
+  it('backs off from 3 seconds towards 15 while no stream can be opened', () => {
+    const mounted = mount(GUID_A);
+    controller = mounted.controller;
+    fail(streams(controller)[0], 503, 'Service Unavailable');
 
     // `match` removes what it returns, so each second's look is kept and
     // answered rather than taken twice.
     const gaps: number[] = [];
     for (let i = 0; i < 4; i++) {
       let waited = 0;
-      let found = reads(controller);
+      let found = streams(controller);
       while (found.length === 0) {
         vi.advanceTimersByTime(1_000);
         waited += 1_000;
-        if (waited > 60_000) throw new Error('no poll within a minute');
-        found = reads(controller);
+        if (waited > 60_000) throw new Error('no stream within a minute');
+        found = streams(controller);
       }
       gaps.push(waited);
-      found[0].flush(detail(GUID_A, 'confirmed'));
+      fail(found[0], 503, 'Service Unavailable');
     }
 
     expect(gaps).toEqual([3_000, 6_000, 12_000, 15_000]);
+    mounted.fixture.detectChanges();
+    expect(mounted.fixture.nativeElement.textContent).toContain('could not be reached just now');
     mounted.fixture.destroy();
   });
 
-  it('stops on a terminal status and asks nothing more', () => {
+  it('starts the back-off again once a stream has delivered something', () => {
     const mounted = mount(GUID_A);
     controller = mounted.controller;
-    reads(controller)[0].flush(detail(GUID_A, 'delivered'));
-    mounted.fixture.detectChanges();
-
-    vi.advanceTimersByTime(120_000);
-    expect(reads(controller)).toEqual([]);
-    expect(mounted.fixture.nativeElement.textContent).toContain('Delivered');
-    expect(mounted.fixture.nativeElement.textContent).toContain('reached its last status');
-  });
-
-  it('keeps asking after a cancellation, which a later delivery outranks (#158)', () => {
-    const mounted = mount(GUID_A);
-    controller = mounted.controller;
-    reads(controller)[0].flush(detail(GUID_A, 'cancelled'));
-    mounted.fixture.detectChanges();
-
+    fail(streams(controller)[0], 503, 'Service Unavailable');
     vi.advanceTimersByTime(3_000);
-    const [again] = reads(controller);
-    expect(again).toBeDefined();
-    again.flush(detail(GUID_A, 'delivered'));
-    mounted.fixture.detectChanges();
+    fail(streams(controller)[0], 503, 'Service Unavailable');
+    vi.advanceTimersByTime(6_000);
+    end(openWith(controller, detail(GUID_A, 'placed')));
 
-    expect(mounted.fixture.componentInstance.status()).toBe('delivered');
-    expect(mounted.fixture.nativeElement.textContent).toContain('reached its last status');
-    vi.advanceTimersByTime(120_000);
-    expect(reads(controller)).toEqual([]);
+    // Not the 12 seconds the third failure would have waited.
+    vi.advanceTimersByTime(3_000);
+    expect(streams(controller)).toHaveLength(1);
+    mounted.fixture.destroy();
   });
 
-  it('reads a 404 as not recorded yet and keeps polling, rather than reporting a missing order', () => {
+  it('reads a 404 as not recorded yet and tries again, rather than reporting a missing order', () => {
     const mounted = mount(GUID_A);
     controller = mounted.controller;
-    reads(controller)[0].flush(
-      { title: 'Not Found', status: 404, detail: 'No order with that id.' },
-      { status: 404, statusText: 'Not Found' },
-    );
+    fail(streams(controller)[0], 404, 'Not Found');
     mounted.fixture.detectChanges();
 
     expect(mounted.fixture.componentInstance.error()).toBeNull();
     expect(mounted.fixture.nativeElement.textContent).toContain('has not recorded this order yet');
 
     vi.advanceTimersByTime(3_000);
-    reads(controller)[0].flush(detail(GUID_A, 'placed'));
+    emit(streams(controller)[0], detail(GUID_A, 'placed'));
     mounted.fixture.destroy();
   });
 
-  it('stops while the page is hidden and resumes when it is shown again', () => {
+  it('closes the stream while the page is hidden and opens it again when it is shown', () => {
     const mounted = mount(GUID_A);
     controller = mounted.controller;
-    reads(controller)[0].flush(detail(GUID_A, 'placed'));
+    const stream = openWith(controller, detail(GUID_A, 'placed'));
 
     setVisibility('hidden');
+    expect(stream.cancelled).toBe(true);
     vi.advanceTimersByTime(120_000);
-    expect(reads(controller)).toEqual([]);
+    expect(streams(controller)).toEqual([]);
 
     setVisibility('visible');
-    reads(controller)[0].flush(detail(GUID_A, 'placed'));
+    emit(streams(controller)[0], detail(GUID_A, 'placed'));
     mounted.fixture.destroy();
   });
 
-  it('stops when Ionic reports the page is being left, and resumes on entry', () => {
+  it('closes the stream when Ionic reports the page is being left, and opens it on entry', () => {
     const mounted = mount(GUID_A);
     controller = mounted.controller;
-    reads(controller)[0].flush(detail(GUID_A, 'placed'));
+    const stream = openWith(controller, detail(GUID_A, 'placed'));
 
     // A tab switch leaves a pushed page standing, so this is the hook that
     // fires there — not ngOnDestroy.
     mounted.fixture.componentInstance.ionViewWillLeave();
+    expect(stream.cancelled).toBe(true);
     vi.advanceTimersByTime(120_000);
-    expect(reads(controller)).toEqual([]);
+    expect(streams(controller)).toEqual([]);
 
     mounted.fixture.componentInstance.ionViewWillEnter();
-    reads(controller)[0].flush(detail(GUID_A, 'placed'));
+    emit(streams(controller)[0], detail(GUID_A, 'placed'));
     mounted.fixture.destroy();
   });
 
-  it('cancels a read in flight when the page is left', () => {
+  it('closes a stream still being opened when the page is left', () => {
     const mounted = mount(GUID_A);
     controller = mounted.controller;
-    const [pending] = reads(controller);
+    const [pending] = streams(controller);
 
     mounted.fixture.componentInstance.ionViewWillLeave();
     expect(pending.cancelled).toBe(true);
   });
 
-  it('stretches the interval on a 429 to a poll rather than raising a banner', () => {
+  it('closes the stream when the page is destroyed', () => {
     const mounted = mount(GUID_A);
     controller = mounted.controller;
-    reads(controller)[0].flush(
-      { title: 'Too many requests', status: 429 },
-      { status: 429, statusText: 'Too Many Requests', headers: { 'Retry-After': '20' } },
-    );
+    const stream = openWith(controller, detail(GUID_A, 'placed'));
+
+    mounted.fixture.destroy();
+
+    expect(stream.cancelled).toBe(true);
+  });
+
+  it('stretches the wait on a 429 to a stream rather than raising a banner', () => {
+    const mounted = mount(GUID_A);
+    controller = mounted.controller;
+    fail(streams(controller)[0], 429, 'Too Many Requests', { 'Retry-After': '20' });
     mounted.fixture.detectChanges();
 
     expect(mounted.fixture.componentInstance.rateLimit.blocked()).toBe(true);
@@ -243,20 +339,20 @@ describe('OrderPlacedPage', () => {
 
     // Nothing inside the window the gateway named.
     vi.advanceTimersByTime(19_000);
-    expect(reads(controller)).toEqual([]);
+    expect(streams(controller)).toEqual([]);
 
     vi.advanceTimersByTime(2_000);
-    reads(controller)[0].flush(detail(GUID_A, 'placed'));
+    emit(streams(controller)[0], detail(GUID_A, 'placed'));
     mounted.fixture.destroy();
   });
 
-  it('sends no poll into an authenticated window another request opened', () => {
+  it('opens no stream into an authenticated window another request opened', () => {
     const mounted = mount(GUID_A);
     controller = mounted.controller;
-    reads(controller)[0].flush(detail(GUID_A, 'placed'));
+    end(openWith(controller, detail(GUID_A, 'placed')));
 
-    // Opened by somebody else's 429 — quote, checkout, History — so the poll's
-    // own stretch plays no part, and only the page's guard can hold it.
+    // Opened by somebody else's 429 — quote, checkout, History — so this
+    // page's own stretch plays no part, and only its guard can hold it.
     const windows = TestBed.inject(RateLimitWindows);
     windows.forPartition('authenticated').open({
       kind: 'rateLimited',
@@ -266,45 +362,42 @@ describe('OrderPlacedPage', () => {
     });
     expect(mounted.fixture.componentInstance.rateLimit.blocked()).toBe(true);
 
-    // The 3-second poll falls due inside the window and is held.
+    // The 3-second reopening falls due inside the window and is held.
     vi.advanceTimersByTime(29_000);
-    expect(reads(controller)).toEqual([]);
+    expect(streams(controller)).toEqual([]);
 
     // And it goes once the window is over, rather than never.
     vi.advanceTimersByTime(8_000);
-    const after = reads(controller);
+    const after = streams(controller);
     expect(after.length).toBe(1);
-    after[0].flush(detail(GUID_A, 'placed'));
+    emit(after[0], detail(GUID_A, 'placed'));
     mounted.fixture.destroy();
   });
 
-  it('stops and says so on a 401, which no later poll could change', () => {
+  it('stops and says so on a 401, which no later attempt could change', () => {
     const mounted = mount(GUID_A);
     controller = mounted.controller;
-    reads(controller)[0].flush(
-      { title: 'Unauthorized', status: 401 },
-      { status: 401, statusText: 'Unauthorized' },
-    );
+    fail(streams(controller)[0], 401, 'Unauthorized');
     mounted.fixture.detectChanges();
 
     expect(mounted.fixture.componentInstance.error()).toMatchObject({ kind: 'signIn' });
     vi.advanceTimersByTime(120_000);
-    expect(reads(controller)).toEqual([]);
+    expect(streams(controller)).toEqual([]);
   });
 
-  it('drops a poll reply for the prior order when the route hands this instance a new :id', () => {
+  it('drops a stream for the prior order when the route hands this instance a new :id', () => {
     const mounted = mount(GUID_A);
     controller = mounted.controller;
-    const [forA] = reads(controller);
+    const [forA] = streams(controller);
 
     mounted.paramMap.next(GUID_B);
     mounted.fixture.detectChanges();
 
-    // A's read was cancelled with the restart, and B's went out in its place.
+    // A's stream was closed with the restart, and B's opened in its place.
     expect(forA.cancelled).toBe(true);
-    const [forB] = reads(controller);
-    expect(forB.request.url).toBe(`${READ}${GUID_B}`);
-    forB.flush(detail(GUID_B, 'delivered'));
+    const [forB] = streams(controller);
+    expect(forB.request.url).toBe(`${READ}${GUID_B}/events`);
+    emit(forB, detail(GUID_B, 'delivered'));
     mounted.fixture.detectChanges();
 
     expect(mounted.fixture.nativeElement.textContent).toContain(GUID_B);
@@ -312,26 +405,28 @@ describe('OrderPlacedPage', () => {
     expect(mounted.fixture.componentInstance.status()).toBe('delivered');
   });
 
-  it('does not let a status for order A stand under order B', () => {
+  it('does not let a status for order A stand under order B, or name its event to B', () => {
     const mounted = mount(GUID_A);
     controller = mounted.controller;
-    reads(controller)[0].flush(detail(GUID_A, 'cancelled'));
+    openWith(controller, detail(GUID_A, 'cancelled'));
     expect(mounted.fixture.componentInstance.status()).toBe('cancelled');
 
     mounted.paramMap.next(GUID_B);
     mounted.fixture.detectChanges();
 
     expect(mounted.fixture.componentInstance.status()).toBeNull();
-    reads(controller)[0].flush(detail(GUID_B, 'placed'));
+    const [forB] = streams(controller);
+    expect(forB.request.headers.has('Last-Event-ID')).toBe(false);
+    emit(forB, detail(GUID_B, 'placed'));
     mounted.fixture.destroy();
   });
 
-  it('polls nothing for the already-committed sentinel and points at History instead', () => {
+  it('opens no stream for the already-committed sentinel and points at History instead', () => {
     const mounted = mount('already-committed');
     controller = mounted.controller;
 
     vi.advanceTimersByTime(60_000);
-    expect(reads(controller)).toEqual([]);
+    expect(streams(controller)).toEqual([]);
 
     const text: string = mounted.fixture.nativeElement.textContent;
     expect(text).toContain('Already committed');
@@ -341,10 +436,10 @@ describe('OrderPlacedPage', () => {
     expect(text).not.toContain('already-committed');
   });
 
-  it('shows and polls nothing of the order while somebody else is signed in', () => {
+  it('shows and opens nothing of the order while somebody else is signed in', () => {
     const mounted = mount(GUID_A);
     controller = mounted.controller;
-    reads(controller)[0].flush(detail(GUID_A, 'placed'));
+    openWith(controller, detail(GUID_A, 'placed'));
     expect(mounted.fixture.componentInstance.status()).toBe('placed');
 
     mounted.user.set(other);
@@ -356,16 +451,16 @@ describe('OrderPlacedPage', () => {
     expect(text).not.toContain('Track this order');
     expect(mounted.fixture.nativeElement.querySelector('[data-testid="foreign"]')).not.toBeNull();
 
-    // Not a 404 at the back-off cap on their budget: no read at all.
+    // Not a 404 at the back-off cap on their budget: no request at all.
     vi.advanceTimersByTime(120_000);
-    expect(reads(controller)).toEqual([]);
+    expect(streams(controller)).toEqual([]);
     mounted.fixture.destroy();
   });
 
-  it('starts the poll from nothing when the buyer it is for signs in again', () => {
+  it('starts the stream from nothing when the buyer it is for signs in again', () => {
     const mounted = mount(GUID_A);
     controller = mounted.controller;
-    reads(controller)[0].flush(detail(GUID_A, 'confirmed'));
+    openWith(controller, detail(GUID_A, 'confirmed'));
 
     // Signed out, then somebody else, then the first buyer back.
     mounted.user.set(null);
@@ -374,72 +469,68 @@ describe('OrderPlacedPage', () => {
     mounted.user.set(other);
     mounted.fixture.detectChanges();
     vi.advanceTimersByTime(60_000);
-    expect(reads(controller)).toEqual([]);
+    expect(streams(controller)).toEqual([]);
 
     mounted.user.set(demo);
     mounted.fixture.detectChanges();
     expect(mounted.fixture.componentInstance.status()).toBeNull();
 
-    // At once rather than on the old back-off.
-    reads(controller)[0].flush(detail(GUID_A, 'placed'));
+    // At once rather than on the old back-off, and without the old buyer's event id.
+    const [again] = streams(controller);
+    expect(again.request.headers.has('Last-Event-ID')).toBe(false);
+    emit(again, detail(GUID_A, 'placed'));
     mounted.fixture.detectChanges();
     expect(mounted.fixture.componentInstance.status()).toBe('placed');
     expect(mounted.fixture.nativeElement.textContent).toContain(GUID_A);
     mounted.fixture.destroy();
   });
 
-  it('shows and polls nothing while built signed out, then belongs to the first buyer in', () => {
+  it('shows and opens nothing while built signed out, then belongs to the first buyer in', () => {
     // A web reload of the URL with no session: the route is unguarded.
     const mounted = mount(GUID_A, null);
     controller = mounted.controller;
 
     vi.advanceTimersByTime(60_000);
-    expect(reads(controller)).toEqual([]);
+    expect(streams(controller)).toEqual([]);
     expect(mounted.fixture.nativeElement.textContent).not.toContain(GUID_A);
     expect(mounted.fixture.nativeElement.querySelector('[data-testid="foreign"]')).not.toBeNull();
 
     mounted.user.set(demo);
     mounted.fixture.detectChanges();
 
-    const after = reads(controller);
+    const after = streams(controller);
     expect(after.length).toBe(1);
-    expect(after[0].request.url).toBe(`${READ}${GUID_A}`);
-    after[0].flush(detail(GUID_A, 'placed'));
+    expect(after[0].request.url).toBe(`${READ}${GUID_A}/events`);
+    emit(after[0], detail(GUID_A, 'placed'));
     mounted.fixture.detectChanges();
     expect(mounted.fixture.nativeElement.textContent).toContain(GUID_A);
     mounted.fixture.destroy();
   });
 
-  it('lets a 404 clear a status an earlier read reported, rather than stand beside it', () => {
+  it('lets a 404 clear a status an earlier event reported, rather than stand beside it', () => {
     const mounted = mount(GUID_A);
     controller = mounted.controller;
-    reads(controller)[0].flush(detail(GUID_A, 'placed'));
+    end(openWith(controller, detail(GUID_A, 'placed')));
 
     vi.advanceTimersByTime(3_000);
-    reads(controller)[0].flush(
-      { title: 'Not Found', status: 404 },
-      { status: 404, statusText: 'Not Found' },
-    );
+    fail(streams(controller)[0], 404, 'Not Found');
 
     expect(mounted.fixture.componentInstance.status()).toBeNull();
     mounted.fixture.destroy();
   });
 
-  it('lets the latest answer decide the note: a 404 after a failed read says not recorded', () => {
+  it('lets the latest answer decide the note: a 404 after a failed open says not recorded', () => {
     const mounted = mount(GUID_A);
     controller = mounted.controller;
-    reads(controller)[0].flush(null, { status: 503, statusText: 'Service Unavailable' });
+    fail(streams(controller)[0], 503, 'Service Unavailable');
     mounted.fixture.detectChanges();
-    expect(mounted.fixture.nativeElement.textContent).toContain('could not be read just now');
+    expect(mounted.fixture.nativeElement.textContent).toContain('could not be reached just now');
 
     vi.advanceTimersByTime(3_000);
-    reads(controller)[0].flush(
-      { title: 'Not Found', status: 404 },
-      { status: 404, statusText: 'Not Found' },
-    );
+    fail(streams(controller)[0], 404, 'Not Found');
     mounted.fixture.detectChanges();
 
-    expect(mounted.fixture.nativeElement.textContent).not.toContain('could not be read just now');
+    expect(mounted.fixture.nativeElement.textContent).not.toContain('could not be reached just now');
     expect(mounted.fixture.nativeElement.textContent).toContain('has not recorded this order yet');
     mounted.fixture.destroy();
   });
@@ -447,36 +538,27 @@ describe('OrderPlacedPage', () => {
   it('resumes after a 401 on the next entry once a session is back, and not after a 403', () => {
     const mounted = mount(GUID_A);
     controller = mounted.controller;
-    reads(controller)[0].flush(
-      { title: 'Unauthorized', status: 401 },
-      { status: 401, statusText: 'Unauthorized' },
-    );
+    fail(streams(controller)[0], 401, 'Unauthorized');
     vi.advanceTimersByTime(120_000);
-    expect(reads(controller)).toEqual([]);
+    expect(streams(controller)).toEqual([]);
 
     // Away to sign in on Account and back: the same buyer, with a session again.
     mounted.fixture.componentInstance.ionViewWillLeave();
     mounted.fixture.componentInstance.ionViewWillEnter();
     expect(mounted.fixture.componentInstance.error()).toBeNull();
 
-    reads(controller)[0].flush(
-      { title: 'Forbidden', status: 403 },
-      { status: 403, statusText: 'Forbidden' },
-    );
+    fail(streams(controller)[0], 403, 'Forbidden');
     mounted.fixture.componentInstance.ionViewWillLeave();
     mounted.fixture.componentInstance.ionViewWillEnter();
 
-    expect(reads(controller)).toEqual([]);
+    expect(streams(controller)).toEqual([]);
     expect(mounted.fixture.componentInstance.error()).toMatchObject({ kind: 'forbidden' });
   });
 
   it('resumes after a 401 when a renewed token arrives for the same subject (#156)', () => {
     const mounted = mount(GUID_A);
     controller = mounted.controller;
-    reads(controller)[0].flush(
-      { title: 'Unauthorized', status: 401 },
-      { status: 401, statusText: 'Unauthorized' },
-    );
+    fail(streams(controller)[0], 401, 'Unauthorized');
     mounted.fixture.detectChanges();
     expect(mounted.fixture.componentInstance.error()).toMatchObject({ kind: 'signIn' });
 
@@ -485,40 +567,33 @@ describe('OrderPlacedPage', () => {
     mounted.fixture.detectChanges();
 
     expect(mounted.fixture.componentInstance.error()).toBeNull();
-    expect(reads(controller)).toHaveLength(1);
+    expect(streams(controller)).toHaveLength(1);
     mounted.fixture.destroy();
-    reads(controller).forEach((r) => r.flush(detail(GUID_A, 'placed')));
   });
 
   it('lifts a sign-in stop when the page becomes visible again (#156)', () => {
     const mounted = mount(GUID_A);
     controller = mounted.controller;
-    reads(controller)[0].flush(
-      { title: 'Unauthorized', status: 401 },
-      { status: 401, statusText: 'Unauthorized' },
-    );
+    fail(streams(controller)[0], 401, 'Unauthorized');
     expect(mounted.fixture.componentInstance.error()).toMatchObject({ kind: 'signIn' });
 
     setVisibility('hidden');
     setVisibility('visible');
 
     expect(mounted.fixture.componentInstance.error()).toBeNull();
-    expect(reads(controller)).toHaveLength(1);
+    expect(streams(controller)).toHaveLength(1);
     mounted.fixture.destroy();
   });
 
   it('does not lift a 403 on a renewed token (#156)', () => {
     const mounted = mount(GUID_A);
     controller = mounted.controller;
-    reads(controller)[0].flush(
-      { title: 'Forbidden', status: 403 },
-      { status: 403, statusText: 'Forbidden' },
-    );
+    fail(streams(controller)[0], 403, 'Forbidden');
 
     mounted.user.set({ ...demo, expiresAt: 1_800_000_000 });
     mounted.fixture.detectChanges();
 
-    expect(reads(controller)).toEqual([]);
+    expect(streams(controller)).toEqual([]);
     expect(mounted.fixture.componentInstance.error()).toMatchObject({ kind: 'forbidden' });
     mounted.fixture.destroy();
   });
