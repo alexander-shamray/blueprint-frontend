@@ -1169,6 +1169,15 @@ minute per push, and enabling it is uncommenting it. It invokes `xcodebuild
 Swift Package Manager project (`ios/App/CapApp-SPM` plus `Package.swift`) and
 there is no `App.xcworkspace` to point at.
 
+The suite that job runs is the smoke plus an accessibility walk
+(`e2e/a11y.spec.ts`, `@axe-core/playwright`, failing on `serious` and
+`critical`), and it runs in three Playwright projects — Chromium at desktop
+width, WebKit and a Pixel 7 phone — serially, on one worker, because the smoke
+leaves orders and products on a stack that cannot delete them. The walk covers
+every route in `app.routes.ts` in both palettes; `app.routes.spec.ts` in the
+unit suite holds its route list to the router. `docs/testing.md` owns how to
+run it and what axe cannot see.
+
 The smoke has no retries (`playwright.config.ts`, `retries: 0`) and no skip
 path: `e2e/smoke.spec.ts`'s `beforeAll` asserts the gateway is answering and
 fails with a message naming the address if it is not. That follows the backend's

@@ -87,7 +87,7 @@ timeout, which is a far more expensive way to find out.
 
 | | |
 |---|---|
-| A browser | `npx playwright install --with-deps chromium`, once |
+| Browsers | `npx playwright install --with-deps chromium webkit`, once; the suite runs in both (below) |
 | The dev server on **5173** | Playwright starts it itself (`webServer` in `playwright.config.ts`), and reuses a running one outside CI |
 | The backend's gateway on **5000** | `docker compose -f deploy/compose/docker-compose.yml up -d --wait` in the backend checkout |
 | Keycloak on **8080** | part of the same stack; the smoke signs in through it |
@@ -104,6 +104,29 @@ e2e run needs* is this table. `/ship`, `/review-branch`, `/bug-sweep`,
 `npm-checks.sh` and `CLAUDE.md` each name the prerequisite and point here
 rather than repeating the number — they used to repeat it, which is how one
 port change would have left five stale copies behind.
+
+**Three projects, run one after another.** `playwright.config.ts` defines
+`chromium` (desktop, what the suite always was), `webkit` (Desktop Safari: the
+engine of the iOS WebView) and `phone` (the Pixel 7 descriptor: Chromium, the
+Android WebView's engine, at a phone's viewport with touch). Every spec runs in
+every project, and `workers: 1` makes them serial, because the smoke places an
+order and publishes products on a stack with no delete endpoint; in parallel
+the projects would share one `demo` user's session state. Run one with
+`npm run e2e -- --project webkit`. A WebKit run needs the second browser
+installed above, and on Linux the system libraries `--with-deps` brings.
+
+**The accessibility walk is `e2e/a11y.spec.ts`**, and it fails on any `serious`
+or `critical` axe violation. It signs in as `demo`, which holds `catalog:write`,
+and walks every route in the state a person sees it — the product sheet open,
+the cart quoted, the checkout form, the placed order once its status has
+settled — in both palettes, because the dark one is `dark.system.css` and only
+shows under the OS preference (`colorScheme` in the test). It asserts the
+address before each scan, so a guard's bounce fails the walk instead of being
+scanned as the page it was bounced to. `e2e/a11y-routes.ts` is the list of
+routes the walk claims; `src/app/app.routes.spec.ts` fails the unit suite when
+that list and the router disagree, which is what stops the gate silently
+missing the next route added. Axe cannot see focus management, so what follows
+from a navigation or a closed modal is not covered by it.
 
 **There is no skip path, and that is the rule rather than an omission.**
 `e2e/smoke.spec.ts`'s `beforeAll` asserts the gateway is answering and fails
