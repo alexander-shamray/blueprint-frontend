@@ -249,7 +249,7 @@ def registered(toplevel, owner_toplevel, owner_common):
     try:
         with open(marker, encoding="utf-8") as handle:
             text = handle.read().strip()
-    except OSError:
+    except (OSError, ValueError):
         return False
     if not text.startswith("gitdir:"):
         return False
@@ -267,14 +267,25 @@ def registered(toplevel, owner_toplevel, owner_common):
             return False
     except OSError:
         return False
-    gitdir = os.path.join(toplevel, text.split(":", 1)[1].strip())
-    admin = os.path.realpath(gitdir)
+    # **A NUL in the marker is refused here, not raised
+    # (alexander-shamray/blueprint-frontend#150).** git stops at the NUL and
+    # reports this repository's common directory, and `realpath` raises
+    # `ValueError` for it, which nothing above this function catches.
+    try:
+        gitdir = os.path.join(toplevel, text.split(":", 1)[1].strip())
+        admin = os.path.realpath(gitdir)
+    except ValueError:
+        return False
     if not same(os.path.dirname(admin), os.path.join(owner_common, "worktrees")):
         return False
+    # **Read through `admin`, the path that was checked, not through `gitdir`
+    # (#150).** The two name one directory only while a link in `gitdir` stays
+    # where `realpath` found it; a link switched after the check would send
+    # this read to a directory nobody judged.
     try:
-        with open(os.path.join(gitdir, "gitdir"), encoding="utf-8") as handle:
+        with open(os.path.join(admin, "gitdir"), encoding="utf-8") as handle:
             backlink = handle.read().strip()
-    except OSError:
+    except (OSError, ValueError):
         return False
     # Relative to the admin directory under `worktree.useRelativePaths`
     # (git 2.48 and later), and an absolute path is unchanged by the join.
@@ -446,6 +457,10 @@ def index_openable(root):
     100-byte header, which a first build creates before it writes anything:
     there is no database in it to replay into. The cost of a refusal is a
     stale index, never a write.
+
+    **Asked by the skill's own route too.** `gate-index.py` loads this file and
+    asks this function before `run-index` or `cbx` starts the CLI
+    (alexander-shamray/blueprint-frontend#138), so the judgement has one owner.
     """
     if not index_unlinked(root):
         return False

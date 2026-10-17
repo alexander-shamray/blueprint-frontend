@@ -801,6 +801,71 @@ class TheRootFollowsTheActiveWorktree(unittest.TestCase):
         self.assertFalse(self.hook.registered(forged, self.main, self.common))
         self.assertIsNone(self.hook.target_root(forged, self.main))
 
+    def admin_of(self, worktree):
+        """The registered worktree's admin directory under `<common>/worktrees/`."""
+        base = os.path.join(self.common, "worktrees")
+        for name in os.listdir(base):
+            if os.path.basename(worktree) == name:
+                return os.path.join(base, name)
+        self.fail(f"no admin directory for {worktree} in {os.listdir(base)}")
+
+    def test_a_nul_in_a_git_file_is_refused_not_raised(self):
+        # alexander-shamray/blueprint-frontend#150: git stops at the NUL and
+        # reports this repository's common directory, and `realpath` raises
+        # ValueError for the embedded byte. Every event naming the tree
+        # crashed the hook with a traceback instead of refusing it.
+        forged = os.path.join(self.base, "forged-nul")
+        os.mkdir(forged)
+        admin = self.admin_of(self.sibling)
+        with open(os.path.join(forged, ".git"), "wb") as handle:
+            handle.write(f"gitdir: {admin}\0junk\n".encode())
+        self.assertFalse(self.hook.registered(forged, self.main, self.common))
+        self.assertIsNone(self.hook.target_root(forged, self.main))
+        # Windows resolves such a path without raising and POSIX raises, so the
+        # POSIX answer is simulated for the host that would not show it.
+        realpath = os.path.realpath
+
+        def strict(path, *a, **k):
+            if "\0" in str(path):
+                raise ValueError("embedded null byte")
+            return realpath(path, *a, **k)
+
+        with mock.patch.object(self.hook.os.path, "realpath", side_effect=strict):
+            self.assertFalse(self.hook.registered(forged, self.main, self.common))
+
+    def test_a_git_file_that_is_not_utf_8_is_refused_not_raised(self):
+        forged = os.path.join(self.base, "forged-bytes")
+        os.mkdir(forged)
+        with open(os.path.join(forged, ".git"), "wb") as handle:
+            handle.write(b"gitdir: \xff\xfe\n")
+        self.assertFalse(self.hook.registered(forged, self.main, self.common))
+
+    def test_the_backlink_is_read_from_the_directory_that_was_checked(self):
+        # alexander-shamray/blueprint-frontend#150: the location check was made
+        # on `realpath(gitdir)` and the backlink was then read through the
+        # unresolved `gitdir`. A link switched between the two, simulated here
+        # by resolving `attacker` to the real admin directory while the
+        # unresolved path still holds an attacker's backlink, passed both.
+        forged = os.path.join(self.base, "forged-switch")
+        attacker = os.path.join(self.base, "attacker-admin")
+        os.mkdir(forged)
+        os.mkdir(attacker)
+        marker = os.path.join(forged, ".git")
+        with open(marker, "w", encoding="utf-8") as handle:
+            handle.write(f"gitdir: {attacker}\n")
+        with open(os.path.join(attacker, "gitdir"), "w", encoding="utf-8") as handle:
+            handle.write(marker + "\n")
+        admin = self.admin_of(self.sibling)
+        realpath = os.path.realpath
+
+        def switched(path, *a, **k):
+            if os.path.normcase(os.path.abspath(path)) == os.path.normcase(os.path.abspath(attacker)):
+                return realpath(admin, *a, **k)
+            return realpath(path, *a, **k)
+
+        with mock.patch.object(self.hook.os.path, "realpath", side_effect=switched):
+            self.assertFalse(self.hook.registered(forged, self.main, self.common))
+
 
 class OneWorkerPerRootAndNoEditDropped(unittest.TestCase):
     """Copilot, rounds 1 to 3: one worker per root, and no edit dropped.
