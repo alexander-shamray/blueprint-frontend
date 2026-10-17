@@ -1478,20 +1478,22 @@ class TheIndexIsCompactedAfterARefresh(unittest.TestCase):
             self.assertFalse(self.hook.compact(self.root))
         self.assertEqual(before, self.snapshot())
 
-    def test_a_checkpoint_held_back_by_a_reader_is_not_reported_done(self):
-        # A reader holding a snapshot makes `wal_checkpoint(TRUNCATE)` report
-        # busy rather than raise, and the rewritten file then waits in the
-        # `-wal`; `compact` must not report that as a finished compaction.
+    def test_a_connection_held_open_on_the_index_refuses_the_compaction(self):
+        # A reader leaves a `-wal` and a `-shm` beside the index, which is
+        # when a rename over it would put a stale log beside a new database
+        # (alexander-shamray/blueprint-frontend#139). Nothing is opened.
         self.build(segments=True, free=True)
         reader = sqlite3.connect(self.index, isolation_level=None)
         self.addCleanup(reader.close)
         reader.execute("BEGIN")
         reader.execute("SELECT count(*) FROM chunks").fetchone()
-        with mock.patch.object(self.hook.sqlite3, "connect",
-                               lambda *a, **k: sqlite3.Connection(
-                                   *a, **{**k, "timeout": 0.1})):
+        self.assertTrue(os.path.lexists(self.index + "-wal"))
+        before = self.snapshot()
+        with mock.patch.object(self.hook.sqlite3, "connect") as connect:
             self.assertFalse(self.hook.compact(self.root))
+        connect.assert_not_called()
         reader.execute("COMMIT")
+        self.assertEqual(before, self.snapshot())
 
     def test_a_plain_table_named_in_capitals_is_refused(self):
         # SQLite resolves names folded, so `FTS_CHUNKS_DATA` is the table
@@ -1598,6 +1600,120 @@ class TheIndexIsCompactedAfterARefresh(unittest.TestCase):
         with mock.patch.object(self.hook.subprocess, "Popen") as popen:
             self.hook.refresh(self.root, self.root, mock.Mock())
         popen.assert_not_called()
+
+    def owned_files(self):
+        """What the compaction may leave under the hook's state directory."""
+        directory = self.hook.state_dir(self.root)
+        return sorted(name for name in os.listdir(directory) if "compact" in name)
+
+    def cache_files(self):
+        return sorted(os.listdir(os.path.dirname(self.index)))
+
+    def test_nothing_that_writes_opens_the_index(self):
+        # alexander-shamray/blueprint-frontend#139: SQLite opens the sidecars
+        # beside a database lazily, so any connection to the branch's path
+        # that can write follows a link or replays a journal that landed after
+        # the check. The index is read through an immutable, read-only URI and
+        # the compaction runs on a copy.
+        self.build(segments=True, free=True)
+        real_connect = sqlite3.connect
+        opened = []
+
+        def spy(target, *args, **kwargs):
+            opened.append((str(target), kwargs.get("uri", False)))
+            return real_connect(target, *args, **kwargs)
+
+        with mock.patch.object(self.hook.sqlite3, "connect", spy):
+            self.assertTrue(self.hook.compact(self.root))
+        reads = [target for target, uri in opened if uri]
+        self.assertEqual(1, len(reads), opened)
+        self.assertIn("mode=ro", reads[0])
+        self.assertIn("immutable=1", reads[0])
+        cache = os.path.normcase(os.path.dirname(self.index))
+        writers = [target for target, uri in opened if not uri]
+        self.assertTrue(writers, opened)
+        for target in writers:
+            self.assertFalse(os.path.normcase(target).startswith(cache), target)
+
+    def test_a_compaction_leaves_no_copy_and_no_sidecar_behind(self):
+        self.build(segments=True, free=True)
+        self.assertTrue(self.hook.compact(self.root))
+        self.assertEqual([], self.owned_files())
+        self.assertEqual(["index.sqlite"], self.cache_files())
+
+    def test_a_refused_compaction_leaves_no_copy_behind(self):
+        self.build(segments=True, free=True)
+        with mock.patch.object(self.hook, "shaped", return_value=False):
+            self.assertFalse(self.hook.compact(self.root))
+        self.assertEqual([], self.owned_files())
+
+    def test_a_copy_a_killed_worker_left_is_removed(self):
+        self.build(segments=True, free=True)
+        partial = self.hook.state_path(self.root, self.root, "compact.sqlite")
+        os.makedirs(os.path.dirname(partial), exist_ok=True)
+        for suffix in ("", "-wal"):
+            Path(partial + suffix).write_bytes(b"left by a worker that was killed")
+        self.assertTrue(self.hook.compact(self.root))
+        self.assertEqual([], self.owned_files())
+
+    def test_a_stale_log_beside_the_index_is_never_replayed(self):
+        # Measured: a `-wal` laid beside a replaced database is replayed into
+        # it. So the log's presence refuses the compaction, and the bytes at
+        # the index path are not touched.
+        self.build(segments=True, free=True)
+        Path(self.index + "-wal").write_bytes(b"\x37\x7f\x06\x82" + b"\0" * 28)
+        before = self.snapshot()
+        self.assertFalse(self.hook.compact(self.root))
+        self.assertEqual(before, self.snapshot())
+        self.assertTrue(os.path.lexists(self.index + "-wal"))
+
+    def test_a_sidecar_that_appears_during_the_copy_discards_it(self):
+        # Asked again at the last moment before the rename: a connection that
+        # opened the index while it was being copied.
+        self.build(segments=True, free=True)
+        before = self.snapshot()
+        real = self.hook.shaped
+
+        def appears(conn):
+            Path(self.index + "-shm").write_bytes(b"")
+            return real(conn)
+
+        with mock.patch.object(self.hook, "shaped", appears):
+            self.assertFalse(self.hook.compact(self.root))
+        self.assertEqual(before, self.snapshot())
+        self.assertEqual([], self.owned_files())
+
+    def test_an_index_written_during_the_copy_is_not_replaced(self):
+        # An immutable connection takes no lock, so a write that finished
+        # inside the window shows only as a changed file.
+        self.build(segments=True, free=True)
+        real = self.hook.shaped
+
+        def written_meanwhile(conn):
+            with open(self.index, "ab") as handle:
+                handle.write(b"\0")
+            return real(conn)
+
+        with mock.patch.object(self.hook, "shaped", written_meanwhile):
+            self.assertFalse(self.hook.compact(self.root))
+        self.assertEqual([], self.owned_files())
+        self.assertEqual(["index.sqlite"], self.cache_files())
+
+    def test_a_rename_the_platform_refuses_leaves_the_index_alone(self):
+        # Windows refuses a rename over a file a reader has open.
+        self.build(segments=True, free=True)
+        before = self.snapshot()
+        with mock.patch.object(self.hook.os, "replace", side_effect=PermissionError("in use")):
+            self.assertFalse(self.hook.compact(self.root))
+        self.assertEqual(before, self.snapshot())
+        self.assertEqual([], self.owned_files())
+
+    def test_the_compacted_index_is_in_wal_mode_and_is_still_openable(self):
+        self.build(segments=True, free=True)
+        self.assertTrue(self.hook.compact(self.root))
+        with open(self.index, "rb") as handle:
+            self.assertEqual(b"\x02\x02", handle.read(100)[18:20])
+        self.assertTrue(self.hook.index_openable(self.root))
 
     def test_a_refresh_that_succeeded_is_compacted(self):
         self.refresh_exiting(lambda timeout=None: 0).assert_called_once_with(self.root)
