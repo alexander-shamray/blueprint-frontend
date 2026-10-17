@@ -672,16 +672,15 @@ would govern.
 **Blueprint-frontend#114 retired the question without answering it, and
 blueprint-frontend#225 leaves it unanswered on purpose.** `Bash(git pull
 --ff-only)` is withdrawn from `ship.md` for `git-pull-ff-only.sh`, granted
-**exactly**, which takes no
-argument at all (anything else exits 2 before git runs), spells `origin` and
-`--ff-only` itself, and names the branch from the checkout. Whether an allow
-rule without `:*` is an exact match therefore no longer decides anything for
-this operation: a trailing `ext::<cmd>` reaches a script that refuses it, and
-a substitution in the tail is the hook's, which holds a granted helper's
-arguments to plain words (blueprint-frontend#179). `gh-pr-create.sh`'s exact
-grant is the same shape: the helper takes no argument and exits 2 on any,
-before it reads a file, so whether its grant is an exact match decides nothing
-there either.
+**exactly**, which takes no argument at all (anything else exits 2 before git
+runs), spells `origin` and `--ff-only` itself, and names the branch from the
+checkout. Whether an allow rule without `:*` is an exact match therefore no
+longer decides anything for this operation: a trailing `ext::<cmd>` reaches a
+script that refuses it, and a substitution in the tail is the hook's, which
+holds a granted helper's arguments to plain words (blueprint-frontend#179).
+`gh-pr-create.sh`'s exact grant is the same shape: the helper takes no argument
+and exits 2 on any, before it reads a file, so whether its grant is an exact
+match decides nothing there either.
 
 **The measurement is not owed, and a run on 2026-10-17 is why.**
 `git-pull-ff-only.sh "$(true)"` was refused by that hook before any grant was
