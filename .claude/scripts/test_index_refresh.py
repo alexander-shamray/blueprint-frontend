@@ -1232,6 +1232,31 @@ class OneWorkerPerRootAndNoEditDropped(unittest.TestCase):
         # After the two records the claim writes.
         self.assertEqual(expected + ["killed", "reaped", "write ''"], order[2:])
 
+    def test_a_child_that_outlived_the_kill_keeps_the_next_marker_waiting(self):
+        # Review round 1: the record only stands the next worker off. The
+        # same worker took the next marker and started a second indexer.
+        child = subprocess.Popen([sys.executable, "-c", "import sys; sys.stdin.read()"],
+                                 stdin=subprocess.PIPE)
+
+        def stop():
+            child.kill()
+            child.wait(timeout=30)
+            child.stdin.close()
+
+        self.addCleanup(stop)
+        runs = []
+
+        def refresh(owner, root, lock):
+            runs.append(root)
+            lock.write(str(child.pid))
+            self.hook.mark_pending(owner, root)
+
+        self.hook.mark_pending(self.root, self.root)
+        with mock.patch.object(self.hook, "refresh", side_effect=refresh):
+            self.hook.work(self.root, self.root)
+        self.assertEqual(1, len(runs))
+        self.assertTrue(os.path.exists(self.hook.pending_path(self.root, self.root)))
+
     def test_a_child_that_outlives_the_kill_keeps_its_record(self):
         # Cleared only once the child is reaped: one still running after the
         # kill is the indexer the next worker must stand off from.

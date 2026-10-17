@@ -2057,7 +2057,8 @@ second running: the record was cleared, and the next worker started a second
 indexer against the same cache. `stop` now runs `taskkill /T /F` on the child
 first, and `refresh` clears the record only once the child has been reaped, so
 one that survives the kill keeps its pid there and the next worker stands off.
-POSIX `exec` keeps the pid, and needs no such call. The sixth round of that
+The same worker stands off too: it asks again before every marker, not once
+per lock. POSIX `exec` keeps the pid, and needs no such call. The sixth round of that
 review raised it, the one that spent the loop's ceiling.
 
 **A record left by a killed worker names a pid the system may reuse**, and
