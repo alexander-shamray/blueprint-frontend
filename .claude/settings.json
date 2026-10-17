@@ -123,6 +123,16 @@
             "timeout": 15
           }
         ]
+      },
+      {
+        "matcher": "mcp__codebase-index__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${CLAUDE_PROJECT_DIR}/.claude/hooks/run-guard.sh\" index-mcp-root.py || :",
+            "timeout": 5
+          }
+        ]
       }
     ],
     "PostToolUse": [

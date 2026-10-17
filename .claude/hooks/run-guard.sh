@@ -55,7 +55,7 @@
 # and the mark forgotten, so the next call probes again. Never a second
 # candidate in the same call: the first may have read the event, and the two
 # guards `settings.json` wires allow an event they cannot read. The index
-# refresh and the two hints, the three hooks here that guard nothing, ignore one.
+# refresh and the three hints, the four hooks here that guard nothing, ignore one.
 #
 # **What that costs is one refused call when the host changes under a mark**,
 # where the probe moved on to the next candidate unnoticed. A mark that cannot
@@ -80,15 +80,16 @@ trap 'exit 2' EXIT
 trap 'exit 2' PIPE
 
 [ "$#" -eq 1 ] ||
-  { echo "usage: run-guard.sh <guard-git-argv.py|guard-edit-target.py|index-refresh.py|index-query-hint.py|index-search-hint.py>" >&2; exit 2; }
+  { echo "usage: run-guard.sh <guard-git-argv.py|guard-edit-target.py|index-refresh.py|index-query-hint.py|index-mcp-root.py|index-search-hint.py>" >&2; exit 2; }
 
-# Three of these guard nothing: the index refresh, the query hint
-# (alexander-shamray/blueprint-frontend#126) and the search hint (#166, #167).
-# Both hints' wirings end `|| :`, because the 2 this file leaves with on every
+# Four of these guard nothing: the index refresh, the query hint
+# (alexander-shamray/blueprint-frontend#126), the search hint (#166, #167) and
+# the MCP root guard (#195). All three hints' wirings end `|| :`, because the 2
+# this file leaves with on every
 # failure would erase the prompt under `UserPromptSubmit`, and under
 # `PreToolUse` would block every Grep and shell call of the session.
 case "$1" in
-  guard-git-argv.py|guard-edit-target.py|index-refresh.py|index-query-hint.py|index-search-hint.py) ;;
+  guard-git-argv.py|guard-edit-target.py|index-refresh.py|index-query-hint.py|index-mcp-root.py|index-search-hint.py) ;;
   *) echo "run-guard.sh: not a hook this launcher runs: $1" >&2; exit 2 ;;
 esac
 

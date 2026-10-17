@@ -14,7 +14,6 @@ import sys
 import tempfile
 from pathlib import Path
 
-RUN = "bash .claude/skills/codebase-index/scripts/run-index"
 MCP = "mcp__codebase-index__"
 
 # Each `run-index` subcommand a hint can name and the MCP tool answering the
@@ -411,26 +410,6 @@ def looked(transcript: Path) -> bool:
     return bool(waiting)
 
 
-def in_worktree(cwd: str) -> bool:
-    """True when `cwd` is in a linked worktree: a `.git` file whose gitdir
-    carries a `commondir`. The MCP server keeps the root it started in."""
-    try:
-        start = Path(cwd).resolve()
-        for candidate in (start, *start.parents):
-            marker = candidate / ".git"
-            if marker.is_dir():
-                return False
-            if marker.is_file():
-                text = marker.read_text(encoding="utf-8").strip()
-                if not text.startswith("gitdir:"):
-                    return False
-                git_dir = (candidate / text[len("gitdir:"):].strip()).resolve()
-                return (git_dir / "commondir").is_file()
-    except (OSError, ValueError):
-        return False
-    return False
-
-
 def names(pattern: str) -> list[str]:
     """The symbols a search pattern names: one, or an alternation of them,
     word boundaries, a call form and a wrapping group dropped. A name in one
@@ -470,21 +449,19 @@ def first(asked: Path) -> bool:
     return True
 
 
-def ask(found: list[str], worktree: bool) -> str:
-    """The refusal's reason: one route to the index, the one that answers
-    from this tree, because the MCP server serves the checkout it started in."""
+def ask(found: list[str]) -> str:
+    """The refusal's reason: the MCP tools, one route for every checkout.
+
+    The server serves the checkout the session started in. A session that
+    `/branch` moved into a worktree is refused on its first call by
+    `index-mcp-root.py`, which names the `run-index` line that reads this tree
+    (alexander-shamray/blueprint-frontend#195), so this hint no longer has to
+    guess where the session works and send it the longer route unasked.
+    """
     named = ", ".join(f"`{name}`" for name in found)
-    if worktree:
-        runs = ", ".join(f'`{RUN} refs "{name}" --json`' for name in found)
-        route = (f"load the codebase-index skill, whose grant the CLI runs under, then run from the "
-                 f"worktree's root {runs}, adding `--kind callers` for call sites only, and "
-                 f"`{RUN} symbol \"{found[0]}\" --json` for where it is defined, each alone on its line, "
-                 "with no pipe, `;` or `&&`, which the skill's grant does not cover; the CLI reads this "
-                 "worktree's own index")
-    else:
-        load = ",".join(MCP + TOOLS[tool] for tool in ("refs", "symbol"))
-        route = (f"call `{MCP}{TOOLS['refs']}` for what uses each and `{MCP}{TOOLS['symbol']}` for where "
-                 f"it is defined, loaded first with ToolSearch `select:{load}`")
+    load = ",".join(MCP + TOOLS[tool] for tool in ("refs", "symbol"))
+    route = (f"call `{MCP}{TOOLS['refs']}` for what uses each and `{MCP}{TOOLS['symbol']}` for where "
+             f"it is defined, loaded first with ToolSearch `select:{load}`")
     return (f"Before searching for {named}, ask the code index: {route}. This search is refused once "
             "per session; rerun it unchanged if you still need every occurrence.")
 
@@ -506,7 +483,7 @@ def answer(event: dict) -> str | None:
         return None
     if not first(asked):
         return None
-    return ask(found[:NAMES], bool(cwd) and in_worktree(cwd))
+    return ask(found[:NAMES])
 
 
 def main() -> int:

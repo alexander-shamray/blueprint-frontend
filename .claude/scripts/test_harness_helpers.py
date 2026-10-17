@@ -9253,10 +9253,10 @@ class ALauncherCheckout:
         if guards:
             for path in source.glob("guard-*.py"):
                 shutil.copy2(path, self.hooks / path.name)
-            # The index refresh and the two hints are the hooks here that
+            # The index refresh and the three hints are the hooks here that
             # guard nothing, and the closed set admits them beside the guards.
             for name in ("index-refresh.py", "index-query-hint.py",
-                         "index-search-hint.py"):
+                         "index-search-hint.py", "index-mcp-root.py"):
                 shutil.copy2(source / name, self.hooks / name)
         self.launcher = self.hooks / "run-guard.sh"
         self.cache = self.root / ".claude" / "cache"
@@ -9955,6 +9955,9 @@ class ARememberedGuardAnswersAsAProbedOne(LauncherMarkCases, unittest.TestCase):
         ("index-search-hint.py",
          {"tool_name": "Grep", "tool_input": {"pattern": "MoneyPipe"}}),
         ("index-search-hint.py", "not json"),
+        # The MCP root guard denies only a call it can place in another
+        # checkout than the one the server reads, and fails open on the rest.
+        ("index-mcp-root.py", "not json"),
     )
 
     def both(self, box, guard="guard-git-argv.py", event="{}"):
