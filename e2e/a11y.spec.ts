@@ -58,7 +58,7 @@ for (const colorScheme of ['light', 'dark'] as const) {
         await expect(page).toHaveURL(addressOf(route));
         // Polled, not scanned once: Ionic fades a page in, and on WebKit under
         // Linux a scan taken as the page arrives measured text at 1.01:1
-        // (#fdfdfd on #fff) - a colour no one sees at rest, and one that
+        // (#fdfdfd on #fff) — a colour no one sees at rest, and one that
         // `settle` cannot wait out because Ionic drives some of the fade
         // itself. A violation present at rest is present on every poll and
         // fails when the window ends; one that was only the fade clears.
