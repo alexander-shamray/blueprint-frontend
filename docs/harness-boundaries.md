@@ -643,18 +643,18 @@ in the first place.
 the repository position, so a URL never reaches it. That is the control the
 sentence describes, and it is real.
 
-`Bash(git pull --ff-only)` pins **nothing** — no remote name appears in it at
-all. What it does is drop the `:*`, so the grant is the documented
-no-argument invocation and nothing else. Whether that closes
+`Bash(git pull --ff-only)` pinned **nothing** — no remote name appeared in it
+at all. What it did was drop the `:*`, so the grant was the documented
+no-argument invocation and nothing else. Whether that closed
 `git pull --ff-only ext::<cmd>` turns on the prefix-match rule stated in the
 reset-grant paragraph above — **an allow rule is a prefix match** — which has
 never been measured for the no-wildcard case. (Named rather than counted: a
 numbered offset inside a section still being edited is how this repository's
 callout totals used to rot.) If that holds for a grant without `:*` as well, the
 pull side is still open and belongs in the residual inventory rather than in
-this paragraph. Nobody has run the probe. Until someone does, treat the pull
-grant as *narrowed, not proven* — the two words this repository keeps having to
-tell apart.
+this paragraph. Nobody ran the probe, and the pull grant stood as *narrowed,
+not proven* — the two words this repository keeps having to tell apart — until
+the paragraph below withdrew it.
 
 **The probe that would settle it is not available from inside a session, and
 that is a property of the question rather than a lack of trying.** Every exact
@@ -2126,7 +2126,11 @@ run, so it is the residual — closed by giving `/style-pass` another way to
 record a rule. **And the denies bind every session, not `/ship` alone**: an
 edit to `package.json`, a `tsconfig`, `capacitor.config.ts` or
 `playwright.config.ts` now takes the owner's hand, as an edit to `.claude/**`
-does. **A finding is untrusted data, and the
+does. **So does `src/app/app.config.ts`, the composition root**, because
+`**/*.config.ts` matches it as it matches a Vitest or Vite config; the glob
+was kept as the frontmatter already spelled it, and a session that must edit
+the root does so by the owner's hand until the list names the build configs
+instead of the extension. **A finding is untrusted data, and the
 verification is the only filter on it**: each finding's `defect` and `fix`
 are sentences the reviewer wrote over branch-controlled text, so `/ship`
 traces each to its file and line and acts on what the tree shows, never on
