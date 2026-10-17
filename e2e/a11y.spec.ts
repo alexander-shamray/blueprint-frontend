@@ -56,18 +56,32 @@ for (const colorScheme of ['light', 'dark'] as const) {
        */
       async function scan(route: A11yRoute, state: string) {
         await expect(page).toHaveURL(addressOf(route));
-        await settle(page);
-        const { violations } = await new AxeBuilder({ page }).analyze();
-        const blocking = violations
-          .filter((violation) => violation.impact === 'serious' || violation.impact === 'critical')
-          .map((violation) => ({
-            rule: violation.id,
-            impact: violation.impact,
-            help: violation.help,
-            targets: violation.nodes.map((node) => node.target.join(' ')),
-            why: violation.nodes.map((node) => node.failureSummary),
-          }));
-        expect(blocking, `${route} (${state}), ${colorScheme}`).toEqual([]);
+        // Polled, not scanned once: Ionic fades a page in, and on WebKit under
+        // Linux a scan taken as the page arrives measured text at 1.01:1
+        // (#fdfdfd on #fff) - a colour no one sees at rest, and one that
+        // `settle` cannot wait out because Ionic drives some of the fade
+        // itself. A violation present at rest is present on every poll and
+        // fails when the window ends; one that was only the fade clears.
+        await expect
+          .poll(
+            async () => {
+              await settle(page);
+              const { violations } = await new AxeBuilder({ page }).analyze();
+              return violations
+                .filter(
+                  (violation) => violation.impact === 'serious' || violation.impact === 'critical',
+                )
+                .map((violation) => ({
+                  rule: violation.id,
+                  impact: violation.impact,
+                  help: violation.help,
+                  targets: violation.nodes.map((node) => node.target.join(' ')),
+                  why: violation.nodes.map((node) => node.failureSummary),
+                }));
+            },
+            { message: `${route} (${state}), ${colorScheme}`, timeout: 5_000 },
+          )
+          .toEqual([]);
         scanned.add(route);
       }
 
