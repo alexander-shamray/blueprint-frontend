@@ -669,9 +669,10 @@ harness does not already wave through, which means adding a rule to a file the
 session reads at startup — so it cannot be arranged from within the session it
 would govern.
 
-**Blueprint-frontend#114 retired the question without answering it, and #225
-leaves it unanswered on purpose.** `Bash(git pull --ff-only)` is withdrawn from
-`ship.md` for `git-pull-ff-only.sh`, granted **exactly**, which takes no
+**Blueprint-frontend#114 retired the question without answering it, and
+blueprint-frontend#225 leaves it unanswered on purpose.** `Bash(git pull
+--ff-only)` is withdrawn from `ship.md` for `git-pull-ff-only.sh`, granted
+**exactly**, which takes no
 argument at all (anything else exits 2 before git runs), spells `origin` and
 `--ff-only` itself, and names the branch from the checkout. Whether an allow
 rule without `:*` is an exact match therefore no longer decides anything for
