@@ -55,7 +55,10 @@ root's lock runs one more refresh for as long as it finds one; an edit that
 finds the lock held starts nothing, because the worker will see its marker.
 The edit marks before it looks at the lock, and the worker looks for a marker
 once more after it lets go, so the edit landing between those two steps is
-still served by one side or the other.
+still served by one side or the other. A marker the worker cannot take —
+Windows will not remove a file the hook still holds open — is retried a few
+times with the lock released, so that edit is served too
+(alexander-shamray/blueprint-frontend#149).
 
 **The lock is the operating system's, held for the worker's lifetime.** It
 began as a lock *file* whose existence was the lock, which needed an age to
@@ -115,6 +118,13 @@ CACHE = os.path.join(".claude", "cache", "codebase-index")
 # A refresh that has not finished by now is killed, so a worker never hangs.
 RUN_TIMEOUT = 300
 
+# A pending marker the worker could not remove is tried again this many times,
+# this many seconds apart, with the lock released between tries, and then left
+# for the next edit: a marker held open for an instant is served, and one that
+# will never go cannot hold the worker.
+MARKER_RETRIES = 5
+MARKER_WAIT = 0.2
+
 # An index is compacted once its free pages pass this share of the file, or its
 # full-text table passes this many segment rows per chunk — far above a fresh
 # build's, which alexander-shamray/blueprint-frontend#128 measured.
@@ -172,6 +182,11 @@ def same(a, b):
         return False
 
 
+def git_env():
+    """The environment `git` is run in: the caller's, less what could aim it elsewhere."""
+    return {k: v for k, v in os.environ.items() if k not in GIT_ENV_OVERRIDES}
+
+
 def git_paths(directory, deadline):
     """`(toplevel, common_dir)` for the checkout holding `directory`, or None.
 
@@ -184,7 +199,7 @@ def git_paths(directory, deadline):
     remaining = deadline - time.monotonic()
     if remaining <= 0:
         return None
-    env = {k: v for k, v in os.environ.items() if k not in GIT_ENV_OVERRIDES}
+    env = git_env()
     try:
         out = subprocess.run(
             ["git", "-C", directory, "rev-parse", "--show-toplevel", "--git-common-dir"],
@@ -506,6 +521,45 @@ def main_checkout(owner):
     return found
 
 
+_IGNORED = {}
+
+
+def index_ignored(root):
+    """Whether git reports the root's index path ignored.
+
+    **The seed leaves the main checkout's indexed text at a path only
+    `.gitignore` keeps out of a commit**, and a branch checked out in the
+    worktree can drop that line. The path then holds an untracked, unignored
+    file that an unscoped `/commit` or a hand-run `git add -A` would commit
+    and `/pr` would push, and the index's free pages may keep chunks from
+    before a compaction (alexander-shamray/blueprint-frontend#148). So git is
+    asked, and only a yes seeds.
+
+    Asked of git once per root and remembered, as `main_checkout` is, because
+    the worker asks again long after the event's git budget is spent; `work`
+    asks it before that. An answer git did not give — the budget spent, no
+    git, a path behind a link — is a no, and is not remembered, so a later
+    event with budget asks again.
+    """
+    if root in _IGNORED:
+        return _IGNORED[root]
+    remaining = deadline() - time.monotonic()
+    if remaining <= 0:
+        return False
+    path = CACHE.replace(os.sep, "/") + "/index.sqlite"
+    try:
+        done = subprocess.run(
+            ["git", "-C", root, "check-ignore", "-q", "--", path],
+            capture_output=True, timeout=remaining, env=git_env(), check=False)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    # 0 ignored, 1 not ignored; anything else is git failing to answer.
+    if done.returncode not in (0, 1):
+        return False
+    _IGNORED[root] = done.returncode == 0
+    return _IGNORED[root]
+
+
 def seed_source(owner, root):
     """The index a root with none is seeded from, or None.
 
@@ -519,8 +573,13 @@ def seed_source(owner, root):
     checkout's index over it would leave a tracked file holding the main
     checkout's text for an unscoped commit to sweep up. A root with anything
     at its index path is left to `update`, or to a person.
+
+    **Only where git ignores that path** (`index_ignored`): the other half of
+    the same sweep, a branch that stopped ignoring the directory.
     """
     if written(root) or os.path.lexists(os.path.join(root, CACHE, "index.sqlite")):
+        return None
+    if not index_ignored(root):
         return None
     main = main_checkout(owner)
     if main is None:
@@ -800,8 +859,10 @@ def take_pending(owner, root):
     **A removal that fails is not an absent marker**, and reporting it as one
     spun the worker: the inner loop ended, the marker was still there, and the
     outer loop took the lock again and retried with nothing changed, for ever.
-    Raised by Copilot. `None` says the marker is there and could not be taken,
-    which ends the worker and leaves the marker for the next edit to serve.
+    Raised by Copilot. `None` says the marker is there and could not be taken.
+    `work` tries again a bounded number of times, with the lock released
+    between tries, and then ends and leaves the marker for the next edit to
+    serve.
     """
     try:
         os.remove(pending_path(owner, root))
@@ -870,6 +931,40 @@ def running_indexer(lock):
         return pid
 
 
+def kill_tree(pid):
+    """End a process and everything it started, by asking Windows to.
+
+    **On Windows `child.kill()` ends the Git Bash stub and nothing under it
+    (alexander-shamray/blueprint-frontend#153).** `run-index` ends in
+    `exec codebase-index "$@"`, and the MSYS runtime cannot replace a process
+    with a native program: `bash.exe` stays as the process `Popen` named and
+    the indexer runs beneath it. Measured on this workstation, `bash -c 'exec
+    python …'` left `bash.exe` as the pid `Popen` returned and `python.exe` as
+    its child, and `kill()` ended the first and not the second. `taskkill /T
+    /F` walks the tree. Best effort: what it cannot end `refresh` finds still
+    running when it reaps, and leaves on the record.
+    """
+    try:
+        subprocess.run(["taskkill", "/T", "/F", "/PID", str(pid)],
+                       capture_output=True, timeout=10, check=False)
+    except (OSError, subprocess.SubprocessError):
+        pass
+
+
+def stop(child):
+    """Ask a timed-out `run-index` to end, and on Windows whatever it started.
+
+    POSIX `exec` keeps the pid, so `kill` reaches the indexer there.
+    """
+    if os.name == "nt":
+        kill_tree(child.pid)
+    try:
+        child.kill()
+    except OSError:
+        # Already gone, taskkill having ended it first.
+        pass
+
+
 def refresh(owner, root, lock):
     """Seed the root if it has no index, then run the owner's wrapper's `update` once."""
     bash = shutil.which("bash")
@@ -902,17 +997,21 @@ def refresh(owner, root, lock):
             compact(root)
     except (OSError, subprocess.SubprocessError):
         if child is not None:
-            child.kill()
+            stop(child)
     finally:
         # Reaped before the record is cleared: `kill` only asks, and a
         # coalesced refresh must not start beside a process still exiting.
-        # Raised by Copilot.
+        # Raised by Copilot. A child that is still running after that is
+        # left on the record, so the next worker stands off until
+        # `running_indexer` finds it gone (#153).
+        gone = True
         if child is not None:
             try:
                 child.wait(timeout=RUN_TIMEOUT)
             except (OSError, subprocess.SubprocessError):
-                pass
-        lock.write("")
+                gone = False
+        if gone:
+            lock.write("")
 
 
 def shaped(conn):
@@ -1140,30 +1239,48 @@ def work(owner, root):
     once. After letting go the worker looks for a marker once more: an edit
     that marked while it still held the lock saw it held and started nothing,
     so this look is what serves it. A root with no index finds its main
-    checkout before the first refresh, inside the git budget the worker
-    started with, because `seed` asks for it after that budget is spent; a
-    root with one never needs it.
+    checkout, and asks git whether its index path is ignored, before the first
+    refresh, inside the git budget the worker started with, because `seed`
+    asks for both after that budget is spent; a root with one never needs
+    them.
+
+    **A marker that would not go is not a return from inside the lock.** That
+    skipped the look after letting go, so an edit that marked while the worker
+    held the lock, and found it held, went unserved
+    (alexander-shamray/blueprint-frontend#149). The pass ends instead, the
+    lock is released, and the worker tries again after a short wait, a bounded
+    number of times: a marker held open for an instant is served, and one that
+    will never go cannot hold the worker for ever.
     """
     if state_dir(owner) is None:
         return
     if not written(root):
         main_checkout(owner)
+        index_ignored(root)
     lock = Lock(owner, root)
+    stuck = 0
     while lock.acquire():
+        blocked = False
         try:
             if running_indexer(lock) is not None:
                 return
             while True:
                 taken = take_pending(owner, root)
                 if taken is None:
-                    # A marker that would not go: stop, rather than take the
-                    # lock again and meet it unchanged for ever.
-                    return
+                    blocked = True
+                    break
                 if not taken:
                     break
                 refresh(owner, root, lock)
         finally:
             lock.release()
+        if blocked:
+            stuck += 1
+            if stuck > MARKER_RETRIES:
+                return
+            time.sleep(MARKER_WAIT)
+            continue
+        stuck = 0
         if not os.path.exists(pending_path(owner, root)):
             return
 
