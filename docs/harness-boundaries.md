@@ -1866,12 +1866,39 @@ same way, before it opens the main checkout's index and again after it
 renames its copy in.
 `nofollow` is not used: SQLite applies it to the database alone, and the
 sidecars are where the window is. A compaction into a file the hook owns,
-renamed over the index, would close it and is not taken for a window that
-needs two branches checked out in turn inside it. The MCP server and the
-skill's direct `run-index` route open the same index with no such judgement, a
-residual of its own (alexander-shamray/blueprint-frontend#138): these checks
-bound the hook's opens, not every reader of the file. `compact`'s docstring owns
-what a failed compaction leaves behind.
+renamed over the index, would close the compaction's window and is not taken
+(#139, left open). It needs a window of two branches checked out in turn to
+be reached, and the rename has a cost of its own that the issue's remedy does
+not name: a reader holding the index open (the MCP server, a `run-index` in
+another terminal) keeps a `-wal` and `-shm` beside the path, and SQLite
+recovers a `-wal` by its own header's salts and checksums, not by which
+database file sits beside it. So the compacted copy would have to be refused
+whenever either exists, which is most of the time a session is open, or the
+old log would be replayed into the new file. That is argued from SQLite's WAL
+documentation and not measured here; the wrapper's half of the issue needs the
+package to open its index with no-follow and journal refusal itself, which is
+upstream.
+
+**The skill's direct route is judged by the same function
+(alexander-shamray/blueprint-frontend#138).** `run-index` and `cbx` source
+`.claude/skills/codebase-index/scripts/gate.sh` and run `gate-index.py` before
+they start the CLI. It loads `index-refresh.py` and asks `index_openable` of
+the working directory and of the checkout git reports for it, so the judgement
+has one owner, and a refusal exits 3 with the CLI never started. The
+interpreter is the first of `py -3.12`, `python3` and `python` that meets the
+hooks' own 3.12 floor, probed as `run-guard.sh` probes it; **no interpreter is
+a refusal (exit 4), not a pass**, because the CLI would otherwise open an index
+nobody judged. That is a behaviour change for a host with only a standalone
+`codebase-index` binary and no Python 3.12, which the harness could not run on
+anyway. The check precedes the CLI's own open and is subject to the same
+window as the hook's (#139). **The MCP server is not covered, and #138 stays
+open for it.** Claude Code starts it from `.mcp.json` as the CLI itself, never
+through `bash` (#134), so there is no launch seam to put a check in, and the
+server opens its index at the root it started in whatever a hook says
+afterwards. `index-mcp-root.py` below refuses calls from another checkout; it
+does not judge the served root's index. The lasting fix is the package
+opening its index only after checking for a journal and for links.
+`compact`'s docstring owns what a failed compaction leaves behind.
 `trusted_schema` is kept beside the shape check because it governs what the
 statements only this hook runs may call, which nothing the package does
 protects. Settings against a corrupt file were
@@ -2060,19 +2087,38 @@ refused, and neither is a subagent, whose profile may hold neither the tools
 nor a shell. **It fails open everywhere it cannot judge**: unreadable input,
 an id that cannot name a record, a transcript it cannot read. Its command ends
 `|| :`, for the reason the query hint's does, and under `PreToolUse` the
-cost of the 2 is every Grep and shell call of the session. The route differs
-by checkout, because the MCP server serves the checkout the session started
-in: the main checkout is sent to the MCP tools alone, and a linked worktree
-to the CLI alone, run from its root. **That is the cautious half**: a session
-launched *in* the worktree has a server rooted there and could use the tools,
-which this hook cannot tell from one that entered it, so until the server
-follows a move (alexander-shamray/blueprint-frontend#195,
-blueprint-backend#563) such a session is sent the longer route.
-`test_index_search_hint.py` holds every command it names to a prefix the
-skill's `allowed-tools` approves, and each to one plain command, since a pipe
-or `;` takes it out of the grant. **What no test can show is a session
-taking the refusal**; the measure is the share of code-searching sessions
-with a lookup, which was zero.
+cost of the 2 is every Grep and shell call of the session. **It names the MCP
+tools for every checkout**, and the route to a worktree is
+`index-mcp-root.py`'s job below (alexander-shamray/blueprint-frontend#195).
+It used to send a linked worktree to the CLI unasked, because the server
+serves the checkout the session started in and the hook could not tell a
+session launched in the worktree, whose server is rooted there, from one that
+entered it. `test_index_search_hint.py` holds the refusal to the one route, in
+a main checkout, a worktree and a submodule alike. **What no test can show is a
+session taking the refusal**; the measure is the share of code-searching
+sessions with a lookup, which was zero.
+
+**A code-index MCP call made from another checkout than the one the server
+reads is refused, with the CLI line that reads this one as the reason
+(alexander-shamray/blueprint-frontend#195, ported from blueprint-backend's
+guard for its #563).** `EnterWorktree`, which `/branch` ends in, does not
+restart MCP servers, so every lookup after the move answered from the main
+checkout's index and described the tree before the branch's edits as current.
+`index-mcp-root.py` runs on `PreToolUse` for `mcp__codebase-index__.*`,
+compares the checkout holding the call's `cwd` with the one holding
+`CLAUDE_PROJECT_DIR`, which is where the session started and so where the
+server reads, and on a mismatch denies with the `run-index` line asking what
+the call asked: subcommand, positional arguments in the CLI's order, and the
+options its `--help` lists a flag for. A call carrying an argument the line
+cannot carry gets the bare form rather than a line that answers another
+question. `healthcheck` is never refused, because its `root` is how a session
+sees the mismatch. **It fails open everywhere it cannot judge** (unreadable
+input, no `cwd`, no `CLAUDE_PROJECT_DIR`), its command ends `|| :` for the
+reason the search hint's does, and a session launched in the worktree is not
+refused, since both directories name the worktree. It does not judge the
+served root's index: that half of #138 stays open above. The refusal text is
+the part no test shows a session taking; `test_index_mcp_root.py` holds every
+subcommand it names to a prefix the skill's `allowed-tools` approves.
 
 **A session started in a `/branch` worktree had no index tools, because the
 main checkout's approval of `.mcp.json` did not reach it
