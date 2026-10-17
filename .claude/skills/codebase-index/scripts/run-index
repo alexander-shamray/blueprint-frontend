@@ -3,6 +3,11 @@
 # package cannot rewrite the tracked skill before search/refs/etc.
 set -euo pipefail
 export CBX_NO_SKILL_AUTO_UPDATE=1
+# Judge the index before the CLI opens it (#138): a rollback journal or a link
+# a branch tracked under .claude/cache/codebase-index/ is refused, not replayed.
+here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+. "$here/gate.sh"
+gate_index "$here" || exit $?
 if command -v codebase-index >/dev/null 2>&1; then
   exec codebase-index "$@"
 elif command -v py >/dev/null 2>&1 && py -3.12 -c "import codebase_index" >/dev/null 2>&1; then
