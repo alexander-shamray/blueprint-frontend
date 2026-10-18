@@ -225,6 +225,64 @@ describe('OwnProductsComponent', () => {
     await settle();
   });
 
+  it('signs in on a 401 and sends the same withdrawal once more, for the same subject', async () => {
+    mine().flush({ items: [product('a')], nextCursor: null });
+    await settle();
+
+    page().withdraw(page().products()[0]);
+    const first = controller.expectOne(withdrawalOf('a'));
+    const id = first.request.body.commandId;
+    first.flush({ title: 'Unauthorized', status: 401 }, { status: 401, statusText: '' });
+    await settle();
+
+    expect(signIn).toHaveBeenCalledTimes(1);
+    const replay = controller.expectOne(withdrawalOf('a'));
+    expect(replay.request.body.commandId).toBe(id);
+
+    // A second 401 is a loop, not a replay: no third request.
+    replay.flush({ title: 'Unauthorized', status: 401 }, { status: 401, statusText: '' });
+    await settle();
+    controller.expectNone(withdrawalOf('a'));
+    expect(page().actionError()?.kind).toBe('signIn');
+  });
+
+  it('replays nothing when a different subject signs in', async () => {
+    mine().flush({ items: [product('a')], nextCursor: null });
+    await settle();
+    signIn.mockImplementation(async () => {
+      user.set({
+        username: 'other', subject: 'subject-other', permissions: ['catalog:write'], expiresAt: 0,
+      });
+    });
+
+    page().withdraw(page().products()[0]);
+    controller
+      .expectOne(withdrawalOf('a'))
+      .flush({ title: 'Unauthorized', status: 401 }, { status: 401, statusText: '' });
+    await settle();
+
+    controller.expectNone(withdrawalOf('a'));
+    // The next subject's list, which the subject change asked for.
+    mine().flush({ items: [], nextCursor: null });
+    await settle();
+  });
+
+  it('shows a sign-in that fails', async () => {
+    mine().flush({ items: [product('a')], nextCursor: null });
+    await settle();
+    signIn.mockImplementation(async () => {
+      throw 'discovery failed';
+    });
+
+    page().withdraw(page().products()[0]);
+    controller
+      .expectOne(withdrawalOf('a'))
+      .flush({ title: 'Unauthorized', status: 401 }, { status: 401, statusText: '' });
+    await settle();
+
+    expect(page().actionError()?.kind).toBe('retry');
+  });
+
   it('retries a failed withdrawal under the same id, since it may have committed', async () => {
     mine().flush({ items: [product('a')], nextCursor: null });
     await settle();

@@ -254,6 +254,8 @@ export class PublishPage {
   private readonly imageFieldErrorsState = signal<readonly string[]>([]);
   /** The file behind `image()`, kept so Try again sends the same bytes. */
   private imageFile: File | null = null;
+  /** `replayedAfterSignIn`, for the upload's own 401. */
+  private uploadReplayedAfterSignIn = false;
   /** Why this platform offers no image, or null where it does. */
   protected readonly imageUnavailable = this.imageSource.unavailable;
   /** Bumped by every new upload and every removal, so a superseded reply lands on nothing. */
@@ -402,6 +404,7 @@ export class PublishPage {
       .subscribe({
         next: (key) => {
           if (!current()) return;
+          this.uploadReplayedAfterSignIn = false;
           this.imageState.set({ name: file.name, status: 'uploaded' });
           this.setImageKey(key);
         },
@@ -433,8 +436,35 @@ export class PublishPage {
 
           this.imageState.set({ name: file.name, status: 'failed' });
           this.imageErrorState.set(displayed);
+
+          // Spec §6's 401 row, as for a publish: the issue was refused at the
+          // edge and wrote nothing, so the same file is asked about again once
+          // the seller has signed in.
+          if (displayed.kind === 'signIn') this.signInAndReupload(upload, file);
         },
       });
+  }
+
+  /**
+   * `signInAndReplay()`'s bounds, for the upload: once per round trip, and
+   * only while the refused seller is signed in and this is still the upload
+   * the page is waiting on.
+   */
+  private signInAndReupload(upload: number, file: File): void {
+    const replay = !this.uploadReplayedAfterSignIn;
+    const refusedSubject = this.auth.user()()?.subject ?? null;
+
+    this.auth.signIn().then(
+      () => {
+        const sameSubject =
+          refusedSubject !== null && this.auth.user()()?.subject === refusedSubject;
+        if (replay && sameSubject && upload === this.uploads) {
+          this.uploadReplayedAfterSignIn = true;
+          this.upload(file);
+        }
+      },
+      (failure: unknown) => this.imageErrorState.set(mapError(failure)),
+    );
   }
 
   publish(): void {
