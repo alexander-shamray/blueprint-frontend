@@ -1339,9 +1339,10 @@ a missing daemon fails open: CI goes green on a runner whose Docker broke."
 > and a second procedure invented here would be the copy that drifts. The
 > diagnosis stays true. A Bad Gateway at the order means `ordering-api` never
 > started because RabbitMQ did not reach healthy, and a native broker holding
-> the AMQP port (`netstat -ano | findstr :5672` names its process) is the
-> first thing to look for. The text below is kept as it was written, and its
-> rule stands: the test is left red, never skipped.
+> the AMQP port those files publish is the first thing to look for:
+> `netstat -ano` gives the PID listening on it, and
+> `tasklist /fi "PID eq <pid>"` names the process. The text below is kept as
+> it was written, and its rule stands: the test is left red, never skipped.
 
 **All three smoke tests pass in CI. One of them fails on the development
 machine, and it is left failing there.** CI is the authority on this, and it
