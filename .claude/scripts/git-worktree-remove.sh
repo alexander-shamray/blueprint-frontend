@@ -93,10 +93,30 @@ done <<<"$registered"
 # half the checkout behind; with it the same tree is deleted — both measured on
 # a 586-character path. It changes nothing on other platforms, and nothing
 # about the dirty-tree refusal above.
-git -c core.longpaths=true worktree remove "$path"
-# **The path is checked, not git's exit alone.** A file another process holds
-# open on Windows can leave the directory behind once git has unregistered it,
-# and a teardown read as done would leave a directory nobody looks at, which
-# the next `/branch` on that slug stops on.
-[ ! -e "$path" ] ||
-  { echo "unregistered but not deleted: $path is still there; remove it by hand" >&2; exit 4; }
+#
+# **Its status is captured rather than left to `set -e`**, so the check below
+# runs whatever git exits: a delete that fails after git has unregistered the
+# worktree exits non-zero (255 above), and `set -e` ended the script before
+# the check could name it (round 1 of PR #270's review).
+status=0
+git -c core.longpaths=true worktree remove "$path" || status=$?
+# **The path is checked, not git's exit alone, and registration tells the two
+# leftovers apart.** A directory git still registers is the dirty-tree refusal,
+# which keeps git's own status and message; a directory git no longer
+# registers is a failed delete — a long path, or a file another process holds
+# open on Windows — and a teardown read as done would leave a directory nobody
+# looks at, which the next `/branch` on that slug stops on.
+if [ -e "$path" ]; then
+  still=no
+  while IFS= read -r line; do
+    case "$line" in
+      "worktree "*)
+        dir="${line#worktree }"
+        [ -d "$dir" ] && [ "$(cd "$dir" && pwd -P)" = "$resolved" ] && still=yes
+        ;;
+    esac
+  done <<<"$(git worktree list --porcelain)"
+  [ "$still" = yes ] ||
+    { echo "unregistered but not deleted: $path is still there; remove it by hand" >&2; exit 4; }
+fi
+exit "$status"

@@ -2102,22 +2102,42 @@ class NoCommandHoldsAPrefixGrantThatAdmitsAForbiddenFlag(unittest.TestCase):
 
         # **The path is checked, not git's exit alone**: a git that
         # unregisters the worktree and leaves its directory, as a file held
-        # open does on Windows, is reported by name rather than as done.
-        git("worktree", "add", "-q", "-b", "fix/held", ".claude/worktrees/held")
+        # open does on Windows, is reported by name rather than as done —
+        # whether it then exits non-zero, as a failed delete does, or zero.
+        # The non-zero half was unreached under `set -e` (round 1 of PR #270's
+        # review).
         shim = base / "shim"
         shim.mkdir()
         real = Path(shutil.which("git")).as_posix()
         (shim / "git").write_bytes((
             "#!/usr/bin/env bash\n"
             f'"{real}" "$@" || exit\n'
-            'if [ "$3" = worktree ] && [ "$4" = remove ]; then mkdir -p "$5"; fi\n'
+            'if [ "$3" = worktree ] && [ "$4" = remove ]; then\n'
+            '  mkdir -p "$5"; exit "${SHIM_EXIT:-0}"\n'
+            'fi\n'
         ).encode("utf-8"))
         os.chmod(shim / "git", 0o755)
-        env = dict(os.environ, PATH=str(shim) + os.pathsep + os.environ["PATH"])
-        out = remove("held", "fix/held", env=env)
-        self.assertEqual(4, out.returncode, out.stderr)
-        self.assertIn("still there", out.stderr)
-        self.assertTrue((forked / "held").is_dir())
+        for exit_code in ("255", "0"):
+            with self.subTest(git_exit=exit_code):
+                slug = f"held{exit_code}"
+                git("worktree", "add", "-q", "-b", f"fix/{slug}",
+                    f".claude/worktrees/{slug}")
+                env = dict(os.environ, SHIM_EXIT=exit_code,
+                           PATH=str(shim) + os.pathsep + os.environ["PATH"])
+                out = remove(slug, f"fix/{slug}", env=env)
+                self.assertEqual(4, out.returncode, out.stderr)
+                self.assertIn("still there", out.stderr)
+                self.assertTrue((forked / slug).is_dir())
+
+        # **A directory git still registers is the dirty-tree refusal**, which
+        # keeps git's own status and message rather than reading as a failed
+        # delete: the refusal is what keeps the teardown from discarding work.
+        git("worktree", "add", "-q", "-b", "fix/dirty", ".claude/worktrees/dirty")
+        (forked / "dirty" / "uncommitted.txt").write_text("work\n", encoding="utf-8")
+        out = remove("dirty", "fix/dirty")
+        self.assertNotIn(out.returncode, (0, 4), out.stderr)
+        self.assertNotIn("still there", out.stderr)
+        self.assertTrue((forked / "dirty" / "uncommitted.txt").is_file())
 
     def test_the_create_helper_refuses_a_body_it_should_not_publish(self):
         # `--body-file` publishes what it reads, including a file the session's
