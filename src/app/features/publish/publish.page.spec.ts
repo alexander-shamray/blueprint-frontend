@@ -864,6 +864,56 @@ describe('PublishPage', () => {
       expect(fixture.componentInstance.imageBusy()).toBe(false);
     });
 
+    it('signs in on the issue’s 401 and asks once more for the same file', async () => {
+      const file = png();
+      picked = file;
+      await fixture.componentInstance.chooseImage();
+      controller
+        .expectOne(ISSUE)
+        .flush({ title: 'Unauthorized', status: 401 }, { status: 401, statusText: '' });
+      await fixture.whenStable();
+
+      expect(signIn).toHaveBeenCalledTimes(1);
+      const again = controller.expectOne(ISSUE);
+      expect(again.request.body).toEqual({ contentType: 'image/png', sizeBytes: 4 });
+
+      // A second 401 is a loop, not a replay.
+      again.flush({ title: 'Unauthorized', status: 401 }, { status: 401, statusText: '' });
+      await fixture.whenStable();
+      controller.expectNone(ISSUE);
+      expect(fixture.componentInstance.image()?.status).toBe('failed');
+    });
+
+    it('asks again for nobody but the seller who was refused', async () => {
+      signIn.mockImplementation(async () => {
+        user.set({
+          username: 'other', subject: 'subject-other', permissions: ['catalog:write'], expiresAt: 0,
+        });
+      });
+      picked = png();
+      await fixture.componentInstance.chooseImage();
+      controller
+        .expectOne(ISSUE)
+        .flush({ title: 'Unauthorized', status: 401 }, { status: 401, statusText: '' });
+      await fixture.whenStable();
+
+      controller.expectNone(ISSUE);
+    });
+
+    it('shows a sign-in that fails under the image', async () => {
+      signIn.mockImplementation(async () => {
+        throw 'discovery failed';
+      });
+      picked = png();
+      await fixture.componentInstance.chooseImage();
+      controller
+        .expectOne(ISSUE)
+        .flush({ title: 'Unauthorized', status: 401 }, { status: 401, statusText: '' });
+      await fixture.whenStable();
+
+      expect(fixture.componentInstance.imageError()?.kind).toBe('retry');
+    });
+
     it('names the status on the image line', () => {
       const text = (s: Parameters<PublishPage['statusText']>[0]) =>
         fixture.componentInstance.statusText(s);

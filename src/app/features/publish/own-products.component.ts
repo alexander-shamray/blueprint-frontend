@@ -140,6 +140,13 @@ export class OwnProductsComponent {
   /** Bumped when the subject changes, so a reply for the last subject lands on nothing. */
   private subjectChanges = 0;
 
+  /**
+   * The products whose withdrawal has had its one replay after a sign-in, as
+   * `OrderDetailPage.replayedAfterSignIn` bounds a cancel: a 401 answered by a
+   * sign-in answered by another 401 is a loop, not a replay.
+   */
+  private readonly replayedAfterSignIn = new Set<string>();
+
   private readonly productsSignal = signal<readonly OwnProduct[]>([]);
   private readonly errorSignal = signal<DisplayError | null>(null);
   private readonly actionErrorSignal = signal<DisplayError | null>(null);
@@ -222,6 +229,7 @@ export class OwnProductsComponent {
       untracked(() => {
         this.subjectChanges++;
         this.identities.clear();
+        this.replayedAfterSignIn.clear();
         this.pendingSignal.set(new Map());
         this.confirmingSignal.set(null);
         this.actionErrorSignal.set(null);
@@ -308,6 +316,14 @@ export class OwnProductsComponent {
 
         this.actionErrorSignal.set(displayed);
 
+        // Spec §6's 401 row, as `OrderDetailPage.cancel()` answers it: refused
+        // at the edge, so nothing was withdrawn, and the same command sent
+        // again after a sign-in is the first one arriving with a token.
+        if (displayed.kind === 'signIn') {
+          this.signInAndReplay(product);
+          return;
+        }
+
         // 422 `product.withdrawn` is a withdrawal made from somewhere else, and
         // 404 `product.not_found` a product this account no longer owns: in
         // both the row on screen is stale, so the list is read again and the
@@ -329,11 +345,41 @@ export class OwnProductsComponent {
    */
   private withdrawn(productId: string): void {
     this.identities.delete(productId);
+    this.replayedAfterSignIn.delete(productId);
     this.confirmingSignal.set(null);
     // A second press's `request.in_progress` may have landed first; the
     // withdrawal it was waiting on is the answer that counts.
     this.actionErrorSignal.set(null);
     this.catalogRefresh.request();
+  }
+
+  /**
+   * Re-authenticate, then send the same withdrawal again, once, and only while
+   * the subject that was refused is the one signed in: under anybody else the
+   * same command id is a different command, and they never pressed Withdraw.
+   * On the web the replay is unreachable, since `signIn()` is a redirect this
+   * page does not survive (spec §4.1); the native strategy returns with the
+   * page still standing.
+   */
+  private signInAndReplay(product: OwnProduct): void {
+    const replay = !this.replayedAfterSignIn.has(product.productId);
+    const refusedSubject = this.auth.user()()?.subject ?? null;
+    const changesAtRefusal = this.subjectChanges;
+
+    this.auth.signIn().then(
+      () => {
+        const sameSubject =
+          refusedSubject !== null &&
+          this.auth.user()()?.subject === refusedSubject &&
+          this.subjectChanges === changesAtRefusal;
+        if (replay && sameSubject) {
+          this.replayedAfterSignIn.add(product.productId);
+          this.withdraw(product);
+        }
+      },
+      // `unknown`: signIn() can reject with a bare string (see CartPage.getQuote()).
+      (failure: unknown) => this.actionErrorSignal.set(mapError(failure)),
+    );
   }
 
   private identityFor(productId: string): CommandIdentity {
