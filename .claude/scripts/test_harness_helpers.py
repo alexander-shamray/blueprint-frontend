@@ -2075,11 +2075,11 @@ class NoCommandHoldsAPrefixGrantThatAdmitsAForbiddenFlag(unittest.TestCase):
             subprocess.run(["git", "-C", str(repo), *args], check=True,
                            capture_output=True, text=True)
 
-        def remove(slug, branch, env=None):
+        def remove(slug, branch):
             return subprocess.run(
                 [BASH, str(SCRIPTS / "git-worktree-remove.sh"),
                  f".claude/worktrees/{slug}", branch],
-                capture_output=True, text=True, cwd=str(repo), env=env)
+                capture_output=True, text=True, cwd=str(repo))
 
         git("init", "-q", "-b", "main")
         # Ignored, as this repository ignores it, or the planted tree is
@@ -2117,14 +2117,24 @@ class NoCommandHoldsAPrefixGrantThatAdmitsAForbiddenFlag(unittest.TestCase):
             'fi\n'
         ).encode("utf-8"))
         os.chmod(shim / "git", 0o755)
+        # **On PATH inside bash, not before it.** Git's `bin\bash.exe`
+        # launcher, which the Windows runner resolves as `bash`, puts Git's
+        # own directories first, so a shim placed first from here came second
+        # and the real git ran. Set after the launcher, in bash's own form.
+        shim_dir = shim.resolve()
+        if os.name == "nt":
+            shim_dir = "/" + shim_dir.drive[0].lower() + shim_dir.as_posix()[2:]
         for exit_code in ("255", "0"):
             with self.subTest(git_exit=exit_code):
                 slug = f"held{exit_code}"
                 git("worktree", "add", "-q", "-b", f"fix/{slug}",
                     f".claude/worktrees/{slug}")
-                env = dict(os.environ, SHIM_EXIT=exit_code,
-                           PATH=str(shim) + os.pathsep + os.environ["PATH"])
-                out = remove(slug, f"fix/{slug}", env=env)
+                out = subprocess.run(
+                    [BASH, "-c", 'PATH="$1:$PATH" exec bash "$2" "$3" "$4"', "_",
+                     str(shim_dir), (SCRIPTS / "git-worktree-remove.sh").as_posix(),
+                     f".claude/worktrees/{slug}", f"fix/{slug}"],
+                    capture_output=True, text=True, cwd=str(repo),
+                    env=dict(os.environ, SHIM_EXIT=exit_code))
                 self.assertEqual(4, out.returncode, out.stderr)
                 self.assertIn("still there", out.stderr)
                 self.assertTrue((forked / slug).is_dir())
