@@ -1322,6 +1322,16 @@ every route in `app.routes.ts` in both palettes; `app.routes.spec.ts` in the
 unit suite holds its route list to the router. `docs/testing.md` owns how to
 run it and what axe cannot see.
 
+Beside the smoke, `e2e/journey.spec.ts` walks one order to `Delivered` (#97),
+the client twin of the backend's `FulfilmentJourney`. The smoke's order ends
+at `Out of stock` because nothing it publishes is stocked. The journey stocks
+its product through Inventory's own admin route, which `demo` may call
+locally, and leaves despatch and delivery to the stack's own timers: Shipping's
+fulfilment tick and tracking poll, and the carrier simulator's default feed.
+So the client gains no door for a test. It runs in all three projects, which
+leaves three more delivered orders per run on a stack that keeps them, and it
+waits on the buyer's own screen with a stated ceiling rather than a sleep.
+
 The smoke has no retries (`playwright.config.ts`, `retries: 0`) and no skip
 path: `e2e/smoke.spec.ts`'s `beforeAll` asserts the gateway is answering and
 fails with a message naming the address if it is not. That follows the backend's

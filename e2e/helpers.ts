@@ -88,3 +88,24 @@ export async function publishProduct(page: Page, amount: string) {
 
   return name;
 }
+
+/** The id the Publish page reports for the product it published last. */
+export async function publishedId(page: Page): Promise<string> {
+  return (
+    await page.locator('app-publish').getByText('Published as').locator('code').innerText()
+  ).trim();
+}
+
+/**
+ * The `demo` user's token, by the realm's direct grant on `web-app` (the same
+ * client the smoke signs in through).
+ */
+export async function demoToken(
+  request: import('@playwright/test').APIRequestContext,
+): Promise<string> {
+  const response = await request.post(`${KEYCLOAK}/realms/commerce/protocol/openid-connect/token`, {
+    form: { grant_type: 'password', client_id: 'web-app', username: 'demo', password: 'demo' },
+  });
+  expect(response.ok(), 'Keycloak refused the demo user a token').toBe(true);
+  return ((await response.json()) as { access_token: string }).access_token;
+}
