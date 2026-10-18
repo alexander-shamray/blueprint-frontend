@@ -24,7 +24,8 @@ import { ActionSheetController } from '@ionic/angular';
 export abstract class ImageSource {
   /**
    * The file the user chose, or null when they dismissed the chooser. Rejects
-   * with an `ImagePickError` when the device refused, and with nothing else.
+   * with an `ImagePickError` when the device refused; any other rejection is
+   * a defect, which the page lets through rather than reading as a refusal.
    */
   abstract pick(): Promise<File | null>;
 }
