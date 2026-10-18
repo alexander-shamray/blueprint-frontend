@@ -8,7 +8,9 @@
 #                 it, since the start point is a remote-tracking ref and /pr
 #                 must be the one to set the upstream.
 #   HEAD          the dirty and detached rows, whose whole point is carrying
-#                 what is already in this tree.
+#                 what is already in this tree — and a rename, which
+#                 /branch's Report makes as a second branch at the same
+#                 commit because `git branch -m` is denied.
 #
 # A `Bash(git checkout -b:*)` grant buys those and also the trailing flag:
 # `git checkout -b <name> -f origin/main` was run against a throwaway clone and
