@@ -13,6 +13,8 @@ import { authInterceptor } from '@core/auth/auth.interceptor';
 import { rateLimitInterceptor } from '@core/errors/rate-limit.interceptor';
 import { provideAuth } from '@core/auth/auth.providers';
 import { CartStore } from '@core/cart/cart.store';
+import { clientLogInterceptor } from '@core/log/client-log.interceptor';
+import { provideClientLog } from '@core/log/client-log.providers';
 
 export const appConfig: ApplicationConfig = {
   providers: [
@@ -35,13 +37,17 @@ export const appConfig: ApplicationConfig = {
     // a page-local workaround.
     { provide: RouteReuseStrategy, useClass: IonicRouteStrategy },
     provideRouter(routes),
-    // Order between these two does not matter, and that is deliberate rather
+    // Order between these three does not matter, and that is deliberate rather
     // than lucky: `rateLimitInterceptor` picks its bucket from the route and
     // the method, which is how the gateway picks its limiter policy, so it
     // reads nothing off the request that `authInterceptor` has to have
-    // written first.
-    provideHttpClient(withInterceptors([authInterceptor, rateLimitInterceptor])),
+    // written first. `clientLogInterceptor` reads the URL, the method and the
+    // body's `commandId`, and none of those is written by the other two.
+    provideHttpClient(
+      withInterceptors([authInterceptor, rateLimitInterceptor, clientLogInterceptor]),
+    ),
     provideAuth(),
+    provideClientLog(),
     // The cart survives a restart on every platform (spec §3). Restoring it
     // before the first render keeps the tab badge from flashing zero.
     //

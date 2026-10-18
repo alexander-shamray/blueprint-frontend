@@ -506,6 +506,19 @@ so the body is always there, and reading it depends on nothing but the response
 being JSON. (The id itself is minted by the gateway's correlation middleware for
 any request that arrives without one, so the client sends no such header either.)
 
+The id outlives the banner in the client's own log (#93). `ClientLog` is a
+port in `core/log/` with one adapter, the console, and no network: it is the
+seam a vendor or OpenTelemetry-web adapter goes into later.
+`clientLogInterceptor` records each gateway failure as its mapped kind, with
+this same body id. It records each command, which is a request whose body
+carries a `commandId`, as accepted or as the kind of its refusal. The router
+records each navigation's path. What it never records is fixed by its spec:
+no query string, since the OAuth return carries its `code` in one; no body
+field but the command id; no header, so no token; and nothing bound for the
+object store, whose pre-signed URL's query string is its signature. An
+accepted command carries no correlation id, for the reason above: the client
+reads the body, and a 2xx has none.
+
 `Retry-After` has no body equivalent, so it is read from the header, and read
 defensively. `mapError`'s 429 branch handles a missing header, an empty or
 whitespace-only one, and a non-numeric one — HTTP permits an HTTP-date form that
