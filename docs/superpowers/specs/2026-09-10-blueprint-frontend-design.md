@@ -480,6 +480,7 @@ Pinned exactly in `package.json`, recorded here so the choice is dated:
 | `@ionic/angular` | 9.0.x |
 | `@capacitor/core`, `cli`, `android`, `ios` | 8.5.x |
 | `@capacitor/browser`, `app`, `preferences` | 8.x |
+| `@capacitor/camera` | 8.2.x, from 8.2.5: `takePhoto` and `chooseFromGallery` arrived in 8.1 |
 | `@aparajita/capacitor-secure-storage` | 8.0.x |
 | `angular-oauth2-oidc` | 22.0.x |
 | Node | 22.22 or newer, in `.nvmrc` |
