@@ -45,10 +45,13 @@ test('an image uploads, publishes with the product, and a withdrawal takes the p
   // typed did not survive the Publish page's construction: Publish stayed
   // disabled on an empty Name for the whole timeout. By now the page has done
   // a round trip, and the value is read back before anything relies on it.
+  // Read back by role and not by label: on the phone project Ionic's scroll
+  // assist puts a disabled `cloned-input` copy of the focused field into the
+  // DOM, and `getByLabel('Name')` then matches both.
   await page.getByLabel('Name').fill(name);
   await page.getByLabel('Amount').fill('3.00');
   await page.getByLabel('Currency').fill('EUR');
-  await expect(page.getByLabel('Name')).toHaveValue(name);
+  await expect(page.getByRole('textbox', { name: 'Name', disabled: false })).toHaveValue(name);
 
   await page.getByRole('button', { name: 'Publish' }).click();
   await expect(page.getByText('Published as')).toBeVisible();
