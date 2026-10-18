@@ -735,7 +735,8 @@ CORS is not the emulator's problem; the host is. The Compose BFF signs for
 `127.0.0.1:8333` and the image edge serves from `127.0.0.1:9000`, and inside
 an Android emulator both are the emulator itself (§15). So the round trip needs
 `adb reverse` for both ports, as Keycloak's issuer needs it for 8080, or every
-emulator upload ends `failed`. #108 carries that until the round trip is run.
+emulator upload ends `failed`. #77, the emulator round trip, carries that
+until it is run.
 
 ## 12. Deviations from the spec, and what execution discovered
 
