@@ -22,19 +22,31 @@ Run every command as
 That wrapper exports `CBX_NO_SKILL_AUTO_UPDATE=1`. The package is named
 `codebase-index`; do not invoke that console script directly.
 
+**The wrapper that runs is the copy in the directory you stand in**, so the
+Bash guard refuses it wherever that copy, the gate it sources or the judge
+the gate starts differs from the checkout this session's hooks run from —
+a worktree whose branch changed them
+(alexander-shamray/blueprint-frontend#146). Use Grep and Read there.
+
 | Intent | Command |
 |---|---|
-| Where is X implemented? | `bash .claude/skills/codebase-index/scripts/run-index search "X" --limit 3 --session <tag> --json` |
-| How does X work? | `bash .claude/skills/codebase-index/scripts/run-index explain "X" --session <tag> --json` |
+| Where is X implemented? | `bash .claude/skills/codebase-index/scripts/run-index search 'X' --limit 3 --session <tag> --json` |
+| How does X work? | `bash .claude/skills/codebase-index/scripts/run-index explain 'X' --session <tag> --json` |
 | What is this codebase? | `bash .claude/skills/codebase-index/scripts/run-index architecture --json` |
-| Find a named symbol | `bash .claude/skills/codebase-index/scripts/run-index symbol "X" --json` |
-| Who calls or references X? | `bash .claude/skills/codebase-index/scripts/run-index refs "X" --json` |
-| What changes if X changes? | `bash .claude/skills/codebase-index/scripts/run-index impact "X" --json` |
+| Find a named symbol | `bash .claude/skills/codebase-index/scripts/run-index symbol 'X' --json` |
+| Who calls or references X? | `bash .claude/skills/codebase-index/scripts/run-index refs 'X' --json` |
+| What changes if X changes? | `bash .claude/skills/codebase-index/scripts/run-index impact 'X' --json` |
 | What does my current diff affect? | `bash .claude/skills/codebase-index/scripts/run-index diff-impact --json` |
-| How are X and Y connected? | `bash .claude/skills/codebase-index/scripts/run-index path "X" "Y" --json` |
-| Describe X and its neighborhood | `bash .claude/skills/codebase-index/scripts/run-index describe "X" --json` |
+| How are X and Y connected? | `bash .claude/skills/codebase-index/scripts/run-index path 'X' 'Y' --json` |
+| Describe X and its neighborhood | `bash .claude/skills/codebase-index/scripts/run-index describe 'X' --json` |
 | Is what I read earlier still true? | `bash .claude/skills/codebase-index/scripts/run-index verify --session <tag> --json` |
-| Produce a human graph | `bash .claude/skills/codebase-index/scripts/run-index graph "X" --output <path>` — **not auto-approved**; take the prompt |
+| Produce a human graph | `bash .claude/skills/codebase-index/scripts/run-index graph 'X' --output <path>` — **not auto-approved**; take the prompt |
+
+**The term goes in single quotes.** Inside double quotes bash still runs a
+`$(…)`, a backtick or a `$VAR` the term carries, and a term copied out of a
+log, an error or a branch's file can carry one
+(alexander-shamray/blueprint-frontend#145). Write a single quote inside the
+term as `'\''`.
 
 **`search` takes `--limit 3`**, and no other subcommand takes it at all. The
 default is ten and no configuration changes it: `cli.py` and the MCP server

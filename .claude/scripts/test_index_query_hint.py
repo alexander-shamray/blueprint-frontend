@@ -269,6 +269,22 @@ class TheSkillAgrees(unittest.TestCase):
         self.assertEqual(1, len(search))
         self.assertIn("--limit 3", search[0])
 
+    def test_no_command_double_quotes_the_term(self):
+        # Inside double quotes bash still runs a `$(…)`, a backtick or a
+        # `$VAR` the term carries, and a term copied from a log or a branch's
+        # file can carry one (alexander-shamray/blueprint-frontend#145). Every
+        # run-index line in the skill's markdown is held, not only the table.
+        lines = [line for path in sorted(SKILL.parent.rglob("*.md"))
+                 for line in path.read_text(encoding="utf-8").splitlines()
+                 if "scripts/run-index " in line]
+        self.assertGreater(len(lines), 20, "found almost no run-index lines")
+        for line in [*lines, *(row[2] for row in _module().ROUTES)]:
+            with self.subTest(line=line):
+                self.assertNotIn('"', line)
+        # Positive control: the term is still there, single-quoted.
+        self.assertTrue(all("'X'" in row[2] for row in _module().ROUTES))
+        self.assertIn("term as `'\\''`", self.skill)
+
     def test_every_subcommand_it_names_is_one_the_skill_approves(self):
         front = self.skill.split("---")[1]
         for _kind, _pattern, command in _module().ROUTES:
