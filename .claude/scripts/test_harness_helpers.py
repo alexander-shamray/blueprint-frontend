@@ -5580,13 +5580,18 @@ class TheGitArgvGuard(unittest.TestCase):
         self.assertIn('"$dir/run-guard.py"', launcher)
         refresh = (trusted / ".claude/hooks/index-refresh.py").read_text(encoding="utf-8")
         self.assertIn('"codebase-index", "scripts", "run-index"', refresh)
-        hooks = (".claude/hooks/run-guard.sh", ".claude/hooks/run-guard.py",
-                 ".claude/skills/codebase-index/scripts/run-index",
+        # Every hook file, since the launcher starts Python with their
+        # directory first on the import path, and the wrapper's route.
+        hooks = tuple(
+            path.relative_to(trusted).as_posix()
+            for path in sorted((trusted / ".claude/hooks").rglob("*"))
+            if path.is_file() and "__pycache__" not in path.parts)
+        self.assertIn(".claude/hooks/run-guard.py", hooks)
+        route = (".claude/skills/codebase-index/scripts/run-index",
                  ".claude/skills/codebase-index/scripts/gate.sh",
-                 ".claude/skills/codebase-index/scripts/gate-index.py",
-                 ".claude/hooks/index-refresh.py")
+                 ".claude/skills/codebase-index/scripts/gate-index.py")
         names = tuple(f".claude/scripts/{path.name}"
-                      for path in sorted(SCRIPTS.glob("*.sh"))) + hooks
+                      for path in sorted(SCRIPTS.glob("*.sh"))) + hooks + route
         run = "bash .claude/scripts/pr-state.sh 1"
         with tempfile.TemporaryDirectory() as scratch:
             copy = Path(scratch)
@@ -5629,6 +5634,17 @@ class TheGitArgvGuard(unittest.TestCase):
             removed.unlink()
             self.assertIn("#255", self.assertAsked(run, cwd=scratch))
             removed.write_bytes(kept)
+            self.assertAdmitted(run, cwd=scratch)
+            # A module planted beside the hooks is the one they import, as a
+            # file or as a package.
+            for planted in (".claude/hooks/json.py", ".claude/hooks/json/__init__.py"):
+                with self.subTest(planted=planted):
+                    path = copy / planted
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_text("raise SystemExit\n", encoding="utf-8")
+                    self.assertIn("#255", self.assertAsked(run, cwd=scratch))
+                    path.unlink()
+            (copy / ".claude/hooks/json").rmdir()
             self.assertAdmitted(run, cwd=scratch)
             # A link below the root is asked about whatever it holds.
             scripts = copy / ".claude" / "scripts"
