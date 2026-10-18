@@ -5669,21 +5669,52 @@ def _contents(path):
         return None
 
 
-# `env`'s directory options, bundled, joined or abbreviated as getopt takes
-# them: `-C dir`, `-iC dir`, `-Cdir`, `--chdir=dir`, `--ch dir`.
-CHDIR_OPTION = re.compile(r"^(?:-[A-Za-z]*C|--c(?:h(?:d(?:i(?:r)?)?)?)?(?:=|$))")
+# `env`'s options that move the directory, `-C` and `--chdir`, and the ones
+# whose string `env` splits into options of its own, `-S` and
+# `--split-string`, so `env -S'--chdir=docs'` would carry one past a reading
+# of the words (the automated security review of
+# alexander-shamray/blueprint-frontend#254). Bundled, joined or abbreviated as
+# getopt takes them: `-iC`, `-Cdir`, `--ch dir`, `--split=…`.
+ENV_OPTION = re.compile(r"^-[A-Za-z]*[CS]")
+ENV_LONG_OPTIONS = ("--chdir", "--split-string")
 
-# **The launchers the wrapper may run behind, and every other one is refused**
-# (round 3 of alexander-shamray/blueprint-frontend#254's review). `unshare
-# --wd`, `sudo -D`, `nsenter --wd` and `parallel --wd` each move the directory
-# by an option of their own, and enumerating those trails every tool's grammar
-# the way #133 says option lists do, so this is the list that fails closed:
-# none of these takes a directory, `env`'s `-C` excepted, which `CHDIR_OPTION`
-# reads.
+
+def env_reaching_option(word):
+    """Whether `word` is one of `env`'s options above, in any spelling."""
+    if word.startswith("--"):
+        name = word.split("=", 1)[0]
+        return len(name) > 2 and any(
+            option.startswith(name) for option in ENV_LONG_OPTIONS)
+    return bool(ENV_OPTION.match(word))
+
+
+# **The words that may stand in front of the wrapper, and nothing else may**
+# (round 3 of alexander-shamray/blueprint-frontend#254's review, and the
+# automated security review after it). `unshare --wd`, `sudo -D`, `nsenter
+# --wd`, `parallel --wd` and `bwrap --chdir` each move the directory by an
+# option of their own, and enumerating those trails every tool's grammar the
+# way blueprint-frontend#133 says option lists do. So the list fails closed:
+# a launcher named here, a shell, an option, an assignment or a count or
+# duration such as `timeout 5`, and every other word is refused. None of these
+# launchers takes a directory but `env`, whose `-C` is read above.
 INDEX_WRAPPER_RUNNERS = frozenset({
     "builtin", "command", "env", "exec", "nice", "nohup", "setsid", "stdbuf",
     "time", "timeout",
 })
+INDEX_WRAPPER_OPERAND = re.compile(r"^\d+(?:\.\d+)?[smhd]?$")
+
+
+def leading_offence(leading):
+    """Whether the words in front of the wrapper may move its directory."""
+    for word in leading:
+        if env_reaching_option(word):
+            return True
+        if (word.startswith("-") or ASSIGNMENT.match(word)
+                or INDEX_WRAPPER_OPERAND.match(word)
+                or program_name(word) in INDEX_WRAPPER_RUNNERS | EVALUATORS):
+            continue
+        return True
+    return False
 
 
 def index_wrapper_offence(command):
@@ -5695,6 +5726,9 @@ def index_wrapper_offence(command):
     behind `env`, `nohup`, `timeout 5` and the rest — or any shell handed it
     anywhere after the shell's name. Reading the first word that is not an
     option as the script took `errexit` for it in `bash -o errexit …/run-index`.
+    A launcher `launched` does not know, handed the wrapper as its own
+    argument rather than through a shell, is not found here; nothing grants
+    that command either, so it reaches a prompt.
     """
     for run in raw_runs(command):
         start = 0
@@ -5723,15 +5757,11 @@ def index_wrapper_differs(command, leading):
     copy bash then reaches is not the one under the event's directory, and
     following `cd` through groups and subshells is the emulation this file
     refuses to guess at. In `leading`, the words in front of the shell or the
-    wrapper, `env -C` is one too, and so is any launcher outside
-    `INDEX_WRAPPER_RUNNERS`, whose directory options are not modelled. A
-    directory holding no wrapper is admitted, since bash finds nothing there
-    to run.
+    wrapper, `env -C` or `env -S` is one too, and so is any word
+    `leading_offence` does not know. A directory holding no wrapper is
+    admitted, since bash finds nothing there to run.
     """
-    if changes_directory(command) or any(
-            CHDIR_OPTION.match(word)
-            or program_name(word) in ARGUMENT_RUNNERS - INDEX_WRAPPER_RUNNERS
-            for word in leading):
+    if changes_directory(command) or leading_offence(leading):
         return (
             "the skill's `run-index` is started in a command that can also "
             "change directory, so the copy bash reaches is not the one this "
