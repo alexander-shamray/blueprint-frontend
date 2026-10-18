@@ -5717,18 +5717,19 @@ def leading_offence(leading):
     return False
 
 
-def index_wrapper_offence(command):
-    """The reason to refuse the skill's `run-index` from here, or `None`.
+def wrapper_launch(command, pattern):
+    """The words in front of a script `pattern` matches, where one is started.
 
     On the raw words, as `helper_argument_offence` reads a helper's, and
     wider than it (rounds 1 and 2 of alexander-shamray/blueprint-frontend#254's
-    review): the wrapper wherever `launched` places a program — first, or
+    review): the script wherever `launched` places a program — first, or
     behind `env`, `nohup`, `timeout 5` and the rest — or any shell handed it
     anywhere after the shell's name. Reading the first word that is not an
     option as the script took `errexit` for it in `bash -o errexit …/run-index`.
-    A launcher `launched` does not know, handed the wrapper as its own
+    A launcher `launched` does not know, handed the script as its own
     argument rather than through a shell, is not found here; nothing grants
-    that command either, so it reaches a prompt.
+    that command either, so it reaches a prompt. `None` where the command
+    starts no such script.
     """
     for run in raw_runs(command):
         start = 0
@@ -5739,15 +5740,21 @@ def index_wrapper_offence(command):
                 DATA_ONLY_COMMANDS | READING_COMMANDS):
             continue
         for index, word in enumerate(words):
-            if INDEX_WRAPPER.match(word) and launched(words, index):
-                return index_wrapper_differs(command, words[:index])
+            if pattern.match(word) and launched(words, index):
+                return words[:index]
         for position, word in enumerate(words):
             if program_name(word) not in EVALUATORS:
                 continue
-            if any(INDEX_WRAPPER.match(later) for later in words[position + 1:]):
-                return index_wrapper_differs(command, words[:position])
+            if any(pattern.match(later) for later in words[position + 1:]):
+                return words[:position]
             break
     return None
+
+
+def index_wrapper_offence(command):
+    """The reason to refuse the skill's `run-index` from here, or `None`."""
+    leading = wrapper_launch(command, INDEX_WRAPPER)
+    return None if leading is None else index_wrapper_differs(command, leading)
 
 
 def index_wrapper_differs(command, leading):
@@ -5772,11 +5779,45 @@ def index_wrapper_differs(command, leading):
     base = os.path.abspath(EVENT_CWD or os.getcwd())
     if not os.path.isfile(os.path.join(base, INDEX_WRAPPER_SCRIPTS, "run-index")):
         return None
-    if (os.path.normcase(os.path.realpath(base))
-            == os.path.normcase(os.path.realpath(HOOK_CHECKOUT))):
+    if hooks_checkout(base):
         return None
+    found = copy_difference(base, INDEX_WRAPPER_FILES)
+    if found is None:
+        return None
+    name, linked = found
+    if linked:
+        return (
+            f"`{name}` under {base} is reached through a link, so the "
+            "file the wrapper runs is not the one this guard compares "
+            f"with {HOOK_CHECKOUT}'s, the checkout this session's hooks "
+            "run from (alexander-shamray/blueprint-frontend#146). Read "
+            "and Grep the files here instead."
+        )
+    return (
+        f"`{name}` under {base} is not the "
+        f"copy in {HOOK_CHECKOUT}, the checkout this session's hooks "
+        "run from, so the skill's pre-approved `run-index` would run "
+        "code the tree you stand in supplies "
+        "(alexander-shamray/blueprint-frontend#146). Read and Grep "
+        "the files here instead."
+    )
+
+
+def hooks_checkout(base):
+    """Whether `base` is the checkout this hook runs from."""
+    return (os.path.normcase(os.path.realpath(base))
+            == os.path.normcase(os.path.realpath(HOOK_CHECKOUT)))
+
+
+def copy_difference(base, names):
+    """The first of `names` under `base` that is not the hooks' own copy.
+
+    `(name, True)` where the file is reached through a link, `(name, False)`
+    where its bytes differ or it is missing, and `None` where every one is the
+    copy `HOOK_CHECKOUT` holds.
+    """
     real = os.path.realpath(base)
-    for name in INDEX_WRAPPER_FILES:
+    for name in names:
         # **Read where the consumer reads.** `gate-index.py` reaches the hook
         # through `../../..` from its own directory, which the kernel resolves
         # after following a link, so a branch tracking `scripts` as a link to
@@ -5787,24 +5828,94 @@ def index_wrapper_differs(command, leading):
         path = os.path.join(base, name)
         if (os.path.normcase(os.path.realpath(path))
                 != os.path.normcase(os.path.join(real, *name.split("/")))):
-            return (
-                f"`{name}` under {base} is reached through a link, so the "
-                "file the wrapper runs is not the one this guard compares "
-                f"with {HOOK_CHECKOUT}'s, the checkout this session's hooks "
-                "run from (alexander-shamray/blueprint-frontend#146). Read "
-                "and Grep the files here instead."
-            )
+            return name, True
         theirs = _contents(path)
         if theirs is None or theirs != _contents(os.path.join(HOOK_CHECKOUT, name)):
-            return (
-                f"`{name}` under {base} is not the "
-                f"copy in {HOOK_CHECKOUT}, the checkout this session's hooks "
-                "run from, so the skill's pre-approved `run-index` would run "
-                "code the tree you stand in supplies "
-                "(alexander-shamray/blueprint-frontend#146). Read and Grep "
-                "the files here instead."
-            )
+            return name, False
     return None
+
+
+# ---- the helpers, as the tree a session stands in holds them ----
+
+# **`.claude/scripts/` kept #146's residual**
+# (alexander-shamray/blueprint-frontend#255). Every
+# `Bash(bash .claude/scripts/…)` grant is a relative path, so inside a
+# `/branch` worktree it runs the copy the branch checked out there, and
+# `/ship` runs `npm-checks.sh`, `gh-pr-merge.sh`, `git-rebase-onto-main.sh`
+# and the rest from that worktree. Refusing the branch's copy, as the
+# wrapper's is refused, would leave a pull request that changes a helper
+# unable to run it at all, which `/ship` does on that pull request. So a
+# difference here is answered `ask` rather than `deny`: a hook's `ask` stands
+# over the grant, and the person approves the branch's copy or does not.
+HELPER_SCRIPT = re.compile(r"^(?:\./)?\.claude/scripts/[A-Za-z0-9._-]+\.sh$")
+HELPER_SCRIPTS = ".claude/scripts"
+# **The closure is the directory, not the helper named.** A helper reaches its
+# siblings through its own directory — `gh-issue-create.sh` sources
+# `gh-issue-filing.sh`, which runs `gh-label-ensure.sh` — and
+# `git-worktree-fork.sh` starts the index refresh through the hooks' launcher,
+# so a list per helper would be one more enumeration to fall behind the files.
+HELPER_HOOK_FILES = (".claude/hooks/run-guard.sh", ".claude/hooks/index-refresh.py")
+
+# The questions `offence` found for the person, in the order found. Rebound by
+# `main` for every event, and put only where nothing was refused.
+PROMPTS = []
+
+
+def helper_names(base):
+    """Every helper either checkout holds, and the hook files they reach.
+
+    The union, so a helper the branch added or removed is a difference too.
+    """
+    names = set()
+    for root in (base, HOOK_CHECKOUT):
+        try:
+            entries = os.listdir(os.path.join(root, HELPER_SCRIPTS))
+        except OSError:
+            continue
+        names.update(f"{HELPER_SCRIPTS}/{entry}" for entry in entries
+                     if entry.endswith(".sh"))
+    return tuple(sorted(names)) + HELPER_HOOK_FILES
+
+
+def helper_copy_question(command):
+    """Why a granted helper this command starts wants approving, or `None`.
+
+    A directory change anywhere in the command, or a word in front of the
+    shell that `leading_offence` does not know, leaves the copy bash reaches
+    unknown, as it does for the wrapper. A directory holding no helpers is
+    let through, since bash finds nothing there to run.
+    """
+    leading = wrapper_launch(command, HELPER_SCRIPT)
+    if leading is None:
+        return None
+    if changes_directory(command) or leading_offence(leading):
+        return (
+            "a granted `.claude/scripts/` helper is started in a command "
+            "that can also change directory, so the copy bash reaches is not "
+            f"one this guard can compare with {HOOK_CHECKOUT}'s, the checkout "
+            "this session's hooks run from "
+            "(alexander-shamray/blueprint-frontend#255)."
+        )
+    base = os.path.abspath(EVENT_CWD or os.getcwd())
+    if (not os.path.isdir(os.path.join(base, HELPER_SCRIPTS))
+            or hooks_checkout(base)):
+        return None
+    found = copy_difference(base, helper_names(base))
+    if found is None:
+        return None
+    name, linked = found
+    if linked:
+        how = ("is reached through a link, so the file a helper runs is not "
+               f"the one this guard compares with {HOOK_CHECKOUT}'s")
+    else:
+        how = f"is not the copy in {HOOK_CHECKOUT}"
+    return (
+        f"`{name}` under {base} {how}, the checkout this session's hooks run "
+        "from, so the helper's grant would run code the tree the session "
+        "stands in supplies without asking "
+        "(alexander-shamray/blueprint-frontend#255). Approve it only if this "
+        "branch's helpers are the ones meant to run."
+    )
 
 
 # Substitutions and evaluators both recurse, and a crafted nest of either would
@@ -6045,6 +6156,14 @@ def _offence(command, depth, judged):
     refusal = index_wrapper_offence(resolved)
     if refusal is not None:
         return refusal
+
+    # The same words, asked which copy of a helper they start. A difference is
+    # a question for the person rather than a refusal
+    # (alexander-shamray/blueprint-frontend#255), so it is kept for `main` and
+    # the judgement goes on: a refusal found later still stands over it.
+    question = helper_copy_question(resolved)
+    if question is not None and question not in PROMPTS:
+        PROMPTS.append(question)
 
     # `strip_dollar_quotes` turns `$'…'` and `$"…"` into the ordinary quoting
     # `shlex` resolves, on the string just checked.
@@ -6372,9 +6491,10 @@ def main():
     if not isinstance(command, str):
         return 0
 
-    global EVENT_CWD
+    global EVENT_CWD, PROMPTS
     cwd = event.get("cwd")
     EVENT_CWD = cwd if isinstance(cwd, str) and cwd else None
+    PROMPTS = []
 
     try:
         reason = scan_budget(command) or offence(command)
@@ -6397,6 +6517,12 @@ def main():
             "it has been established; refusing rather than admitting what "
             "could not be read. The traceback is on stderr."
         )
+    decision = "deny"
+    if reason is None and PROMPTS:
+        # **Asked, not refused** (alexander-shamray/blueprint-frontend#255):
+        # the person reads the reason in the prompt, and the command runs on
+        # their approval rather than on the grant's.
+        decision, reason = "ask", PROMPTS[0]
     if reason is None:
         return 0
 
@@ -6404,7 +6530,7 @@ def main():
         {
             "hookSpecificOutput": {
                 "hookEventName": "PreToolUse",
-                "permissionDecision": "deny",
+                "permissionDecision": decision,
                 "permissionDecisionReason": reason,
             }
         },
