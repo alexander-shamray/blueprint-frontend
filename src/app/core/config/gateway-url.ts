@@ -7,7 +7,8 @@ function base(): string {
 
 /**
  * Whether a request URL is bound for the gateway (spec §4.3, and §11: the
- * gateway is the only host this client calls).
+ * gateway is the only host this client calls but for the object store, whose
+ * pre-signed image `PUT` this answers no for, so it carries no bearer).
  *
  * A boundary check rather than a bare `startsWith`, because
  * `http://localhost:5000` is a prefix of `http://localhost:50001` — and the

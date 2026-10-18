@@ -36,8 +36,10 @@ Three properties follow, and each design choice below is argued against them:
 ## 2. What the backend exposes
 
 The gateway (`Gateway.Api`, port 5000 under Compose) is the only host the
-client calls. The paths below are the gateway's; the gateway strips the first
-segment before forwarding.
+client calls, but for one: a product image's bytes go to the object store at
+the pre-signed URL the BFF returns (§5.5; `client-architecture.md` §11 argues
+the exception). The paths below are the gateway's; the gateway strips the
+first segment before forwarding.
 
 | Method and path | Host | Auth at the edge | Body or query | Reply |
 |---|---|---|---|---|
