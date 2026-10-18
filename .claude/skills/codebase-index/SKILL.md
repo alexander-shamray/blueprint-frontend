@@ -23,9 +23,9 @@ That wrapper exports `CBX_NO_SKILL_AUTO_UPDATE=1`. The package is named
 `codebase-index`; do not invoke that console script directly.
 
 **The wrapper that runs is the copy in the directory you stand in**, so the
-Bash guard refuses it wherever that copy, the gate it sources or the judge
-the gate starts differs from the checkout this session's hooks run from —
-a worktree whose branch changed them
+Bash guard refuses it wherever that copy, the gate it sources, the judge
+the gate starts or the hook the judge loads differs from the checkout this
+session's hooks run from — a worktree whose branch changed them
 (alexander-shamray/blueprint-frontend#146). Use Grep and Read there.
 
 | Intent | Command |

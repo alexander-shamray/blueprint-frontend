@@ -5431,15 +5431,25 @@ class TheGitArgvGuard(unittest.TestCase):
         # worktree whose branch changed `run-index`, the gate it sources or
         # the judge the gate starts, the skill's grant ran the branch's copy
         # with no prompt. Each refused case was admitted before the fix.
-        trusted = SCRIPTS.parent / "skills" / "codebase-index" / "scripts"
-        names = ("run-index", "gate.sh", "gate-index.py")
+        trusted = SCRIPTS.parent.parent
+        # Every file the route runs out of the checkout: the wrapper, the gate
+        # it sources, the judge the gate starts and the hook the judge loads,
+        # which only the automated security review of #254 caught.
+        names = (".claude/skills/codebase-index/scripts/run-index",
+                 ".claude/skills/codebase-index/scripts/gate.sh",
+                 ".claude/skills/codebase-index/scripts/gate-index.py",
+                 ".claude/hooks/index-refresh.py")
+        gate = (trusted / names[2]).read_text(encoding="utf-8")
+        self.assertIn('"hooks", "index-refresh.py"', gate)
+        self.assertEqual(
+            names, in_process_hook.load(HOOK)[0].INDEX_WRAPPER_FILES)
         run = "bash .claude/skills/codebase-index/scripts/run-index stats --json"
         with tempfile.TemporaryDirectory() as scratch:
-            copy = Path(scratch, ".claude", "skills", "codebase-index", "scripts")
-            copy.mkdir(parents=True)
+            copy = Path(scratch)
             # No wrapper at all: bash finds nothing to run.
             self.assertAdmitted(run, cwd=scratch)
             for name in names:
+                (copy / name).parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(trusted / name, copy / name)
             # Positive control: a byte-identical copy is admitted, or every
             # refusal below could be the guard refusing the directory.
@@ -5464,7 +5474,7 @@ class TheGitArgvGuard(unittest.TestCase):
                         self.assertAdmitted("echo " + run, cwd=scratch)
                     finally:
                         (copy / name).write_bytes(original)
-            (copy / "gate.sh").unlink()
+            (copy / names[1]).unlink()
             self.assertIn("#146", self.assertRefused(run, cwd=scratch))
         # The hook's own checkout holds its own copy; a directory change in
         # the same command leaves the copy bash reaches unknown, there too.
