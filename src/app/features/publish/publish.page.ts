@@ -357,6 +357,9 @@ export class PublishPage {
 
   private clearImage(): void {
     this.uploads++;
+    // A new entry, so its upload has its own one replay after a sign-in, as
+    // the subject effect gives a new owner's publish one.
+    this.uploadReplayedAfterSignIn = false;
     this.imageFile = null;
     this.imageState.set(null);
     this.imageErrorState.set(null);
