@@ -5504,14 +5504,12 @@ class TheGitArgvGuard(unittest.TestCase):
                         # The automated security review after it: a launcher
                         # no list names, and `--chdir` inside `env -S`.
                         "bwrap --chdir docs " + run,
-                        "flatpak-spawn --directory=docs " + run):
-            with self.subTest(command=command):
-                self.assertIn("#146", self.assertRefused(command, cwd=root))
-        for command in ("env -S'--chdir=docs' " + run,
+                        "flatpak-spawn --directory=docs " + run,
+                        "env -S'--chdir=docs' " + run,
                         "env --split-string='--chdir=docs' " + run,
                         "env -iS'-C docs' " + run):
             with self.subTest(command=command):
-                self.assertRefused(command, cwd=root)
+                self.assertIn("#146", self.assertRefused(command, cwd=root))
 
     def test_the_index_wrapper_is_not_reached_through_a_link(self):
         # `gate-index.py` reaches `index-refresh.py` through `../../..` from
