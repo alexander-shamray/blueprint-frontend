@@ -105,7 +105,8 @@ describe('PublishPage', () => {
   });
 
   afterEach(async () => {
-    // A list a sign-out tore down has cancelled its read, which cannot be flushed.
+    // Defensive: `OwnProductsComponent.load()` ties no read to its teardown, so
+    // none is cancelled today, and a cancelled one could not be flushed.
     for (const read of controller.match(isOwnList)) {
       if (!read.cancelled) read.flush({ items: [], nextCursor: null });
     }
