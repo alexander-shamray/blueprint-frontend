@@ -23,6 +23,55 @@ jobs:
       - run: npm test
       - run: npm run build
 
+  # The production dependency tree, audited at `high` (#90). Its own job so a
+  # new advisory fails one job with one meaning and not `web`. Every pin is
+  # exact, so a finding is closed by a deliberate bump with `package-lock.json`
+  # in the same commit - never `npm audit fix`, never `npm install`.
+  #
+  # An advisory with no fixed version, or one whose path this client does not
+  # have, is allowed by id with an EXPIRY and a reason in `ALLOWED` below, not
+  # by disabling the job: an expired row fails again, and a row whose advisory
+  # has gone is reported so it gets deleted. Each row is
+  # `<GHSA id> <YYYY-MM-DD expiry> <reason>`.
+  #
+  # `npm audit` failing to answer (a registry outage) is not a clean tree, so
+  # a document with no `metadata` fails the job rather than passing it.
+  audit:
+    runs-on: ubuntu-latest
+    env:
+      ALLOWED: |
+        GHSA-ff3f-86qr-9cv3 2026-11-18 SSR-only denial of service; this client is not server-rendered. Closed by #247
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - name: Audit production dependencies
+        run: |
+          npm audit --omit=dev --json > audit.json || true
+          jq -e '.metadata' audit.json > /dev/null || { echo "::error::npm audit gave no answer"; cat audit.json; exit 1; }
+          today=$(date -u +%F)
+          found=$(jq -r '[.vulnerabilities[].via[] | objects | select(.severity == "high" or .severity == "critical") | (.url | split("/") | last) + "\t" + .title] | unique[]' audit.json)
+          failed=0
+          while IFS=$'\t' read -r id title; do
+            [ -n "$id" ] || continue
+            row=$(printf '%s\n' "$ALLOWED" | grep "^$id " || true)
+            expiry=$(printf '%s' "$row" | cut -d' ' -f2)
+            if [ -n "$expiry" ] && [[ ! "$today" > "$expiry" ]]; then
+              echo "::warning::$id allowed until $expiry: $title"
+            else
+              echo "::error::$id ($title)${expiry:+ - the allowance expired on $expiry}"
+              failed=1
+            fi
+          done <<< "$found"
+          while read -r id _; do
+            [ -n "$id" ] || continue
+            printf '%s\n' "$found" | grep -q "^$id"$'\t' || echo "::warning::$id is allowed but no longer reported - delete its row"
+          done <<< "$ALLOWED"
+          exit "$failed"
+
   e2e:
     runs-on: ubuntu-latest
     # The platform's images are pulled from the registry the backend

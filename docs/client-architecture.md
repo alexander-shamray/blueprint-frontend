@@ -1162,6 +1162,22 @@ locally with `CI=true npm test` — a watch-mode test step does not fail a build
 it consumes the job's entire timeout, which is a far more expensive way to find
 out.
 
+That run also measures coverage and fails below a floor (#90). **The floor's
+owner is the `coverageThresholds` block of the test target in `angular.json`**,
+and no document restates the number: it was set at what was measured on the day
+it went in, it ratchets only upward, and a PR that lowers it says why in its
+body. The provider is `@vitest/coverage-v8`, pinned exactly like Vitest itself
+because the two must agree.
+
+The `audit` job runs `npm audit --omit=dev` at `high` on its own, so a new
+advisory fails one job with one meaning and not `web`. Every pin is exact, so a
+finding is closed by a deliberate bump with `package-lock.json` in the same
+commit. An advisory with no fixed version, or one whose path this client does
+not have, is allowed by id in the job's `ALLOWED` list with an expiry and a
+reason; an expired row fails the job again, which is the difference between an
+allow-list and a disabled job. The first row is the Angular SSR advisory
+(#247).
+
 The `e2e` job checks out this repository and the backend, starts the backend's
 Compose stack with `--wait`, polls the gateway's `/health/ready` for five
 minutes, and runs the Playwright smoke against it. It is deliberately not
