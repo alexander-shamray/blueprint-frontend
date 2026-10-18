@@ -931,6 +931,32 @@ describe('PublishPage', () => {
       expect(fixture.componentInstance.image()?.status).toBe('uploaded');
     });
 
+    it('gives a newly chosen file its own replay, after the last file spent its own', async () => {
+      const unauthorized = () =>
+        controller
+          .expectOne(ISSUE)
+          .flush({ title: 'Unauthorized', status: 401 }, { status: 401, statusText: '' });
+
+      picked = png();
+      await fixture.componentInstance.chooseImage();
+      unauthorized();
+      await fixture.whenStable();
+      unauthorized(); // the one replay, refused again
+      await fixture.whenStable();
+      controller.expectNone(ISSUE);
+
+      // Choose another, with no Remove in between.
+      picked = new File(['efgh'], 'second.png', { type: 'image/png' });
+      await fixture.componentInstance.chooseImage();
+      unauthorized();
+      await fixture.whenStable();
+      controller.expectOne(ISSUE).flush(GRANT);
+      controller.expectOne(STORE).flush(null);
+      await fixture.whenStable();
+      expect(fixture.componentInstance.image()?.name).toBe('second.png');
+      expect(fixture.componentInstance.image()?.status).toBe('uploaded');
+    });
+
     it('shows a sign-in that fails under the image', async () => {
       signIn.mockImplementation(async () => {
         throw 'discovery failed';
