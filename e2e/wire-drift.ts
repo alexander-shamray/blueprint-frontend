@@ -43,7 +43,7 @@ export const BFF_PREFIX = 'Web.Bff/';
 
 /**
  * Every exported interface in `types.ts` is in this table or cites a BFF
- * file. The `uncovered` test in the spec fails on any other interface,
+ * file. The spec's "checked or cites a BFF file" test fails on any other interface,
  * including one with no citation, which is the point: the next type added is
  * not silently uncovered.
  */

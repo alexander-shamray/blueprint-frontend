@@ -191,7 +191,7 @@ test.describe('against the running stack', () => {
 
     for (const [name, checked] of Object.entries(CHECKED)) {
       const type = types.find((t) => t.name === name);
-      if (!type) continue; // reported by the coverage test above, with a better message
+      if (!type) continue; // reported by the "no row of CHECKED" test above, with a better message
       if (!documents.has(checked.service)) {
         const response = await request.get(`${SERVICES[checked.service]}/openapi/v1.json`, {
           headers: { authorization: `Bearer ${token}` },
