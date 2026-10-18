@@ -249,6 +249,22 @@ class TheHelperRefusesBeforeItRewrites(unittest.TestCase):
         self.assertEqual(5, self.helper("feat/x").returncode)
         self.assertIn("uncommitted", self.at("cat b.txt").stdout, "the edit survives the refusal")
 
+    def test_a_skip_worktree_file_is_refused_and_named(self):
+        # `git status` reads clean here, so the dirty-tree guard cannot be what
+        # fires; the message is what tells this guard from that one.
+        self.at("git update-index --skip-worktree b.txt")
+        self.assertEqual("", self.at("git status --porcelain").stdout.strip())
+        result = self.helper("feat/x")
+        self.assertEqual(5, result.returncode)
+        self.assertIn("skip-worktree", result.stderr)
+        self.assertIn("b.txt", result.stderr)
+        self.assertNotIn("the tree is dirty", result.stderr)
+
+    def test_a_sparse_checkout_is_not_read_as_a_lift(self):
+        self.at("git config core.sparseCheckout true && "
+                "git update-index --skip-worktree b.txt")
+        self.assertNotIn("skip-worktree", self.helper("feat/x").stderr)
+
     def test_a_branch_the_remote_does_not_have_is_refused(self):
         # Exit 6 has two sources — no `origin/main` to rebase onto, and no
         # `origin/<branch>` to push over — so the code alone does not say

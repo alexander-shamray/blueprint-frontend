@@ -242,6 +242,21 @@ case "$mode" in
     dirty=$(git status --porcelain)
     [ -z "$dirty" ] ||
       { echo "the tree is dirty; a rebase would carry or refuse it, and neither is this helper's call" >&2; exit 5; }
+    # A skip-worktree file reads clean in `git status` and is still local state
+    # the replay's checkout will not overwrite, so the run below would stop
+    # with git's "local changes would be overwritten" and name no flag (#246).
+    # It is refused here, by name, under the dirty tree's own exit: both are
+    # a checkout holding something the replay cannot carry. A sparse checkout
+    # uses the same flag on purpose, so one that says so is not read as a lift.
+    sparse=$(git config --type=bool core.sparseCheckout || :)
+    if [ "$sparse" != "true" ]; then
+      flagged=$(git ls-files -v | sed -n 's/^[Ss] //p')
+      [ -z "$flagged" ] ||
+        { echo "these tracked files carry skip-worktree, which git status does not show and a replay will not overwrite:" >&2
+          printf '%s\n' "$flagged" >&2
+          echo "clear the flag with 'git update-index --no-skip-worktree <file>', or restore the file, then start again" >&2
+          exit 5; }
+    fi
 
     git fetch origin
     git show-ref --verify --quiet refs/remotes/origin/main ||
