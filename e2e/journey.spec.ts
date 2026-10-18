@@ -5,7 +5,7 @@ import { GATEWAY, demoToken, publishProduct, publishedId, requireGateway, signIn
  * #97: an order walked to `Delivered`, the client twin of the backend's
  * `FulfilmentJourney` (blueprint-backend#426). The smoke's order ends at
  * `Out of stock` because its products are never stocked; this one is, so the
- * fulfilment saga reserves, Payments captures, and Shipping books the parcel
+ * fulfilment saga reserves, Payments authorises, and Shipping books the parcel
  * with the carrier simulator, whose default feed reports it collected and
  * then delivered.
  *
@@ -26,9 +26,9 @@ const STOCKED = 5;
 
 /**
  * How long the buyer waits for `Delivered`. The backend's own journey budget
- * for that leg (`Deadlines.Confirmed + Dispatched + Delivered`) is dominated by
- * the tracking poll's 30-second interval, met at least twice; three minutes
- * covers it with a slow runner's margin.
+ * for that leg (`Deadlines.Confirmed + Dispatched + Delivered`) counts the
+ * tracking poll's 30-second interval once, beside a few ticks and message
+ * hops; three minutes covers it with a slow runner's margin.
  */
 const DELIVERED_WITHIN_MS = 180_000;
 
@@ -80,9 +80,15 @@ test('demo orders a stocked product and follows it to Delivered', async ({ page,
 
   await page.getByRole('link', { name: 'Track this order' }).click();
   const timeline = page.locator('app-order-detail').getByTestId('timeline');
+  // A moving order draws every forward step and marks the unreached ones
+  // `pending` ("Not reached yet"), so the labels alone would pass with none
+  // reached. Every step is drawn and none is pending: the read carries a
+  // time for each.
   for (const step of ['Placed', 'Confirmed', 'Dispatched', 'Delivered']) {
     await expect(timeline).toContainText(step);
   }
+  await expect(timeline.locator('ion-item.pending')).toHaveCount(0);
+  await expect(timeline).not.toContainText('Not reached yet');
   await expect(timeline).not.toContainText('Out of stock');
   await expect(
     page.locator('app-order-detail').getByRole('button', { name: 'Cancel order' }),
