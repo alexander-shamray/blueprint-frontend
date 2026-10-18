@@ -5495,7 +5495,12 @@ class TheGitArgvGuard(unittest.TestCase):
         # `env` moves the directory as well (round 1 of #254's review).
         for command in ("env -C docs " + run, "env --chdir=docs " + run,
                         "env -iC docs " + run, "env --ch docs " + run,
-                        "env -C docs ./" + run[len("bash "):]):
+                        "env -C docs ./" + run[len("bash "):],
+                        # Round 3: launchers with directory options of their
+                        # own are refused, not modelled.
+                        "unshare --wd=docs ./" + run[len("bash "):],
+                        "sudo -D docs ./" + run[len("bash "):],
+                        "nsenter --wd=docs " + run):
             with self.subTest(command=command):
                 self.assertIn("#146", self.assertRefused(command, cwd=root))
 
