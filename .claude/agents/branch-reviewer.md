@@ -31,7 +31,11 @@ review you were given.
   *What counts as a finding* section, is no bar at all — return no findings,
   put `method` in `skipped`, and the caller treats the round as not having
   run. Read the method rather than loading it, and skip any step in it that
-  writes a file or runs a shell: you hold neither.
+  writes a file or runs a shell: you hold neither. **Those steps are the
+  caller's, not checks you failed to run** — `/ship` runs the npm checks
+  itself before the review — so they never go in `skipped`, where `/ship`
+  reads any entry but `locality` as a round that did not run
+  (alexander-shamray/blueprint-frontend#257).
 - **On a recheck, the findings still open**, as the JSON you returned
   before. Judge each against the new diff, and look for nothing else
   except what the fix itself broke.
@@ -79,8 +83,10 @@ JSON and nothing around it, at most about 2k tokens:
 ```
 
 `read` lists every file you opened, the diff and the method included, so a
-scope you could not reach shows as one you did not cover; `skipped` names each
-check you could not run, and is empty when you ran them all. On a recheck,
+scope you could not reach shows as one you did not cover. `skipped` may name
+`locality`, when there is no verdict file, and `method`, when the method is no
+bar, and nothing else: it is empty when you ran both, and a method step this
+profile tells you to skip is not an entry. On a recheck,
 carry each given `id` with its new `status` and add new findings only where
 the fix itself introduced them. An empty `findings` list is a clean round;
 say nothing else.

@@ -3294,6 +3294,49 @@ class CommandsEnforceTheEditingBoundariesTheyState(unittest.TestCase):
         # is where it would be recorded if it were a boundary rather than a
         # test.
 
+    def test_the_reviewer_skips_only_what_ship_reads_as_a_round(self):
+        # **The profile and /ship spoke two vocabularies for `skipped`**
+        # (blueprint-frontend#257): the profile told the reviewer to skip
+        # the method's shell steps and then to name every check it could not
+        # run, and /ship stops on any entry but `locality` — so an honest
+        # full pass named the npm checks and stopped the chain on a round
+        # that had read everything. Held from both ends, so an edit to
+        # either file alone fails here.
+        profile = (SCRIPTS.parent / "agents" / "branch-reviewer.md"
+                   ).read_text(encoding="utf-8")
+        ship = (COMMANDS / "ship.md").read_text(encoding="utf-8")
+        method = (COMMANDS / "review-branch.md").read_text(encoding="utf-8")
+        flat = " ".join(profile.split())
+        # What /ship admits, at every place it states the rule.
+        admitted = re.findall(
+            r"`skipped` names (?:anything|any check) but `([a-z-]+)`",
+            " ".join(ship.split()))
+        self.assertGreaterEqual(len(admitted), 2, "a /ship statement went missing")
+        self.assertEqual({"locality"}, set(admitted))
+        # What the profile may write: every entry it names, and nothing else.
+        vocabulary = re.search(
+            r"`skipped` may name (.+?) and nothing else", flat)
+        self.assertIsNotNone(vocabulary, "the profile no longer bounds `skipped`")
+        written = set(re.findall(r"`([a-z-]+)`", vocabulary.group(1)))
+        self.assertIn("locality", written)
+        # An entry /ship does not admit must be one the profile itself says
+        # ends the round, never one it writes on an ordinary pass.
+        for entry in written - set(admitted):
+            with self.subTest(entry=entry):
+                self.assertRegex(
+                    flat, rf"put `{entry}` in `skipped`, and the caller treats "
+                          r"the round as not having run")
+        # The example reply writes only what /ship admits.
+        example = re.search(r'"skipped": \[([^\]]*)\]', profile)
+        self.assertEqual(set(admitted),
+                         set(re.findall(r'"([a-z-]+)"', example.group(1))))
+        # The method really has a shell step for the profile to skip, so the
+        # clause keeping it out of `skipped` is load-bearing, and the clause
+        # sits with the instruction to skip it.
+        self.assertIn("npm-checks.sh", method)
+        skip = flat.index("skip any step in it that writes a file or runs a shell")
+        self.assertRegex(flat[skip:skip + 400], r"never go in `skipped`")
+
     def test_ship_grants_the_reviewer_by_exact_type_and_nothing_broader(self):
         # The exact SET, not a membership: a bare `Agent` would admit every
         # profile in the repository along with every broad type, and a round
