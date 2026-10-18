@@ -45,6 +45,32 @@ describe('CatalogApi', () => {
     request.flush({ items: [], nextCursor: null });
   });
 
+  it('sends a search and a sort beside the cursor when the query names them', () => {
+    api.products('opaque-token', { q: 'lamp', sort: 'name' }).subscribe();
+
+    const request = controller.expectOne(
+      (r) => r.url === 'http://localhost:5000/api/v1/catalog/products',
+    );
+
+    expect(request.request.params.get('q')).toBe('lamp');
+    expect(request.request.params.get('sort')).toBe('name');
+    expect(request.request.params.get('cursor')).toBe('opaque-token');
+    request.flush({ items: [], nextCursor: null });
+  });
+
+  it('sends neither for an empty query, so the server answers its own default', () => {
+    api.products(null, { q: '' }).subscribe();
+
+    const request = controller.expectOne(
+      (r) => r.url === 'http://localhost:5000/api/v1/catalog/products',
+    );
+
+    // `q=` would be a search for nothing, and `sort` absent is newest first.
+    expect(request.request.params.has('q')).toBe(false);
+    expect(request.request.params.has('sort')).toBe(false);
+    request.flush({ items: [], nextCursor: null });
+  });
+
   it('reads one product by id, with the id encoded into the path', () => {
     api.product('a/b').subscribe();
 

@@ -7,6 +7,36 @@ import {
 } from './types';
 
 /**
+ * The listing's closed set of orderings, `ProductSort.All` in
+ * Catalog.Application/Products/GetProducts/ProductSort.cs. The server
+ * answers any other value with a 400 keyed `Sort`.
+ */
+export const PRODUCT_SORTS = ['newest', 'name'] as const;
+export type ProductSort = (typeof PRODUCT_SORTS)[number];
+
+/**
+ * `GetProductsValidator.MaxSearchLength`: a published name's own ceiling
+ * (`PublishProductValidator.MaxNameLength`), since a longer search can match
+ * no product. The server refuses a longer `q` with a 400.
+ */
+export const MAX_SEARCH_LENGTH = 200;
+
+/**
+ * The listing's query parameters beside the cursor: a search over names and
+ * an ordering. Query parameters rather than a body, so they sit here beside
+ * the call and not in `types.ts`, whose interfaces are wire bodies
+ * `e2e/wire-drift.ts` holds to the OpenAPI documents.
+ *
+ * A cursor is minted for one `q` and `sort` and refused under another
+ * (`ProductCursor.Matches`), so a caller that changes either starts again at
+ * the first page.
+ */
+export interface ProductQuery {
+  readonly q?: string;
+  readonly sort?: ProductSort;
+}
+
+/**
  * Catalog.Api/Endpoints/ProductEndpoints.cs, through the gateway. The gateway
  * strips /api before forwarding, so the service sees /v1/catalog/products —
  * the path here is the caller's, which is the one this file is responsible for.
@@ -23,9 +53,17 @@ export class CatalogApi {
    * `anonymous` policy and the endpoint itself says AllowAnonymous. This is
    * why the products tab works before sign-in (spec §5.1).
    */
-  products(cursor: string | null, limit = 20): Observable<CursorPage<ProductSummary>> {
+  products(
+    cursor: string | null,
+    query: ProductQuery = {},
+    limit = 20,
+  ): Observable<CursorPage<ProductSummary>> {
     let params = new HttpParams().set('limit', limit);
     if (cursor !== null) params = params.set('cursor', cursor);
+    // Sent only when they say something: an absent `q` is no search, and an
+    // absent `sort` is the server's default, newest first (ProductSort.cs).
+    if (query.q) params = params.set('q', query.q);
+    if (query.sort) params = params.set('sort', query.sort);
 
     return this.http.get<CursorPage<ProductSummary>>(this.base, { params });
   }
