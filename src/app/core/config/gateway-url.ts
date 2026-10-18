@@ -37,6 +37,7 @@ export function isGatewayUrl(url: string): boolean {
  * caller is considered:
  *
  *   catalog-public   GET  /api/v1/catalog/**   -> "anonymous"
+ *   catalog-own      GET  /api/v1/catalog/products/mine -> "authenticated"
  *   catalog-write    POST /api/v1/catalog/**   -> "authenticated"
  *   ordering              /api/v1/orders/**    -> "authenticated"
  *   inventory-admin       /api/v1/inventory/** -> "authenticated"
@@ -54,7 +55,17 @@ export function isGatewayUrl(url: string): boolean {
  * this file asked about the bearer instead, which quietly filed every
  * signed-in customer's catalogue refusal — the tightest budget in the system,
  * and the one the infinite scroll draws on — against the ordering bucket.
+ *
+ * `catalog-own` is the one `GET` under that prefix it does not take. YARP
+ * prefers the literal path over the catch-all, so a seller's own list is
+ * `authenticated` (backend ADR-074), and filing its 429 under `catalogue`
+ * would close the Products tab on a refusal from the other bucket while
+ * leaving Publish, which shares this one, enabled. The path is compared
+ * without its query string, which is how YARP matches it.
  */
 export function isPublicCatalogueRead(method: string, url: string): boolean {
-  return method.toUpperCase() === 'GET' && url.startsWith(`${base()}/api/v1/catalog/`);
+  if (method.toUpperCase() !== 'GET') return false;
+  const path = url.split(/[?#]/, 1)[0];
+  const catalogue = `${base()}/api/v1/catalog/`;
+  return path.startsWith(catalogue) && path !== `${catalogue}products/mine`;
 }

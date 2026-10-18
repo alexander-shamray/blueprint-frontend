@@ -96,6 +96,46 @@ describe('rateLimitInterceptor', () => {
     expect(windows.catalogue.blocked()).toBe(false);
   });
 
+  it("files a refused seller's own list under the authenticated window, though it is a catalogue GET", () => {
+    // `catalog-own` is a literal route YARP prefers over the catch-all, and it
+    // names the authenticated policy (backend ADR-074). The params are what
+    // `CatalogApi.mine` sends, so the URL the interceptor sees carries a query.
+    http.get(`${LISTING}/mine`, { params: { limit: 20 } }).subscribe({ error: () => undefined });
+
+    refuse((r) => r.url === `${LISTING}/mine`);
+
+    expect(windows.authenticated.remaining()).toBe(30);
+    expect(windows.catalogue.blocked()).toBe(false);
+  });
+
+  it('matches the own list by its path, with the query string written into the URL', () => {
+    http.get(`${LISTING}/mine?limit=20`).subscribe({ error: () => undefined });
+
+    refuse(`${LISTING}/mine?limit=20`);
+
+    expect(windows.authenticated.blocked()).toBe(true);
+    expect(windows.catalogue.blocked()).toBe(false);
+  });
+
+  it('keeps a one-product read under the catalogue window', () => {
+    http.get(`${LISTING}/0199b0c4-6f2e-7a31-8c5d-2e4f6a7b8c9d`).subscribe({ error: () => undefined });
+
+    refuse(`${LISTING}/0199b0c4-6f2e-7a31-8c5d-2e4f6a7b8c9d`);
+
+    expect(windows.catalogue.blocked()).toBe(true);
+    expect(windows.authenticated.blocked()).toBe(false);
+  });
+
+  it("files nothing for the object store's refusal, which is not a gateway limiter's", () => {
+    const store = 'http://127.0.0.1:8333/product-images/uploads/s/k.png';
+    http.put(store, new Blob()).subscribe({ error: () => undefined });
+
+    refuse(store);
+
+    expect(windows.authenticated.blocked()).toBe(false);
+    expect(windows.catalogue.blocked()).toBe(false);
+  });
+
   it('falls back to a minute when the refusal carries no readable Retry-After', () => {
     // Same reasoning, and the same number, as the banner's: the parsing lives
     // in `mapError` and is not duplicated here, so a 429 the mapper cannot
