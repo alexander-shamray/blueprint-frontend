@@ -5457,6 +5457,12 @@ class TheGitArgvGuard(unittest.TestCase):
             self.assertAdmitted(
                 "bash ./.claude/skills/codebase-index/scripts/run-index stats",
                 cwd=scratch)
+            bare = run[len("bash "):]
+            # Round 1 of #254's review: an option's value read as the
+            # script, another shell, and the wrapper run as the program.
+            spellings = ("bash -o errexit " + bare, "sh " + bare, "./" + bare)
+            for command in spellings:
+                self.assertAdmitted(command, cwd=scratch)
             for name in names:
                 with self.subTest(changed=name):
                     original = (copy / name).read_bytes()
@@ -5468,6 +5474,7 @@ class TheGitArgvGuard(unittest.TestCase):
                                 "env " + run,
                                 "ls && " + run,
                                 'bash -c "' + run + '"',
+                                *spellings,
                         ):
                             self.assertRefused(command, cwd=scratch)
                         # Text naming the wrapper runs nothing.
@@ -5481,6 +5488,11 @@ class TheGitArgvGuard(unittest.TestCase):
         root = str(SCRIPTS.parent.parent)
         self.assertAdmitted(run, cwd=root)
         self.assertIn("#146", self.assertRefused("cd docs && " + run, cwd=root))
+        # `env` moves the directory as well (round 1 of #254's review).
+        for command in ("env -C docs " + run, "env --chdir=docs " + run,
+                        "env -iC docs " + run, "env --ch docs " + run):
+            with self.subTest(command=command):
+                self.assertIn("#146", self.assertRefused(command, cwd=root))
 
     def test_the_index_wrapper_is_not_reached_through_a_link(self):
         # `gate-index.py` reaches `index-refresh.py` through `../../..` from
@@ -10522,6 +10534,13 @@ class TestCodebaseIndexSkillGrants(unittest.TestCase):
         self.assertIn(f'$probe = "{floor}"', body)
         self.assertNotIn('-c "import codebase_index"', body)
         self.assertEqual(2, body.count("-c $probe"))
+        # A script runs in its caller's process, so the variable is put back
+        # in a `finally`, and the one exit after it is the only way out
+        # (round 1 of #254's review).
+        self.assertIn("$savedSafePath = $env:PYTHONSAFEPATH", body)
+        self.assertIn("} finally {\n    $env:PYTHONSAFEPATH = $savedSafePath", body)
+        self.assertEqual(["exit 2", "exit $code"],
+                         re.findall(r"exit \S+", body))
 
 
 class LandingByRebaseMovedTheReadsThatAssumedAMergeCommit(unittest.TestCase):
