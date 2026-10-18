@@ -62,10 +62,28 @@ export async function publishProduct(page: Page, amount: string) {
   const name = `Smoke ${amount} ${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
   await page.getByRole('tab', { name: 'Publish' }).click();
-  await page.getByLabel('Name').fill(name);
-  await page.getByLabel('Amount').fill(amount);
-  await page.getByLabel('Currency').fill('EUR');
-  await page.getByRole('button', { name: 'Publish' }).click();
+
+  // By role with `disabled: false`, never by label: on the phone project
+  // Ionic's scroll assist puts a disabled `cloned-input` copy of the focused
+  // field into the DOM, and `getByLabel('Name')` then matches both (#250).
+  const field = (role: 'textbox' | 'spinbutton', label: string) =>
+    page.getByRole(role, { name: label, disabled: false });
+  const submit = page.getByRole('button', { name: 'Publish' });
+
+  // Filled, read back and retried until the form holds all three and Publish
+  // is enabled. In WebKit a fill made while the tab was still being drawn did
+  // not survive the page's construction, and Publish then stayed disabled for
+  // the whole timeout (#250). A retry of the same three fills is what a person
+  // would do, and the ceiling is stated rather than slept.
+  await expect(async () => {
+    await field('textbox', 'Name').fill(name);
+    await field('spinbutton', 'Amount').fill(amount);
+    await field('textbox', 'Currency').fill('EUR');
+    await expect(field('textbox', 'Name')).toHaveValue(name, { timeout: 1_000 });
+    await expect(submit).toBeEnabled({ timeout: 1_000 });
+  }).toPass({ timeout: 15_000 });
+
+  await submit.click();
   await expect(page.getByText('Published as')).toBeVisible();
 
   return name;

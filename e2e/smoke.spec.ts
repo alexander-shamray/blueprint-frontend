@@ -106,18 +106,11 @@ test('a published product reaches the catalogue without a reload', async ({ page
   // test ever 404s at the edge, that route is the first thing to check.
   await signIn(page, 'demo', 'demo');
 
-  const name = `Smoke ${Date.now()}`;
-
-  await page.getByRole('tab', { name: 'Publish' }).click();
-  await page.getByLabel('Name').fill(name);
-  await page.getByLabel('Amount').fill('9.99');
-  await page.getByLabel('Currency').fill('EUR');
-  await page.getByRole('button', { name: 'Publish' }).click();
-
-  // The page stays put and shows the id the platform returned. It does not
-  // navigate: spec §5.5 asks that the products tab refresh, which is not the
-  // same as redirecting the person who published.
-  await expect(page.getByText('Published as')).toBeVisible();
+  // The page stays put and shows the id the platform returned, which the
+  // helper waits for. It does not navigate: spec §5.5 asks that the products
+  // tab refresh, which is not the same as redirecting the person who
+  // published.
+  const name = await publishProduct(page, '9.99');
 
   // The assertion this whole test exists for. Ionic caches a tab's page and
   // reuses its ComponentRef, so ProductsPage's constructor runs once per app
