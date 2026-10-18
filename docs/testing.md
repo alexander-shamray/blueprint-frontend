@@ -5,9 +5,9 @@ cannot say.
 
 **This file restates neither.** `package.json` is the list of invocations and
 `ci.yml` is the list of jobs; [`client-architecture.md`](client-architecture.md)
-§14 owns **what CI runs, and which smoke tests are left failing on the
-development machine and why** — read it before concluding a red smoke is a
-defect.
+§14 owns **what CI runs, and what the smoke needs on the development host**,
+including the two environmental failures that look like defects and are not.
+Read it before concluding a red smoke is a defect.
 What follows is the rest: the prerequisites, the wrapper, and the three things
 that have actually cost time here.
 

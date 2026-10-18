@@ -1230,7 +1230,7 @@ kilobytes rather than tens. A budget set to exactly current usage fails on the
 next honest line of code; one set to the sky never fails at all. Neither tells
 you anything on the day it trips.
 
-## 14. What CI runs, and the one test that is left failing
+## 14. What CI runs, and what the smoke needs on the development host
 
 `.github/workflows/ci.yml` names the jobs, and is the source of truth for
 which exist. The `web` job installs from the
@@ -1327,6 +1327,19 @@ path: `e2e/smoke.spec.ts`'s `beforeAll` asserts the gateway is answering and
 fails with a message naming the address if it is not. That follows the backend's
 own rule, stated in `docs/backend-architecture/12-test-strategy.md`: "A skip on
 a missing daemon fails open: CI goes green on a runner whose Docker broke."
+
+> **Superseded on 2026-10-18 (#85).** The claim below, that one smoke test
+> fails on the development machine and is left failing there, stopped being
+> true on that host. Measured there on 2026-10-18, the stack's own RabbitMQ
+> container binds 5672 and 15672, and the smoke passes in all three projects:
+> nine of nine, with the order test among them. No port override was needed,
+> and none is written down: the backend's `14-local-development.md` documents
+> none, and a second procedure invented here would be the copy that drifts.
+> The diagnosis stays true. A Bad Gateway at the order means `ordering-api`
+> never started because RabbitMQ did not reach healthy, and a native broker
+> holding 5672 (`netstat -ano | findstr :5672` names its process) is the
+> first thing to look for. The text below is kept as it was written, and its
+> rule stands: the test is left red, never skipped.
 
 **All three smoke tests pass in CI. One of them fails on the development
 machine, and it is left failing there.** CI is the authority on this, and it
