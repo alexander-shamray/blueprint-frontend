@@ -157,6 +157,16 @@ interface ChosenImage {
           @for (message of imageFieldErrors(); track $index) {
             <ion-note class="field-error" color="danger" data-field="image">{{ message }}</ion-note>
           }
+          <!--
+            The device's refusal of the camera or the library is this
+            client's sentence, so it is a note on the image and never banner
+            text, which is the backend's (spec §6).
+          -->
+          @if (imagePickRefusal(); as refusal) {
+            <ion-note class="field-error" color="danger" data-testid="image-refusal">
+              {{ refusal }}
+            </ion-note>
+          }
 
           <!--
             rateLimit.blocked() joins the other refusals: the gateway has
@@ -243,6 +253,7 @@ export class PublishPage {
   private readonly imageKeyState = signal<string | null>(null);
   private readonly imageErrorState = signal<DisplayError | null>(null);
   private readonly imageFieldErrorsState = signal<readonly string[]>([]);
+  private readonly imagePickRefusalState = signal<string | null>(null);
   /** The file behind `image()`, kept so Try again sends the same bytes. */
   private imageFile: File | null = null;
   /** `replayedAfterSignIn`, for the upload's own 401. */
@@ -258,6 +269,8 @@ export class PublishPage {
   readonly imageError = this.imageErrorState.asReadonly();
   /** A 400's messages for the image, under the control as a field's are. */
   readonly imageFieldErrors = this.imageFieldErrorsState.asReadonly();
+  /** Why the device gave no image, said under it; null once a choice goes through. */
+  readonly imagePickRefusal = this.imagePickRefusalState.asReadonly();
   /** An image is chosen and is not in the store, so Publish would leave it off. */
   readonly imageBusy = computed(() => {
     const image = this.imageState();
@@ -335,11 +348,11 @@ export class PublishPage {
       file = await this.imageSource.pick();
     } catch (error) {
       if (!(error instanceof ImagePickError)) throw error;
-      // The device's refusal, said where the upload's own errors are; the
-      // image already chosen, if any, stays as it was.
-      this.imageErrorState.set({ kind: 'banner', title: 'No image', detail: error.message });
+      // The image already chosen, if any, stays as it was.
+      this.imagePickRefusalState.set(error.message);
       return;
     }
+    this.imagePickRefusalState.set(null);
     if (file === null) return;
     // A file the seller chose is a new entry, with its own one replay after a
     // sign-in; the replay itself goes through `upload()`, so it cannot loop.
@@ -366,6 +379,7 @@ export class PublishPage {
     this.imageState.set(null);
     this.imageErrorState.set(null);
     this.imageFieldErrorsState.set([]);
+    this.imagePickRefusalState.set(null);
     this.setImageKey(null);
   }
 

@@ -991,7 +991,7 @@ describe('PublishPage', () => {
       expect(text('refused')).toContain('Choose another');
     });
 
-    it('shows the device’s refusal as a banner, uploads nothing, and keeps the image it had', async () => {
+    it('notes the device’s refusal under the image, never in the banner, and keeps the image it had', async () => {
       await uploaded();
 
       refused = new ImagePickError('Blueprint may not use the camera.');
@@ -999,27 +999,43 @@ describe('PublishPage', () => {
       fixture.detectChanges();
 
       controller.expectNone(ISSUE);
-      expect(fixture.componentInstance.imageError()).toEqual({
-        kind: 'banner', title: 'No image', detail: 'Blueprint may not use the camera.',
-      });
+      expect(
+        fixture.nativeElement.querySelector('[data-testid="image-refusal"]').textContent.trim(),
+      ).toBe('Blueprint may not use the camera.');
+      // Spec §6: banner text is the backend's, so a sentence this client wrote is not one.
+      expect(fixture.componentInstance.imageError()).toBeNull();
       expect(fixture.componentInstance.image()).toEqual({ name: 'lamp.png', status: 'uploaded' });
       expect(fixture.componentInstance.imageKey()).toBe(GRANT.key);
     });
 
-    it('clears the refusal once a later choice uploads', async () => {
+    it('drops the refusal once a later choice goes through', async () => {
       refused = new ImagePickError('Blueprint may not open your photos.');
       await fixture.componentInstance.chooseImage();
       refused = null;
 
       await uploaded();
-      expect(fixture.componentInstance.imageError()).toBeNull();
+      expect(fixture.componentInstance.imagePickRefusal()).toBeNull();
+      expect(fixture.nativeElement.querySelector('[data-testid="image-refusal"]')).toBeNull();
+    });
+
+    it('drops the refusal when the seller dismisses the next chooser, or removes the image', async () => {
+      refused = new ImagePickError('This device has no camera.');
+      await fixture.componentInstance.chooseImage();
+      refused = null;
+      await fixture.componentInstance.chooseImage();
+      expect(fixture.componentInstance.imagePickRefusal()).toBeNull();
+
+      refused = new ImagePickError('This device has no camera.');
+      await fixture.componentInstance.chooseImage();
+      fixture.componentInstance.removeImage();
+      expect(fixture.componentInstance.imagePickRefusal()).toBeNull();
     });
 
     it('lets any other failure of the source through, rather than reading it as a refusal', async () => {
       refused = new Error('a defect');
 
       await expect(fixture.componentInstance.chooseImage()).rejects.toThrow('a defect');
-      expect(fixture.componentInstance.imageError()).toBeNull();
+      expect(fixture.componentInstance.imagePickRefusal()).toBeNull();
     });
   });
 });
