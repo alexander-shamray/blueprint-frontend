@@ -1175,8 +1175,7 @@ finding is closed by a deliberate bump with `package-lock.json` in the same
 commit. An advisory with no fixed version, or one whose path this client does
 not have, is allowed by id in the job's `ALLOWED` list with an expiry and a
 reason; an expired row fails the job again, which is the difference between an
-allow-list and a disabled job. The first row is the Angular SSR advisory
-(#247).
+allow-list and a disabled job. The rows live in the job and nowhere else.
 
 The `e2e` job checks out this repository and the backend, starts the backend's
 Compose stack with `--wait`, polls the gateway's `/health/ready` for five
