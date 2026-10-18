@@ -2119,9 +2119,9 @@ the startup checkout, so a
 the event's directory is not byte-identical to that checkout's is refused —
 the hook added after the automated security review of
 alexander-shamray/blueprint-frontend#254 found the list stopping short of
-it — and so is one in a command that
-can change directory, since the copy bash reaches is then unknown. A worktree
-whose branch changed the wrapper therefore gets no index route at all, and
+it — and so is one in a command that can change directory, since the copy
+bash reaches is then unknown. A worktree whose branch changed the wrapper
+therefore gets no index route at all, and
 Grep and Read in its place; that is the cost, taken deliberately. **The
 `.claude/scripts/` helpers keep the same residual**: `/ship` runs a
 worktree's own `gh-pr-merge.sh` and `npm-checks.sh`, which the branch checked
