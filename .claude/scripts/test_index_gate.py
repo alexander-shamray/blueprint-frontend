@@ -14,6 +14,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 SCRIPTS = Path(__file__).resolve().parent
 SKILL_SCRIPTS = SCRIPTS.parent / "skills" / "codebase-index" / "scripts"
@@ -122,6 +123,22 @@ class TheCliIsNotStartedOverAnIndexTheHookRefuses(unittest.TestCase):
                 done = self.run_script(name, sub)
                 self.assertEqual(3, done.returncode, done.stderr)
                 self.assertNotIn("cli-ran", done.stdout)
+
+    def test_both_wrappers_start_the_cli_with_the_working_directory_off_sys_path(self):
+        # alexander-shamray/blueprint-frontend#151: the hook passed
+        # `PYTHONSAFEPATH` and nothing else did, so the skill's own route and
+        # its example hook ran the fallback with the caller's directory first
+        # on `sys.path`. The wrapper sets it now, whatever its caller holds.
+        stub = self.bin / "codebase-index"
+        stub.write_text('#!/bin/sh\necho "safepath=${PYTHONSAFEPATH:-unset}"\n',
+                        encoding="utf-8", newline="\n")
+        with mock.patch.dict(os.environ):
+            os.environ.pop("PYTHONSAFEPATH", None)
+            for name in ("run-index", "cbx"):
+                with self.subTest(wrapper=name):
+                    done = self.run_script(name, "stats")
+                    self.assertEqual(0, done.returncode, done.stderr)
+                    self.assertIn("safepath=1", done.stdout)
 
 
 if __name__ == "__main__":
