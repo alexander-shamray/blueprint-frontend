@@ -371,13 +371,18 @@ export class PublishPage {
   /**
    * The two hops: the BFF's issue, then the PUT to the URL it signed. The
    * type and the size are the file's own, and the BFF decides whether they
-   * pass. Held to the subject who chose the file, as a publish is.
+   * pass.
+   *
+   * Held to the page's owner rather than to whoever is signed in when the
+   * reply lands. A different seller signing in clears the image, which bumps
+   * `uploads`, so their arrival drops the reply; a sign-out alone keeps the
+   * draft for the owner's return (#159), and a reply landing in between
+   * belongs to that draft. Dropping it there would leave the image at
+   * `uploading`, Publish held, and no Try again on screen.
    */
   private upload(file: File): void {
     const upload = ++this.uploads;
-    const issuedFor = this.auth.user()()?.subject ?? null;
-    const current = () =>
-      upload === this.uploads && (this.auth.user()()?.subject ?? null) === issuedFor;
+    const current = () => upload === this.uploads;
 
     this.imageFile = file;
     this.imageState.set({ name: file.name, status: 'uploading' });

@@ -832,7 +832,7 @@ describe('PublishPage', () => {
       expect(fixture.componentInstance.imageKey()).toBeNull();
     });
 
-    it('drops an upload reply that lands for a seller who is no longer signed in', async () => {
+    it('drops an upload reply that lands after a different seller signed in', async () => {
       await chooseAndIssue(png());
       user.set({
         username: 'other', subject: 'subject-other', permissions: ['catalog:write'], expiresAt: 0,
@@ -843,6 +843,25 @@ describe('PublishPage', () => {
       controller.expectOne(STORE).flush(null);
       await fixture.whenStable();
       expect(fixture.componentInstance.imageKey()).toBeNull();
+    });
+
+    it('keeps an upload reply that lands during a sign-out, for the draft’s owner (#159)', async () => {
+      await chooseAndIssue(png());
+      user.set(null);
+      fixture.detectChanges();
+
+      controller.expectOne(STORE).flush(null);
+      await fixture.whenStable();
+
+      // Not stranded at `uploading` with Publish held and no Try again.
+      expect(fixture.componentInstance.image()?.status).toBe('uploaded');
+      expect(fixture.componentInstance.imageKey()).toBe('uploads/s/k.png');
+
+      user.set({
+        username: 'demo', subject: 'subject-demo', permissions: ['catalog:write'], expiresAt: 0,
+      });
+      fixture.detectChanges();
+      expect(fixture.componentInstance.imageBusy()).toBe(false);
     });
 
     it('names the status on the image line', () => {
