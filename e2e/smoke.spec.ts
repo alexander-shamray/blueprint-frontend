@@ -132,8 +132,11 @@ test('a published product reaches the catalogue without a reload', async ({ page
   // `p.PublishedAt DESC, p.Id DESC`, so the product this run just published is
   // the first row of the first page no matter how many came before it. The
   // accumulation is untidy, not fragile.
+  //
+  // Scoped to the Products page: the Publish tab's own list (#107) names the
+  // same product, and Ionic keeps that page in the DOM behind this one.
   await page.getByRole('tab', { name: 'Products' }).click();
-  await expect(page.getByText(name)).toBeVisible();
+  await expect(page.locator('app-products').getByText(name)).toBeVisible();
 });
 
 test('browser holds no permissions: the publish tab is absent, and a direct navigation — which reloads, so it arrives anonymous — is refused', async ({ page }) => {

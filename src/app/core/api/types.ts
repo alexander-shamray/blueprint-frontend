@@ -43,10 +43,11 @@ export interface PublishProductCommand {
   readonly commandId: string;
   readonly name: string;
   /**
-   * The key a BFF upload returned, never a URL (backend §10.8). Optional, and
-   * never set until #108 adds the upload: `PublishProductCommand.cs` no longer
-   * has a `ThumbnailUrl`, and the backend ignores a member it does not bind,
-   * so a URL sent here would publish the product bare without a word (#175).
+   * The `key` a `ProductImageUpload` returned once its bytes are in the
+   * store, never a URL (backend §10.8). Omitted for a product with no image,
+   * which the backend reads as null. `PublishProductCommand.cs` has no
+   * `ThumbnailUrl`, and the backend ignores a member it does not bind, so a
+   * URL sent here would publish the product bare without a word (#175).
    */
   readonly imageKey?: string;
   /**
@@ -86,6 +87,37 @@ export interface OwnProduct {
  */
 export interface WithdrawProductRequest {
   readonly commandId: string;
+}
+
+/**
+ * Web.Bff/ProductImages/ProductImageUploadRequest.cs — `ProductImageUploadRequest`.
+ * The two values the client chooses; the server chooses the key, the host and
+ * the expiry. The allowed types and the size bound are the BFF's validator's,
+ * and are not repeated here: past them it answers a 400 keyed `ContentType` or
+ * `SizeBytes`, which the form shows under the image.
+ */
+export interface ProductImageUploadRequest {
+  readonly contentType: string;
+  readonly sizeBytes: number;
+}
+
+/**
+ * Web.Bff/ProductImages/ProductImageUploads.cs — `ProductImageUpload`. A
+ * pre-signed `PUT` to the object store, which is the one host this client
+ * calls that is not the gateway (`client-architecture.md` §11).
+ */
+export interface ProductImageUpload {
+  readonly uploadUrl: string;
+  /**
+   * What the signature covers: `Content-Type` and `Content-Length`. The browser
+   * forbids a script to set the second, and sets it from the body, so the body
+   * must be the file whose size was declared.
+   */
+  readonly headers: Readonly<Record<string, string>>;
+  /** `uploads/{sellerId}/{guid}.{ext}`, which `PublishProductCommand.imageKey` carries. */
+  readonly key: string;
+  /** Five minutes after the issue; the client uploads at once and never waits on it. */
+  readonly expiresAt: string;
 }
 
 /** Web.Bff/Endpoints/QuoteRequest.cs — `QuoteRequestLine`. */

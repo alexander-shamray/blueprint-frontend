@@ -700,6 +700,30 @@ This application's dev server runs on port **5173**, not Angular's default 4200
 `Cors__Origins__0: "http://localhost:5173"`. A client that needed any of those
 changed would be a client the backend has to accommodate, which is backwards.
 
+**One request goes elsewhere, and it is the bytes of a product image (#108).**
+The backend decided that no service carries an upload (its ADR-106): the BFF
+signs a short-lived `PUT` for one key, and the client sends the file straight
+to the object store at whatever host the URL names — `127.0.0.1:8333` under
+Compose, a managed store in a deployment. So the rule above holds for every
+call that reaches the platform's policy and stops at the store, and the
+argument for keeping it does not reach there either: the store applies no
+authorization policy, no limiter and no correlation of its own, and the
+signature in the URL is the whole of its authorization. That is why
+`ProductImagesApi.upload` is the one request the two interceptors leave
+alone. `isGatewayUrl` answers no for the store's host, so no bearer goes to
+it, and its refusals are not filed against a gateway bucket. The URL is never
+built here: it arrives in the BFF's answer, and the client sends
+`Content-Type` from the headers the signature covers. `Content-Length` it cannot set, because the browser forbids it, so the
+body is the file whose size was declared.
+
+The browser still needs the store to admit this page's origin, and the
+question is §15's one more time. Measured against the Compose stack on
+2026-10-18: SeaweedFS answers a `PUT` preflight from `http://localhost:5173`,
+`https://localhost` and `capacitor://localhost` alike, by reflecting the
+origin, and nothing in the backend's tree configures that. A deployment's
+store is the deployer's, and its CORS rule is one more line the deployer owes
+this client, beside the gateway's and the realm's.
+
 ## 12. Deviations from the spec, and what execution discovered
 
 Each of these is written as the claim that turned out to be wrong, what is
