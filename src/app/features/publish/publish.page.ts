@@ -342,7 +342,11 @@ export class PublishPage {
   /** Asks the image source for a file, and uploads it the moment it has one. */
   async chooseImage(): Promise<void> {
     const file = await this.imageSource.pick();
-    if (file !== null) this.upload(file);
+    if (file === null) return;
+    // A file the seller chose is a new entry, with its own one replay after a
+    // sign-in; the replay itself goes through `upload()`, so it cannot loop.
+    this.uploadReplayedAfterSignIn = false;
+    this.upload(file);
   }
 
   /** The image's own Try again: the same file, under a new key, since a key is single use. */
