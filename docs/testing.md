@@ -5,9 +5,11 @@ cannot say.
 
 **This file restates neither.** `package.json` is the list of invocations and
 `ci.yml` is the list of jobs; [`client-architecture.md`](client-architecture.md)
-§14 owns **what CI runs, and what the smoke needs on the development host**,
-including the two environmental failures that look like defects and are not.
-Read it before concluding a red smoke is a defect.
+§14 owns **what CI runs, and what a red smoke on the development host
+means**: the two environmental failures that look like defects and are not.
+Read it before concluding a red smoke is a defect. What a local run needs is
+the table under *What the Playwright suite needs, and why it is CI's*,
+below.
 What follows is the rest: the prerequisites, the wrapper, and the three things
 that have actually cost time here.
 
