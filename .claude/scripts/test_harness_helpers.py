@@ -3702,8 +3702,31 @@ class TheGitArgvGuard(unittest.TestCase):
             return None
         payload = json.loads(result.stdout)
         decision = payload["hookSpecificOutput"]
-        self.assertEqual("deny", decision["permissionDecision"])
+        # A question is not a verdict (blueprint-frontend#255): a case that
+        # expects one reads it through `assertAsked`, and anywhere else it
+        # fails here, so `assertAdmitted` also says nothing was asked.
+        self.assertEqual("deny", decision["permissionDecision"],
+                         decision["permissionDecisionReason"])
         return decision["permissionDecisionReason"]
+
+    def asked(self, command, cwd=None):
+        """The question the hook puts to the person on `command`, or None."""
+        event = {"tool_name": "Bash", "tool_input": {"command": command}}
+        if cwd is not None:
+            event["cwd"] = cwd
+        result = in_process_hook.run(HOOK, json.dumps(event))
+        self.assertEqual(0, result.returncode, result.stderr)
+        if not result.stdout.strip():
+            return None
+        decision = json.loads(result.stdout)["hookSpecificOutput"]
+        if decision["permissionDecision"] != "ask":
+            return None
+        return decision["permissionDecisionReason"]
+
+    def assertAsked(self, command, cwd=None):
+        reason = self.asked(command, cwd=cwd)
+        self.assertIsNotNone(reason, f"not asked: {command}")
+        return reason
 
     def assertRefused(self, command, cwd=None):
         reason = self.judge(command, cwd=cwd)
@@ -5536,6 +5559,88 @@ class TheGitArgvGuard(unittest.TestCase):
             except (OSError, NotImplementedError):
                 self.skipTest("this host does not grant symlinks")
             self.assertIn("#146", self.assertRefused(run, cwd=scratch))
+
+    def test_a_helper_the_tree_supplies_is_asked_for_not_granted(self):
+        # **The helpers' grants are relative** (blueprint-frontend#255): from
+        # a worktree whose branch changed a helper, its grant ran the
+        # branch's copy with no prompt. Refusing it would leave a pull request
+        # unable to run the helper it changes, so the hook asks instead. Each
+        # asked case was admitted before the fix.
+        trusted = SCRIPTS.parent.parent
+        # The closure, read from the files rather than from the hook's list:
+        # a helper runs its siblings through its own directory, and the fork
+        # starts the index refresh through the hooks' launcher.
+        filing = (SCRIPTS / "gh-issue-filing.sh").read_text(encoding="utf-8")
+        self.assertIn('"$here/gh-label-ensure.sh"', filing)
+        fork = (SCRIPTS / "git-worktree-fork.sh").read_text(encoding="utf-8")
+        hooks = (".claude/hooks/run-guard.sh", ".claude/hooks/index-refresh.py")
+        for name in hooks:
+            self.assertIn(name, fork)
+        names = tuple(f".claude/scripts/{path.name}"
+                      for path in sorted(SCRIPTS.glob("*.sh"))) + hooks
+        run = "bash .claude/scripts/pr-state.sh 1"
+        with tempfile.TemporaryDirectory() as scratch:
+            copy = Path(scratch)
+            # No helpers at all: bash finds nothing to run.
+            self.assertAdmitted(run, cwd=scratch)
+            for name in names:
+                (copy / name).parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(trusted / name, copy / name)
+            # Positive control: byte-identical copies are admitted, or every
+            # question below could be the hook asking about the directory.
+            spellings = (run, "CI=1 " + run, "ls && " + run, "nohup " + run,
+                         "timeout 5 " + run, "bash -x .claude/scripts/pr-state.sh 1",
+                         "bash ./.claude/scripts/pr-state.sh 1",
+                         "sh .claude/scripts/pr-state.sh 1")
+            for command in spellings:
+                self.assertAdmitted(command, cwd=scratch)
+            for name in names:
+                with self.subTest(changed=name):
+                    original = (copy / name).read_bytes()
+                    (copy / name).write_bytes(original + b"\n# planted\n")
+                    try:
+                        self.assertIn("#255", self.assertAsked(run, cwd=scratch))
+                        for command in spellings:
+                            self.assertAsked(command, cwd=scratch)
+                        # Text naming the helper runs nothing.
+                        self.assertAdmitted("echo " + run, cwd=scratch)
+                        self.assertAdmitted(
+                            "grep -n x .claude/scripts/pr-state.sh", cwd=scratch)
+                        # A refusal still stands over the question.
+                        self.assertRefused(run + " $(id)", cwd=scratch)
+                    finally:
+                        (copy / name).write_bytes(original)
+            # A helper the branch added, or removed, is a difference too.
+            added = copy / ".claude/scripts/planted.sh"
+            added.write_text("echo planted\n", encoding="utf-8")
+            self.assertIn("#255", self.assertAsked(run, cwd=scratch))
+            added.unlink()
+            removed = copy / ".claude/scripts/gh-label-ensure.sh"
+            kept = removed.read_bytes()
+            removed.unlink()
+            self.assertIn("#255", self.assertAsked(run, cwd=scratch))
+            removed.write_bytes(kept)
+            self.assertAdmitted(run, cwd=scratch)
+            # A link below the root is asked about whatever it holds.
+            scripts = copy / ".claude" / "scripts"
+            elsewhere = copy / "x" / "scripts"
+            elsewhere.parent.mkdir()
+            shutil.move(str(scripts), str(elsewhere))
+            try:
+                os.symlink(elsewhere, scripts, target_is_directory=True)
+            except (OSError, NotImplementedError):
+                pass
+            else:
+                self.assertIn("#255", self.assertAsked(run, cwd=scratch))
+        # The hook's own checkout holds its own copies; a directory change in
+        # the same command leaves the copy bash reaches unknown, there too.
+        root = str(trusted)
+        self.assertAdmitted(run, cwd=root)
+        for command in ("cd .claude/worktrees/x && " + run,
+                        "env -C docs " + run, "env --chdir=docs " + run,
+                        "bwrap --chdir docs " + run):
+            with self.subTest(command=command):
+                self.assertIn("#255", self.assertAsked(command, cwd=root))
 
     def test_only_a_name_known_to_be_harmless_is_assigned_before_git(self):
         # **The name list is an enumeration, so a variable nobody listed

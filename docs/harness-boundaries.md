@@ -2126,10 +2126,28 @@ own directory to the hook, which the kernel resolves after following a link,
 so a tracked `scripts` link would have the gate load a hook the comparison
 never opened (the same review). A worktree whose branch changed the wrapper
 therefore gets no index route at all, and
-Grep and Read in its place; that is the cost, taken deliberately. **The
-`.claude/scripts/` helpers keep the same residual**: `/ship` runs a
-worktree's own `gh-pr-merge.sh` and `npm-checks.sh`, which the branch checked
-out there controls, and this check does not reach them.
+Grep and Read in its place; that is the cost, taken deliberately.
+
+**The `.claude/scripts/` helpers had the same residual, and are asked about
+rather than refused (alexander-shamray/blueprint-frontend#255).** Every
+`Bash(bash .claude/scripts/…)` grant is relative, so `/ship` ran a worktree's
+own `gh-pr-merge.sh`, `git-rebase-onto-main.sh` and `npm-checks.sh` — the
+copies the branch checked out there — with no prompt. The guard now compares
+every helper under the event's directory, and the `run-guard.sh` and
+`index-refresh.py` that `git-worktree-fork.sh` starts, with the startup
+checkout's, the union of both sets so an added or deleted helper counts, and
+answers a difference — a link below the root, or a command that can change
+directory — with **`ask`, not `deny`**. A hook's `ask` stands over the grant,
+so the person approves the branch's copy or does not. A refusal was the
+rejected option: a pull request that changes a helper could not then run it
+from its own worktree, which `/ship` does on that pull request. The whole
+directory is compared rather than the helper named, because a helper runs its
+siblings through `$(dirname "${BASH_SOURCE[0]}")` and a list per helper would
+fall behind the files. **What it costs**: a worktree cut from an `origin/main`
+newer than the startup checkout's `main` asks too, until that checkout is
+pulled. **What stays open**: an in-place branch's helpers run from the startup
+checkout itself, where the hook is the branch's own as well, and
+`npm-checks.sh` runs the branch's `package.json` scripts by design.
 
 **The route's term is single-quoted**
 (alexander-shamray/blueprint-frontend#145), in the skill's markdown and in the
