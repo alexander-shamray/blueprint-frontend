@@ -2,8 +2,9 @@ import { Injectable, Signal, signal } from '@angular/core';
 import { ProductSummary } from '@core/api/types';
 
 /**
- * The stock levels the listing has seen this session, by product id, so the
- * cart can warn about a persisted line that now asks for more than is there.
+ * The stock levels the catalogue's reads have seen this session, by product
+ * id, so the cart can warn about a persisted line that now asks for more than
+ * is there.
  *
  * In core because two features need it and a feature never imports another
  * (spec §3): the products pages are the only things that read the catalogue,
@@ -39,8 +40,8 @@ export class CatalogAvailability {
   }
 
   /**
-   * The level last seen, or `undefined` when the listing has not shown this
-   * product this session. `null` is the platform's "never reported" and is
+   * The level last seen, or `undefined` when no catalogue read has returned
+   * this product this session. `null` is the platform's "never reported" and is
    * passed through, not folded into `undefined`: both mean "do not warn", but
    * they are different facts and a caller may want to say which.
    */
