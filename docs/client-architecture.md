@@ -1165,8 +1165,9 @@ native, a link that opens the app is an App Links and universal links question
 (#100, paused), and the `blueprint://` intent filter still matches host `auth`
 alone, on purpose. No share control is offered, because inside the native
 shell the page's own address is the WebView's origin (§15) and names nothing
-anyone else can open. Spec §10's two bullets are superseded by this entry and
-left as written.
+anyone else can open. This entry supersedes spec §10's product detail *route*
+in its first bullet and the whole of its second; the rest of the first bullet
+stands, and both are left as written.
 
 ## 13. The bundle budget is set above the bundle, not at it
 
