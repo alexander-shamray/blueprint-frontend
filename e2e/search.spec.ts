@@ -19,20 +19,37 @@ test('a search finds a product by its name, and a search for nothing says so', a
   // inside it itself, so the input is found through the landmark.
   const search = products.getByRole('search', { name: 'Search products' }).getByRole('searchbox');
 
+  // Each step waits for the listing's reply under the query it names, since
+  // the box is debounced and an unsearched listing already shows the newest
+  // product: a check made before that reply would prove nothing.
+  const listed = (q: string | null, sort?: string) =>
+    page.waitForResponse((r) => {
+      const url = new URL(r.url());
+      if (!url.pathname.endsWith('/api/v1/catalog/products')) return false;
+      return (
+        url.searchParams.get('q') === q &&
+        (sort === undefined || url.searchParams.get('sort') === sort)
+      );
+    });
+
   // The whole name, which no other product shares: the helper makes it unique.
+  const found = listed(name);
   await search.fill(name);
+  expect((await found).ok()).toBe(true);
   await expect(products.locator('ion-item').filter({ hasText: name })).toHaveCount(1);
   await expect(products.getByTestId('end-of-list')).toHaveText('That is every match.');
 
-  await search.fill(`${name} no such product`);
-  await expect(products.getByText(`No results for “${name} no such product”`)).toBeVisible();
+  const missing = `${name} no such product`;
+  const none = listed(missing);
+  await search.fill(missing);
+  expect((await none).ok()).toBe(true);
+  await expect(products.getByText(`No results for “${missing}”`)).toBeVisible();
 
-  // Sorted by name with the search cleared, the listing is still the server's:
-  // the restart asks for it, and the server answers a page.
+  // Cleared, then sorted by name: the reply that counts carries no `q`.
+  const cleared = listed(null);
   await search.fill('');
-  const sorted = page.waitForResponse(
-    (r) => r.url().includes('/api/v1/catalog/products?') && r.url().includes('sort=name'),
-  );
+  expect((await cleared).ok()).toBe(true);
+  const sorted = listed(null, 'name');
   // The segment button itself: its role is `tab`, but the inner button that
   // role resolves to sits under the host, which takes the pointer.
   await products.locator('ion-segment-button[value="name"]').click();
@@ -41,5 +58,6 @@ test('a search finds a product by its name, and a search for nothing says so', a
     'aria-selected',
     'true',
   );
+  // Never empty: this test has just published a product.
   await expect(products.locator('ion-item').first()).toBeVisible();
 });
