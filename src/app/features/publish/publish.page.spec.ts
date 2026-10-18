@@ -3,12 +3,34 @@ import { rateLimitInterceptor } from '@core/errors/rate-limit.interceptor';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { Router, provideRouter } from '@angular/router';
+import { HttpRequest } from '@angular/common/http';
 import { WritableSignal, signal } from '@angular/core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AuthService, CurrentUser } from '@core/auth/auth.service';
 import { ALREADY_COMMITTED } from '@core/commands/command-id';
 import { CatalogRefresh } from '@core/catalog/catalog-refresh';
+import { ImageSource } from './image-source';
 import { PublishPage } from './publish.page';
+
+/**
+ * The own list under the form reads `/mine` on construction and on every
+ * refresh, and `own-products.component.spec.ts` is where those reads are
+ * tested. Here each is answered empty, so the requests the tests below count
+ * are only the page's own. Not swapped for a stub: overriding the page's
+ * imports recompiles it from metadata, and its template's coverage goes with
+ * the compiled code.
+ */
+const isOwnList = (r: HttpRequest<unknown>) =>
+  r.url === 'http://localhost:5000/api/v1/catalog/products/mine';
+
+const ISSUE = 'http://localhost:5000/bff/v1/product-images';
+const STORE = 'http://127.0.0.1:8333/product-images/uploads/s/k.png?X-Amz-Signature=abc';
+const GRANT = {
+  uploadUrl: STORE,
+  headers: { 'Content-Type': 'image/png', 'Content-Length': '4' },
+  key: 'uploads/s/k.png',
+  expiresAt: '2026-10-18T03:02:25Z',
+};
 
 /** A Stencil host element: resolves once its lazily loaded component has rendered. */
 interface StencilHost extends Element {
@@ -39,8 +61,11 @@ describe('PublishPage', () => {
   let signIn: ReturnType<typeof vi.fn>;
   /** Writable, so a test can hand the session to somebody else mid-sign-in. */
   let user: WritableSignal<CurrentUser | null>;
+  /** What the next pick answers; a test sets it before pressing Choose image. */
+  let picked: File | null;
 
   beforeEach(async () => {
+    picked = null;
     signIn = vi.fn(async () => undefined);
     user = signal<CurrentUser | null>({
       username: 'demo', subject: 'subject-demo', permissions: ['catalog:write'], expiresAt: 0,
@@ -62,6 +87,7 @@ describe('PublishPage', () => {
           provide: AuthService,
           useValue: { signIn, user: () => user, accessToken: () => 't' },
         },
+        { provide: ImageSource, useValue: { pick: async () => picked } },
       ],
     });
 
@@ -79,6 +105,10 @@ describe('PublishPage', () => {
   });
 
   afterEach(async () => {
+    // A list a sign-out tore down has cancelled its read, which cannot be flushed.
+    for (const read of controller.match(isOwnList)) {
+      if (!read.cancelled) read.flush({ items: [], nextCursor: null });
+    }
     controller.verify();
     // Hosts a test rendered late (the result and error notes) are not in the
     // set beforeEach waited on.
@@ -572,5 +602,256 @@ describe('PublishPage', () => {
       .expectOne('http://localhost:5000/api/v1/catalog/products')
       .flush('66666666-6666-6666-6666-666666666666', { status: 200, statusText: 'OK' });
     await fixture.whenStable();
+  });
+
+  describe('the image (#108)', () => {
+    const png = () => new File(['abcd'], 'lamp.png', { type: 'image/png' });
+
+    /** Choose `file`, and answer the BFF's issue with the grant. Leaves the PUT open. */
+    async function chooseAndIssue(file: File) {
+      picked = file;
+      await fixture.componentInstance.chooseImage();
+      const issue = controller.expectOne(ISSUE);
+      issue.flush(GRANT);
+      // Each state is rendered as it happens, so the template's own branches
+      // are what the assertions below are made against, not only the signals.
+      fixture.detectChanges();
+      return issue;
+    }
+
+    async function uploaded(file = png()) {
+      await chooseAndIssue(file);
+      controller.expectOne(STORE).flush(null, { status: 200, statusText: 'OK' });
+      await fixture.whenStable();
+      fixture.detectChanges();
+      expect(
+        fixture.nativeElement.querySelector('[data-testid="image-status"]').textContent,
+      ).toContain('lamp.png: ready');
+    }
+
+    it('asks the BFF for an upload with the file’s own type and size, and leaves the limits to it', async () => {
+      const issue = await chooseAndIssue(png());
+
+      expect(issue.request.body).toEqual({ contentType: 'image/png', sizeBytes: 4 });
+      const put = controller.expectOne(STORE);
+      expect(put.request.method).toBe('PUT');
+      expect(put.request.body).toBeInstanceOf(File);
+      put.flush(null);
+      await fixture.whenStable();
+    });
+
+    it('holds Publish while the upload is out, so no product goes out without its image', async () => {
+      await chooseAndIssue(png());
+      fixture.detectChanges();
+
+      expect(fixture.componentInstance.imageBusy()).toBe(true);
+      fixture.componentInstance.publish();
+      controller.expectNone('http://localhost:5000/api/v1/catalog/products');
+      expect(
+        fixture.nativeElement.querySelector('ion-button[type="submit"]').getAttribute('disabled'),
+      ).not.toBeNull();
+
+      controller.expectOne(STORE).flush(null);
+      await fixture.whenStable();
+    });
+
+    it('publishes with the key the upload returned, and never a URL', async () => {
+      await uploaded();
+
+      fixture.componentInstance.publish();
+      const request = controller.expectOne('http://localhost:5000/api/v1/catalog/products');
+
+      expect(Object.keys(request.request.body).sort()).toEqual([
+        'amount', 'commandId', 'currency', 'imageKey', 'name',
+      ]);
+      expect(request.request.body.imageKey).toBe('uploads/s/k.png');
+      request.flush('55555555-5555-5555-5555-555555555555');
+      await fixture.whenStable();
+
+      // A success starts a new entry, image and all.
+      expect(fixture.componentInstance.image()).toBeNull();
+      expect(fixture.componentInstance.imageKey()).toBeNull();
+    });
+
+    it('marks a store failure as one to try again, and Try again issues a new key for the same file', async () => {
+      const file = png();
+      await chooseAndIssue(file);
+      controller.expectOne(STORE).flush('<Error/>', { status: 403, statusText: 'Forbidden' });
+      await fixture.whenStable();
+
+      expect(fixture.componentInstance.image()?.status).toBe('failed');
+      // The store's 403 is a signature's, not a missing permission: no banner names one.
+      expect(fixture.componentInstance.imageError()).toBeNull();
+      expect(fixture.componentInstance.imageBusy()).toBe(true);
+      fixture.detectChanges();
+      expect(fixture.nativeElement.querySelector('[data-testid="retry-upload"]')).not.toBeNull();
+
+      fixture.componentInstance.retryUpload();
+      const again = controller.expectOne(ISSUE);
+      expect(again.request.body).toEqual({ contentType: 'image/png', sizeBytes: 4 });
+      again.flush(GRANT);
+      const put = controller.expectOne(STORE);
+      expect(put.request.body).toBe(file);
+      put.flush(null);
+      await fixture.whenStable();
+
+      expect(fixture.componentInstance.image()?.status).toBe('uploaded');
+    });
+
+    it('shows the BFF’s 400 under the image, and holds Publish until the seller chooses again or removes it', async () => {
+      picked = new File(['<svg/>'], 'logo.svg', { type: 'image/svg+xml' });
+      await fixture.componentInstance.chooseImage();
+      controller.expectOne(ISSUE).flush(
+        {
+          title: 'One or more validation errors occurred.',
+          status: 400,
+          errors: { ContentType: ["'Content Type' must be one of image/jpeg, image/png, image/webp."] },
+        },
+        { status: 400, statusText: 'Bad Request' },
+      );
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      expect(fixture.componentInstance.image()?.status).toBe('refused');
+      const notes = fixture.nativeElement.querySelectorAll('[data-field="image"]');
+      expect([...notes].map((n: Element) => n.textContent?.trim())).toEqual([
+        "'Content Type' must be one of image/jpeg, image/png, image/webp.",
+      ]);
+      // Under the control, not repeated in the banner.
+      expect(fixture.componentInstance.imageError()).toBeNull();
+      expect(fixture.nativeElement.querySelector('[data-testid="retry-upload"]')).toBeNull();
+      // The same file would be refused again, so Try again does nothing.
+      fixture.componentInstance.retryUpload();
+      controller.expectNone(ISSUE);
+
+      fixture.componentInstance.removeImage();
+      expect(fixture.componentInstance.imageBusy()).toBe(false);
+      expect(fixture.componentInstance.imageFieldErrors()).toEqual([]);
+
+      fixture.componentInstance.publish();
+      const request = controller.expectOne('http://localhost:5000/api/v1/catalog/products');
+      expect('imageKey' in request.request.body).toBe(false);
+      request.flush('55555555-5555-5555-5555-555555555555');
+      await fixture.whenStable();
+    });
+
+    it('puts a 400 with no field keys in the banner', async () => {
+      picked = png();
+      await fixture.componentInstance.chooseImage();
+      controller
+        .expectOne(ISSUE)
+        .flush({ title: 'Bad', status: 400 }, { status: 400, statusText: 'Bad Request' });
+      await fixture.whenStable();
+
+      expect(fixture.componentInstance.image()?.status).toBe('refused');
+      expect(fixture.componentInstance.imageError()?.title).toBe('Bad');
+    });
+
+    it('shows the BFF’s other refusals in the banner, and lets the upload be tried again', async () => {
+      picked = png();
+      await fixture.componentInstance.chooseImage();
+      controller
+        .expectOne(ISSUE)
+        .flush({ title: 'Service Unavailable', status: 503 }, { status: 503, statusText: '' });
+      await fixture.whenStable();
+
+      expect(fixture.componentInstance.image()?.status).toBe('failed');
+      expect(fixture.componentInstance.imageError()?.kind).toBe('unavailable');
+      fixture.detectChanges();
+      expect(fixture.nativeElement.querySelector('app-error-banner [role="alert"]')).not.toBeNull();
+      expect(
+        fixture.nativeElement.querySelector('[data-testid="choose-image"]').textContent.trim(),
+      ).toBe('Choose another');
+
+      fixture.componentInstance.retryUpload();
+      controller.expectOne(ISSUE).flush(GRANT);
+      controller.expectOne(STORE).flush(null);
+      await fixture.whenStable();
+      expect(fixture.componentInstance.imageError()).toBeNull();
+    });
+
+    it('does nothing when the chooser is dismissed', async () => {
+      picked = null;
+      await fixture.componentInstance.chooseImage();
+
+      controller.expectNone(ISSUE);
+      expect(fixture.componentInstance.image()).toBeNull();
+    });
+
+    it('drops the reply to an upload the seller has since removed', async () => {
+      await chooseAndIssue(png());
+      fixture.componentInstance.removeImage();
+
+      controller.expectOne(STORE).flush(null);
+      await fixture.whenStable();
+
+      expect(fixture.componentInstance.image()).toBeNull();
+      expect(fixture.componentInstance.imageKey()).toBeNull();
+    });
+
+    it('drops the reply to a superseded choice, so the key is the last file’s', async () => {
+      await chooseAndIssue(png());
+      const first = controller.expectOne(STORE);
+
+      picked = new File(['efgh'], 'second.png', { type: 'image/png' });
+      await fixture.componentInstance.chooseImage();
+      controller.expectOne(ISSUE).flush({ ...GRANT, key: 'uploads/s/second.png' });
+      controller.expectOne(STORE).flush(null);
+      first.flush(null);
+      await fixture.whenStable();
+
+      expect(fixture.componentInstance.image()?.name).toBe('second.png');
+      expect(fixture.componentInstance.imageKey()).toBe('uploads/s/second.png');
+    });
+
+    it('releases a validation-failed id when the image changes, as an edit to a control does', async () => {
+      fixture.componentInstance.publish();
+      const first = controller.expectOne('http://localhost:5000/api/v1/catalog/products');
+      const firstId = first.request.body.commandId;
+      first.flush(
+        { title: 'Invalid', status: 400, errors: { Name: ['Too long.'] } },
+        { status: 400, statusText: 'Bad Request' },
+      );
+      await fixture.whenStable();
+
+      await uploaded();
+
+      expect(fixture.componentInstance.identity.current()).not.toBe(firstId);
+    });
+
+    it('forgets the last seller’s upload when a different seller signs in', async () => {
+      await uploaded();
+
+      user.set({
+        username: 'other', subject: 'subject-other', permissions: ['catalog:write'], expiresAt: 0,
+      });
+      fixture.detectChanges();
+      await fixture.whenStable();
+
+      expect(fixture.componentInstance.image()).toBeNull();
+      expect(fixture.componentInstance.imageKey()).toBeNull();
+    });
+
+    it('drops an upload reply that lands for a seller who is no longer signed in', async () => {
+      await chooseAndIssue(png());
+      user.set({
+        username: 'other', subject: 'subject-other', permissions: ['catalog:write'], expiresAt: 0,
+      });
+      fixture.detectChanges();
+      await fixture.whenStable();
+
+      controller.expectOne(STORE).flush(null);
+      await fixture.whenStable();
+      expect(fixture.componentInstance.imageKey()).toBeNull();
+    });
+
+    it('names the status on the image line', () => {
+      const text = (s: Parameters<PublishPage['statusText']>[0]) =>
+        fixture.componentInstance.statusText(s);
+      expect(text('uploading')).toBe('uploading');
+      expect(text('uploaded')).toBe('ready');
+      expect(text('failed')).toContain('Try again');
+      expect(text('refused')).toContain('Choose another');
+    });
   });
 });

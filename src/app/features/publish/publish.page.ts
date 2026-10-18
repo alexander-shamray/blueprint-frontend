@@ -1,11 +1,14 @@
 import {
   ChangeDetectionStrategy, Component, computed, effect, inject, signal, untracked,
 } from '@angular/core';
+import { HttpErrorResponse } from '@angular/common/http';
 import { FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
 import {
-  IonButton, IonContent, IonHeader, IonInput, IonItem, IonNote, IonTitle, IonToolbar,
+  IonButton, IonContent, IonHeader, IonInput, IonItem, IonLabel, IonNote, IonTitle, IonToolbar,
 } from '@ionic/angular';
+import { map, switchMap } from 'rxjs';
 import { CatalogApi } from '@core/api/catalog.api';
+import { ProductImagesApi } from '@core/api/product-images.api';
 import { AuthService } from '@core/auth/auth.service';
 import { CatalogRefresh } from '@core/catalog/catalog-refresh';
 import { PERMISSIONS, PublishProductCommand } from '@core/api/types';
@@ -13,6 +16,20 @@ import { ALREADY_COMMITTED, CommandIdentity } from '@core/commands/command-id';
 import { DisplayError, mapError } from '@core/errors/error-mapper';
 import { RateLimitWindows } from '@core/errors/rate-limit';
 import { ErrorBannerComponent } from '@shared/error-banner.component';
+import { ImageSource } from './image-source';
+import { OwnProductsComponent } from './own-products.component';
+
+/**
+ * Where the chosen image is. `uploading` covers both hops, the BFF's issue and
+ * the store's PUT; `failed` is one that may succeed if tried again, and
+ * `refused` one the BFF answered with a 400, which the same file never will.
+ */
+type ImageStatus = 'uploading' | 'uploaded' | 'failed' | 'refused';
+
+interface ChosenImage {
+  readonly name: string;
+  readonly status: ImageStatus;
+}
 
 /**
  * Spec §5.5, with the same command-id lifecycle as checkout — the backend
@@ -66,13 +83,22 @@ import { ErrorBannerComponent } from '@shared/error-banner.component';
  * matches GET alone and is anonymous. Both routes exist
  * (Gateway.Api/appsettings.json); the split is what lets the catalogue be
  * readable by anyone while publishing is not.
+ *
+ * The image is uploaded when it is chosen, not when Publish is pressed
+ * (#108): the BFF issues a pre-signed PUT for one key, the bytes go straight
+ * to the store, and the command carries the key. Uploading first is what
+ * keeps a failure from publishing a bare product. While an image is chosen
+ * and its upload has not landed, Publish stays disabled, and the image's own
+ * Try again or Remove is the way on; a seller who wants no image removes it
+ * and says so by doing it. An upload that landed holds for a day in the
+ * store, so a publish that then fails is retried with the same key.
  */
 @Component({
   selector: 'app-publish',
   standalone: true,
   imports: [
-    IonButton, IonContent, IonHeader, IonInput, IonItem, IonNote, IonTitle, IonToolbar,
-    ReactiveFormsModule, ErrorBannerComponent,
+    IonButton, IonContent, IonHeader, IonInput, IonItem, IonLabel, IonNote, IonTitle, IonToolbar,
+    ReactiveFormsModule, ErrorBannerComponent, OwnProductsComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -89,7 +115,8 @@ import { ErrorBannerComponent } from '@shared/error-banner.component';
           <ion-note>Sign in to publish a product.</ion-note>
         </ion-item>
       } @else {
-        <app-error-banner [error]="error() ?? rateLimit.refusal()" [retryInSeconds]="rateLimit.remaining()" />
+        <app-error-banner [error]="error() ?? imageError() ?? rateLimit.refusal()"
+          [retryInSeconds]="rateLimit.remaining()" />
 
         <form [formGroup]="form" (ngSubmit)="publish()">
           <ion-item><ion-input label="Name" formControlName="name" required></ion-input></ion-item>
@@ -98,13 +125,46 @@ import { ErrorBannerComponent } from '@shared/error-banner.component';
           </ion-item>
           <ion-item><ion-input label="Currency" formControlName="currency" required></ion-input></ion-item>
 
+          <ion-item>
+            <ion-label>
+              Image
+              @if (image(); as chosen) {
+                <p data-testid="image-status">{{ chosen.name }}: {{ statusText(chosen.status) }}</p>
+              } @else {
+                <p>Optional.</p>
+              }
+            </ion-label>
+            @if (image()?.status === 'failed') {
+              <ion-button slot="end" fill="clear" data-testid="retry-upload"
+                [disabled]="rateLimit.blocked()" (click)="retryUpload()">Try again</ion-button>
+            }
+            <ion-button slot="end" fill="clear" data-testid="choose-image"
+              [disabled]="rateLimit.blocked()" (click)="chooseImage()">
+              {{ image() ? 'Choose another' : 'Choose image' }}
+            </ion-button>
+            @if (image()) {
+              <ion-button slot="end" fill="clear" data-testid="remove-image"
+                (click)="removeImage()">Remove</ion-button>
+            }
+          </ion-item>
           <!--
-            rateLimit.blocked() joins the other two refusals: the gateway has
+            The BFF's 400 for the upload request, keyed ContentType or
+            SizeBytes, sits under the image as a checkout field's sits under
+            its control (#82): the limits are the server's, and this is where
+            it says them.
+          -->
+          @for (message of imageFieldErrors(); track $index) {
+            <ion-note class="field-error" color="danger" data-field="image">{{ message }}</ion-note>
+          }
+
+          <!--
+            rateLimit.blocked() joins the other refusals: the gateway has
             said how long to wait and the banner above is counting it down
-            (spec §6).
+            (spec §6). imageBusy() is an image chosen and not yet in the
+            store, which publishing now would leave off the product.
           -->
           <ion-button expand="block" type="submit"
-            [disabled]="form.invalid || identity.isSpent() || rateLimit.blocked()">
+            [disabled]="form.invalid || identity.isSpent() || rateLimit.blocked() || imageBusy()">
             Publish
           </ion-button>
         </form>
@@ -132,12 +192,19 @@ import { ErrorBannerComponent } from '@shared/error-banner.component';
             </ion-note>
           </ion-item>
         }
+
+        <app-own-products />
       }
     </ion-content>
+  `,
+  styles: `
+    .field-error { display: block; padding: .25rem 1rem; }
   `,
 })
 export class PublishPage {
   private readonly catalog = inject(CatalogApi);
+  private readonly images = inject(ProductImagesApi);
+  private readonly imageSource = inject(ImageSource);
   private readonly catalogRefresh = inject(CatalogRefresh);
   private readonly auth = inject(AuthService);
 
@@ -166,6 +233,33 @@ export class PublishPage {
 
   readonly error = this.errorState.asReadonly();
   readonly publishedId = this.publishedIdState.asReadonly();
+
+  // The image is not a form control: no input renders it, and the form's
+  // value is what `setValue` and `reset` are written against. So its key is a
+  // signal beside the form, and each change to it is an edit to the command,
+  // which `setImageKey` reports to the identity as a control's change would.
+  private readonly imageState = signal<ChosenImage | null>(null);
+  private readonly imageKeyState = signal<string | null>(null);
+  private readonly imageErrorState = signal<DisplayError | null>(null);
+  private readonly imageFieldErrorsState = signal<readonly string[]>([]);
+  /** The file behind `image()`, kept so Try again sends the same bytes. */
+  private imageFile: File | null = null;
+  /** Bumped by every new upload and every removal, so a superseded reply lands on nothing. */
+  private uploads = 0;
+
+  /** The chosen image and where its upload is, or null for a product with none. */
+  readonly image = this.imageState.asReadonly();
+  /** The upload's key once its bytes are in the store; what the command carries. */
+  readonly imageKey = this.imageKeyState.asReadonly();
+  /** The BFF's refusal of the upload request, other than a 400's field messages. */
+  readonly imageError = this.imageErrorState.asReadonly();
+  /** A 400's messages for the image, under the control as a field's are. */
+  readonly imageFieldErrors = this.imageFieldErrorsState.asReadonly();
+  /** An image is chosen and is not in the store, so Publish would leave it off. */
+  readonly imageBusy = computed(() => {
+    const image = this.imageState();
+    return image !== null && image.status !== 'uploaded';
+  });
 
   /**
    * Spec §6's 429 row — the gateway's authenticated bucket, shared with Get
@@ -209,9 +303,121 @@ export class PublishPage {
         this.errorState.set(null);
         this.publishedIdState.set(null);
         this.replayedAfterSignIn = false;
+        // The upload was the last seller's, under their prefix: the key is
+        // one the next seller's publish would be refused for.
+        this.clearImage();
         this.identity.onSuccess();
       });
     });
+  }
+
+  /** What the image line says beside the file's name. */
+  statusText(status: ImageStatus): string {
+    switch (status) {
+      case 'uploading':
+        return 'uploading';
+      case 'uploaded':
+        return 'ready';
+      case 'failed':
+        return 'did not upload. Try again, or remove it to publish without one.';
+      case 'refused':
+        return 'not accepted. Choose another, or remove it.';
+    }
+  }
+
+  /** Asks the image source for a file, and uploads it the moment it has one. */
+  async chooseImage(): Promise<void> {
+    const file = await this.imageSource.pick();
+    if (file !== null) this.upload(file);
+  }
+
+  /** The image's own Try again: the same file, under a new key, since a key is single use. */
+  retryUpload(): void {
+    if (this.imageFile !== null && this.imageState()?.status === 'failed') this.upload(this.imageFile);
+  }
+
+  /** Publishes without an image, which the seller has now said by doing it. */
+  removeImage(): void {
+    this.clearImage();
+  }
+
+  private clearImage(): void {
+    this.uploads++;
+    this.imageFile = null;
+    this.imageState.set(null);
+    this.imageErrorState.set(null);
+    this.imageFieldErrorsState.set([]);
+    this.setImageKey(null);
+  }
+
+  private setImageKey(key: string | null): void {
+    if (this.imageKeyState() === key) return;
+    this.imageKeyState.set(key);
+    this.identity.onEdit();
+  }
+
+  /**
+   * The two hops: the BFF's issue, then the PUT to the URL it signed. The
+   * type and the size are the file's own, and the BFF decides whether they
+   * pass. Held to the subject who chose the file, as a publish is.
+   */
+  private upload(file: File): void {
+    const upload = ++this.uploads;
+    const issuedFor = this.auth.user()()?.subject ?? null;
+    const current = () =>
+      upload === this.uploads && (this.auth.user()()?.subject ?? null) === issuedFor;
+
+    this.imageFile = file;
+    this.imageState.set({ name: file.name, status: 'uploading' });
+    this.imageErrorState.set(null);
+    this.imageFieldErrorsState.set([]);
+    this.setImageKey(null);
+
+    let issued = false;
+    this.images
+      .issue({ contentType: file.type, sizeBytes: file.size })
+      .pipe(
+        switchMap((granted) => {
+          issued = true;
+          return this.images.upload(granted, file).pipe(map(() => granted.key));
+        }),
+      )
+      .subscribe({
+        next: (key) => {
+          if (!current()) return;
+          this.imageState.set({ name: file.name, status: 'uploaded' });
+          this.setImageKey(key);
+        },
+        error: (failure: unknown) => {
+          if (!current()) return;
+
+          // The store's refusal is not the platform's: it answers in S3's XML,
+          // not a problem body, and a 403 there is an expired or mismatched
+          // signature rather than a missing permission. So it is not mapped.
+          // A new issue is the remedy for every way it fails, and the line
+          // under the image says to try again.
+          if (issued) {
+            this.imageState.set({ name: file.name, status: 'failed' });
+            return;
+          }
+
+          // Every 400 is the BFF refusing this file's type or size, keyed or
+          // not, and the same file sent again is refused again: so not
+          // `failed`, whose Try again would only ask the same question.
+          const displayed = mapError(failure, { permission: PERMISSIONS.catalogWrite });
+          if (failure instanceof HttpErrorResponse && failure.status === 400) {
+            this.imageState.set({ name: file.name, status: 'refused' });
+            this.imageFieldErrorsState.set(Object.values(displayed.fields ?? {}).flat());
+            // Keyed fields all landed under the image; a 400 with none says
+            // what it says in the banner, as any other 400 would.
+            if (!displayed.fields) this.imageErrorState.set(displayed);
+            return;
+          }
+
+          this.imageState.set({ name: file.name, status: 'failed' });
+          this.imageErrorState.set(displayed);
+        },
+      });
   }
 
   publish(): void {
@@ -220,8 +426,9 @@ export class PublishPage {
     // must also live here, the same precedent checkout's placeOrder() sets
     // for its own non-null assertion below. Without this, value.amount!
     // would assert over a null the required validator was supposed to have
-    // ruled out.
-    if (this.form.invalid) return;
+    // ruled out. An image still on its way is the same kind of refusal: the
+    // product would publish without it.
+    if (this.form.invalid || this.imageBusy()) return;
 
     // Cleared at the START of every attempt, not just on the branches that
     // change it: a "Published as ..." (or already-committed) note from a
@@ -230,10 +437,14 @@ export class PublishPage {
     this.publishedIdState.set(null);
 
     const value = this.form.getRawValue();
+    const imageKey = this.imageKeyState();
 
     const command: PublishProductCommand = {
       commandId: this.identity.current(),
       name: value.name,
+      // Omitted rather than null for a product with no image, so the body
+      // holds only what the seller chose (#175's keys test reads them).
+      ...(imageKey !== null ? { imageKey } : {}),
       // The form's required validator guarantees a number here. Sending null
       // would be met with the backend's own NotNull, keyed `Amount` — correct,
       // and still a client bug.
@@ -257,6 +468,7 @@ export class PublishPage {
         this.publishedIdState.set(productId);
         this.identity.onSuccess();
         this.form.reset({ name: '', amount: null, currency: '' });
+        this.clearImage();
 
         // "On success the products tab refreshes from the first page"
         // (spec §5.5). Navigation cannot deliver that: Ionic caches a tab's
@@ -300,6 +512,7 @@ export class PublishPage {
           this.publishedIdState.set(ALREADY_COMMITTED);
           this.identity.onSuccess();
           this.form.reset({ name: '', amount: null, currency: '' });
+          this.clearImage();
           this.catalogRefresh.request();
           return;
         }

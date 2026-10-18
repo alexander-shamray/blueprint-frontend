@@ -284,11 +284,24 @@ History, where the order is listed.
 
 ### 5.5 Publish
 
-Form for `name`, `thumbnailUrl` (optional), `amount` and `currency`, submitted
-as `PublishProductCommand` with the same command-id lifecycle as checkout. On
+Form for `name`, an image (optional), `amount` and `currency`, submitted as
+`PublishProductCommand` with the same command-id lifecycle as checkout. On
 success the products tab refreshes from the first page. A different buyer
 signing in also clears the published note, as checkout's rule clears the
 banner.
+
+The image is uploaded when it is chosen, through the BFF's pre-signed `PUT`,
+and the command carries the key the upload returned rather than a URL
+(`client-architecture.md` §11 and §12, *Publish has no thumbnail URL*). Publish
+waits while an image is chosen and not yet stored, so a failed upload never
+publishes a bare product. The BFF's 400 for the image is shown under it.
+
+Below the form, the seller's own products, cursor-paged as §5.1 pages the
+catalogue, with a skeleton while the first page loads, an empty state and an
+end-of-list line, and withdrawn ones marked with when. Each product not yet
+withdrawn can be withdrawn, after a second press because nothing undoes one,
+under a command id of its own; a withdrawal refreshes the products tab as a
+publish does.
 
 ### 5.6 Account
 
