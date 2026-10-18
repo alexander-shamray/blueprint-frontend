@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AuthService, CurrentUser } from '@core/auth/auth.service';
 import { ALREADY_COMMITTED } from '@core/commands/command-id';
 import { CatalogRefresh } from '@core/catalog/catalog-refresh';
-import { ImageSource } from './image-source';
+import { ImagePickError, ImageSource } from './image-source';
 import { PublishPage } from './publish.page';
 
 /**
@@ -63,9 +63,12 @@ describe('PublishPage', () => {
   let user: WritableSignal<CurrentUser | null>;
   /** What the next pick answers; a test sets it before pressing Choose image. */
   let picked: File | null;
+  /** What the next pick rejects with instead, when set. */
+  let refused: Error | null;
 
   beforeEach(async () => {
     picked = null;
+    refused = null;
     signIn = vi.fn(async () => undefined);
     user = signal<CurrentUser | null>({
       username: 'demo', subject: 'subject-demo', permissions: ['catalog:write'], expiresAt: 0,
@@ -87,7 +90,15 @@ describe('PublishPage', () => {
           provide: AuthService,
           useValue: { signIn, user: () => user, accessToken: () => 't' },
         },
-        { provide: ImageSource, useValue: { unavailable: null, pick: async () => picked } },
+        {
+          provide: ImageSource,
+          useValue: {
+            pick: async () => {
+              if (refused !== null) throw refused;
+              return picked;
+            },
+          },
+        },
       ],
     });
 
@@ -979,47 +990,36 @@ describe('PublishPage', () => {
       expect(text('failed')).toContain('Try again');
       expect(text('refused')).toContain('Choose another');
     });
-  });
-});
 
-describe('PublishPage where the platform offers no image', () => {
-  it('says why where the chooser would be, and offers no chooser', async () => {
-    TestBed.configureTestingModule({
-      imports: [PublishPage],
-      providers: [
-        provideRouter([]),
-        provideHttpClient(withInterceptors([rateLimitInterceptor])),
-        provideHttpClientTesting(),
-        {
-          provide: AuthService,
-          useValue: {
-            signIn: async () => undefined,
-            user: () =>
-              signal<CurrentUser | null>({
-                username: 'demo', subject: 'subject-demo', permissions: ['catalog:write'], expiresAt: 0,
-              }),
-            accessToken: () => 't',
-          },
-        },
-        {
-          provide: ImageSource,
-          useValue: { unavailable: 'Not on this platform.', pick: async () => null },
-        },
-      ],
+    it('shows the device’s refusal as a banner, uploads nothing, and keeps the image it had', async () => {
+      await uploaded();
+
+      refused = new ImagePickError('Blueprint may not use the camera.');
+      await fixture.componentInstance.chooseImage();
+      fixture.detectChanges();
+
+      controller.expectNone(ISSUE);
+      expect(fixture.componentInstance.imageError()).toEqual({
+        kind: 'banner', title: 'No image', detail: 'Blueprint may not use the camera.',
+      });
+      expect(fixture.componentInstance.image()).toEqual({ name: 'lamp.png', status: 'uploaded' });
+      expect(fixture.componentInstance.imageKey()).toBe(GRANT.key);
     });
-    const fixture = TestBed.createComponent(PublishPage);
-    const controller = TestBed.inject(HttpTestingController);
-    fixture.detectChanges();
-    await hydrated(fixture.nativeElement);
 
-    expect(
-      fixture.nativeElement.querySelector('[data-testid="image-unavailable"]').textContent.trim(),
-    ).toBe('Not on this platform.');
-    expect(fixture.nativeElement.querySelector('[data-testid="choose-image"]')).toBeNull();
+    it('clears the refusal once a later choice uploads', async () => {
+      refused = new ImagePickError('Blueprint may not open your photos.');
+      await fixture.componentInstance.chooseImage();
+      refused = null;
 
-    controller.expectOne(isOwnList).flush({ items: [], nextCursor: null });
-    controller.verify();
-    fixture.detectChanges();
-    await hydrated(fixture.nativeElement);
+      await uploaded();
+      expect(fixture.componentInstance.imageError()).toBeNull();
+    });
+
+    it('lets any other failure of the source through, rather than reading it as a refusal', async () => {
+      refused = new Error('a defect');
+
+      await expect(fixture.componentInstance.chooseImage()).rejects.toThrow('a defect');
+      expect(fixture.componentInstance.imageError()).toBeNull();
+    });
   });
 });

@@ -16,7 +16,7 @@ import { ALREADY_COMMITTED, CommandIdentity } from '@core/commands/command-id';
 import { DisplayError, mapError } from '@core/errors/error-mapper';
 import { RateLimitWindows } from '@core/errors/rate-limit';
 import { ErrorBannerComponent } from '@shared/error-banner.component';
-import { ImageSource } from './image-source';
+import { ImagePickError, ImageSource } from './image-source';
 import { OwnProductsComponent } from './own-products.component';
 
 /**
@@ -125,37 +125,28 @@ interface ChosenImage {
           </ion-item>
           <ion-item><ion-input label="Currency" formControlName="currency" required></ion-input></ion-item>
 
-          @if (imageUnavailable) {
-            <ion-item>
-              <ion-label>
-                Image
-                <p data-testid="image-unavailable">{{ imageUnavailable }}</p>
-              </ion-label>
-            </ion-item>
-          } @else {
-            <ion-item>
-              <ion-label>
-                Image
-                @if (image(); as chosen) {
-                  <p data-testid="image-status">{{ chosen.name }}: {{ statusText(chosen.status) }}</p>
-                } @else {
-                  <p>Optional.</p>
-                }
-              </ion-label>
-              @if (image()?.status === 'failed') {
-                <ion-button slot="end" fill="clear" data-testid="retry-upload"
-                  [disabled]="rateLimit.blocked()" (click)="retryUpload()">Try again</ion-button>
+          <ion-item>
+            <ion-label>
+              Image
+              @if (image(); as chosen) {
+                <p data-testid="image-status">{{ chosen.name }}: {{ statusText(chosen.status) }}</p>
+              } @else {
+                <p>Optional.</p>
               }
-              <ion-button slot="end" fill="clear" data-testid="choose-image"
-                [disabled]="rateLimit.blocked()" (click)="chooseImage()">
-                {{ image() ? 'Choose another' : 'Choose image' }}
-              </ion-button>
-              @if (image()) {
-                <ion-button slot="end" fill="clear" data-testid="remove-image"
-                  (click)="removeImage()">Remove</ion-button>
-              }
-            </ion-item>
-          }
+            </ion-label>
+            @if (image()?.status === 'failed') {
+              <ion-button slot="end" fill="clear" data-testid="retry-upload"
+                [disabled]="rateLimit.blocked()" (click)="retryUpload()">Try again</ion-button>
+            }
+            <ion-button slot="end" fill="clear" data-testid="choose-image"
+              [disabled]="rateLimit.blocked()" (click)="chooseImage()">
+              {{ image() ? 'Choose another' : 'Choose image' }}
+            </ion-button>
+            @if (image()) {
+              <ion-button slot="end" fill="clear" data-testid="remove-image"
+                (click)="removeImage()">Remove</ion-button>
+            }
+          </ion-item>
 
           <!--
             The BFF's 400 for the upload request, keyed ContentType or
@@ -256,8 +247,6 @@ export class PublishPage {
   private imageFile: File | null = null;
   /** `replayedAfterSignIn`, for the upload's own 401. */
   private uploadReplayedAfterSignIn = false;
-  /** Why this platform offers no image, or null where it does. */
-  protected readonly imageUnavailable = this.imageSource.unavailable;
   /** Bumped by every new upload and every removal, so a superseded reply lands on nothing. */
   private uploads = 0;
 
@@ -341,7 +330,16 @@ export class PublishPage {
 
   /** Asks the image source for a file, and uploads it the moment it has one. */
   async chooseImage(): Promise<void> {
-    const file = await this.imageSource.pick();
+    let file: File | null;
+    try {
+      file = await this.imageSource.pick();
+    } catch (error) {
+      if (!(error instanceof ImagePickError)) throw error;
+      // The device's refusal, said where the upload's own errors are; the
+      // image already chosen, if any, stays as it was.
+      this.imageErrorState.set({ kind: 'banner', title: 'No image', detail: error.message });
+      return;
+    }
     if (file === null) return;
     // A file the seller chose is a new entry, with its own one replay after a
     // sign-in; the replay itself goes through `upload()`, so it cannot loop.
