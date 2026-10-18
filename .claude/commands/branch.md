@@ -225,8 +225,9 @@ not content.
    `ci/android-selector`. Summarise the change, do not describe the files —
    `fix/cart-total-rounding`, not `fix/update-cart`.
 
-   **The scope is the summary's first word, never a parenthesis.** A commit
-   subject spells it `feat(<scope>):`, and a branch name is not a subject:
+   **The scope is a word of its own ahead of the summary, which the slug
+   drops, and never a parenthesis.** A commit subject spells it
+   `feat(<scope>):`, and a branch name is not a subject:
    the push guard admits a destination only when it is a plain ref —
    `SAFE_REF` in `.claude/hooks/guard-git-argv.py`, letters, digits and
    `._/-` — so a parenthesised scope reached `/pr`'s push and was refused
