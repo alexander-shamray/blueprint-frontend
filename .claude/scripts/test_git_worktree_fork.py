@@ -359,6 +359,22 @@ class ForkShape(unittest.TestCase):
         self.assertEqual(2, result.returncode, result.stderr)
         self.assertIn("not in a git repository", result.stderr)
 
+    def test_a_name_the_push_guard_refuses_is_refused_before_it_exists(self):
+        # alexander-shamray/blueprint-frontend#163: a parenthesised scope
+        # forked here and was refused at /pr's push, where `git branch -m` is
+        # denied and nothing could rename it.
+        root = self.fixture()
+        result = self.fork(f"{root}/checkout", ".claude/worktrees/probe",
+                           "feat(x)/probe")
+        self.assertEqual(2, result.returncode, result.stderr)
+        self.assertIn("not a branch name this helper will take", result.stderr)
+        branches = run_bash('git -C "$C" branch --list "$B"',
+                            C=f"{root}/checkout", B="feat(x)/probe")
+        self.assertEqual("", branches.stdout.strip())
+        absent = run_bash('[ ! -e "$P" ]',
+                          P=f"{root}/checkout/.claude/worktrees/probe")
+        self.assertEqual(0, absent.returncode)
+
 
 if __name__ == "__main__":
     unittest.main()

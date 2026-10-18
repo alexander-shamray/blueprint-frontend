@@ -24,7 +24,10 @@ case "$branch" in
   -*) echo "branch name may not start with '-'" >&2; exit 2 ;;
   *..*) echo "branch name may not contain '..'" >&2; exit 2 ;;
 esac
-[[ "$branch" =~ ^[A-Za-z0-9][A-Za-z0-9._/()-]*$ ]] ||
+# The push guard's SAFE_REF, and no wider: a name it refuses would be made
+# here and refused at /pr's push, where `git branch -m` is denied
+# (alexander-shamray/blueprint-frontend#163).
+[[ "$branch" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ ]] ||
   { echo "not a branch name this helper will take: $branch" >&2; exit 2; }
 # Creation only, like the fork helper: a name that already exists is refused
 # rather than reset, so no caller can reach -B/-B-like behaviour through here.
