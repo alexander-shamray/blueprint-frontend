@@ -29,7 +29,7 @@ export abstract class ImageSource {
 /**
  * A file input that is never rendered. Attached for the length of the choice,
  * because a WebView may not open a chooser for an input outside the document,
- * and removed however the choice ends.
+ * and removed when a file is chosen or the choice is cancelled.
  *
  * `accept` is `image/*` and not the BFF's closed list: the list is the
  * server's, which answers anything outside it with a 400 keyed `ContentType`
@@ -37,8 +37,10 @@ export abstract class ImageSource {
  * copy that drifts.
  *
  * A browser with no `cancel` event leaves a dismissed chooser's promise
- * pending. Nothing waits on it: the page shows no state for a choice in
- * progress, so an unanswered pick is a pick that did nothing.
+ * pending, and its hidden input in the document. Nothing waits on the
+ * promise: the page shows no state for a choice in progress, so an unanswered
+ * pick is a pick that did nothing, at the cost of one empty input per
+ * dismissal until the page is reloaded.
  */
 @Injectable({ providedIn: 'root' })
 export class WebImageSource extends ImageSource {
