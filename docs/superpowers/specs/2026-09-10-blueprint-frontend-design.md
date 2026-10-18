@@ -427,6 +427,12 @@ introduces.
 
 ## 10. Out of scope
 
+> **Superseded in part on 2026-10-18.** The product detail *route* in the first
+> bullet and the whole of the second are overtaken by
+> `docs/client-architecture.md` §12, *Product detail is a route, because
+> Catalog serves a product by id*: Catalog now serves one product by id, the
+> detail is a route, and the sheet is gone. Both bullets are kept as written.
+
 - A mobile BFF, a product detail *route*, search, images upload or any screen
   without an endpoint behind it.
 - **Product detail as a sheet is in scope, and needs no endpoint of its own**,

@@ -3,6 +3,7 @@ import { rateLimitInterceptor } from '@core/errors/rate-limit.interceptor';
 import { RateLimitWindows } from '@core/errors/rate-limit';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { provideRouter } from '@angular/router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CartStore } from '@core/cart/cart.store';
 import { CartPersistence } from '@core/cart/cart.persistence';
@@ -39,6 +40,7 @@ describe('ProductsPage', () => {
         // bucket is picked from the route, not from the bearer.
         provideHttpClient(withInterceptors([rateLimitInterceptor])),
         provideHttpClientTesting(),
+        provideRouter([]),
         CartStore,
         { provide: CartPersistence, useValue: { read: async () => [], write: async () => undefined } },
       ],
@@ -537,7 +539,7 @@ describe('ProductsPage', () => {
     expect(fixture.componentInstance.hasMore()).toBe(false);
   });
 
-  describe('stock, list states and the sheet', () => {
+  describe('stock, list states and the link to a product', () => {
     const listing = () =>
       controller.expectOne((r) => r.url === 'http://localhost:5000/api/v1/catalog/products');
 
@@ -652,32 +654,14 @@ describe('ProductsPage', () => {
       expect(fixture.componentInstance.products()).toHaveLength(1);
     });
 
-    it('opens a sheet over the row, and adds the quantity it was given', async () => {
-      listing().flush(stocked(10));
+    it("links each row to its product's own address", async () => {
+      listing().flush(stocked(10, null));
       await fixture.whenStable();
-      const product = fixture.componentInstance.products()[0];
 
-      (fixture.nativeElement.querySelector('button.open') as HTMLElement).click();
-      expect(fixture.componentInstance.selected()).toBe(product);
-
-      fixture.componentInstance.addFromSheet(product, 3);
-
-      expect(TestBed.inject(CartStore).count()).toBe(3);
-      expect(fixture.componentInstance.selected()).toBeNull();
-    });
-
-    it('returns focus to the row that opened the sheet once it is dismissed', async () => {
-      listing().flush(stocked(10));
-      await fixture.whenStable();
-      const opener = fixture.nativeElement.querySelector('button.open') as HTMLElement;
-
-      opener.click();
-      // A browser that does not focus a button on click leaves it elsewhere.
-      (document.activeElement as HTMLElement | null)?.blur();
-      fixture.componentInstance.dismissed();
-
-      expect(fixture.componentInstance.selected()).toBeNull();
-      expect(document.activeElement).toBe(opener);
+      const links = [...fixture.nativeElement.querySelectorAll('a.open')].map((a: HTMLElement) =>
+        a.getAttribute('href'),
+      );
+      expect(links).toEqual(['/tabs/products/p0', '/tabs/products/p1']);
     });
   });
 });

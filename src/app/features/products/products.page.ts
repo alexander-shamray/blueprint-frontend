@@ -2,10 +2,11 @@ import {
   ChangeDetectionStrategy, Component, Signal, computed, effect, inject, signal, untracked,
 } from '@angular/core';
 import { HttpErrorResponse } from '@angular/common/http';
+import { RouterLink } from '@angular/router';
 import {
   IonContent, IonHeader, IonInfiniteScroll, IonInfiniteScrollContent, IonItem, IonLabel,
-  IonList, IonModal, IonNote, IonRefresher, IonRefresherContent, IonThumbnail, IonTitle,
-  IonToolbar, IonButton,
+  IonList, IonNote, IonRefresher, IonRefresherContent, IonThumbnail, IonTitle, IonToolbar,
+  IonButton,
 } from '@ionic/angular';
 import { CatalogApi } from '@core/api/catalog.api';
 import { ProductSummary } from '@core/api/types';
@@ -18,7 +19,6 @@ import { EmptyStateComponent } from '@shared/empty-state.component';
 import { ErrorBannerComponent } from '@shared/error-banner.component';
 import { MoneyPipe } from '@shared/money.pipe';
 import { SkeletonListComponent } from '@shared/skeleton-list.component';
-import { ProductSheetComponent } from './product-sheet.component';
 import { stockLabel, stockOf } from './stock';
 
 /**
@@ -31,9 +31,9 @@ import { stockLabel, stockOf } from './stock';
   standalone: true,
   imports: [
     IonButton, IonContent, IonHeader, IonInfiniteScroll, IonInfiniteScrollContent, IonItem,
-    IonLabel, IonList, IonModal, IonNote, IonRefresher, IonRefresherContent, IonThumbnail,
-    IonTitle, IonToolbar, EmptyStateComponent, ErrorBannerComponent, MoneyPipe,
-    ProductSheetComponent, SkeletonListComponent,
+    IonLabel, IonList, IonNote, IonRefresher, IonRefresherContent, IonThumbnail, IonTitle,
+    IonToolbar, RouterLink, EmptyStateComponent, ErrorBannerComponent, MoneyPipe,
+    SkeletonListComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -88,12 +88,13 @@ import { stockLabel, stockOf } from './stock';
             }
 
             <!--
-              A native button around the label rather than a clickable
-              ion-item: the row already holds Add, and a button inside a
-              button is neither valid nor reachable by keyboard in an order a
-              screen reader can explain.
+              A native link around the label rather than a clickable
+              ion-item: the row already holds Add, and a control inside a
+              control is neither valid nor reachable by keyboard in an order a
+              screen reader can explain. A link, because the product page is
+              an address (#105) — it can be opened in a new tab or copied.
             -->
-            <button type="button" class="open" (click)="open(product, $event)">
+            <a class="open" [routerLink]="['/tabs/products', product.productId]">
               <ion-label>
                 <h2>{{ product.name }}</h2>
                 <ion-note>{{ product.amount | money: product.currency }}</ion-note>
@@ -101,7 +102,7 @@ import { stockLabel, stockOf } from './stock';
                   <p class="stock" [class.out]="isOut(product)">{{ text }}</p>
                 }
               </ion-label>
-            </button>
+            </a>
 
             <ion-button slot="end" fill="clear" [disabled]="isOut(product)"
               (click)="addToCart(product)">Add</ion-button>
@@ -116,20 +117,10 @@ import { stockLabel, stockOf } from './stock';
       <ion-infinite-scroll [disabled]="!canLoadMore()" (ionInfinite)="loadMore($event)">
         <ion-infinite-scroll-content></ion-infinite-scroll-content>
       </ion-infinite-scroll>
-
-      <ion-modal [isOpen]="selected() !== null" [initialBreakpoint]="0.75" [breakpoints]="[0, 0.75, 1]"
-        (didPresent)="nameSheet($event)" (didDismiss)="dismissed()">
-        <ng-template>
-          @if (selected(); as product) {
-            <app-product-sheet [product]="product" (added)="addFromSheet(product, $event)"
-              (closed)="close()" />
-          }
-        </ng-template>
-      </ion-modal>
     </ion-content>
   `,
   styles: `
-    .open { all: unset; flex: 1; cursor: pointer; padding: .5rem 0; }
+    .open { all: unset; display: block; flex: 1; cursor: pointer; padding: .5rem 0; }
     .open:focus-visible { outline: 2px solid var(--ion-color-primary); }
     .stock { margin: .25rem 0 0; font-size: .875rem; color: var(--ion-color-medium); }
     .stock.out { color: var(--ion-color-danger); }
@@ -142,7 +133,6 @@ export class ProductsPage {
   private readonly catalogRefresh = inject(CatalogRefresh);
   private readonly availability = inject(CatalogAvailability);
   private cursor: string | null = null;
-  private opener: HTMLElement | null = null;
 
   /**
    * Bumped by `reload()`. `load()` captures the generation it was called
@@ -190,7 +180,6 @@ export class ProductsPage {
    * still a restart. Cleared only by a first page that lands.
    */
   private readonly restartingSignal = signal(false);
-  private readonly selectedSignal = signal<ProductSummary | null>(null);
   /** A publish asked for a refresh inside a blocked window; the listing is stale until it is taken. */
   private readonly refreshHeld = signal(false);
 
@@ -203,15 +192,12 @@ export class ProductsPage {
   // point is not to fend off a caller that exists. It is that `products`,
   // `error` and `hasMore` are what the platform answered, and the only code
   // entitled to say what the platform answered is the code that read the
-  // response. `loading` and `selected` are this page's own state — a request
-  // it has out, a row it has opened — and are written only here for the same
-  // reason.
+  // response. `loading` is this page's own state — a request it has out — and
+  // is written only here for the same reason.
   readonly products: Signal<readonly ProductSummary[]> = this.productsSignal.asReadonly();
   readonly error: Signal<DisplayError | null> = this.errorSignal.asReadonly();
   readonly hasMore: Signal<boolean> = this.hasMoreSignal.asReadonly();
   readonly loading: Signal<boolean> = this.loadingSignal.asReadonly();
-  /** The row whose sheet is open, or null. A row, not an id: the sheet shows what the row holds. */
-  readonly selected: Signal<ProductSummary | null> = this.selectedSignal.asReadonly();
 
   /**
    * Three list states a blank screen used to stand in for, each its own fact.
@@ -369,42 +355,6 @@ export class ProductsPage {
     // the binding and the method are two paths to the same store.
     if (this.isOut(product)) return;
     this.cart.add(product);
-  }
-
-  open(product: ProductSummary, event?: Event): void {
-    // Kept because Ionic returns focus to whatever was focused when the sheet
-    // opened, and WebKit does not focus a button on click: there that is the
-    // body, and a keyboard or screen-reader user is dropped at the top.
-    this.opener = event?.currentTarget instanceof HTMLElement ? event.currentTarget : null;
-    this.selectedSignal.set(product);
-  }
-
-  close(): void {
-    this.selectedSignal.set(null);
-  }
-
-  /** The sheet has gone, however it was closed: focus goes back to the row that opened it. */
-  dismissed(): void {
-    this.close();
-    this.opener?.focus();
-    this.opener = null;
-  }
-
-  /**
-   * Gives the sheet's dialog a name. The `role="dialog"` element is Ionic's
-   * `.modal-wrapper`, inside the modal's shadow root, and nothing Ionic
-   * exposes labels it: `htmlAttributes` lands on the host, which is not the
-   * dialog, and axe (rule `aria-dialog-name`) and a screen reader both read
-   * the wrapper. So the label goes on the wrapper itself, once it is drawn.
-   */
-  nameSheet(event: Event): void {
-    const wrapper = (event.target as HTMLElement).shadowRoot?.querySelector('.modal-wrapper');
-    wrapper?.setAttribute('aria-label', this.selectedSignal()?.name ?? 'Product details');
-  }
-
-  addFromSheet(product: ProductSummary, quantity: number): void {
-    if (!this.isOut(product)) this.cart.add(product, quantity);
-    this.close();
   }
 
   isOut(product: ProductSummary): boolean {
