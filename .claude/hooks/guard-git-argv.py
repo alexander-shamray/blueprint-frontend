@@ -5669,42 +5669,51 @@ def _contents(path):
         return None
 
 
+# `env`'s directory options, bundled, joined or abbreviated as getopt takes
+# them: `-C dir`, `-iC dir`, `-Cdir`, `--chdir=dir`, `--ch dir`.
+CHDIR_OPTION = re.compile(r"^(?:-[A-Za-z]*C|--c(?:h(?:d(?:i(?:r)?)?)?)?(?:=|$))")
+
+
 def index_wrapper_offence(command):
     """The reason to refuse the skill's `run-index` from here, or `None`.
 
-    Found as `helper_argument_offence` finds a helper, on the raw words.
+    On the raw words, as `helper_argument_offence` reads a helper's, and
+    wider than it (round 1 of alexander-shamray/blueprint-frontend#254's
+    review): the wrapper run as the program, or any shell handed it anywhere
+    after the shell's name. Reading the first word that is not an option as
+    the script took `errexit` for it in `bash -o errexit …/run-index`.
     """
     for run in raw_runs(command):
         start = 0
         while start < len(run) and ASSIGNMENT.match(run[start]):
             start += 1
-        words = run[start:]
-        if words and program_name(re.sub(r"[\"'\\]", "", words[0])) in (
+        words = [re.sub(r"[\"'\\]", "", word) for word in run[start:]]
+        if not words or program_name(words[0]) in (
                 DATA_ONLY_COMMANDS | READING_COMMANDS):
             continue
+        if INDEX_WRAPPER.match(words[0]):
+            return index_wrapper_differs(command, ())
         for position, word in enumerate(words):
-            if program_name(re.sub(r"[\"'\\]", "", word)) != "bash":
+            if program_name(word) not in EVALUATORS:
                 continue
-            rest = words[position + 1:]
-            script = next((index for index, later in enumerate(rest)
-                           if not later.startswith("-")), None)
-            if script is not None and INDEX_WRAPPER.match(
-                    re.sub(r"[\"'\\]", "", rest[script])):
-                return index_wrapper_differs(command)
+            if any(INDEX_WRAPPER.match(later) for later in words[position + 1:]):
+                return index_wrapper_differs(command, words[:position])
             break
     return None
 
 
-def index_wrapper_differs(command):
+def index_wrapper_differs(command, leading):
     """Why the wrapper this command reaches is not the hooks' own, or `None`.
 
     **A directory change anywhere in the command is refused outright**: the
     copy bash then reaches is not the one under the event's directory, and
     following `cd` through groups and subshells is the emulation this file
-    refuses to guess at. A directory holding no wrapper is admitted, since
+    refuses to guess at. `env -C` in front of the shell, the words in
+    `leading`, is one too. A directory holding no wrapper is admitted, since
     bash finds nothing there to run.
     """
-    if changes_directory(command):
+    if changes_directory(command) or any(
+            CHDIR_OPTION.match(word) for word in leading):
         return (
             "the skill's `run-index` is started in a command that can also "
             "change directory, so the copy bash reaches is not the one this "
