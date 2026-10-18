@@ -8,10 +8,13 @@ import { ClientLog, pathOf } from './client-log';
 /**
  * Records every command's outcome and every failure, at the one place every
  * request to the gateway passes (#93). A request outside the gateway is not
- * recorded at all: the only one is the object store's pre-signed `PUT`
- * (`client-architecture.md` §11), whose query string is its signature.
+ * recorded at all, and two kinds pass through this `HttpClient`: the
+ * identity provider's discovery and token calls, which angular-oauth2-oidc
+ * makes through it (`gateway-url.ts`), and the object store's pre-signed
+ * `PUT` (`client-architecture.md` §11), whose query string is its signature.
  *
- * A command is a request whose body carries a `commandId` (§4), and the id is
+ * A command is a request whose body carries a `commandId`
+ * (`client-architecture.md` §4), and the id is
  * all that is read from the body. Its outcome is `accepted` or the error
  * mapper's kind, so a 409 reads as `alreadyCommitted` or `idReused` exactly as
  * the page that sent it reads it. A failure of anything else records the
