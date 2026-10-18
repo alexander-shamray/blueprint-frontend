@@ -45,6 +45,15 @@ describe('CatalogApi', () => {
     request.flush({ items: [], nextCursor: null });
   });
 
+  it('reads one product by id, with the id encoded into the path', () => {
+    api.product('a/b').subscribe();
+
+    const request = controller.expectOne('http://localhost:5000/api/v1/catalog/products/a%2Fb');
+
+    expect(request.request.method).toBe('GET');
+    request.flush({});
+  });
+
   it('posts a publish command and returns the new product id from a 200', () => {
     const command = {
       commandId: '11111111-1111-1111-1111-111111111111',

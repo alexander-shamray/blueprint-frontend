@@ -29,6 +29,16 @@ export class CatalogApi {
   }
 
   /**
+   * One product, as the listing's row: `GetProduct` returns the same
+   * `ProductSummaryDto`, and is anonymous on the same `catalog-public` route,
+   * so a deep link works signed out. A withdrawn product is the same 404
+   * `product.not_found` as an unknown id (`GetProductHandler.cs`, ADR-074).
+   */
+  product(id: string): Observable<ProductSummary> {
+    return this.http.get<ProductSummary>(`${this.base}/${encodeURIComponent(id)}`);
+  }
+
+  /**
    * Requires `catalog:write`, and reaches Catalog through the gateway's
    * `catalog-write` route (Gateway.Api/appsettings.json) rather than
    * `catalog-public`. The two are deliberately separate: `catalog-public`
