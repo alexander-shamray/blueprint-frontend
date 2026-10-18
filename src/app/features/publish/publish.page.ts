@@ -125,28 +125,38 @@ interface ChosenImage {
           </ion-item>
           <ion-item><ion-input label="Currency" formControlName="currency" required></ion-input></ion-item>
 
-          <ion-item>
-            <ion-label>
-              Image
-              @if (image(); as chosen) {
-                <p data-testid="image-status">{{ chosen.name }}: {{ statusText(chosen.status) }}</p>
-              } @else {
-                <p>Optional.</p>
+          @if (imageUnavailable) {
+            <ion-item>
+              <ion-label>
+                Image
+                <p data-testid="image-unavailable">{{ imageUnavailable }}</p>
+              </ion-label>
+            </ion-item>
+          } @else {
+            <ion-item>
+              <ion-label>
+                Image
+                @if (image(); as chosen) {
+                  <p data-testid="image-status">{{ chosen.name }}: {{ statusText(chosen.status) }}</p>
+                } @else {
+                  <p>Optional.</p>
+                }
+              </ion-label>
+              @if (image()?.status === 'failed') {
+                <ion-button slot="end" fill="clear" data-testid="retry-upload"
+                  [disabled]="rateLimit.blocked()" (click)="retryUpload()">Try again</ion-button>
               }
-            </ion-label>
-            @if (image()?.status === 'failed') {
-              <ion-button slot="end" fill="clear" data-testid="retry-upload"
-                [disabled]="rateLimit.blocked()" (click)="retryUpload()">Try again</ion-button>
-            }
-            <ion-button slot="end" fill="clear" data-testid="choose-image"
-              [disabled]="rateLimit.blocked()" (click)="chooseImage()">
-              {{ image() ? 'Choose another' : 'Choose image' }}
-            </ion-button>
-            @if (image()) {
-              <ion-button slot="end" fill="clear" data-testid="remove-image"
-                (click)="removeImage()">Remove</ion-button>
-            }
-          </ion-item>
+              <ion-button slot="end" fill="clear" data-testid="choose-image"
+                [disabled]="rateLimit.blocked()" (click)="chooseImage()">
+                {{ image() ? 'Choose another' : 'Choose image' }}
+              </ion-button>
+              @if (image()) {
+                <ion-button slot="end" fill="clear" data-testid="remove-image"
+                  (click)="removeImage()">Remove</ion-button>
+              }
+            </ion-item>
+          }
+
           <!--
             The BFF's 400 for the upload request, keyed ContentType or
             SizeBytes, sits under the image as a checkout field's sits under
@@ -244,6 +254,8 @@ export class PublishPage {
   private readonly imageFieldErrorsState = signal<readonly string[]>([]);
   /** The file behind `image()`, kept so Try again sends the same bytes. */
   private imageFile: File | null = null;
+  /** Why this platform offers no image, or null where it does. */
+  protected readonly imageUnavailable = this.imageSource.unavailable;
   /** Bumped by every new upload and every removal, so a superseded reply lands on nothing. */
   private uploads = 0;
 
