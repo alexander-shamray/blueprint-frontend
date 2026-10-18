@@ -125,7 +125,14 @@
             "tsConfig": "tsconfig.spec.json",
             "setupFiles": ["src/vitest-setup.ts"],
             "include": ["src/**/*.spec.ts"],
-            "coverage": false
+            "coverage": true,
+            "coverageReporters": ["text-summary"],
+            "coverageThresholds": {
+              "statements": 93,
+              "branches": 91,
+              "functions": 87,
+              "lines": 96
+            }
           }
         },
         "ionic-cordova-serve": {
