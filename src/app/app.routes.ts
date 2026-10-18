@@ -20,6 +20,12 @@ export const routes: Routes = [
         loadComponent: () => import('@features/products/products.page').then((m) => m.ProductsPage),
       },
       {
+        // Pushed on the Products tab's stack, and anonymous as the listing is,
+        // so a link to one product opens signed out (#105).
+        path: 'products/:id',
+        loadComponent: () => import('@features/products/product.page').then((m) => m.ProductPage),
+      },
+      {
         path: 'cart',
         loadComponent: () => import('@features/cart/cart.page').then((m) => m.CartPage),
       },

@@ -179,7 +179,7 @@ export class CartStore {
    * no error and no signal that anything is wrong).
    */
   add(product: ProductSummary, quantity = 1): void {
-    // The product sheet's stepper is the caller that passes more than one.
+    // The product page's stepper is the caller that passes more than one.
     // Below one adds nothing, rather than reaching `setQuantity`'s removal
     // through the back door of an add.
     if (quantity < 1) return;

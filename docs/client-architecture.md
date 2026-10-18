@@ -1133,6 +1133,41 @@ while the response is open rather than at its end, and the resumed
 request passes its preflight (`docs/testing.md`, *The emulator round trip*,
 owns the run and its numbers). iOS has not run it.
 
+### Product detail is a route, because Catalog serves a product by id
+
+*The claim.* Spec §10: a product detail *route* is out of scope, and the detail
+is a sheet over the listing's row that "is not a route and cannot be
+deep-linked", because Catalog serves no product by id.
+
+*What is true.* blueprint-backend#469 added `GET /v1/catalog/products/{id}`
+(`ProductEndpoints.cs`, `GetProduct`). It is anonymous, as the listing is, and
+reached through the same `catalog-public` route (§1); it returns the
+listing's own `ProductSummaryDto`, so there is no detail type to mirror; and a
+withdrawn product is the same 404 `product.not_found` as an unknown id
+(`GetProductHandler.cs`, ADR-074).
+
+*What the client did.* `tabs/products/:id` is
+`features/products/product.page.ts`, pushed on the Products tab's stack, and
+each listing row is a link to it. The sheet is deleted rather than kept as an
+in-list shortcut: #105 asked for one rendering of a product, and two would
+drift. The page reads the product by id even when the listing holds its row,
+because that row's stock is as old as its page. A 404, or an address whose id
+is not a GUID — `GetProduct` maps `{id:guid}`, so such an id is sent nowhere —
+is a stated "not available" page with the way back to the listing, never a
+banner. Any other failure is a banner and Try again. The read draws on the
+anonymous `catalogue` limiter bucket, so a first read is held while that
+window is open (#161). Leaving the page, focus goes to the listing's heading,
+as on every other pushed page (`tabs/focus-page-heading.ts`), where the sheet
+returned it to the row.
+
+*What is not done.* On the web the page's address is the shareable link. On
+native, a link that opens the app is an App Links and universal links question
+(#100, paused), and the `blueprint://` intent filter still matches host `auth`
+alone, on purpose. No share control is offered, because inside the native
+shell the page's own address is the WebView's origin (§15) and names nothing
+anyone else can open. Spec §10's two bullets are superseded by this entry and
+left as written.
+
 ## 13. The bundle budget is set above the bundle, not at it
 
 `npm run build` was failing before this work could ship, and the failure was the

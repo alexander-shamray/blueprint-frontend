@@ -116,18 +116,16 @@ for (const colorScheme of ['light', 'dark'] as const) {
 
       await page.getByRole('tab', { name: 'Products' }).click();
       await expectTitleFocused(page, 'Products');
-      await page.getByRole('button', { name }).click();
-      // By its name, so the scan waits for the sheet to be presented and
-      // named, and a dialog that lost its name fails here with a clearer
-      // message than axe's.
-      await expect(page.getByRole('dialog', { name })).toBeVisible();
-      await scan('products', 'with the product sheet open');
+      await scan('products', 'with a product published');
+      await page.getByRole('link', { name }).click();
+      await expect(page.getByTestId('product-name')).toHaveText(name);
+      await expectTitleFocused(page, 'Product');
+      await scan('products/:id', 'a published product');
+      // Kept for the end of the walk, where a full load cannot cost the
+      // session the cart and checkout below depend on.
+      const productAddress = page.url();
       await page.getByRole('button', { name: 'Add to cart' }).click();
-      await expect(page.getByTestId('sheet-price')).toBeHidden();
-      // Back on the row that opened it, not the body: WebKit does not focus a
-      // button on click, so Ionic alone would have nowhere to return to there.
-      await expect(page.getByRole('button', { name })).toBeFocused();
-      await scan('products', 'sheet closed');
+      await expect(page.getByTestId('product-added')).toHaveText('Added 1 to the cart.');
 
       await page.getByRole('tab', { name: 'Cart' }).click();
       await page.getByRole('button', { name: 'Get quote' }).click();
@@ -163,6 +161,14 @@ for (const colorScheme of ['light', 'dark'] as const) {
       await expect(page.locator('app-orders')).toBeVisible();
       await expectTitleFocused(page, 'History');
       await scan('orders', 'with an order in it');
+
+      // The product's address opened cold, as a shared link is (#105), and
+      // one that names nothing the platform has: a stated page, not a banner.
+      await page.goto(productAddress);
+      await expect(page.getByTestId('product-name')).toHaveText(name);
+      await page.goto('/tabs/products/00000000-0000-7000-8000-000000000000');
+      await expect(page.getByText('This product is not available')).toBeVisible();
+      await scan('products/:id', 'not available');
 
       // The other half of the gate: every route above was reached, and every
       // route the list names was reached. `app.routes.spec.ts` holds the list

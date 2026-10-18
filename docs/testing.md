@@ -117,8 +117,9 @@ installed above, and on Linux the system libraries `--with-deps` brings.
 
 **The accessibility walk is `e2e/a11y.spec.ts`**, and it fails on any `serious`
 or `critical` axe violation. It signs in as `demo`, which holds `catalog:write`,
-and walks every route in the state a person sees it — the product sheet open,
-the cart quoted, the checkout form, the placed order once its status has
+and walks every route in the state a person sees it — a published product,
+reached from its row and opened cold from its address, and one that is not
+available, the cart quoted, the checkout form, the placed order once its status has
 settled — in both palettes, because the dark one is `dark.system.css` and only
 shows under the OS preference (`colorScheme` in the test). It asserts the
 address before each scan, so a guard's bounce fails the walk instead of being
@@ -127,8 +128,7 @@ routes the walk claims; `src/app/app.routes.spec.ts` fails the unit suite when
 that list and the router disagree, which is what stops the gate silently
 missing the next route added. Axe cannot see focus management, so the walk
 asserts it itself (#240): after each navigation the focused element is the
-page's `ion-title` (the shell moves it, `src/app/tabs/focus-page-heading.ts`),
-and after the product sheet closes it is the row's `button.open`.
+page's `ion-title` (the shell moves it, `src/app/tabs/focus-page-heading.ts`).
 
 **There is no skip path, and that is the rule rather than an omission.**
 `e2e/smoke.spec.ts`'s `beforeAll` asserts the gateway is answering and fails

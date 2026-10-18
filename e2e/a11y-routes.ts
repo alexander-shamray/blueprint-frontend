@@ -9,6 +9,7 @@
  */
 export const A11Y_ROUTES = [
   'products',
+  'products/:id',
   'cart',
   'cart/checkout',
   'cart/placed/:id',

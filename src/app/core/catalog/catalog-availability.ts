@@ -6,11 +6,11 @@ import { ProductSummary } from '@core/api/types';
  * cart can warn about a persisted line that now asks for more than is there.
  *
  * In core because two features need it and a feature never imports another
- * (spec §3): the products page is the only thing that reads the listing, and
- * the cart is what holds lines that outlive it. A `CartLine` does not carry
- * the level instead, because the persisted copy is a snapshot from whenever
- * the product was added — the warning is about "now", and the listing is the
- * only "now" the platform offers without a product read.
+ * (spec §3): the products pages are the only things that read the catalogue,
+ * and the cart is what holds lines that outlive them. A `CartLine` does not
+ * carry the level instead, because the persisted copy is a snapshot from
+ * whenever the product was added — the warning is about "now", and the
+ * catalogue's reads are the only "now" the platform offers.
  *
  * A hint, never a gate. The reservation is Inventory's verdict and the order
  * already has a path for it to refuse, so nothing here blocks a quote or an
@@ -25,7 +25,10 @@ export class CatalogAvailability {
 
   readonly current: Signal<Readonly<Record<string, number | null>>> = this.levels.asReadonly();
 
-  /** Called with every page the listing receives; a later page's word replaces an earlier one's. */
+  /**
+   * Called with every page the listing receives and every product the
+   * product page reads; a later word replaces an earlier one's.
+   */
   record(products: readonly ProductSummary[]): void {
     if (products.length === 0) return;
 
