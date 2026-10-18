@@ -87,7 +87,7 @@ describe('PublishPage', () => {
           provide: AuthService,
           useValue: { signIn, user: () => user, accessToken: () => 't' },
         },
-        { provide: ImageSource, useValue: { pick: async () => picked } },
+        { provide: ImageSource, useValue: { unavailable: null, pick: async () => picked } },
       ],
     });
 
@@ -853,5 +853,47 @@ describe('PublishPage', () => {
       expect(text('failed')).toContain('Try again');
       expect(text('refused')).toContain('Choose another');
     });
+  });
+});
+
+describe('PublishPage where the platform offers no image', () => {
+  it('says why where the chooser would be, and offers no chooser', async () => {
+    TestBed.configureTestingModule({
+      imports: [PublishPage],
+      providers: [
+        provideRouter([]),
+        provideHttpClient(withInterceptors([rateLimitInterceptor])),
+        provideHttpClientTesting(),
+        {
+          provide: AuthService,
+          useValue: {
+            signIn: async () => undefined,
+            user: () =>
+              signal<CurrentUser | null>({
+                username: 'demo', subject: 'subject-demo', permissions: ['catalog:write'], expiresAt: 0,
+              }),
+            accessToken: () => 't',
+          },
+        },
+        {
+          provide: ImageSource,
+          useValue: { unavailable: 'Not on this platform.', pick: async () => null },
+        },
+      ],
+    });
+    const fixture = TestBed.createComponent(PublishPage);
+    const controller = TestBed.inject(HttpTestingController);
+    fixture.detectChanges();
+    await hydrated(fixture.nativeElement);
+
+    expect(
+      fixture.nativeElement.querySelector('[data-testid="image-unavailable"]').textContent.trim(),
+    ).toBe('Not on this platform.');
+    expect(fixture.nativeElement.querySelector('[data-testid="choose-image"]')).toBeNull();
+
+    controller.expectOne(isOwnList).flush({ items: [], nextCursor: null });
+    controller.verify();
+    fixture.detectChanges();
+    await hydrated(fixture.nativeElement);
   });
 });

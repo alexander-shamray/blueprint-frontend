@@ -1,4 +1,5 @@
 import { TestBed } from '@angular/core/testing';
+import { Capacitor } from '@capacitor/core';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ImageSource, WebImageSource } from './image-source';
 
@@ -7,6 +8,21 @@ describe('ImageSource', () => {
 
   it('is the web strategy wherever nothing else is provided', () => {
     expect(TestBed.inject(ImageSource)).toBeInstanceOf(WebImageSource);
+  });
+
+  it('offers an image on the web and on Android', () => {
+    vi.spyOn(Capacitor, 'getPlatform').mockReturnValue('android');
+    expect(TestBed.inject(WebImageSource).unavailable).toBeNull();
+  });
+
+  it('offers none on iOS, says why, and opens no chooser there', async () => {
+    vi.spyOn(Capacitor, 'getPlatform').mockReturnValue('ios');
+    const click = vi.spyOn(HTMLInputElement.prototype, 'click');
+    const source = TestBed.inject(WebImageSource);
+
+    expect(source.unavailable).toContain('iOS');
+    expect(await source.pick()).toBeNull();
+    expect(click).not.toHaveBeenCalled();
   });
 
   describe('WebImageSource', () => {
