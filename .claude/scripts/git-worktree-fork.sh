@@ -77,7 +77,8 @@ command -v py >/dev/null 2>&1 && python="py -3.12"
 settings=.claude/settings.local.json
 # -L as well as -e, because -e follows a link and a dangling one reads absent.
 if [ -f "$settings" ] && [ ! -L "$path/$settings" ] && [ ! -e "$path/$settings" ]; then
-  # -I keeps a checkout-root json.py off the import path, as the hooks' -P does.
+  # -I keeps a checkout-root json.py off the import path, which the hooks'
+  # launcher does not (alexander-shamray/blueprint-frontend#255).
   if ! $python -I - "$settings" "$path/$settings" .mcp.json <<'PY'; then
 import json, os, sys
 local = json.load(open(sys.argv[1], encoding="utf-8"))
