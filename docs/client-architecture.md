@@ -1185,6 +1185,19 @@ minutes, and runs the Playwright smoke against it. It is deliberately not
 any outcome it captures `docker compose logs`; on failure it uploads those logs
 together with `test-results/`.
 
+The same job is where wire-type drift is noticed (#98): `e2e/wire-drift.spec.ts`
+fetches the Catalog and Ordering OpenAPI documents with the `demo` user's token
+and holds `core/api/types.ts` against them, failing when the backend removes,
+renames or retypes a field the client reads, or makes one nullable under a type
+that cannot be null. It is in this job because only this job has the stack, and
+a check nobody runs is a helper. The BFF publishes no document, so its types
+are excluded by their `Web.Bff/` citation and the spec asserts the BFF still
+answers 404, so the exclusion cannot go stale unnoticed. The backend's contract
+gate (blueprint-backend#428) covers the message contracts, not these HTTP
+shapes, so the two do not claim the same thing. What the check looks at is
+itself tested, without the stack: every exported interface is either checked or
+cites a BFF file.
+
 The `android` job compiles the committed Android project — `npm ci`, `npm run
 build`, `npx cap sync android`, `./gradlew assembleDebug`. The sync step is not
 optional: `android/app/src/main/assets/public` is gitignored, so a fresh

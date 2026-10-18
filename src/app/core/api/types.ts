@@ -3,7 +3,10 @@
  * the file and symbol it mirrors (spec §1, property 2; spec §3, "Types").
  * Generation from the OpenAPI documents was considered and deferred: the BFF
  * publishes no document, a handful of endpoints do not pay for the tooling, and a
- * citing comment is what lets grep find drift in either direction.
+ * citing comment is what lets grep find drift in either direction. The `e2e`
+ * job's `e2e/wire-drift.spec.ts` now reads those citations too: it holds each
+ * interface against the service's OpenAPI document and fails on drift, and an
+ * interface that is neither checked there nor cited from the BFF fails as well.
  *
  * Field names are camelCase because that is what ASP.NET Core's default
  * JsonSerializerOptions produces, not because the client prefers it.
