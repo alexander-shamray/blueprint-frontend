@@ -5718,8 +5718,26 @@ def index_wrapper_differs(command):
     if (os.path.normcase(os.path.realpath(base))
             == os.path.normcase(os.path.realpath(HOOK_CHECKOUT))):
         return None
+    real = os.path.realpath(base)
     for name in INDEX_WRAPPER_FILES:
-        theirs = _contents(os.path.join(base, name))
+        # **Read where the consumer reads.** `gate-index.py` reaches the hook
+        # through `../../..` from its own directory, which the kernel resolves
+        # after following a link, so a branch tracking `scripts` as a link to
+        # `x/a/b/scripts` had the gate load `x/hooks/index-refresh.py` while
+        # this loop read the untouched hook beside it (raised by the
+        # automated security review of alexander-shamray/blueprint-frontend
+        # #254). A link anywhere below the root is refused, whatever it holds.
+        path = os.path.join(base, name)
+        if (os.path.normcase(os.path.realpath(path))
+                != os.path.normcase(os.path.join(real, *name.split("/")))):
+            return (
+                f"`{name}` under {base} is reached through a link, so the "
+                "file the wrapper runs is not the one this guard compares "
+                f"with {HOOK_CHECKOUT}'s, the checkout this session's hooks "
+                "run from (alexander-shamray/blueprint-frontend#146). Read "
+                "and Grep the files here instead."
+            )
+        theirs = _contents(path)
         if theirs is None or theirs != _contents(os.path.join(HOOK_CHECKOUT, name)):
             return (
                 f"`{name}` under {base} is not the "

@@ -5482,6 +5482,32 @@ class TheGitArgvGuard(unittest.TestCase):
         self.assertAdmitted(run, cwd=root)
         self.assertIn("#146", self.assertRefused("cd docs && " + run, cwd=root))
 
+    def test_the_index_wrapper_is_not_reached_through_a_link(self):
+        # `gate-index.py` reaches `index-refresh.py` through `../../..` from
+        # its own directory, which the kernel resolves after following a link,
+        # so a branch tracking `scripts` as a link to `x/a/b/scripts` had the
+        # gate load `x/hooks/index-refresh.py` while the comparison read the
+        # untouched hook beside it. Raised by the automated security review of
+        # #254; admitted before the fix.
+        trusted = SCRIPTS.parent.parent
+        names = in_process_hook.load(HOOK)[0].INDEX_WRAPPER_FILES
+        run = "bash .claude/skills/codebase-index/scripts/run-index stats --json"
+        with tempfile.TemporaryDirectory() as scratch:
+            for name in names:
+                (Path(scratch) / name).parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(trusted / name, Path(scratch) / name)
+            # Positive control: the same files, reached directly.
+            self.assertAdmitted(run, cwd=scratch)
+            scripts = Path(scratch, ".claude", "skills", "codebase-index", "scripts")
+            elsewhere = Path(scratch, "x", "a", "b", "scripts")
+            elsewhere.parent.mkdir(parents=True)
+            shutil.move(str(scripts), str(elsewhere))
+            try:
+                os.symlink(elsewhere, scripts, target_is_directory=True)
+            except (OSError, NotImplementedError):
+                self.skipTest("this host does not grant symlinks")
+            self.assertIn("#146", self.assertRefused(run, cwd=scratch))
+
     def test_only_a_name_known_to_be_harmless_is_assigned_before_git(self):
         # **The name list is an enumeration, so a variable nobody listed
         # was admitted** (blueprint-frontend#191): `PERL5OPT`, `LESSKEY`,

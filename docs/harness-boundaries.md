@@ -2120,7 +2120,11 @@ the event's directory is not byte-identical to that checkout's is refused —
 the hook added after the automated security review of
 alexander-shamray/blueprint-frontend#254 found the list stopping short of
 it — and so is one in a command that can change directory, since the copy
-bash reaches is then unknown. A worktree whose branch changed the wrapper
+bash reaches is then unknown. **A file reached through a link below the root
+is refused whatever it holds**: `gate-index.py` climbs `../../..` from its
+own directory to the hook, which the kernel resolves after following a link,
+so a tracked `scripts` link would have the gate load a hook the comparison
+never opened (the same review). A worktree whose branch changed the wrapper
 therefore gets no index route at all, and
 Grep and Read in its place; that is the cost, taken deliberately. **The
 `.claude/scripts/` helpers keep the same residual**: `/ship` runs a
