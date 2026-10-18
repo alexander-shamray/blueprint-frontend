@@ -29,9 +29,6 @@ test('an image uploads, publishes with the product, and a withdrawal takes the p
   const name = `Image ${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
   await page.getByRole('tab', { name: 'Publish' }).click();
-  await page.getByLabel('Name').fill(name);
-  await page.getByLabel('Amount').fill('3.00');
-  await page.getByLabel('Currency').fill('EUR');
 
   // The chooser is an input `WebImageSource` attaches for the length of the
   // choice, so the file is handed to the chooser event rather than to a
@@ -42,6 +39,16 @@ test('an image uploads, publishes with the product, and a withdrawal takes the p
 
   // Both hops have landed: the BFF's issue and the store's PUT.
   await expect(page.getByTestId('image-status')).toHaveText('pixel.png: ready');
+
+  // Filled after the upload, not straight after the tab click. WebKit took the
+  // first fill while it was still drawing the Account tab, and the Name it
+  // typed did not survive the Publish page's construction: Publish stayed
+  // disabled on an empty Name for the whole timeout. By now the page has done
+  // a round trip, and the value is read back before anything relies on it.
+  await page.getByLabel('Name').fill(name);
+  await page.getByLabel('Amount').fill('3.00');
+  await page.getByLabel('Currency').fill('EUR');
+  await expect(page.getByLabel('Name')).toHaveValue(name);
 
   await page.getByRole('button', { name: 'Publish' }).click();
   await expect(page.getByText('Published as')).toBeVisible();
