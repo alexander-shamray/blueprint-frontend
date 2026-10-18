@@ -5426,6 +5426,52 @@ class TheGitArgvGuard(unittest.TestCase):
             with self.subTest(command=command):
                 self.assertAdmitted(command)
 
+    def test_the_index_wrapper_runs_only_as_the_hooks_checkout_holds_it(self):
+        # **The skill's route is relative** (blueprint-frontend#146): from a
+        # worktree whose branch changed `run-index`, the gate it sources or
+        # the judge the gate starts, the skill's grant ran the branch's copy
+        # with no prompt. Each refused case was admitted before the fix.
+        trusted = SCRIPTS.parent / "skills" / "codebase-index" / "scripts"
+        names = ("run-index", "gate.sh", "gate-index.py")
+        run = "bash .claude/skills/codebase-index/scripts/run-index stats --json"
+        with tempfile.TemporaryDirectory() as scratch:
+            copy = Path(scratch, ".claude", "skills", "codebase-index", "scripts")
+            copy.mkdir(parents=True)
+            # No wrapper at all: bash finds nothing to run.
+            self.assertAdmitted(run, cwd=scratch)
+            for name in names:
+                shutil.copyfile(trusted / name, copy / name)
+            # Positive control: a byte-identical copy is admitted, or every
+            # refusal below could be the guard refusing the directory.
+            self.assertAdmitted(run, cwd=scratch)
+            self.assertAdmitted(
+                "bash ./.claude/skills/codebase-index/scripts/run-index stats",
+                cwd=scratch)
+            for name in names:
+                with self.subTest(changed=name):
+                    original = (copy / name).read_bytes()
+                    (copy / name).write_bytes(original + b"\n# planted\n")
+                    try:
+                        self.assertIn("#146", self.assertRefused(run, cwd=scratch))
+                        for command in (
+                                "CI=1 " + run,
+                                "env " + run,
+                                "ls && " + run,
+                                'bash -c "' + run + '"',
+                        ):
+                            self.assertRefused(command, cwd=scratch)
+                        # Text naming the wrapper runs nothing.
+                        self.assertAdmitted("echo " + run, cwd=scratch)
+                    finally:
+                        (copy / name).write_bytes(original)
+            (copy / "gate.sh").unlink()
+            self.assertIn("#146", self.assertRefused(run, cwd=scratch))
+        # The hook's own checkout holds its own copy; a directory change in
+        # the same command leaves the copy bash reaches unknown, there too.
+        root = str(SCRIPTS.parent.parent)
+        self.assertAdmitted(run, cwd=root)
+        self.assertIn("#146", self.assertRefused("cd docs && " + run, cwd=root))
+
     def test_only_a_name_known_to_be_harmless_is_assigned_before_git(self):
         # **The name list is an enumeration, so a variable nobody listed
         # was admitted** (blueprint-frontend#191): `PERL5OPT`, `LESSKEY`,
@@ -10409,6 +10455,37 @@ class TestCodebaseIndexSkillGrants(unittest.TestCase):
                     "export CBX_NO_SKILL_AUTO_UPDATE=1", uncommented(name))
         self.assertIn(
             '$env:CBX_NO_SKILL_AUTO_UPDATE = "1"', uncommented("cbx.ps1"))
+
+    def test_every_wrapper_keeps_the_working_directory_off_sys_path(self):
+        # alexander-shamray/blueprint-frontend#151: the fallback to
+        # `python -m codebase_index` puts the caller's directory first on
+        # `sys.path`, so a `codebase_index.py` there was imported in the
+        # package's place. `PYTHONSAFEPATH` stops that from Python 3.11, so
+        # each wrapper exports it for every caller and holds every probe to
+        # the hooks' 3.12 floor before the probe imports anything.
+        scripts = SCRIPTS.parent / "skills" / "codebase-index" / "scripts"
+        floor = ("import sys; sys.version_info >= (3, 12) or sys.exit(1); "
+                 "import codebase_index")
+
+        def uncommented(name):
+            text = (scripts / name).read_text(encoding="utf-8")
+            return "\n".join(
+                line for line in text.splitlines()
+                if not line.lstrip().startswith("#"))
+
+        for name in ("run-index", "cbx"):
+            body = uncommented(name)
+            with self.subTest(wrapper=name):
+                self.assertIn("export PYTHONSAFEPATH=1", body)
+                self.assertIn(f"probe='{floor}'", body)
+                self.assertNotIn('-c "import codebase_index"', body)
+                # py -3.12, python3 and python, each through the probe.
+                self.assertEqual(3, body.count('-c "$probe"'))
+        body = uncommented("cbx.ps1")
+        self.assertIn('$env:PYTHONSAFEPATH = "1"', body)
+        self.assertIn(f'$probe = "{floor}"', body)
+        self.assertNotIn('-c "import codebase_index"', body)
+        self.assertEqual(2, body.count("-c $probe"))
 
 
 class LandingByRebaseMovedTheReadsThatAssumedAMergeCommit(unittest.TestCase):

@@ -36,16 +36,16 @@ RUN = "bash .claude/skills/codebase-index/scripts/run-index"
 # table, spelled as the row spells it.
 ROUTES = (
     ("change-impact", r"\b(?:what (?:breaks|depends)|impact of)\b",
-     f'{RUN} impact "X" --json'),
+     f"{RUN} impact 'X' --json"),
     ("references", r"\b(?:who calls|what (?:calls|uses))\b",
-     f'{RUN} refs "X" --json'),
+     f"{RUN} refs 'X' --json"),
     # A sentence end stops `how does … work`; a dot inside a name does not.
     ("how-it-works", r"\bhow does (?:[^.?!]|\.[^\s.?!])* work(?:s|ing)?\b",
-     f'{RUN} explain "X" --session <tag> --json'),
+     f"{RUN} explain 'X' --session <tag> --json"),
     ("named-symbol", r"\bfind (?:the )?(?:class|method|handler|component|service)(?:es|s)?\b",
-     f'{RUN} symbol "X" --json'),
+     f"{RUN} symbol 'X' --json"),
     ("locate", r"\bwhere (?:is|are|does)\b",
-     f'{RUN} search "X" --limit 3 --session <tag> --json'),
+     f"{RUN} search 'X' --limit 3 --session <tag> --json"),
 )
 
 # The MCP tool asking each route's question; `index-search-hint.py` keeps the

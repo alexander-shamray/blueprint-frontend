@@ -2021,6 +2021,11 @@ starts it from the owner checkout's root, which a session can write; `-m` and
 would have been imported in the package's place on every refresh. The worker
 passes `PYTHONSAFEPATH=1` to the wrapper, which Python 3.11 and later honour,
 and the round-5 review of alexander-shamray/blueprint-frontend#144 raised it.
+**The wrappers export it themselves now**, `run-index`, `cbx` and `cbx.ps1`
+alike, so the skill's own route and its example hook have it too, and each
+probe holds its interpreter to the hooks' 3.12 floor before it imports
+anything, since an older one ignores the variable and would import from the
+directory after all (alexander-shamray/blueprint-frontend#151).
 Then the program half. On Windows,
 `shutil.which` and CreateProcess both search the current directory before
 `PATH` for a bare name, and the hook runs `bash`, `git` and `tasklist` by bare
@@ -2101,8 +2106,31 @@ skill; a session launched *in* the worktree gets an MCP server rooted there.
 path is relative and the skill's `allowed-tools` approves it, so it does not
 hold the rule the hook keeps — that no tree the session stands in chooses the
 code that runs. The query hint points sessions at it more often than they
-went before. Anchoring the route to `CLAUDE_PROJECT_DIR` is
-alexander-shamray/blueprint-frontend#146.
+went before.
+
+**So `guard-git-argv.py` holds the copy a command reaches to its own
+(alexander-shamray/blueprint-frontend#146).** Anchoring the route to
+`CLAUDE_PROJECT_DIR` was the issue's fix and cannot be written: the Bash
+tool's environment does not carry the variable — measured empty in a session
+here — so the anchored path would read `/.claude/…`. The guard does run from
+the startup checkout, so a
+`bash .claude/skills/codebase-index/scripts/run-index` whose
+`run-index`, `gate.sh` or `gate-index.py` under the event's directory is not
+byte-identical to that checkout's is refused, and so is one in a command that
+can change directory, since the copy bash reaches is then unknown. A worktree
+whose branch changed the wrapper therefore gets no index route at all, and
+Grep and Read in its place; that is the cost, taken deliberately. **The
+`.claude/scripts/` helpers keep the same residual**: `/ship` runs a
+worktree's own `gh-pr-merge.sh` and `npm-checks.sh`, which the branch checked
+out there controls, and this check does not reach them.
+
+**The route's term is single-quoted**
+(alexander-shamray/blueprint-frontend#145), in the skill's markdown and in the
+query hint's routes alike, because inside double quotes bash still runs a
+`$(…)`, a backtick or a `$VAR` a copied term carries. The guard already
+refused those handed to a granted helper
+(alexander-shamray/blueprint-frontend#179); the quoting stops them reaching
+it.
 
 **The server is started as the `codebase-index` CLI itself, never through a
 shell (alexander-shamray/blueprint-frontend#134).** `.mcp.json` used to start

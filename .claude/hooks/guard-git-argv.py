@@ -5632,6 +5632,101 @@ def helper_argument_offence(command):
     return None
 
 
+
+# ---- the skill's index wrapper, as the tree a session stands in holds it ----
+
+# **The skill's route is relative, so it runs whichever copy the working
+# directory holds** (alexander-shamray/blueprint-frontend#146). Inside a
+# `/branch` worktree that is the branch's own `run-index`, which the skill's
+# `allowed-tools` approves with no prompt, where the hook refreshing the index
+# was built never to let the tree a session stands in choose the code that
+# runs. The issue's fix, anchoring the route to `CLAUDE_PROJECT_DIR`, cannot be
+# written: the Bash tool's environment does not carry the variable — measured
+# empty — so the anchored path would read `/.claude/…`. This hook does run
+# from the startup checkout, so it holds the copy a command reaches to that
+# checkout's: the wrapper, the gate it sources and the judge the gate starts,
+# byte for byte.
+INDEX_WRAPPER = re.compile(
+    r"^(?:\./)?\.claude/skills/codebase-index/scripts/run-index$")
+INDEX_WRAPPER_SCRIPTS = ".claude/skills/codebase-index/scripts"
+INDEX_WRAPPER_FILES = ("run-index", "gate.sh", "gate-index.py")
+HOOK_CHECKOUT = os.path.dirname(os.path.dirname(os.path.dirname(
+    os.path.abspath(__file__))))
+
+
+def _contents(path):
+    """`path`'s bytes, or None where there is no file to read."""
+    try:
+        with open(path, "rb") as handle:
+            return handle.read()
+    except OSError:
+        return None
+
+
+def index_wrapper_offence(command):
+    """The reason to refuse the skill's `run-index` from here, or `None`.
+
+    Found as `helper_argument_offence` finds a helper, on the raw words.
+    """
+    for run in raw_runs(command):
+        start = 0
+        while start < len(run) and ASSIGNMENT.match(run[start]):
+            start += 1
+        words = run[start:]
+        if words and program_name(re.sub(r"[\"'\\]", "", words[0])) in (
+                DATA_ONLY_COMMANDS | READING_COMMANDS):
+            continue
+        for position, word in enumerate(words):
+            if program_name(re.sub(r"[\"'\\]", "", word)) != "bash":
+                continue
+            rest = words[position + 1:]
+            script = next((index for index, later in enumerate(rest)
+                           if not later.startswith("-")), None)
+            if script is not None and INDEX_WRAPPER.match(
+                    re.sub(r"[\"'\\]", "", rest[script])):
+                return index_wrapper_differs(command)
+            break
+    return None
+
+
+def index_wrapper_differs(command):
+    """Why the wrapper this command reaches is not the hooks' own, or `None`.
+
+    **A directory change anywhere in the command is refused outright**: the
+    copy bash then reaches is not the one under the event's directory, and
+    following `cd` through groups and subshells is the emulation this file
+    refuses to guess at. A directory holding no wrapper is admitted, since
+    bash finds nothing there to run.
+    """
+    if changes_directory(command):
+        return (
+            "the skill's `run-index` is started in a command that can also "
+            "change directory, so the copy bash reaches is not the one this "
+            "guard compares with the checkout the session's hooks run from. "
+            "Run the `cd` as its own command, then the wrapper on a line of "
+            "its own (alexander-shamray/blueprint-frontend#146)."
+        )
+    base = os.path.abspath(EVENT_CWD or os.getcwd())
+    here = os.path.join(base, INDEX_WRAPPER_SCRIPTS)
+    trusted = os.path.join(HOOK_CHECKOUT, INDEX_WRAPPER_SCRIPTS)
+    if not os.path.isfile(os.path.join(here, "run-index")):
+        return None
+    if (os.path.normcase(os.path.realpath(here))
+            == os.path.normcase(os.path.realpath(trusted))):
+        return None
+    for name in INDEX_WRAPPER_FILES:
+        theirs = _contents(os.path.join(here, name))
+        if theirs is None or theirs != _contents(os.path.join(trusted, name)):
+            return (
+                f"`{INDEX_WRAPPER_SCRIPTS}/{name}` under {base} is not the "
+                f"copy in {HOOK_CHECKOUT}, the checkout this session's hooks "
+                "run from, so the skill's pre-approved `run-index` would run "
+                "code the tree you stand in supplies "
+                "(alexander-shamray/blueprint-frontend#146). Read and Grep "
+                "the files here instead."
+            )
+    return None
+
 # Substitutions and evaluators both recurse, and a crafted nest of either would
 # otherwise reach Python's own limit — where the hook dies with a traceback
 # rather than a verdict, which is the one direction a guard must not fail in.
@@ -5862,6 +5957,12 @@ def _offence(command, depth, judged):
     # (blueprint-frontend#179): whether a `$` or a `*` in a helper's argument
     # expands is decided by the quoting `shlex` removes.
     refusal = helper_argument_offence(resolved)
+    if refusal is not None:
+        return refusal
+
+    # The same words, asked which copy of the skill's wrapper they start
+    # (alexander-shamray/blueprint-frontend#146).
+    refusal = index_wrapper_offence(resolved)
     if refusal is not None:
         return refusal
 

@@ -5,8 +5,8 @@ Load this reference only when the intent table in `SKILL.md` is insufficient.
 ## Retrieval
 
 ```bash
-bash .claude/skills/codebase-index/scripts/run-index search "<query>" --limit 3 --session <tag> --json
-bash .claude/skills/codebase-index/scripts/run-index explain "<topic or flow>" --session <tag> --json
+bash .claude/skills/codebase-index/scripts/run-index search '<query>' --limit 3 --session <tag> --json
+bash .claude/skills/codebase-index/scripts/run-index explain '<topic or flow>' --session <tag> --json
 ```
 
 Useful search options:
@@ -29,11 +29,11 @@ it over repeatedly rewording a broad search.
 
 ```bash
 bash .claude/skills/codebase-index/scripts/run-index architecture --json
-bash .claude/skills/codebase-index/scripts/run-index refs "<symbol>" --json
-bash .claude/skills/codebase-index/scripts/run-index impact "<file-or-symbol>" --direction up --depth 2 --json
+bash .claude/skills/codebase-index/scripts/run-index refs '<symbol>' --json
+bash .claude/skills/codebase-index/scripts/run-index impact '<file-or-symbol>' --direction up --depth 2 --json
 bash .claude/skills/codebase-index/scripts/run-index diff-impact --base HEAD --direction up --depth 2 --json
-bash .claude/skills/codebase-index/scripts/run-index path "<source>" "<target>" --json
-bash .claude/skills/codebase-index/scripts/run-index describe "<file-or-symbol>" --json
+bash .claude/skills/codebase-index/scripts/run-index path '<source>' '<target>' --json
+bash .claude/skills/codebase-index/scripts/run-index describe '<file-or-symbol>' --json
 ```
 
 - `architecture` reads module analysis cached at index time.
@@ -47,7 +47,7 @@ bash .claude/skills/codebase-index/scripts/run-index describe "<file-or-symbol>"
 Use `graph` only for a visualization intended for a person:
 
 ```bash
-bash .claude/skills/codebase-index/scripts/run-index graph "<target>" --direction both --depth 2 --output graph.html
+bash .claude/skills/codebase-index/scripts/run-index graph '<target>' --direction both --depth 2 --output graph.html
 ```
 
 For headless work, use `--output`; do not use `--open`. Exports also support
@@ -57,7 +57,7 @@ For headless work, use `--output`; do not use `--open`. Exports also support
 
 ```bash
 bash .claude/skills/codebase-index/scripts/run-index verify --session <tag> --json
-bash .claude/skills/codebase-index/scripts/run-index verify "<path:start-end@hash>" ... --json
+bash .claude/skills/codebase-index/scripts/run-index verify '<path:start-end@hash>' ... --json
 ```
 
 - `verify` is read-only and needs no index: it checks evidence against the
@@ -80,10 +80,10 @@ Low symbol counts or partial graph coverage can explain weak results.
 ## Query examples
 
 ```bash
-bash .claude/skills/codebase-index/scripts/run-index search "auth token refresh" --limit 3 --session <tag> --json
-bash .claude/skills/codebase-index/scripts/run-index search "AuthService class" --mode symbol --limit 3 --session <tag> --json
-bash .claude/skills/codebase-index/scripts/run-index search "connection reset by peer" --mode fts --limit 3 --session <tag> --json
-bash .claude/skills/codebase-index/scripts/run-index explain "checkout flow" --session <tag> --json
-bash .claude/skills/codebase-index/scripts/run-index impact "User" --direction up --depth 2 --json
-bash .claude/skills/codebase-index/scripts/run-index path "ApiController" "Database" --json
+bash .claude/skills/codebase-index/scripts/run-index search 'auth token refresh' --limit 3 --session <tag> --json
+bash .claude/skills/codebase-index/scripts/run-index search 'AuthService class' --mode symbol --limit 3 --session <tag> --json
+bash .claude/skills/codebase-index/scripts/run-index search 'connection reset by peer' --mode fts --limit 3 --session <tag> --json
+bash .claude/skills/codebase-index/scripts/run-index explain 'checkout flow' --session <tag> --json
+bash .claude/skills/codebase-index/scripts/run-index impact 'User' --direction up --depth 2 --json
+bash .claude/skills/codebase-index/scripts/run-index path 'ApiController' 'Database' --json
 ```
