@@ -42,8 +42,8 @@ review you were given.
 - **The locality verdict**, when the branch has a PR: the `pr-locality.sh`
   output beside the diff, one `class` line and one `inside <path>` or
   `outside <path>` line per changed file. Each `outside` line is a finding;
-  with no verdict file, or an empty one, skip that check and name it in
-  `skipped`.
+  with no verdict file, or an empty one, skip that check and name
+  `locality` in `skipped`.
 - **The symbols the diff touches**, named by the parent.
 
 ## How you read
@@ -84,9 +84,9 @@ JSON and nothing around it, at most about 2k tokens:
 
 `read` lists every file you opened, the diff and the method included, so a
 scope you could not reach shows as one you did not cover. `skipped` may name
-`locality`, when there is no verdict file, and `method`, when the method is no
-bar, and nothing else: it is empty when you ran both, and a method step this
-profile tells you to skip is not an entry. On a recheck,
+`locality`, when the verdict file is missing or empty, and `method`, when the
+method is no bar, and nothing else: it is empty when you ran both, and a
+method step this profile tells you to skip is not an entry. On a recheck,
 carry each given `id` with its new `status` and add new findings only where
 the fix itself introduced them. An empty `findings` list is a clean round;
 say nothing else.
