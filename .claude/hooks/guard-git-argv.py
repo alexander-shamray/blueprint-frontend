@@ -5717,8 +5717,8 @@ def leading_offence(leading):
     return False
 
 
-def wrapper_launch(command, pattern):
-    """The words in front of a script `pattern` matches, where one is started.
+def wrapper_launches(command, pattern):
+    """The words in front of each start of a script `pattern` matches.
 
     On the raw words, as `helper_argument_offence` reads a helper's, and
     wider than it (rounds 1 and 2 of alexander-shamray/blueprint-frontend#254's
@@ -5728,9 +5728,12 @@ def wrapper_launch(command, pattern):
     option as the script took `errexit` for it in `bash -o errexit …/run-index`.
     A launcher `launched` does not know, handed the script as its own
     argument rather than through a shell, is not found here; nothing grants
-    that command either, so it reaches a prompt. `None` where the command
-    starts no such script.
+    that command either, so it reaches a prompt. **One list per run that
+    starts one, not the first alone**: `env -C` on a second start in the same
+    command moved its directory unread (round 1 of
+    alexander-shamray/blueprint-frontend#267's review).
     """
+    launches = []
     for run in raw_runs(command):
         start = 0
         while start < len(run) and ASSIGNMENT.match(run[start]):
@@ -5739,36 +5742,39 @@ def wrapper_launch(command, pattern):
         if not words or program_name(words[0]) in (
                 DATA_ONLY_COMMANDS | READING_COMMANDS):
             continue
-        for index, word in enumerate(words):
-            if pattern.match(word) and launched(words, index):
-                return words[:index]
+        direct = next((index for index, word in enumerate(words)
+                       if pattern.match(word) and launched(words, index)), None)
+        if direct is not None:
+            launches.append(words[:direct])
+            continue
         for position, word in enumerate(words):
             if program_name(word) not in EVALUATORS:
                 continue
             if any(pattern.match(later) for later in words[position + 1:]):
-                return words[:position]
+                launches.append(words[:position])
             break
-    return None
+    return launches
 
 
 def index_wrapper_offence(command):
     """The reason to refuse the skill's `run-index` from here, or `None`."""
-    leading = wrapper_launch(command, INDEX_WRAPPER)
-    return None if leading is None else index_wrapper_differs(command, leading)
+    launches = wrapper_launches(command, INDEX_WRAPPER)
+    return index_wrapper_differs(command, launches) if launches else None
 
 
-def index_wrapper_differs(command, leading):
+def index_wrapper_differs(command, launches):
     """Why the wrapper this command reaches is not the hooks' own, or `None`.
 
     **A directory change anywhere in the command is refused outright**: the
     copy bash then reaches is not the one under the event's directory, and
     following `cd` through groups and subshells is the emulation this file
-    refuses to guess at. In `leading`, the words in front of the shell or the
+    refuses to guess at. In `launches`, the words in front of each shell or
     wrapper, `env -C` or `env -S` is one too, and so is any word
     `leading_offence` does not know. A directory holding no wrapper is
     admitted, since bash finds nothing there to run.
     """
-    if changes_directory(command) or leading_offence(leading):
+    if changes_directory(command) or any(
+            leading_offence(leading) for leading in launches):
         return (
             "the skill's `run-index` is started in a command that can also "
             "change directory, so the copy bash reaches is not the one this "
@@ -5903,15 +5909,16 @@ def helper_names(base):
 def helper_copy_question(command):
     """Why a granted helper this command starts wants approving, or `None`.
 
-    A directory change anywhere in the command, or a word in front of the
-    shell that `leading_offence` does not know, leaves the copy bash reaches
-    unknown, as it does for the wrapper. A directory holding no helpers is
-    let through, since bash finds nothing there to run.
+    A directory change anywhere in the command, or a word in front of any
+    start's shell that `leading_offence` does not know, leaves the copy bash
+    reaches unknown, as it does for the wrapper. A directory holding no
+    helpers is let through, since bash finds nothing there to run.
     """
-    leading = wrapper_launch(command, GRANTED_HELPER)
-    if leading is None:
+    launches = wrapper_launches(command, GRANTED_HELPER)
+    if not launches:
         return None
-    if changes_directory(command) or leading_offence(leading):
+    if changes_directory(command) or any(
+            leading_offence(leading) for leading in launches):
         return (
             "a granted `.claude/scripts/` helper is started in a command "
             "that can also change directory, so the copy bash reaches is not "

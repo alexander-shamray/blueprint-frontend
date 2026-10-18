@@ -5530,7 +5530,10 @@ class TheGitArgvGuard(unittest.TestCase):
                         "flatpak-spawn --directory=docs " + run,
                         "env -S'--chdir=docs' " + run,
                         "env --split-string='--chdir=docs' " + run,
-                        "env -iS'-C docs' " + run):
+                        "env -iS'-C docs' " + run,
+                        # The move on a second start (round 1 of #267's
+                        # review): only the first start's words were read.
+                        run + "; env -C docs " + run):
             with self.subTest(command=command):
                 self.assertIn("#146", self.assertRefused(command, cwd=root))
 
@@ -5663,7 +5666,10 @@ class TheGitArgvGuard(unittest.TestCase):
         self.assertAdmitted(run, cwd=root)
         for command in ("cd .claude/worktrees/x && " + run,
                         "env -C docs " + run, "env --chdir=docs " + run,
-                        "bwrap --chdir docs " + run):
+                        "bwrap --chdir docs " + run,
+                        # The move on a second start (round 1 of #267's
+                        # review): only the first start's words were read.
+                        run + "; env -C docs " + run):
             with self.subTest(command=command):
                 self.assertIn("#255", self.assertAsked(command, cwd=root))
 
