@@ -778,6 +778,27 @@ describe('ProductsPage', () => {
       held.flush(page(1, null));
     });
 
+    it('keeps the words of the rows on screen until a restart’s first page replaces them', async () => {
+      fixture.componentInstance.onSearch('lamp');
+      listing().flush(page(1, null));
+      await fixture.whenStable();
+      expect(fixture.componentInstance.searched()).toBe('lamp');
+
+      // A cleared search that fails: the rows stay the lamp search's (#202),
+      // and so does what the page says about them.
+      fixture.componentInstance.onSearch('');
+      expect(fixture.componentInstance.searched()).toBe('lamp');
+      listing().flush(null, { status: 503, statusText: 'Service Unavailable' });
+      await fixture.whenStable();
+      expect(fixture.componentInstance.products()).toHaveLength(1);
+      expect(fixture.componentInstance.searched()).toBe('lamp');
+
+      fixture.componentInstance.retryLoad();
+      listing().flush(page(2, null));
+      await fixture.whenStable();
+      expect(fixture.componentInstance.searched()).toBe('');
+    });
+
     it('cuts a search to the server’s own ceiling rather than sending one it refuses', () => {
       fixture.componentInstance.onSearch('x'.repeat(250));
 
