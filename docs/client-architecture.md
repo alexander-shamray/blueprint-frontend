@@ -1207,6 +1207,33 @@ anyone else can open. This entry supersedes spec §10's product detail *route*
 in its first bullet and the whole of its second; the rest of the first bullet
 stands, and both are left as written.
 
+### Search and sort are the server's, because the listing is a cursor
+
+*The claim.* Spec §10: search is out of scope.
+
+*What is true.* Catalog's listing takes `q`, a search over names, and `sort`,
+`newest` or `name` (ADR-073, backend `8c04435`; `GetProductsValidator.cs`,
+`ProductSort.cs`). A cursor is minted for one `q` and `sort`, and the
+validator refuses it under another (`ProductCursor.Matches`). That makes a
+search a different listing, not a view of the one on screen.
+
+*What the client did.* The Products tab sends both, and never filters or
+reorders what it has loaded (#106). The listing is a cursor, so the loaded
+pages are not the catalogue: a filter over page one cannot see a match on
+page three, and it would say nothing was found when something was. Each
+change restarts at the first page under a new generation, as a publish's
+reload does. Every later page asks under the query the restart took, so a
+cursor is never sent with another. A change inside an open `catalogue`
+window is held until the window closes (#161), and a search that finds
+nothing says so in its own empty state. The search box keeps the text as
+typed; only what is sent is trimmed and cut to `MaxSearchLength`.
+
+*What is not done.* The search matches what the server's handler matches,
+and the client does not restate how. No search or sort is kept across a
+restart of the app, or written into the page's address. This entry
+supersedes spec §10's "search" in its first bullet, which is left as
+written.
+
 ## 13. The bundle budget is set above the bundle, not at it
 
 `npm run build` was failing before this work could ship, and the failure was the

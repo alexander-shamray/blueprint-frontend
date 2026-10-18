@@ -463,9 +463,10 @@ introduces.
 > detail is a route, and the sheet is gone. The first bullet's "images upload"
 > is overtaken too: the BFF now issues a pre-signed upload (ADR-106), and
 > Publish attaches an image through it (§5.5, and `docs/client-architecture.md`
-> §11 on the one request that is not the gateway's). So is its "search": the
-> listing takes `q` and `sort` (ADR-073), and the Products tab sends them
-> (§5.1). Both bullets are kept as written.
+> §11 on the one request that is not the gateway's). So is its "search", by
+> `docs/client-architecture.md` §12, *Search and sort are the server's,
+> because the listing is a cursor*: the listing takes `q` and `sort`, and the
+> Products tab sends them (§5.1). Both bullets are kept as written.
 
 - A mobile BFF, a product detail *route*, search, images upload or any screen
   without an endpoint behind it.
