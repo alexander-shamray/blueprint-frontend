@@ -4,7 +4,7 @@
 #
 # **`Bash(git worktree remove:*)` is a PREFIX grant, so a trailing `-f` is
 # inside it (#16)** — and `-f` is precisely the refusal that matters here.
-# `ship.md` step 8 relies on `git worktree remove` declining a dirty worktree:
+# `ship.md`'s teardown relies on `git worktree remove` declining a dirty worktree:
 # that refusal is what stops the teardown from deleting work the run did not
 # commit, and the step's own text says the directory is left for inspection
 # when it fires. A grant that admits the flag which defeats it leaves the
@@ -83,6 +83,20 @@ done <<<"$registered"
   { echo "not the worktree of this repository holding ${branch}: $resolved" >&2; exit 3; }
 
 # No `--force`. The refusal on a dirty worktree is the point of this endpoint,
-# and `ship.md` step 8 reports the directory as left for inspection when it
+# and `ship.md`'s teardown reports the directory as left for inspection when it
 # fires rather than treating it as an error to get past.
-git worktree remove "$path"
+#
+# **`core.longpaths`, because `npm ci` puts paths past Windows' 260-character
+# limit under every worktree** (alexander-shamray/blueprint-frontend#252).
+# Without it Git for Windows unregistered the worktree, failed to delete the
+# directory with `Filename too long` and exited 255, leaving `node_modules` and
+# half the checkout behind; with it the same tree is deleted — both measured on
+# a 586-character path. It changes nothing on other platforms, and nothing
+# about the dirty-tree refusal above.
+git -c core.longpaths=true worktree remove "$path"
+# **The path is checked, not git's exit alone.** A file another process holds
+# open on Windows can leave the directory behind once git has unregistered it,
+# and a teardown read as done would leave a directory nobody looks at, which
+# the next `/branch` on that slug stops on.
+[ ! -e "$path" ] ||
+  { echo "unregistered but not deleted: $path is still there; remove it by hand" >&2; exit 4; }

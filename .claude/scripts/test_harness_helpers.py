@@ -1960,7 +1960,7 @@ class NoCommandHoldsAPrefixGrantThatAdmitsAForbiddenFlag(unittest.TestCase):
                       create)
 
         remove = self._code("git-worktree-remove.sh")
-        self.assertIn('git worktree remove "$path"', remove)
+        self.assertIn('git -c core.longpaths=true worktree remove "$path"', remove)
         self.assertNotIn("--force", remove)
         self.assertNotIn(" -f ", remove)
 
@@ -2052,6 +2052,72 @@ class NoCommandHoldsAPrefixGrantThatAdmitsAForbiddenFlag(unittest.TestCase):
         self.assertEqual(0, out.returncode, out.stderr)
         self.assertFalse((forked / "mine").exists())
         self.assertTrue((forked / "theirs").is_dir())
+
+    def test_the_worktree_helper_deletes_a_long_path_and_says_when_it_did_not(self):
+        # **`npm ci` puts paths past Windows' 260 characters under every
+        # worktree** (blueprint-frontend#252): without `core.longpaths`, Git
+        # for Windows unregistered the worktree, failed to delete it with
+        # `Filename too long` and left `node_modules` behind. A host without
+        # the limit passes this half either way; windows-latest is where it
+        # bites.
+        def long_path(path):
+            if os.name == "nt":
+                return "\\\\?\\" + str(Path(path).resolve())
+            return str(path)
+
+        base = Path(tempfile.mkdtemp(prefix="wt-long-"))
+        self.addCleanup(shutil.rmtree, long_path(base), ignore_errors=True)
+        repo = base / "repo"
+        repo.mkdir()
+        forked = repo / ".claude" / "worktrees"
+
+        def git(*args):
+            subprocess.run(["git", "-C", str(repo), *args], check=True,
+                           capture_output=True, text=True)
+
+        def remove(slug, branch, env=None):
+            return subprocess.run(
+                [BASH, str(SCRIPTS / "git-worktree-remove.sh"),
+                 f".claude/worktrees/{slug}", branch],
+                capture_output=True, text=True, cwd=str(repo), env=env)
+
+        git("init", "-q", "-b", "main")
+        # Ignored, as this repository ignores it, or the planted tree is
+        # untracked work the helper rightly refuses to remove.
+        (repo / ".gitignore").write_text("node_modules/\n", encoding="utf-8")
+        git("add", ".gitignore")
+        git("-c", "user.email=t@example.com", "-c", "user.name=t",
+            "commit", "-q", "-m", "root")
+        git("worktree", "add", "-q", "-b", "fix/long", ".claude/worktrees/long")
+        deep = forked / "long" / "node_modules"
+        for index in range(12):
+            deep = deep / f"package-number-{index:02d}-with-a-long-name"
+        self.assertGreater(len(str(deep)), 260)
+        os.makedirs(long_path(deep))
+        with open(long_path(deep / "index.js"), "w", encoding="utf-8") as handle:
+            handle.write("module.exports = 1;\n")
+        out = remove("long", "fix/long")
+        self.assertEqual(0, out.returncode, out.stderr)
+        self.assertFalse((forked / "long").exists())
+
+        # **The path is checked, not git's exit alone**: a git that
+        # unregisters the worktree and leaves its directory, as a file held
+        # open does on Windows, is reported by name rather than as done.
+        git("worktree", "add", "-q", "-b", "fix/held", ".claude/worktrees/held")
+        shim = base / "shim"
+        shim.mkdir()
+        real = Path(shutil.which("git")).as_posix()
+        (shim / "git").write_bytes((
+            "#!/usr/bin/env bash\n"
+            f'"{real}" "$@" || exit\n'
+            'if [ "$3" = worktree ] && [ "$4" = remove ]; then mkdir -p "$5"; fi\n'
+        ).encode("utf-8"))
+        os.chmod(shim / "git", 0o755)
+        env = dict(os.environ, PATH=str(shim) + os.pathsep + os.environ["PATH"])
+        out = remove("held", "fix/held", env=env)
+        self.assertEqual(4, out.returncode, out.stderr)
+        self.assertIn("still there", out.stderr)
+        self.assertTrue((forked / "held").is_dir())
 
     def test_the_create_helper_refuses_a_body_it_should_not_publish(self):
         # `--body-file` publishes what it reads, including a file the session's
