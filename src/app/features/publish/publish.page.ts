@@ -158,9 +158,9 @@ interface ChosenImage {
             <ion-note class="field-error" color="danger" data-field="image">{{ message }}</ion-note>
           }
           <!--
-            The device's refusal of the camera or the library is this
-            client's sentence, so it is a note on the image and never banner
-            text, which is the backend's (spec §6).
+            Why the device gave no image (a refused permission, or a photo
+            it could not read) is this client's sentence, so it is a note on
+            the image and never banner text, which is the backend's (spec §6).
           -->
           @if (imagePickRefusal(); as refusal) {
             <ion-note class="field-error" color="danger" data-testid="image-refusal">
