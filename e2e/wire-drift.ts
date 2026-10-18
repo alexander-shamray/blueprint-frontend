@@ -43,8 +43,9 @@ export const BFF_PREFIX = 'Web.Bff/';
 
 /**
  * Every exported interface in `types.ts` is in this table or cites a BFF
- * file. `coverage` in the spec fails on the third kind, which is the point:
- * the next type added is not silently uncovered.
+ * file. The `uncovered` test in the spec fails on any other interface,
+ * including one with no citation, which is the point: the next type added is
+ * not silently uncovered.
  */
 export const CHECKED: Readonly<Record<string, Checked>> = {
   // The product listing declares no response schema, so no `CursorPageOfProductSummaryDto`
@@ -59,7 +60,11 @@ export const CHECKED: Readonly<Record<string, Checked>> = {
   CancelOrderRequest: { direction: 'sent', service: 'ordering', schema: 'CancelOrderRequest' },
 };
 
-/** `unknown` is a reference this file cannot resolve to a shape (an alias or a union of literals), and is never compared. */
+/**
+ * `unknown` is a reference to something other than an exported interface (a
+ * type alias, say), and is never compared. A union is judged by its first
+ * non-null member, so `'a' | 'b'` is a string.
+ */
 export type Kind = 'string' | 'number' | 'boolean' | 'array' | 'object' | 'unknown';
 
 export interface WireField {
@@ -180,16 +185,26 @@ export interface OpenApiDocument {
   readonly components?: { readonly schemas?: Record<string, Schema> };
 }
 
-function shapeOf(schema: Schema): { nullable: boolean; kind: Kind | null } {
+function shapeOf(
+  schema: Schema,
+  document: OpenApiDocument,
+  depth = 0,
+): { nullable: boolean; kind: Kind | null } {
   const alternatives = schema.oneOf ?? schema.anyOf;
   if (alternatives) {
-    const shapes = alternatives.map(shapeOf);
+    const shapes = alternatives.map((a) => shapeOf(a, document, depth));
     return {
       nullable: shapes.some((s) => s.nullable),
       kind: shapes.find((s) => s.kind)?.kind ?? null,
     };
   }
-  if (schema.$ref) return { nullable: false, kind: 'object' };
+  if (schema.$ref) {
+    // A reference to a string enum or an alias is that schema's kind, not an
+    // object; only a target with properties (or none we can find) is one.
+    const target = document.components?.schemas?.[schema.$ref.split('/').pop() ?? ''];
+    if (target && !target.properties && depth < 4) return shapeOf(target, document, depth + 1);
+    return { nullable: false, kind: 'object' };
+  }
 
   const types = Array.isArray(schema.type) ? schema.type : schema.type ? [schema.type] : [];
   const kinds = types.filter((t) => t !== 'null');
@@ -243,7 +258,7 @@ export function compareShape(
       problems.push(`${where}: \`${name}\` is not in the document (removed or renamed)`);
       continue;
     }
-    const shape = shapeOf(property);
+    const shape = shapeOf(property, document);
     if (shape.kind && field.kind !== 'unknown' && shape.kind !== field.kind) {
       problems.push(
         `${where}: \`${name}\` is ${shape.kind} in the document and ${field.kind} here`,
@@ -262,7 +277,7 @@ export function compareShape(
 
   if (checked.direction === 'sent') {
     for (const name of required) {
-      const shape = shapeOf(schema.properties[name] ?? {});
+      const shape = shapeOf(schema.properties[name] ?? {}, document);
       if (!type.fields.has(name) && !shape.nullable) {
         problems.push(`${where}: the document requires \`${name}\` and this type does not send it`);
       }

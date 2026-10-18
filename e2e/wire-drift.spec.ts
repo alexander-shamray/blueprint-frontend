@@ -134,6 +134,25 @@ test.describe('the comparison', () => {
     );
   });
 
+  test('a reference to a string schema is a string, and to an object schema an object', () => {
+    const doc = (id: object): OpenApiDocument => ({
+      components: {
+        schemas: {
+          S: {
+            required: ['id', 'quantity'],
+            properties: { id, quantity: { type: 'integer' }, note: { type: 'string' } },
+          },
+          Kind: { type: 'string', enum: ['a', 'b'] },
+          Inner: { type: 'object', properties: { x: { type: 'string' } } },
+        },
+      },
+    });
+    expect(compareShape(wire, read, doc({ $ref: '#/components/schemas/Kind' }))).toEqual([]);
+    expect(compareShape(wire, read, doc({ $ref: '#/components/schemas/Inner' }))[0]).toContain(
+      '`id` is object in the document and string here',
+    );
+  });
+
   test('a document without the schema fails rather than passing on nothing', () => {
     expect(compareShape(wire, read, {})[0]).toContain('no schema by that name');
   });
