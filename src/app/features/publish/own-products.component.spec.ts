@@ -43,6 +43,7 @@ describe('OwnProductsComponent', () => {
   let fixture: ComponentFixture<OwnProductsComponent>;
   let controller: HttpTestingController;
   let user: WritableSignal<CurrentUser | null>;
+  let signIn: ReturnType<typeof vi.fn>;
 
   const page = () => fixture.componentInstance;
   const mine = (match?: (cursor: string | null) => boolean) =>
@@ -56,6 +57,7 @@ describe('OwnProductsComponent', () => {
   }
 
   beforeEach(async () => {
+    signIn = vi.fn(async () => undefined);
     user = signal<CurrentUser | null>({
       username: 'demo', subject: 'subject-demo', permissions: ['catalog:write'], expiresAt: 0,
     });
@@ -65,7 +67,7 @@ describe('OwnProductsComponent', () => {
       providers: [
         provideHttpClient(withInterceptors([rateLimitInterceptor])),
         provideHttpClientTesting(),
-        { provide: AuthService, useValue: { user: () => user, accessToken: () => 't' } },
+        { provide: AuthService, useValue: { signIn, user: () => user, accessToken: () => 't' } },
       ],
     });
 
@@ -175,13 +177,13 @@ describe('OwnProductsComponent', () => {
     const refresh = TestBed.inject(CatalogRefresh);
     const before = refresh.current();
 
+    page().askToWithdraw(page().products()[0]);
     page().withdraw(page().products()[0]);
     const request = controller.expectOne(withdrawalOf('a'));
     expect(request.request.body.commandId).toMatch(/^[0-9a-f-]{36}$/);
     expect(page().isPending(page().products()[0])).toBe(true);
-    // A second press while it is out sends nothing.
-    page().withdraw(page().products()[0]);
-    controller.expectNone(withdrawalOf('a'));
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('[data-testid="withdrawing"]')).not.toBeNull();
 
     request.flush(null, { status: 204, statusText: 'No Content' });
     await settle();
@@ -194,6 +196,33 @@ describe('OwnProductsComponent', () => {
     await settle();
     expect(page().products()[0].withdrawnAt).toBe('2026-10-18T02:57:29Z');
     expect(page().isPending(page().products()[0])).toBe(false);
+  });
+
+  it('sends a second press while the first is out under the same id, as client-architecture §4 has it', async () => {
+    mine().flush({ items: [product('a')], nextCursor: null });
+    await settle();
+
+    page().withdraw(page().products()[0]);
+    page().withdraw(page().products()[0]);
+    const [first, second] = controller.match(withdrawalOf('a'));
+    expect(second.request.body.commandId).toBe(first.request.body.commandId);
+
+    // The platform refuses the replay while the first holds the key.
+    second.flush(
+      { title: 'Conflict', status: 409, code: 'request.in_progress' },
+      { status: 409, statusText: 'Conflict' },
+    );
+    await settle();
+    expect(page().actionError()?.kind).toBe('inProgress');
+    // One is still out, so the row still says so.
+    expect(page().isPending(page().products()[0])).toBe(true);
+
+    first.flush(null, { status: 204, statusText: 'No Content' });
+    await settle();
+    // The withdrawal the replay was waiting on is the answer that counts.
+    expect(page().actionError()).toBeNull();
+    mine().flush({ items: [product('a', '2026-10-18T02:57:29Z')], nextCursor: null });
+    await settle();
   });
 
   it('retries a failed withdrawal under the same id, since it may have committed', async () => {

@@ -88,15 +88,18 @@ import { SkeletonListComponent } from '@shared/skeleton-list.component';
           @if (!product.withdrawnAt) {
             @if (confirming() === product.productId) {
               <div slot="end" class="confirm" role="group" [attr.aria-label]="'Withdraw ' + product.name">
-                <ion-note>Withdraw for good?</ion-note>
+                @if (isPending(product)) {
+                  <ion-note data-testid="withdrawing">Withdrawing…</ion-note>
+                } @else {
+                  <ion-note>Withdraw for good?</ion-note>
+                }
                 <ion-button fill="solid" color="danger" data-testid="confirm-withdraw"
-                  [disabled]="rateLimit.blocked() || isPending(product)"
-                  (click)="withdraw(product)">Withdraw</ion-button>
+                  [disabled]="rateLimit.blocked()" (click)="withdraw(product)">Withdraw</ion-button>
                 <ion-button fill="clear" (click)="cancelWithdraw()">Keep</ion-button>
               </div>
             } @else {
               <ion-button slot="end" fill="clear" color="danger" data-testid="withdraw"
-                [disabled]="isPending(product)" (click)="askToWithdraw(product)">Withdraw</ion-button>
+                (click)="askToWithdraw(product)">Withdraw</ion-button>
             }
           }
         </ion-item>
@@ -148,7 +151,8 @@ export class OwnProductsComponent {
   /** A refresh was asked for inside a blocked window, and is taken once it ends. */
   private readonly refreshHeld = signal(false);
   private readonly confirmingSignal = signal<string | null>(null);
-  private readonly pendingSignal = signal<ReadonlySet<string>>(new Set());
+  /** Withdrawals out, per product: a count, since a second press sends a second request. */
+  private readonly pendingSignal = signal<ReadonlyMap<string, number>>(new Map());
 
   readonly products: Signal<readonly OwnProduct[]> = this.productsSignal.asReadonly();
   /** A page of the list failed to load. */
@@ -218,7 +222,7 @@ export class OwnProductsComponent {
       untracked(() => {
         this.subjectChanges++;
         this.identities.clear();
-        this.pendingSignal.set(new Set());
+        this.pendingSignal.set(new Map());
         this.confirmingSignal.set(null);
         this.actionErrorSignal.set(null);
         this.productsSignal.set([]);
@@ -250,7 +254,7 @@ export class OwnProductsComponent {
   }
 
   isPending(product: OwnProduct): boolean {
-    return this.pendingSignal().has(product.productId);
+    return (this.pendingSignal().get(product.productId) ?? 0) > 0;
   }
 
   askToWithdraw(product: OwnProduct): void {
@@ -265,11 +269,17 @@ export class OwnProductsComponent {
   /**
    * The second press. Refused here as well as by the binding, as
    * `PublishPage.publish()` refuses an invalid form: a product already
-   * withdrawn, one whose withdrawal is out, or a window the gateway has said
-   * is closed.
+   * withdrawn, or a window the gateway has said is closed.
+   *
+   * Not refused while a withdrawal of the same product is out, which is
+   * `client-architecture.md` §4's non-guard: this request carries a command
+   * id, so a second press is a replay the platform answers with
+   * `request.in_progress`, and suppressing that would hide the mechanism.
+   * `OrderDetailPage.cancel()` guards because its body carries no id; this one
+   * does. The pending state is shown, not enforced.
    */
   withdraw(product: OwnProduct): void {
-    if (product.withdrawnAt !== null || this.isPending(product) || this.rateLimit.blocked()) return;
+    if (product.withdrawnAt !== null || this.rateLimit.blocked()) return;
 
     const identity = this.identityFor(product.productId);
     const changesAtIssue = this.subjectChanges;
@@ -279,6 +289,7 @@ export class OwnProductsComponent {
     this.catalog.withdraw(product.productId, { commandId: identity.current() }).subscribe({
       next: () => {
         if (this.subjectChanges !== changesAtIssue) return;
+        this.setPending(product.productId, false);
         this.withdrawn(product.productId);
       },
       error: (failure: unknown) => {
@@ -318,8 +329,10 @@ export class OwnProductsComponent {
    */
   private withdrawn(productId: string): void {
     this.identities.delete(productId);
-    this.setPending(productId, false);
     this.confirmingSignal.set(null);
+    // A second press's `request.in_progress` may have landed first; the
+    // withdrawal it was waiting on is the answer that counts.
+    this.actionErrorSignal.set(null);
     this.catalogRefresh.request();
   }
 
@@ -334,9 +347,10 @@ export class OwnProductsComponent {
 
   private setPending(productId: string, pending: boolean): void {
     this.pendingSignal.update((current) => {
-      const next = new Set(current);
-      if (pending) next.add(productId);
-      else next.delete(productId);
+      const next = new Map(current);
+      const count = Math.max(0, (next.get(productId) ?? 0) + (pending ? 1 : -1));
+      if (count === 0) next.delete(productId);
+      else next.set(productId, count);
       return next;
     });
   }
