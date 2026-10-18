@@ -731,6 +731,12 @@ origin, and nothing in the backend's tree configures that. A deployment's
 store is the deployer's, and its CORS rule is one more line the deployer owes
 this client, beside the gateway's and the realm's.
 
+CORS is not the emulator's problem; the host is. The Compose BFF signs for
+`127.0.0.1:8333` and the image edge serves from `127.0.0.1:9000`, and inside
+an Android emulator both are the emulator itself (§15). So the round trip needs
+`adb reverse` for both ports, as Keycloak's issuer needs it for 8080, or every
+emulator upload ends `failed`. #108 carries that until the round trip is run.
+
 ## 12. Deviations from the spec, and what execution discovered
 
 Each of these is written as the claim that turned out to be wrong, what is
