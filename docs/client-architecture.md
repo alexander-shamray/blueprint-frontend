@@ -713,8 +713,9 @@ signature in the URL is the whole of its authorization. That is why
 alone. `isGatewayUrl` answers no for the store's host, so no bearer goes to
 it, and its refusals are not filed against a gateway bucket. The URL is never
 built here: it arrives in the BFF's answer, and the client sends
-`Content-Type` from the headers the signature covers. `Content-Length` it cannot set, because the browser forbids it, so the
-body is the file whose size was declared.
+`Content-Type` from the headers the signature covers. `Content-Length` it
+cannot set, because the browser forbids it, so the body is the file whose
+size was declared.
 
 The browser still needs the store to admit this page's origin, and the
 question is §15's one more time. Measured against the Compose stack on
