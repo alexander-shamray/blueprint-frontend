@@ -5847,20 +5847,24 @@ def copy_difference(base, names):
 # unable to run it at all, which `/ship` does on that pull request. So a
 # difference here is answered `ask` rather than `deny`: a hook's `ask` stands
 # over the grant, and the person approves the branch's copy or does not.
-HELPER_SCRIPT = re.compile(r"^(?:\./)?\.claude/scripts/[A-Za-z0-9._-]+\.sh$")
+# Not `HELPER_SCRIPT`, which names the two helpers whose heredoc is data:
+# rebinding that name here exempted every helper's heredoc from the reading.
+GRANTED_HELPER = re.compile(r"^(?:\./)?\.claude/scripts/[A-Za-z0-9._-]+\.sh$")
 HELPER_SCRIPTS = ".claude/scripts"
 # **The closure is the directory, not the helper named.** A helper reaches its
 # siblings through its own directory — `gh-issue-create.sh` sources
 # `gh-issue-filing.sh`, which runs `gh-label-ensure.sh` — so a list per helper
-# would be one more enumeration to fall behind the files. **And the launcher's
-# whole chain**: `git-worktree-fork.sh` starts `run-guard.sh`, which runs
-# `run-guard.py` and then `index-refresh.py`, which starts its own checkout's
-# `run-index` and so every file the wrapper's route runs. The fork refuses a
-# linked worktree before it gets there, but not another clone's main checkout
-# (raised by the automated security review of this change).
-HELPER_HOOK_FILES = (
-    ".claude/hooks/run-guard.sh", ".claude/hooks/run-guard.py",
-) + INDEX_WRAPPER_FILES
+# would be one more enumeration to fall behind the files. **The same holds for
+# the launcher's chain**: `git-worktree-fork.sh` starts `run-guard.sh`, which
+# runs `run-guard.py` and then `index-refresh.py`, which starts its own
+# checkout's `run-index` and so every file the wrapper's route runs. The fork
+# refuses a linked worktree before it gets there, but not another clone's main
+# checkout. And the launcher starts Python with no `-P`, so the hooks'
+# directory is first on the import path: a `json.py` added beside them is the
+# `json` the hook imports. So every file under `.claude/hooks/` counts, added
+# and removed ones included, and the wrapper's route beside it (both raised by
+# the automated security review of this change).
+HELPER_HOOKS = ".claude/hooks"
 
 # The questions `offence` found for the person, in the order found. Rebound by
 # `main` for every event, and put only where nothing was refused.
@@ -5868,19 +5872,32 @@ PROMPTS = []
 
 
 def helper_names(base):
-    """Every helper either checkout holds, and the hook files they reach.
+    """Every helper and hook file either checkout holds, and the wrapper's route.
 
-    The union, so a helper the branch added or removed is a difference too.
+    The union, so a file the branch added or removed is a difference too.
+    `__pycache__` is left out: each checkout writes its own as its hooks run,
+    so comparing it would ask in every worktree, and
+    `docs/harness-boundaries.md` states what that leaves open.
     """
-    names = set()
+    names = set(INDEX_WRAPPER_FILES)
     for root in (base, HOOK_CHECKOUT):
         try:
             entries = os.listdir(os.path.join(root, HELPER_SCRIPTS))
         except OSError:
-            continue
+            entries = []
         names.update(f"{HELPER_SCRIPTS}/{entry}" for entry in entries
                      if entry.endswith(".sh"))
-    return tuple(sorted(names)) + HELPER_HOOK_FILES
+        for here, directories, files in os.walk(os.path.join(root, HELPER_HOOKS)):
+            relative = os.path.relpath(here, root).replace(os.sep, "/")
+            # A linked directory is named rather than entered, so
+            # `copy_difference` reads it as the link it is.
+            names.update(f"{relative}/{entry}" for entry in directories
+                         if os.path.islink(os.path.join(here, entry)))
+            directories[:] = [entry for entry in directories
+                              if entry != "__pycache__"
+                              and not os.path.islink(os.path.join(here, entry))]
+            names.update(f"{relative}/{entry}" for entry in files)
+    return tuple(sorted(names))
 
 
 def helper_copy_question(command):
@@ -5891,7 +5908,7 @@ def helper_copy_question(command):
     unknown, as it does for the wrapper. A directory holding no helpers is
     let through, since bash finds nothing there to run.
     """
-    leading = wrapper_launch(command, HELPER_SCRIPT)
+    leading = wrapper_launch(command, GRANTED_HELPER)
     if leading is None:
         return None
     if changes_directory(command) or leading_offence(leading):

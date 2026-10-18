@@ -2133,11 +2133,12 @@ rather than refused (alexander-shamray/blueprint-frontend#255).** Every
 `Bash(bash .claude/scripts/…)` grant is relative, so `/ship` ran a worktree's
 own `gh-pr-merge.sh`, `git-rebase-onto-main.sh` and `npm-checks.sh` — the
 copies the branch checked out there — with no prompt. The guard now compares
-every helper under the event's directory, and the chain
-`git-worktree-fork.sh` starts — `run-guard.sh`, `run-guard.py`,
-`index-refresh.py` and the index wrapper's route that hook runs — with the
-startup checkout's, the union of both sets so an added or deleted helper
-counts, and
+every helper under the event's directory, every file under `.claude/hooks/`
+— the chain `git-worktree-fork.sh` starts runs from there, and the launcher
+starts Python with no `-P`, so a `json.py` added beside the hooks is the
+`json` they import — and the index wrapper's route `index-refresh.py` runs,
+with the startup checkout's, the union of both sets so an added or deleted
+file counts, and
 answers a difference — a link below the root, or a command that can change
 directory — with **`ask`, not `deny`**. A hook's `ask` stands over the grant,
 so the person approves the branch's copy or does not. A refusal was the
@@ -2148,8 +2149,11 @@ siblings through `$(dirname "${BASH_SOURCE[0]}")` and a list per helper would
 fall behind the files. **What it costs**: a worktree cut from an `origin/main`
 newer than the startup checkout's `main` asks too, until that checkout is
 pulled. **What stays open**: an in-place branch's helpers run from the startup
-checkout itself, where the hook is the branch's own as well, and
-`npm-checks.sh` runs the branch's `package.json` scripts by design.
+checkout itself, where the hook is the branch's own as well;
+`npm-checks.sh` runs the branch's `package.json` scripts by design; and
+`.claude/hooks/__pycache__/` is not compared, because each checkout writes its
+own as its hooks run, though Python loads an unchecked-hash `.pyc` there
+without reading the source beside it.
 
 **The route's term is single-quoted**
 (alexander-shamray/blueprint-frontend#145), in the skill's markdown and in the
