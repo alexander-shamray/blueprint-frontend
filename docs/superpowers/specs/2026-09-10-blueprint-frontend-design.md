@@ -136,7 +136,10 @@ backend record, each with a one-line comment naming the backend file and
 symbol it mirrors. Generation from the Catalog and Ordering OpenAPI documents
 was considered and deferred: the BFF publishes no document, a handful of
 endpoints do not pay for the tooling, and a citing comment is enough for grep
-to find drift in either direction.
+to find drift in either direction. The `e2e` job also holds the shapes against
+the services' OpenAPI documents (`e2e/wire-drift.spec.ts`;
+`client-architecture.md` §14), so a field the backend moves fails a build and
+is not left to a person running grep.
 
 **Cart.** The backend has no cart, so the cart is client state: a signals
 store of `{ productId, name, amount, currency, quantity }` lines, persisted
