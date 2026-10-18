@@ -1,5 +1,5 @@
-import { expect, test, type APIRequestContext } from '@playwright/test';
-import { KEYCLOAK, requireGateway } from './helpers';
+import { expect, test } from '@playwright/test';
+import { demoToken, requireGateway } from './helpers';
 import {
   BFF_URL,
   CHECKED,
@@ -157,15 +157,6 @@ test.describe('the comparison', () => {
     expect(compareShape(wire, read, {})[0]).toContain('no schema by that name');
   });
 });
-
-/** The `demo` user's token, by the realm's direct grant on `web-app` (the same client the smoke signs in through). */
-async function demoToken(request: APIRequestContext): Promise<string> {
-  const response = await request.post(`${KEYCLOAK}/realms/commerce/protocol/openid-connect/token`, {
-    form: { grant_type: 'password', client_id: 'web-app', username: 'demo', password: 'demo' },
-  });
-  expect(response.ok(), 'Keycloak refused the demo user a token').toBe(true);
-  return ((await response.json()) as { access_token: string }).access_token;
-}
 
 test.describe('against the running stack', () => {
   test.beforeAll(async ({ request }) => requireGateway(request));
