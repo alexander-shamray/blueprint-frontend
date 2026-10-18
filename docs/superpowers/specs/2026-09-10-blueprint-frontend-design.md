@@ -43,7 +43,7 @@ first segment before forwarding.
 
 | Method and path | Host | Auth at the edge | Body or query | Reply |
 |---|---|---|---|---|
-| `GET /api/v1/catalog/products?cursor=&limit=20` | Catalog | anonymous, rate limited | — | `CursorPage<ProductSummaryDto>`: `{ items: [...], nextCursor: string \| null }` |
+| `GET /api/v1/catalog/products?cursor=&limit=20&q=&sort=` | Catalog | anonymous, rate limited | — | `CursorPage<ProductSummaryDto>`: `{ items: [...], nextCursor: string \| null }`; `q` searches names, `sort` is `newest` (the default) or `name`, and a cursor is refused under another `q` or `sort` (ADR-073) |
 | `POST /api/v1/catalog/products` | Catalog | `catalog:write` | `PublishProductCommand`: `{ commandId, name, thumbnailUrl?, amount, currency }` | `201` with the product id |
 | `GET /api/v1/catalog/products/mine?cursor=&limit=20` | Catalog | `catalog:write` | — | `CursorPage<OwnProductDto>`: the listing's row and `withdrawnAt`, withdrawn ones included |
 | `POST /api/v1/catalog/products/{id}/withdrawal` | Catalog | `catalog:write` | `WithdrawProductRequest`: `{ commandId }` | `204`; `404` for another seller's product, `422` `product.withdrawn` for a second one |
@@ -227,6 +227,14 @@ per row with the thumbnail when `thumbnailUrl` is present, and appends pages
 through `ion-infinite-scroll` with the reply's `nextCursor` until it is null.
 Anonymous, so this is the landing tab and works before sign-in. Add-to-cart
 changes the local store only.
+
+A search box and a sort control (newest or by name) sit above the list, and
+both are the server's: a change sends `q` and `sort` and restarts the listing
+at its first page, and every later page is asked under the same query. Nothing
+loaded is filtered or reordered on the client, because the loaded pages are
+not the catalogue. Typing is debounced, a change inside a 429 window is held
+until it closes, and a search that finds nothing says so in its own empty
+state.
 
 ### 5.2 Cart
 
@@ -455,8 +463,9 @@ introduces.
 > detail is a route, and the sheet is gone. The first bullet's "images upload"
 > is overtaken too: the BFF now issues a pre-signed upload (ADR-106), and
 > Publish attaches an image through it (§5.5, and `docs/client-architecture.md`
-> §11 on the one request that is not the gateway's). Both bullets are kept as
-> written.
+> §11 on the one request that is not the gateway's). So is its "search": the
+> listing takes `q` and `sort` (ADR-073), and the Products tab sends them
+> (§5.1). Both bullets are kept as written.
 
 - A mobile BFF, a product detail *route*, search, images upload or any screen
   without an endpoint behind it.

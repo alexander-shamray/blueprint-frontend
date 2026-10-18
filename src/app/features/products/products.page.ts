@@ -5,10 +5,12 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { RouterLink } from '@angular/router';
 import {
   IonContent, IonHeader, IonInfiniteScroll, IonInfiniteScrollContent, IonItem, IonLabel,
-  IonList, IonNote, IonRefresher, IonRefresherContent, IonThumbnail, IonTitle, IonToolbar,
-  IonButton,
+  IonList, IonNote, IonRefresher, IonRefresherContent, IonSearchbar, IonSegment,
+  IonSegmentButton, IonThumbnail, IonTitle, IonToolbar, IonButton,
 } from '@ionic/angular';
-import { CatalogApi } from '@core/api/catalog.api';
+import {
+  CatalogApi, MAX_SEARCH_LENGTH, PRODUCT_SORTS, ProductQuery, ProductSort,
+} from '@core/api/catalog.api';
 import { ProductSummary } from '@core/api/types';
 import { CartStore } from '@core/cart/cart.store';
 import { CatalogAvailability } from '@core/catalog/catalog-availability';
@@ -31,13 +33,38 @@ import { stockLabel, stockOf } from './stock';
   standalone: true,
   imports: [
     IonButton, IonContent, IonHeader, IonInfiniteScroll, IonInfiniteScrollContent, IonItem,
-    IonLabel, IonList, IonNote, IonRefresher, IonRefresherContent, IonThumbnail, IonTitle,
-    IonToolbar, RouterLink, EmptyStateComponent, ErrorBannerComponent, MoneyPipe,
-    SkeletonListComponent,
+    IonLabel, IonList, IonNote, IonRefresher, IonRefresherContent, IonSearchbar, IonSegment,
+    IonSegmentButton, IonThumbnail, IonTitle, IonToolbar, RouterLink, EmptyStateComponent,
+    ErrorBannerComponent, MoneyPipe, SkeletonListComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <ion-header><ion-toolbar><ion-title>Products</ion-title></ion-toolbar></ion-header>
+    <ion-header>
+      <ion-toolbar><ion-title>Products</ion-title></ion-toolbar>
+      <!--
+        Search and sort are the server's (#106). Each change restarts the
+        listing at its first page under the new query, and nothing loaded is
+        filtered or reordered here: the listing is a cursor, so the pages on
+        screen are not the catalogue, and a match on page three is invisible
+        to a filter over page one.
+      -->
+      <!--
+        maxlength as an attribute: the Angular wrapper does not declare it as
+        an input, and the web component reads it from the attribute.
+        onSearch() cuts to the same ceiling either way.
+      -->
+      <ion-toolbar>
+        <ion-searchbar placeholder="Search products" aria-label="Search products"
+          [debounce]="300" [attr.maxlength]="maxSearchLength" [value]="search()"
+          (ionInput)="onSearch($event.detail.value)" />
+      </ion-toolbar>
+      <ion-toolbar>
+        <ion-segment aria-label="Sort" [value]="sort()" (ionChange)="onSort($event.detail.value)">
+          <ion-segment-button value="newest"><ion-label>Newest</ion-label></ion-segment-button>
+          <ion-segment-button value="name"><ion-label>Name</ion-label></ion-segment-button>
+        </ion-segment>
+      </ion-toolbar>
+    </ion-header>
 
     <ion-content>
       <!--
@@ -74,8 +101,13 @@ import { stockLabel, stockOf } from './stock';
       }
 
       @if (isEmpty()) {
-        <app-empty-state heading="Nothing published yet"
-          message="Pull down to check again for newly published products." />
+        @if (searched(); as q) {
+          <app-empty-state [heading]="'No results for “' + q + '”'"
+            message="Try another search, or clear it to see every product." />
+        } @else {
+          <app-empty-state heading="Nothing published yet"
+            message="Pull down to check again for newly published products." />
+        }
       }
 
       <ion-list>
@@ -111,7 +143,9 @@ import { stockLabel, stockOf } from './stock';
       </ion-list>
 
       @if (reachedEnd()) {
-        <p class="end" data-testid="end-of-list">That is everything published so far.</p>
+        <p class="end" data-testid="end-of-list">
+          {{ searched() ? 'That is every match.' : 'That is everything published so far.' }}
+        </p>
       }
 
       <ion-infinite-scroll [disabled]="!canLoadMore()" (ionInfinite)="loadMore($event)">
@@ -133,6 +167,27 @@ export class ProductsPage {
   private readonly catalogRefresh = inject(CatalogRefresh);
   private readonly availability = inject(CatalogAvailability);
   private cursor: string | null = null;
+  /**
+   * The query the listing on screen was restarted under, which every later
+   * page is asked under too. Taken from the controls by `reload()` and only
+   * there, so a page in flight when the search changes was asked with the
+   * cursor's own query, and the generation drops its reply. A cursor is
+   * minted for one query and the server refuses it under another
+   * (`ProductCursor.Matches`), which this ordering never makes it do.
+   */
+  private query: ProductQuery = {};
+
+  /** What the search box holds, trimmed: the next restart's `q`. */
+  private readonly searchSignal = signal('');
+  /** What the sort control holds: the next restart's `sort`. */
+  private readonly sortSignal = signal<ProductSort>('newest');
+  /** The search the rows on screen answer, for the empty state's sentence and the end line. */
+  private readonly searchedSignal = signal('');
+
+  readonly search = this.searchSignal.asReadonly();
+  readonly sort = this.sortSignal.asReadonly();
+  readonly searched = this.searchedSignal.asReadonly();
+  protected readonly maxSearchLength = MAX_SEARCH_LENGTH;
 
   /**
    * Bumped by `reload()`. `load()` captures the generation it was called
@@ -310,15 +365,20 @@ export class ProductsPage {
   }
 
   /**
-   * Restarts the listing from the first page. Reached two ways: the effect
-   * above, when a publish elsewhere bumps `CatalogRefresh` (spec §5.5), and
-   * `refresh()`, pull to refresh. The rows stay on screen until the first page
-   * replaces them (#202).
+   * Restarts the listing from the first page, under what the search and sort
+   * controls hold now. Reached three ways: the effect above, when a publish
+   * elsewhere bumps `CatalogRefresh` (spec §5.5); `refresh()`, pull to
+   * refresh; and a changed search or sort. The rows stay on screen until the
+   * first page replaces them (#202).
    */
   reload(done?: () => void): void {
     this.refreshHeld.set(false);
     this.generation++;
     this.cursor = null;
+    const q = this.searchSignal();
+    const sort = this.sortSignal();
+    this.query = { q: q === '' ? undefined : q, sort: sort === 'newest' ? undefined : sort };
+    this.searchedSignal.set(q);
     this.restartingSignal.set(true);
     this.load(done);
   }
@@ -330,6 +390,37 @@ export class ProductsPage {
 
   loadMore(event?: { target: { complete: () => void } }): void {
     this.load(() => event?.target.complete());
+  }
+
+  /**
+   * The search box, already debounced by `ion-searchbar`. Trimmed, so a
+   * trailing space is not a second search, and cut to the server's own
+   * ceiling, which `maxlength` holds the box to as well.
+   */
+  onSearch(value: string | null | undefined): void {
+    const q = (value ?? '').trim().slice(0, MAX_SEARCH_LENGTH);
+    if (q === this.searchSignal()) return;
+    this.searchSignal.set(q);
+    this.restartForQuery();
+  }
+
+  /** The sort control. A value outside the server's closed set is ignored, never sent. */
+  onSort(value: unknown): void {
+    const sort = PRODUCT_SORTS.find((known) => known === value);
+    if (sort === undefined || sort === this.sortSignal()) return;
+    this.sortSignal.set(sort);
+    this.restartForQuery();
+  }
+
+  /**
+   * A new query is a new listing, from its first page. Inside an open 429
+   * window it is held, as a publish's refresh is, and the effect in the
+   * constructor takes it once the window closes; the controls already show
+   * what will be asked.
+   */
+  private restartForQuery(): void {
+    if (this.rateLimit.blocked()) this.refreshHeld.set(true);
+    else this.reload();
   }
 
   /**
@@ -369,7 +460,7 @@ export class ProductsPage {
     const generation = this.generation;
     this.loadingSignal.set(true);
 
-    this.catalog.products(this.cursor).subscribe({
+    this.catalog.products(this.cursor, this.query).subscribe({
       next: (page) => {
         // The ion-infinite-scroll element that triggered this call (if any)
         // is not destroyed by reload() — only the signals are reset — so its
