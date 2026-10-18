@@ -3301,7 +3301,7 @@ class CommandsEnforceTheEditingBoundariesTheyState(unittest.TestCase):
         # run, and /ship stops on any entry but `locality` — so an honest
         # full pass named the npm checks and stopped the chain on a round
         # that had read everything. Held from both ends, so an edit to
-        # either file alone fails here.
+        # either file alone that reopens it fails here.
         profile = (SCRIPTS.parent / "agents" / "branch-reviewer.md"
                    ).read_text(encoding="utf-8")
         ship = (COMMANDS / "ship.md").read_text(encoding="utf-8")
@@ -3330,6 +3330,17 @@ class CommandsEnforceTheEditingBoundariesTheyState(unittest.TestCase):
         example = re.search(r'"skipped": \[([^\]]*)\]', profile)
         self.assertEqual(set(admitted),
                          set(re.findall(r'"([a-z-]+)"', example.group(1))))
+        # **Every sentence that speaks of `skipped` names an entry of the
+        # bound** (round 1 of PR #274's review): a reworded copy of the
+        # instruction #257 removed, anywhere else in the profile, passed every
+        # check above, since they look only for the bounding sentence.
+        for sentence in re.split(r"(?<=[.;])\s+", flat):
+            if "`skipped`" not in sentence:
+                continue
+            with self.subTest(sentence=sentence[:80]):
+                self.assertTrue(
+                    written & set(re.findall(r"`([a-z-]+)`", sentence)),
+                    f"names no entry of the bound: {sentence}")
         # The method really has a shell step for the profile to skip, so the
         # clause keeping it out of `skipped` is load-bearing, and the clause
         # sits with the instruction to skip it.
