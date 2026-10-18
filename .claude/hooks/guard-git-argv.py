@@ -5673,6 +5673,18 @@ def _contents(path):
 # them: `-C dir`, `-iC dir`, `-Cdir`, `--chdir=dir`, `--ch dir`.
 CHDIR_OPTION = re.compile(r"^(?:-[A-Za-z]*C|--c(?:h(?:d(?:i(?:r)?)?)?)?(?:=|$))")
 
+# **The launchers the wrapper may run behind, and every other one is refused**
+# (round 3 of alexander-shamray/blueprint-frontend#254's review). `unshare
+# --wd`, `sudo -D`, `nsenter --wd` and `parallel --wd` each move the directory
+# by an option of their own, and enumerating those trails every tool's grammar
+# the way #133 says option lists do, so this is the list that fails closed:
+# none of these takes a directory, `env`'s `-C` excepted, which `CHDIR_OPTION`
+# reads.
+INDEX_WRAPPER_RUNNERS = frozenset({
+    "builtin", "command", "env", "exec", "nice", "nohup", "setsid", "stdbuf",
+    "time", "timeout",
+})
+
 
 def index_wrapper_offence(command):
     """The reason to refuse the skill's `run-index` from here, or `None`.
@@ -5710,12 +5722,16 @@ def index_wrapper_differs(command, leading):
     **A directory change anywhere in the command is refused outright**: the
     copy bash then reaches is not the one under the event's directory, and
     following `cd` through groups and subshells is the emulation this file
-    refuses to guess at. `env -C` in front of the shell or the wrapper, the
-    words in `leading`, is one too. A directory holding no wrapper is admitted, since
-    bash finds nothing there to run.
+    refuses to guess at. In `leading`, the words in front of the shell or the
+    wrapper, `env -C` is one too, and so is any launcher outside
+    `INDEX_WRAPPER_RUNNERS`, whose directory options are not modelled. A
+    directory holding no wrapper is admitted, since bash finds nothing there
+    to run.
     """
     if changes_directory(command) or any(
-            CHDIR_OPTION.match(word) for word in leading):
+            CHDIR_OPTION.match(word)
+            or program_name(word) in ARGUMENT_RUNNERS - INDEX_WRAPPER_RUNNERS
+            for word in leading):
         return (
             "the skill's `run-index` is started in a command that can also "
             "change directory, so the copy bash reaches is not the one this "
