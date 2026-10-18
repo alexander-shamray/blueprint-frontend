@@ -23,14 +23,16 @@
 set -euo pipefail
 branch="${1:?usage: git-switch-existing.sh <branch>}"
 [ "$#" -eq 1 ] || { echo "exactly one argument: the branch name" >&2; exit 2; }
-# Branch names here are <type>/<kebab>, and feat(scope)/ carries parentheses.
+# Branch names here are <type>/<kebab>, in the push guard's SAFE_REF: a name
+# it refuses was never pushed, and the creation helpers no longer make one
+# (alexander-shamray/blueprint-frontend#163).
 # Leading '-' is refused outright so nothing can arrive looking like a flag,
 # and '..' is refused because a refname may not contain it.
 case "$branch" in
   -*) echo "branch name may not start with '-'" >&2; exit 2 ;;
   *..*) echo "branch name may not contain '..'" >&2; exit 2 ;;
 esac
-[[ "$branch" =~ ^[A-Za-z0-9][A-Za-z0-9._/()-]*$ ]] ||
+[[ "$branch" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ ]] ||
   { echo "not a branch name this helper will take: $branch" >&2; exit 2; }
 # It must already exist as a LOCAL branch. Without this the helper would
 # happily detach onto a tag or a commit that satisfied the pattern above.

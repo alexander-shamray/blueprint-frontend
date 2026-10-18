@@ -40,13 +40,16 @@ branch="$2"
 # other flag can arrive, since neither argument can begin with `-`.
 [[ "$path" =~ ^\.claude/worktrees/[A-Za-z0-9][A-Za-z0-9._-]*$ ]] ||
   { echo "path must be .claude/worktrees/<name>" >&2; exit 2; }
+# Still takes `()`, unlike the helpers that make a name: worktrees forked
+# before alexander-shamray/blueprint-frontend#163 carry parenthesised
+# branches, and removing one must not wait on a rename the deny list refuses.
 [[ "$branch" =~ ^[A-Za-z0-9][A-Za-z0-9._/()-]*$ ]] && [[ "$branch" != *..* ]] ||
   { echo "not a branch name this helper will take: $branch" >&2; exit 2; }
 [ "$branch" != main ] ||
   { echo "main is never a forked branch" >&2; exit 2; }
 # **No slug is derived from the branch here, and the first form derived one.**
 # `/branch` cuts the directory name to the first word or two of the change —
-# `feat(template)/masstransit-registration` forks
+# `feat/template-masstransit-registration` forks
 # `.claude/worktrees/masstransit` — so requiring the full branch basename
 # refused every such worktree and `/ship`'s teardown with it. The registered
 # worktree holding the named branch, checked below, is the binding. Raised by

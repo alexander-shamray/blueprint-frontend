@@ -48,12 +48,15 @@ git rev-parse --git-dir >/dev/null 2>&1 ||
 git check-ignore -q "$path" ||
   { echo "$path is not ignored — add .claude/worktrees/ to .gitignore" >&2; exit 2; }
 [ ! -e "$path" ] || { echo "path already exists: $path" >&2; exit 2; }
-# Branch names here are <type>/<kebab>, and feat(scope)/ carries parentheses.
+# Branch names here are <type>/<kebab>, and nothing the push guard's SAFE_REF
+# refuses: a parenthesised scope forked here and was refused at /pr's push,
+# where `git branch -m` is denied and nothing could rename it. Refused now,
+# before the branch exists (alexander-shamray/blueprint-frontend#163).
 case "$branch" in
   -*) echo "branch name may not start with '-'" >&2; exit 2 ;;
   *..*) echo "branch name may not contain '..'" >&2; exit 2 ;;
 esac
-[[ "$branch" =~ ^[A-Za-z0-9][A-Za-z0-9._/()-]*$ ]] ||
+[[ "$branch" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ ]] ||
   { echo "not a branch name this helper will take: $branch" >&2; exit 2; }
 # It must NOT exist: this helper only ever creates. Refusing here is what makes
 # the missing -B harmless rather than merely unavailable — a caller who wanted
