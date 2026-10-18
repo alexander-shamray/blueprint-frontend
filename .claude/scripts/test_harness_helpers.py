@@ -11034,9 +11034,9 @@ class TheBranchTableNamesWhatThePushGuardAdmits(unittest.TestCase):
         self.assertIn("not a branch name this helper will take", out.stderr)
         self.assertEqual("main", current())
 
-        # One made by hand, as branches were before blueprint-frontend#163: it
-        # exists, so
-        # exit 2 rather than 3 is the shape check refusing it.
+        # One made by hand, as branches were before
+        # alexander-shamray/blueprint-frontend#163: it exists, so exit 2
+        # rather than 3 is the shape check refusing it.
         made = run_bash('git -C "$R" branch "$B"', R=root, B=refused, **env)
         self.assertEqual(0, made.returncode, made.stderr)
         out = helper("git-switch-existing.sh", refused)
