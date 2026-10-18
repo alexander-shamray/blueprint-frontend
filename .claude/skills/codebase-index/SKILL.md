@@ -110,7 +110,7 @@ Verdict states and citing evidence in notes: [references/memory.md](references/m
 On `refs` and `impact`, an empty result is inconclusive whatever `coverage`
 reports. The graph carries call edges, and an Angular component is mostly used
 without one: `ErrorBannerComponent` is imported by all six feature pages and
-named in each one's template, and `impact "ErrorBannerComponent" --direction
+named in each one's template, and `impact 'ErrorBannerComponent' --direction
 up` answers with no dependents and `coverage.partial: false`, while `refs`
 returns the definition and nothing else. A template lives in a string and a
 provider in an array, and neither is a call. Confirm with a targeted Grep
