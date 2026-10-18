@@ -29,7 +29,7 @@ Worktrees live under this checkout's `.claude/worktrees/`:
 ```
 C:/dev/ashamray/blueprint-frontend                                main — stays clean, stays put
 C:/dev/ashamray/blueprint-frontend/.claude/worktrees/groklimit    feat/grok-usage-limit-guard
-C:/dev/ashamray/blueprint-frontend/.claude/worktrees/masstransit  feat(template)/masstransit-registration
+C:/dev/ashamray/blueprint-frontend/.claude/worktrees/masstransit  feat/template-masstransit-registration
 ```
 
 `.claude/worktrees/<slug>` is the shape. **That directory is the load-bearing
@@ -79,10 +79,11 @@ from surfacing as a raw `git` error mid-`/ship`; step 5 has the handling.
 
 The slug is the branch's kebab summary cut to the first word or two that name
 the change — it is a directory name, not a branch name, so the `<type>/` prefix
-and any parenthesised scope are dropped rather than spelled.
-`feat(template)/masstransit-registration` gives `masstransit` above
+and a feature's scope word are dropped rather than spelled.
+`feat/template-masstransit-registration` gives `masstransit` above
 because one word is already unambiguous; take the second where it is not.
-`masstransit-registration` is fine, and `feat(template)` is not a path.
+`masstransit-registration` is fine, and `template` names an area, not the
+change.
 
 **A worktree carries committed files and, where the main checkout has one, a
 copy of its code index.** `.claude/cache/codebase-index/` is ignored, so a
@@ -192,8 +193,8 @@ not content.
    |---|---|
    | `docs/**` only | `docs/` |
    | `.editorconfig`, `.prettierrc`, `eslint.config.js`, `CLAUDE.md`, `.claude/**`, CI, `package.json` | `chore/` |
-   | `src/**` or `e2e/**` | `feat(<scope>)/`, `fix/` or `refactor/` — the diff decides which |
-   | `android/**`, `ios/**`, `capacitor.config.ts` | `feat(native)/` or `fix/` — the diff decides which |
+   | `src/**` or `e2e/**` | `feat/<scope>-`, `fix/` or `refactor/` — the diff decides which |
+   | `android/**`, `ios/**`, `capacitor.config.ts` | `feat/native-` or `fix/` — the diff decides which |
 
    **A mixed tree takes the type of the change that carries the argument, not
    the one with the most files.** `fix/emulator-cleartext-gate` touched
@@ -208,14 +209,15 @@ not content.
 
    A clean tree and no argument leaves nothing to derive from. Stop and ask
    what the branch is for rather than inventing a name.
-3. **Name it `<type>/<kebab-summary>`.** The type is the one the commit will
-   carry, so the branch and its commits agree:
+3. **Name it `<type>/<kebab-summary>`**, and a feature
+   `feat/<scope>-<kebab-summary>`. The type is the one the commit will carry,
+   so the branch and its commits agree:
 
    | | |
    |---|---|
    | `docs/` | Spec and architecture prose, structure, cross-references |
    | `chore/` | Repo config — linters, `CLAUDE.md`, commands, CI, pins |
-   | `feat(<scope>)/` | Application code that adds behaviour |
+   | `feat/<scope>-` | Application code that adds behaviour |
    | `fix/` | A defect in either |
    | `refactor/` | Shape change, no behaviour change |
 
@@ -223,10 +225,21 @@ not content.
    `ci/android-selector`. Summarise the change, do not describe the files —
    `fix/cart-total-rounding`, not `fix/update-cart`.
 
+   **The scope is the summary's first word, never a parenthesis.** A commit
+   subject spells it `feat(<scope>):`, and a branch name is not a subject:
+   the push guard admits a destination only when it is a plain ref —
+   `SAFE_REF` in `.claude/hooks/guard-git-argv.py`, letters, digits and
+   `._/-` — so a parenthesised scope reached `/pr`'s push and was refused
+   there (alexander-shamray/blueprint-frontend#163). `git branch -m` is
+   denied, so a refused name cannot be repaired, only abandoned beside a
+   second branch at the same commit. `git-worktree-fork.sh` and
+   `git-branch-create.sh` refuse one before it exists, and the harness suite
+   holds every name this file gives to the guard.
+
    **Implementing a task from the plan?** Grep the plan under
    `docs/superpowers/plans/` for the `## Task n:` heading and derive the name
    from it, so the branch, the commit and the plan all read the same. Task 7's
-   heading is `Cart store and persistence` → `feat(cart)/store-and-persistence`.
+   heading is `Cart store and persistence` → `feat/cart-store-and-persistence`.
 4. **Check the name and the directory are both free** — `git branch --list`,
    `git branch -a` and `git worktree list`. A name that already exists locally
    or on the remote means the work may already be underway; say so rather than
@@ -457,5 +470,8 @@ once the PR has landed.
 
 **A derived name is a guess, so show your work.** State that no description was
 passed, give the one-line reading of the diff the name came from, and say the
-name is still free to change: no upstream exists until `/pr` pushes, so
-`git branch -m <better-name>` costs nothing until then.
+name can still change until `/pr` pushes, since nothing refers to it yet.
+`git branch -m` is denied, so the change is a second branch at the same commit
+— `bash .claude/scripts/git-branch-create.sh <better-name> HEAD` — and the
+first name stays in `git branch`, to be named in the report rather than
+deleted.

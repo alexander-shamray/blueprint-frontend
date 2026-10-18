@@ -10947,5 +10947,110 @@ class LandingByRebaseMovedTheReadsThatAssumedAMergeCommit(unittest.TestCase):
         self.assertEqual(merged_by_commit, git("rev-parse", "HEAD"))
 
 
+class TheBranchTableNamesWhatThePushGuardAdmits(unittest.TestCase):
+    """alexander-shamray/blueprint-frontend#163 — a name `/branch` gives must
+    survive `/pr`'s push.
+
+    The naming table prescribed a parenthesised scope, the push guard admits
+    only a plain ref, and `git branch -m` is denied, so every feature branch
+    the table named stopped `/ship` at the push with no way to rename it. The
+    subject is the file that names branches, read whole, so an example added
+    later is held to the guard without anybody listing it.
+    """
+
+    BRANCH_MD = COMMANDS / "branch.md"
+    TYPES = r"(?:docs|chore|feat|fix|refactor|ci|test)"
+
+    # A token shaped like a branch of one of the table's types, WITH or without
+    # a parenthesised scope: a scope that comes back is found and judged, not
+    # passed over by the pattern.
+    NAME = re.compile(r"(?<![\w./(-])" + TYPES
+                      + r"(?:\([^)\s]*\))?/[A-Za-z0-9._()/-]*[A-Za-z0-9]")
+
+    def push_refusal(self, name):
+        command = f"git push -u origin '{name}'"
+        event = {"tool_name": "Bash", "tool_input": {"command": command}}
+        result = in_process_hook.run(HOOK, json.dumps(event))
+        self.assertEqual(0, result.returncode, result.stderr)
+        if not result.stdout.strip():
+            return None
+        return json.loads(result.stdout)["hookSpecificOutput"][
+            "permissionDecisionReason"]
+
+    def test_every_name_the_file_gives_is_one_the_push_guard_admits(self):
+        text = self.BRANCH_MD.read_text(encoding="utf-8")
+        names = sorted(set(self.NAME.findall(text)))
+        # Not vacuous: the table's own examples are there to be read.
+        self.assertGreaterEqual(len(names), 5, names)
+        for name in names:
+            with self.subTest(name=name):
+                self.assertIsNone(self.push_refusal(name))
+
+    def test_no_type_in_the_file_takes_a_parenthesised_scope(self):
+        # The templates — `feat/<scope>-` — name no branch the case above can
+        # push, so their shape is held here. A commit subject's
+        # `feat(<scope>):` is not a branch and does not match.
+        text = self.BRANCH_MD.read_text(encoding="utf-8")
+        self.assertEqual(
+            [], re.findall(r"\b" + self.TYPES + r"\([^)]*\)/", text))
+
+    def test_the_pattern_finds_and_the_guard_refuses_a_parenthesised_name(self):
+        # The mutation, kept: a regression is read and refused, not skipped,
+        # and the plain spelling beside it is the positive control.
+        sample = "Task 7 → `feat(cart)/store-and-persistence`, or `feat/cart-store`."
+        self.assertEqual(["feat(cart)/store-and-persistence", "feat/cart-store"],
+                         self.NAME.findall(sample))
+        self.assertIn("not a plain branch name",
+                      self.push_refusal("feat(cart)/store-and-persistence"))
+        self.assertIsNone(self.push_refusal("feat/cart-store"))
+
+    def test_the_helpers_that_make_or_take_a_name_refuse_one_the_guard_would(self):
+        # Refused where it costs nothing — before a branch exists — rather
+        # than at the push. The fork helper's case is in
+        # test_git_worktree_fork.py, which has the fixture it needs.
+        no_config = str(SCRIPTS / "no-such-gitconfig-for-the-fixtures")
+        env = {"GIT_CONFIG_GLOBAL": no_config, "GIT_CONFIG_SYSTEM": no_config}
+        made = run_bash(
+            'set -e; root=$(mktemp -d); git init -q -b main "$root"; '
+            'git -C "$root" -c user.name=t -c user.email=t@t '
+            'commit -q --allow-empty -m base; printf %s "$root"', **env)
+        self.assertEqual(0, made.returncode, made.stderr)
+        root = made.stdout.strip()
+        self.addCleanup(lambda: run_bash('rm -rf "$T"', T=root))
+
+        def helper(name, *args):
+            quoted = " ".join(f'"$A{i}"' for i in range(len(args)))
+            return run_bash(f'cd "$R" && bash "$H" {quoted}', R=root,
+                            H=str(SCRIPTS / name), **env,
+                            **{f"A{i}": a for i, a in enumerate(args)})
+
+        def current():
+            return run_bash('git -C "$R" branch --show-current',
+                            R=root, **env).stdout.strip()
+
+        refused = "feat(cart)/store-and-persistence"
+        out = helper("git-branch-create.sh", refused, "HEAD")
+        self.assertEqual(2, out.returncode, out.stderr)
+        self.assertIn("not a branch name this helper will take", out.stderr)
+        self.assertEqual("main", current())
+
+        # One made by hand, as branches were before blueprint-frontend#163: it
+        # exists, so
+        # exit 2 rather than 3 is the shape check refusing it.
+        made = run_bash('git -C "$R" branch "$B"', R=root, B=refused, **env)
+        self.assertEqual(0, made.returncode, made.stderr)
+        out = helper("git-switch-existing.sh", refused)
+        self.assertEqual(2, out.returncode, out.stderr)
+        self.assertEqual("main", current())
+
+        out = helper("git-branch-create.sh", "feat/cart-store-and-persistence",
+                     "HEAD")
+        self.assertEqual(0, out.returncode, out.stderr)
+        self.assertEqual("feat/cart-store-and-persistence", current())
+        out = helper("git-switch-existing.sh", "main")
+        self.assertEqual(0, out.returncode, out.stderr)
+        self.assertEqual("main", current())
+
+
 if __name__ == "__main__":
     unittest.main()
