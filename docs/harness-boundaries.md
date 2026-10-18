@@ -2133,9 +2133,11 @@ rather than refused (alexander-shamray/blueprint-frontend#255).** Every
 `Bash(bash .claude/scripts/…)` grant is relative, so `/ship` ran a worktree's
 own `gh-pr-merge.sh`, `git-rebase-onto-main.sh` and `npm-checks.sh` — the
 copies the branch checked out there — with no prompt. The guard now compares
-every helper under the event's directory, and the `run-guard.sh` and
-`index-refresh.py` that `git-worktree-fork.sh` starts, with the startup
-checkout's, the union of both sets so an added or deleted helper counts, and
+every helper under the event's directory, and the chain
+`git-worktree-fork.sh` starts — `run-guard.sh`, `run-guard.py`,
+`index-refresh.py` and the index wrapper's route that hook runs — with the
+startup checkout's, the union of both sets so an added or deleted helper
+counts, and
 answers a difference — a link below the root, or a command that can change
 directory — with **`ask`, not `deny`**. A hook's `ask` stands over the grant,
 so the person approves the branch's copy or does not. A refusal was the

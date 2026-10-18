@@ -5851,10 +5851,16 @@ HELPER_SCRIPT = re.compile(r"^(?:\./)?\.claude/scripts/[A-Za-z0-9._-]+\.sh$")
 HELPER_SCRIPTS = ".claude/scripts"
 # **The closure is the directory, not the helper named.** A helper reaches its
 # siblings through its own directory — `gh-issue-create.sh` sources
-# `gh-issue-filing.sh`, which runs `gh-label-ensure.sh` — and
-# `git-worktree-fork.sh` starts the index refresh through the hooks' launcher,
-# so a list per helper would be one more enumeration to fall behind the files.
-HELPER_HOOK_FILES = (".claude/hooks/run-guard.sh", ".claude/hooks/index-refresh.py")
+# `gh-issue-filing.sh`, which runs `gh-label-ensure.sh` — so a list per helper
+# would be one more enumeration to fall behind the files. **And the launcher's
+# whole chain**: `git-worktree-fork.sh` starts `run-guard.sh`, which runs
+# `run-guard.py` and then `index-refresh.py`, which starts its own checkout's
+# `run-index` and so every file the wrapper's route runs. The fork refuses a
+# linked worktree before it gets there, but not another clone's main checkout
+# (raised by the automated security review of this change).
+HELPER_HOOK_FILES = (
+    ".claude/hooks/run-guard.sh", ".claude/hooks/run-guard.py",
+) + INDEX_WRAPPER_FILES
 
 # The questions `offence` found for the person, in the order found. Rebound by
 # `main` for every event, and put only where nothing was refused.

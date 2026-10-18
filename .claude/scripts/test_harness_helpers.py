@@ -5569,13 +5569,22 @@ class TheGitArgvGuard(unittest.TestCase):
         trusted = SCRIPTS.parent.parent
         # The closure, read from the files rather than from the hook's list:
         # a helper runs its siblings through its own directory, and the fork
-        # starts the index refresh through the hooks' launcher.
+        # starts the launcher, which runs `run-guard.py` and the refresh hook,
+        # which starts its checkout's index wrapper and so the wrapper's route.
         filing = (SCRIPTS / "gh-issue-filing.sh").read_text(encoding="utf-8")
         self.assertIn('"$here/gh-label-ensure.sh"', filing)
         fork = (SCRIPTS / "git-worktree-fork.sh").read_text(encoding="utf-8")
-        hooks = (".claude/hooks/run-guard.sh", ".claude/hooks/index-refresh.py")
-        for name in hooks:
+        for name in (".claude/hooks/run-guard.sh", ".claude/hooks/index-refresh.py"):
             self.assertIn(name, fork)
+        launcher = (trusted / ".claude/hooks/run-guard.sh").read_text(encoding="utf-8")
+        self.assertIn('"$dir/run-guard.py"', launcher)
+        refresh = (trusted / ".claude/hooks/index-refresh.py").read_text(encoding="utf-8")
+        self.assertIn('"codebase-index", "scripts", "run-index"', refresh)
+        hooks = (".claude/hooks/run-guard.sh", ".claude/hooks/run-guard.py",
+                 ".claude/skills/codebase-index/scripts/run-index",
+                 ".claude/skills/codebase-index/scripts/gate.sh",
+                 ".claude/skills/codebase-index/scripts/gate-index.py",
+                 ".claude/hooks/index-refresh.py")
         names = tuple(f".claude/scripts/{path.name}"
                       for path in sorted(SCRIPTS.glob("*.sh"))) + hooks
         run = "bash .claude/scripts/pr-state.sh 1"
