@@ -246,6 +246,35 @@ again keeps the session. Not observed: browsing to an order and cancelling it
 (§15 step 4), the sign-in-sign-out-sign-in race (step 3's second half), and
 that the cart survives a relaunch.
 
+**The order stream, from the WebView (#243).** `e2e/native-stream.mts` reads
+`GET /bff/v1/orders/{id}/events` from inside the running app's WebView and
+prints when each chunk arrived; its header says what it does and does not
+answer. It needs no sign-in, because it takes the `demo` user's token by the
+realm's direct grant on the host, and it reaches the WebView through its
+DevTools socket, which a debug build exposes:
+
+```bash
+adb shell cat /proc/net/unix | grep -o 'webview_devtools_remote_[0-9]*'
+adb forward tcp:9222 localabstract:webview_devtools_remote_<pid>
+node e2e/native-stream.mts           # places an order; or pass an order id
+```
+
+The pid changes on every launch, so the forward is redone each time. Node
+warns that `environment.android.ts` was reparsed as an ES module; that is the
+type-stripping loader and not a failure.
+
+Measured on 2026-10-18, on the API 36 AVD with Android System WebView
+`133.0.6943.137`, from origin `https://localhost`: the `placed` event arrived
+11 ms after the request, the `out_of_stock` that followed it at 2,015 ms —
+the server's two-second poll — and a keep-alive at 12,021 ms, each while the
+response was still open (`readyState` 3), and the server ended the stream at
+14,025 ms. So the WebView delivers the stream as it is written and does not
+hold it until the end. The second request, carrying the first's last id as
+`Last-Event-ID`, passed its preflight and was answered with the `retry:` hint
+and keep-alives and no event, so nothing the client held was sent again. Not
+observed: the same through the app's own `OrderPlacedPage`, which needs the
+signed-in round trip above, and anything on iOS, which no host here can run.
+
 ## What no unit test covers
 
 State this in a PR body rather than letting a green suite imply it:
