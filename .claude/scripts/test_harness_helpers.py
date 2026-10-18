@@ -3300,8 +3300,12 @@ class CommandsEnforceTheEditingBoundariesTheyState(unittest.TestCase):
         # the method's shell steps and then to name every check it could not
         # run, and /ship stops on any entry but `locality` — so an honest
         # full pass named the npm checks and stopped the chain on a round
-        # that had read everything. Held from both ends, so an edit to
-        # either file alone that reopens it fails here.
+        # that had read everything. Held from both ends: a /ship statement
+        # admitting another entry fails here, and so does a profile sentence
+        # that writes `skipped` and names no entry of the bound. **What it
+        # does not see**: a sentence that never names the backticked field,
+        # or one that names `locality` beside a reopened instruction — prose
+        # read by pattern, not parsed.
         profile = (SCRIPTS.parent / "agents" / "branch-reviewer.md"
                    ).read_text(encoding="utf-8")
         ship = (COMMANDS / "ship.md").read_text(encoding="utf-8")
