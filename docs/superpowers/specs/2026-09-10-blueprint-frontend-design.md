@@ -45,6 +45,9 @@ first segment before forwarding.
 |---|---|---|---|---|
 | `GET /api/v1/catalog/products?cursor=&limit=20` | Catalog | anonymous, rate limited | — | `CursorPage<ProductSummaryDto>`: `{ items: [...], nextCursor: string \| null }` |
 | `POST /api/v1/catalog/products` | Catalog | `catalog:write` | `PublishProductCommand`: `{ commandId, name, thumbnailUrl?, amount, currency }` | `201` with the product id |
+| `GET /api/v1/catalog/products/mine?cursor=&limit=20` | Catalog | `catalog:write` | — | `CursorPage<OwnProductDto>`: the listing's row and `withdrawnAt`, withdrawn ones included |
+| `POST /api/v1/catalog/products/{id}/withdrawal` | Catalog | `catalog:write` | `WithdrawProductRequest`: `{ commandId }` | `204`; `404` for another seller's product, `422` `product.withdrawn` for a second one |
+| `POST /bff/v1/product-images` | Web.Bff | `catalog:write` | `{ contentType, sizeBytes }` | `{ uploadUrl, headers, key, expiresAt }`: a pre-signed `PUT` to the object store, whose `key` the publish carries |
 | `GET /bff/v1/checkout/quote?productId=&productId=&currency=` | Web.Bff | authenticated | repeated `productId`, one `currency` | `QuoteResponse`: `{ currency, lines: [{ productId, name, amount }], total, unpriced: [guid] }` |
 | `POST /api/v1/orders` | Ordering | `orders:write` | `PlaceOrderCommand`: `{ commandId, items: [{ productId, quantity }], shippingAddress: { line1, line2?, city, postalCode, country }, currency }` | `201` with the order id |
 | `POST /api/v1/orders/{id}/cancel` | Ordering | `orders:cancel` | `{ reason }`, one of `out_of_stock`, `stock_timeout`, `payment_declined`, `payment_timeout`, `customer_request` | `204` |
@@ -57,8 +60,11 @@ read is the BFF's — a projection it owns (backend ADR-051, §10.7 of its
 subject from the principal, so it asks for a session and no permission.
 `client-architecture.md` §7 owns how this client reads it.
 
-Owners, for the citation rule in §1: `ProductSummaryDto` and
-`PublishProductCommand` in `Catalog.Application`; `CursorPage<T>` in
+Owners, for the citation rule in §1: `ProductSummaryDto`,
+`PublishProductCommand` and `OwnProductDto` in `Catalog.Application`;
+`WithdrawProductRequest` in `Catalog.Api.Endpoints`;
+`ProductImageUploadRequest` and `ProductImageUpload` in
+`Web.Bff.ProductImages`; `CursorPage<T>` in
 `Common.Application`; `PlaceOrderCommand`, `PlaceOrderItem`, `AddressDto` and
 `CancellationReasons` in `Ordering.Application`; the reason codes in
 `Common.Contracts.Ordering.V1.CancelReasons`; `QuoteResponse` and `QuoteLine`
