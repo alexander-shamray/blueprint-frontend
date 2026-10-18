@@ -1127,7 +1127,10 @@ so in a note and keeps trying at the cap until it is left. Spec §5.4's
 description of polling is superseded by this entry and left as written. The
 native WebViews (§15) are cross-origin to the gateway for this request as for
 every other, and the gateway allows any header, so `Last-Event-ID` passes the
-preflight; no device has run it yet.
+preflight. Measured on an Android emulator on 2026-10-18: the WebView delivers
+each event while the response is open rather than at its end, and the resumed
+request passes its preflight (`docs/testing.md`, *The emulator round trip*,
+owns the run and its numbers). iOS has not run it.
 
 ## 13. The bundle budget is set above the bundle, not at it
 
