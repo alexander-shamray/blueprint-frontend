@@ -664,4 +664,124 @@ describe('ProductsPage', () => {
       expect(links).toEqual(['/tabs/products/p0', '/tabs/products/p1']);
     });
   });
+
+  describe('search and sort (#106)', () => {
+    const URL = 'http://localhost:5000/api/v1/catalog/products';
+    const listing = () => controller.expectOne((r) => r.url === URL);
+
+    beforeEach(async () => {
+      listing().flush(page(20, 'cursor-2'));
+      await fixture.whenStable();
+    });
+
+    it('restarts at the first page with the search, and asks later pages under it', async () => {
+      fixture.componentInstance.onSearch('  lamp ');
+
+      const first = listing();
+      expect(first.request.params.get('q')).toBe('lamp');
+      expect(first.request.params.has('cursor')).toBe(false);
+      first.flush(page(20, 'lamp-2'));
+      await fixture.whenStable();
+      expect(fixture.componentInstance.products()).toHaveLength(20);
+
+      fixture.componentInstance.loadMore();
+      const next = listing();
+      expect(next.request.params.get('q')).toBe('lamp');
+      expect(next.request.params.get('cursor')).toBe('lamp-2');
+      next.flush(page(1, null));
+    });
+
+    it('sends a sort the server names, and the default as no parameter', async () => {
+      fixture.componentInstance.onSort('name');
+      const byName = listing();
+      expect(byName.request.params.get('sort')).toBe('name');
+      byName.flush(page(2, null));
+      await fixture.whenStable();
+
+      fixture.componentInstance.onSort('newest');
+      const newest = listing();
+      expect(newest.request.params.has('sort')).toBe(false);
+      newest.flush(page(2, null));
+    });
+
+    it('sends nothing for a sort outside the closed set, or for an unchanged control', () => {
+      fixture.componentInstance.onSort('price');
+      fixture.componentInstance.onSort('newest');
+      fixture.componentInstance.onSearch('   ');
+
+      controller.expectNone((r) => r.url === URL);
+    });
+
+    it('drops a page asked under the old search when the search changes', async () => {
+      fixture.componentInstance.loadMore();
+      const stale = listing();
+
+      fixture.componentInstance.onSearch('lamp');
+      const fresh = controller.expectOne((r) => r.url === URL && r.params.get('q') === 'lamp');
+
+      stale.flush(page(20, 'old-3'));
+      fresh.flush(page(1, null));
+      await fixture.whenStable();
+
+      expect(fixture.componentInstance.products()).toHaveLength(1);
+      expect(fixture.componentInstance.hasMore()).toBe(false);
+    });
+
+    it('says when a search finds nothing, in words that name it', async () => {
+      fixture.componentInstance.onSearch('no such thing');
+      listing().flush(page(0, null));
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      expect(fixture.nativeElement.textContent).toContain('No results for “no such thing”');
+      expect(fixture.nativeElement.textContent).not.toContain('Nothing published yet');
+    });
+
+    it('ends a search on "every match", and a cleared search on everything published', async () => {
+      fixture.componentInstance.onSearch('lamp');
+      listing().flush(page(1, null));
+      await fixture.whenStable();
+      fixture.detectChanges();
+      const end = () =>
+        fixture.nativeElement.querySelector('[data-testid="end-of-list"]').textContent.trim();
+      expect(end()).toBe('That is every match.');
+
+      fixture.componentInstance.onSearch('');
+      const cleared = listing();
+      expect(cleared.request.params.has('q')).toBe(false);
+      cleared.flush(page(1, null));
+      await fixture.whenStable();
+      fixture.detectChanges();
+      expect(end()).toBe('That is everything published so far.');
+    });
+
+    it('holds a search made inside a closed window, and asks it once the window ends', async () => {
+      fixture.componentInstance.loadMore();
+      listing().flush(null, {
+        status: 429,
+        statusText: 'Too Many Requests',
+        headers: { 'Retry-After': '30' },
+      });
+      await fixture.whenStable();
+      expect(fixture.componentInstance.rateLimit.blocked()).toBe(true);
+
+      fixture.componentInstance.onSearch('lamp');
+      controller.expectNone((r) => r.url === URL);
+      expect(fixture.componentInstance.search()).toBe('lamp');
+
+      TestBed.inject(RateLimitWindows).forPartition('catalogue').close();
+      await fixture.whenStable();
+
+      const held = listing();
+      expect(held.request.params.get('q')).toBe('lamp');
+      expect(held.request.params.has('cursor')).toBe(false);
+      held.flush(page(1, null));
+    });
+
+    it('cuts a search to the server’s own ceiling rather than sending one it refuses', () => {
+      fixture.componentInstance.onSearch('x'.repeat(250));
+
+      expect(listing().request.params.get('q')).toHaveLength(200);
+    });
+  });
 });
