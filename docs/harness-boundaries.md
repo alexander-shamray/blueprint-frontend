@@ -2114,9 +2114,12 @@ went before.
 tool's environment does not carry the variable — measured empty in a session
 here — so the anchored path would read `/.claude/…`. The guard does run from
 the startup checkout, so a
-`bash .claude/skills/codebase-index/scripts/run-index` whose
-`run-index`, `gate.sh` or `gate-index.py` under the event's directory is not
-byte-identical to that checkout's is refused, and so is one in a command that
+`bash .claude/skills/codebase-index/scripts/run-index` whose `run-index`,
+`gate.sh`, `gate-index.py` or the `index-refresh.py` that judge imports under
+the event's directory is not byte-identical to that checkout's is refused —
+the hook added after the automated security review of
+alexander-shamray/blueprint-frontend#254 found the list stopping short of
+it — and so is one in a command that
 can change directory, since the copy bash reaches is then unknown. A worktree
 whose branch changed the wrapper therefore gets no index route at all, and
 Grep and Read in its place; that is the cost, taken deliberately. **The

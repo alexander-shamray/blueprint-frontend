@@ -5632,7 +5632,6 @@ def helper_argument_offence(command):
     return None
 
 
-
 # ---- the skill's index wrapper, as the tree a session stands in holds it ----
 
 # **The skill's route is relative, so it runs whichever copy the working
@@ -5644,12 +5643,19 @@ def helper_argument_offence(command):
 # written: the Bash tool's environment does not carry the variable — measured
 # empty — so the anchored path would read `/.claude/…`. This hook does run
 # from the startup checkout, so it holds the copy a command reaches to that
-# checkout's: the wrapper, the gate it sources and the judge the gate starts,
-# byte for byte.
+# checkout's: the wrapper, the gate it sources, the judge the gate starts and
+# the hook the judge loads, byte for byte.
 INDEX_WRAPPER = re.compile(
     r"^(?:\./)?\.claude/skills/codebase-index/scripts/run-index$")
 INDEX_WRAPPER_SCRIPTS = ".claude/skills/codebase-index/scripts"
-INDEX_WRAPPER_FILES = ("run-index", "gate.sh", "gate-index.py")
+# Checkout-relative, and every file the route runs out of the checkout:
+# `gate-index.py` imports `index-refresh.py` for `index_openable`, so the hook
+# is as much the route's code as the wrapper is (raised by the automated
+# security review of alexander-shamray/blueprint-frontend#254).
+INDEX_WRAPPER_FILES = tuple(
+    f"{INDEX_WRAPPER_SCRIPTS}/{name}"
+    for name in ("run-index", "gate.sh", "gate-index.py")) + (
+    ".claude/hooks/index-refresh.py",)
 HOOK_CHECKOUT = os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.abspath(__file__))))
 
@@ -5707,18 +5713,16 @@ def index_wrapper_differs(command):
             "its own (alexander-shamray/blueprint-frontend#146)."
         )
     base = os.path.abspath(EVENT_CWD or os.getcwd())
-    here = os.path.join(base, INDEX_WRAPPER_SCRIPTS)
-    trusted = os.path.join(HOOK_CHECKOUT, INDEX_WRAPPER_SCRIPTS)
-    if not os.path.isfile(os.path.join(here, "run-index")):
+    if not os.path.isfile(os.path.join(base, INDEX_WRAPPER_SCRIPTS, "run-index")):
         return None
-    if (os.path.normcase(os.path.realpath(here))
-            == os.path.normcase(os.path.realpath(trusted))):
+    if (os.path.normcase(os.path.realpath(base))
+            == os.path.normcase(os.path.realpath(HOOK_CHECKOUT))):
         return None
     for name in INDEX_WRAPPER_FILES:
-        theirs = _contents(os.path.join(here, name))
-        if theirs is None or theirs != _contents(os.path.join(trusted, name)):
+        theirs = _contents(os.path.join(base, name))
+        if theirs is None or theirs != _contents(os.path.join(HOOK_CHECKOUT, name)):
             return (
-                f"`{INDEX_WRAPPER_SCRIPTS}/{name}` under {base} is not the "
+                f"`{name}` under {base} is not the "
                 f"copy in {HOOK_CHECKOUT}, the checkout this session's hooks "
                 "run from, so the skill's pre-approved `run-index` would run "
                 "code the tree you stand in supplies "
@@ -5726,6 +5730,7 @@ def index_wrapper_differs(command):
                 "the files here instead."
             )
     return None
+
 
 # Substitutions and evaluators both recurse, and a crafted nest of either would
 # otherwise reach Python's own limit — where the hook dies with a traceback
