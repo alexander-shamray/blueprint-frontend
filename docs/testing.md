@@ -260,20 +260,24 @@ node e2e/native-stream.mts           # places an order; or pass an order id
 ```
 
 The pid changes on every launch, so the forward is redone each time. Node
-warns that `environment.android.ts` was reparsed as an ES module; that is the
-type-stripping loader and not a failure.
+warns that `environment.android.ts` was reparsed as an ES module; that is its
+module detection and not a failure.
 
 Measured on 2026-10-18, on the API 36 AVD with Android System WebView
-`133.0.6943.137`, from origin `https://localhost`: the `placed` event arrived
-11 ms after the request, the `out_of_stock` that followed it at 2,015 ms —
-the server's two-second poll — and a keep-alive at 12,021 ms, each while the
-response was still open (`readyState` 3), and the server ended the stream at
-14,025 ms. So the WebView delivers the stream as it is written and does not
+`133.0.6943.137`, from origin `https://localhost`, over `fetch` read as
+`FetchBackend` reads it: the `placed` event arrived 13 ms after the request,
+the `out_of_stock` that followed it at 2,012 ms — the server's two-second
+poll — and a keep-alive at 12,022 ms, each from a body read that resolved
+while the response was still open, and the server ended the stream at
+14,024 ms. So the WebView delivers the stream as it is written and does not
 hold it until the end. The second request, carrying the first's last id as
 `Last-Event-ID`, passed its preflight and was answered with the `retry:` hint
-and keep-alives and no event, so nothing the client held was sent again. Not
-observed: the same through the app's own `OrderPlacedPage`, which needs the
-signed-in round trip above, and anything on iOS, which no host here can run.
+and a keep-alive and no event, so nothing the client held was sent again.
+Not observed: the same through the app's own `OrderPlacedPage`, which needs
+the signed-in round trip above; the client reopening the stream on its own
+when the server's lifetime ends, which the script does by hand instead; the
+close on `delivered`, which an order for an out-of-stock product never reaches;
+and anything on iOS, which no host here can run.
 
 ## What no unit test covers
 

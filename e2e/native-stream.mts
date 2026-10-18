@@ -12,21 +12,24 @@
  * when each chunk arrived. It opens the stream twice: the second time with
  * the first's last id as `Last-Event-ID`, the request a reconnect makes.
  *
- * What it answers is the transport: `HttpClient` here is the XHR backend
- * (`app.config.ts` asks for no `withFetch()`), whose download progress event
- * carries `responseText` as `partialText`, so an XHR with a progress
- * listener is what `OrdersApi.stream` stands on. A WebView that buffers the
- * response shows every chunk at the stream's end instead of as it was written.
+ * What it answers is the transport. `provideHttpClient()` installs
+ * `FetchBackend` unless `withXhr()` asks otherwise, and `app.config.ts` does
+ * not, so `OrdersApi.stream` stands on `fetch`: its download progress events
+ * are the body's `getReader()` reads, decoded and appended into
+ * `partialText`. This reads the body the same way and times each read. A
+ * WebView that buffers the response shows every read at the stream's end
+ * instead of as it was written.
  */
 import { environment } from '../src/app/core/config/environment.android.ts';
 import { GATEWAY, KEYCLOAK } from './helpers.ts';
 
 const DEVTOOLS = 'http://localhost:9222';
 
+/** One `read()` of the body: when it resolved, and what the text received so far holds. */
 interface Chunk {
   readonly ms: number;
-  readonly readyState: number;
   readonly length: number;
+  readonly retry: boolean;
   readonly statuses: readonly string[];
   readonly keepAlives: number;
 }
@@ -88,35 +91,41 @@ async function placeOrder(token: string): Promise<string> {
  * A 404 is the read not having recorded the order yet (§12), and is retried.
  */
 function inWebView(url: string, token: string, lastEventId: string | null): Promise<Run> {
-  const open = () =>
-    new Promise<Omit<Run, 'notFound'>>((resolve) => {
-      const xhr = new XMLHttpRequest();
-      const start = performance.now();
-      const chunks: Chunk[] = [];
-      xhr.open('GET', url);
-      xhr.setRequestHeader('Authorization', `Bearer ${token}`);
-      xhr.setRequestHeader('Accept', 'text/event-stream');
-      if (lastEventId !== null) xhr.setRequestHeader('Last-Event-ID', lastEventId);
-      xhr.onprogress = () => {
-        const text = xhr.responseText;
+  const open = async (): Promise<Omit<Run, 'notFound'>> => {
+    const start = performance.now();
+    const headers: Record<string, string> = {
+      Authorization: `Bearer ${token}`,
+      Accept: 'text/event-stream',
+    };
+    if (lastEventId !== null) headers['Last-Event-ID'] = lastEventId;
+
+    const response = await fetch(url, { headers });
+    const chunks: Chunk[] = [];
+    let text = '';
+    if (response.body !== null) {
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        text += decoder.decode(value, { stream: true });
         chunks.push({
           ms: Math.round(performance.now() - start),
-          readyState: xhr.readyState,
           length: text.length,
+          retry: /^retry: \d+$/m.test(text),
           statuses: [...text.matchAll(/"status":"([a-z_]+)"/g)].map((match) => match[1]),
           keepAlives: (text.match(/^: keep-alive$/gm) ?? []).length,
         });
-      };
-      xhr.onloadend = () =>
-        resolve({
-          origin: location.origin,
-          status: xhr.status,
-          endMs: Math.round(performance.now() - start),
-          ids: [...xhr.responseText.matchAll(/^id: (.+)$/gm)].map((match) => match[1]),
-          chunks,
-        });
-      xhr.send();
-    });
+      }
+    }
+    return {
+      origin: location.origin,
+      status: response.status,
+      endMs: Math.round(performance.now() - start),
+      ids: [...text.matchAll(/^id: (.+)$/gm)].map((match) => match[1]),
+      chunks,
+    };
+  };
 
   return (async () => {
     for (let notFound = 0; ; notFound++) {
