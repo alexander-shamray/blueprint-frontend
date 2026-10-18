@@ -2,7 +2,9 @@ import { HttpClient, HttpParams } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 import { environment } from '@core/config/environment';
-import { CursorPage, ProductSummary, PublishProductCommand } from './types';
+import {
+  CursorPage, OwnProduct, ProductSummary, PublishProductCommand, WithdrawProductRequest,
+} from './types';
 
 /**
  * Catalog.Api/Endpoints/ProductEndpoints.cs, through the gateway. The gateway
@@ -52,5 +54,33 @@ export class CatalogApi {
    */
   publish(command: PublishProductCommand): Observable<string> {
     return this.http.post<string>(this.base, command);
+  }
+
+  /**
+   * The caller's own products, newest first, withdrawn ones included
+   * (backend ADR-074). Behind `catalog:write` at the endpoint, and at the edge
+   * the gateway's literal `catalog-own` route rather than `catalog-public`,
+   * because this read names a caller: it is `authenticated` and draws on the
+   * `authenticated` bucket, which `isPublicCatalogueRead` says. A cursor the
+   * listing minted reads as the first page here, so the two never share one.
+   */
+  mine(cursor: string | null, limit = 20): Observable<CursorPage<OwnProduct>> {
+    let params = new HttpParams().set('limit', limit);
+    if (cursor !== null) params = params.set('cursor', cursor);
+
+    return this.http.get<CursorPage<OwnProduct>>(`${this.base}/mine`, { params });
+  }
+
+  /**
+   * Final: nothing undoes a withdrawal, and a second one, under any id, is the
+   * 422 `product.withdrawn` (ADR-074). Another seller's product is the 404
+   * `product.not_found`, never a 403, because a 403 would confirm it exists.
+   * A POST, so `catalog-write` routes it; 204 on success, with no body.
+   */
+  withdraw(productId: string, request: WithdrawProductRequest): Observable<void> {
+    return this.http.post<void>(
+      `${this.base}/${encodeURIComponent(productId)}/withdrawal`,
+      request,
+    );
   }
 }

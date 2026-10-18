@@ -60,6 +60,34 @@ export interface PublishProductCommand {
   readonly currency: string;
 }
 
+/**
+ * Catalog.Application/Products/GetOwnProducts/OwnProductDto.cs — `OwnProductDto`.
+ * One row of `GET /v1/catalog/products/mine`: the listing's row and the one
+ * field the public reads hide, because a seller's own list keeps a withdrawn
+ * product where the listing leaves it out (backend ADR-074).
+ */
+export interface OwnProduct {
+  readonly productId: string;
+  readonly name: string;
+  readonly thumbnailUrl: string | null;
+  readonly amount: number;
+  readonly currency: string;
+  readonly publishedAt: string;
+  /** Null while the product is on sale. A withdrawal is final, so a stamped row never clears. */
+  readonly withdrawnAt: string | null;
+  /** `ProductSummary.quantityAvailable`'s null: never reported, not none. */
+  readonly quantityAvailable: number | null;
+}
+
+/**
+ * Catalog.Api/Endpoints/ProductEndpoints.cs — `WithdrawProductRequest`. The
+ * product is the route's, so the body is the key alone, under the same
+ * idempotency a publish has (backend ADR-058).
+ */
+export interface WithdrawProductRequest {
+  readonly commandId: string;
+}
+
 /** Web.Bff/Endpoints/QuoteRequest.cs — `QuoteRequestLine`. */
 export interface QuoteRequestLine {
   readonly productId: string;
