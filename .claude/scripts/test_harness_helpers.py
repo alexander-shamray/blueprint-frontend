@@ -5458,9 +5458,13 @@ class TheGitArgvGuard(unittest.TestCase):
                 "bash ./.claude/skills/codebase-index/scripts/run-index stats",
                 cwd=scratch)
             bare = run[len("bash "):]
-            # Round 1 of #254's review: an option's value read as the
-            # script, another shell, and the wrapper run as the program.
-            spellings = ("bash -o errexit " + bare, "sh " + bare, "./" + bare)
+            # Rounds 1 and 2 of #254's review: an option's value read as the
+            # script, another shell, the wrapper run as the program, and the
+            # wrapper behind a launcher.
+            spellings = ("bash -o errexit " + bare, "sh " + bare, "./" + bare,
+                         "sh -o errexit " + bare,
+                         "env ./" + bare, "nohup ./" + bare,
+                         "timeout 5 ./" + bare)
             for command in spellings:
                 self.assertAdmitted(command, cwd=scratch)
             for name in names:
@@ -5490,7 +5494,8 @@ class TheGitArgvGuard(unittest.TestCase):
         self.assertIn("#146", self.assertRefused("cd docs && " + run, cwd=root))
         # `env` moves the directory as well (round 1 of #254's review).
         for command in ("env -C docs " + run, "env --chdir=docs " + run,
-                        "env -iC docs " + run, "env --ch docs " + run):
+                        "env -iC docs " + run, "env --ch docs " + run,
+                        "env -C docs ./" + run[len("bash "):]):
             with self.subTest(command=command):
                 self.assertIn("#146", self.assertRefused(command, cwd=root))
 
@@ -10503,6 +10508,10 @@ class TestCodebaseIndexSkillGrants(unittest.TestCase):
                     "export CBX_NO_SKILL_AUTO_UPDATE=1", uncommented(name))
         self.assertIn(
             '$env:CBX_NO_SKILL_AUTO_UPDATE = "1"', uncommented("cbx.ps1"))
+        # Set inside the `try` whose `finally` puts it back (round 2 of
+        # #254's review), so the caller's own value outlives the script.
+        self.assertIn('try {\n    $env:CBX_NO_SKILL_AUTO_UPDATE = "1"',
+                      uncommented("cbx.ps1"))
 
     def test_every_wrapper_keeps_the_working_directory_off_sys_path(self):
         # alexander-shamray/blueprint-frontend#151: the fallback to
@@ -10538,7 +10547,9 @@ class TestCodebaseIndexSkillGrants(unittest.TestCase):
         # in a `finally`, and the one exit after it is the only way out
         # (round 1 of #254's review).
         self.assertIn("$savedSafePath = $env:PYTHONSAFEPATH", body)
-        self.assertIn("} finally {\n    $env:PYTHONSAFEPATH = $savedSafePath", body)
+        self.assertIn("$savedAutoUpdate = $env:CBX_NO_SKILL_AUTO_UPDATE", body)
+        self.assertIn("} finally {\n    $env:PYTHONSAFEPATH = $savedSafePath\n"
+                      "    $env:CBX_NO_SKILL_AUTO_UPDATE = $savedAutoUpdate", body)
         self.assertEqual(["exit 2", "exit $code"],
                          re.findall(r"exit \S+", body))
 

@@ -5678,10 +5678,11 @@ def index_wrapper_offence(command):
     """The reason to refuse the skill's `run-index` from here, or `None`.
 
     On the raw words, as `helper_argument_offence` reads a helper's, and
-    wider than it (round 1 of alexander-shamray/blueprint-frontend#254's
-    review): the wrapper run as the program, or any shell handed it anywhere
-    after the shell's name. Reading the first word that is not an option as
-    the script took `errexit` for it in `bash -o errexit …/run-index`.
+    wider than it (rounds 1 and 2 of alexander-shamray/blueprint-frontend#254's
+    review): the wrapper wherever `launched` places a program — first, or
+    behind `env`, `nohup`, `timeout 5` and the rest — or any shell handed it
+    anywhere after the shell's name. Reading the first word that is not an
+    option as the script took `errexit` for it in `bash -o errexit …/run-index`.
     """
     for run in raw_runs(command):
         start = 0
@@ -5691,8 +5692,9 @@ def index_wrapper_offence(command):
         if not words or program_name(words[0]) in (
                 DATA_ONLY_COMMANDS | READING_COMMANDS):
             continue
-        if INDEX_WRAPPER.match(words[0]):
-            return index_wrapper_differs(command, ())
+        for index, word in enumerate(words):
+            if INDEX_WRAPPER.match(word) and launched(words, index):
+                return index_wrapper_differs(command, words[:index])
         for position, word in enumerate(words):
             if program_name(word) not in EVALUATORS:
                 continue
@@ -5708,8 +5710,8 @@ def index_wrapper_differs(command, leading):
     **A directory change anywhere in the command is refused outright**: the
     copy bash then reaches is not the one under the event's directory, and
     following `cd` through groups and subshells is the emulation this file
-    refuses to guess at. `env -C` in front of the shell, the words in
-    `leading`, is one too. A directory holding no wrapper is admitted, since
+    refuses to guess at. `env -C` in front of the shell or the wrapper, the
+    words in `leading`, is one too. A directory holding no wrapper is admitted, since
     bash finds nothing there to run.
     """
     if changes_directory(command) or any(

@@ -8,7 +8,6 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$env:CBX_NO_SKILL_AUTO_UPDATE = "1"
 $probe = "import sys; sys.version_info >= (3, 12) or sys.exit(1); import codebase_index"
 $allowed = @(
     "search", "explain", "architecture", "symbol", "refs", "impact", "diff-impact",
@@ -20,16 +19,19 @@ if ($allowed -notcontains $Subcommand) {
     exit 2
 }
 
-# As scripts/cbx: the working directory off `sys.path`, and the hooks' 3.12
-# floor checked before the probe imports anything
-# (alexander-shamray/blueprint-frontend#151). A script runs in its caller's
-# process, so the variable is put back in the `finally`, and the one exit
-# after it is the only way out, rather than left set for every later
-# `python` the caller starts (round 1 of #254's review).
+# As scripts/cbx: the skill's auto-update disabled, the working directory off
+# `sys.path`, and the hooks' 3.12 floor checked before the probe imports
+# anything (alexander-shamray/blueprint-frontend#151). A script runs in its
+# caller's process, so both variables are put back in the `finally`, and the
+# one exit after it is the only way out, rather than left set for every later
+# `python` or `codebase-index` the caller starts (rounds 1 and 2 of #254's
+# review).
 $savedSafePath = $env:PYTHONSAFEPATH
+$savedAutoUpdate = $env:CBX_NO_SKILL_AUTO_UPDATE
 $saved = $ErrorActionPreference
 $code = $null
 try {
+    $env:CBX_NO_SKILL_AUTO_UPDATE = "1"
     $env:PYTHONSAFEPATH = "1"
     $bin = Get-Command codebase-index -ErrorAction SilentlyContinue
     if ($bin) {
@@ -57,6 +59,7 @@ try {
     }
 } finally {
     $env:PYTHONSAFEPATH = $savedSafePath
+    $env:CBX_NO_SKILL_AUTO_UPDATE = $savedAutoUpdate
     $ErrorActionPreference = $saved
 }
 if ($null -eq $code) {
