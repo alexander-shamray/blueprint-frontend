@@ -49,13 +49,18 @@ import { stockLabel, stockOf } from './stock';
         to a filter over page one.
       -->
       <!--
-        maxlength as an attribute: the Angular wrapper does not declare it as
-        an input, and the web component reads it from the attribute.
+        maxlength as an attribute: the standalone IonSearchbar this file
+        imports from '@ionic/angular' declares no maxlength input (the lazy
+        proxies do), and the web component reads it from the attribute.
         onSearch() cuts to the same ceiling either way.
+
+        No [value] binding: the box owns what is typed. Binding the trimmed
+        search back would strip a trailing space mid-word, after each
+        debounce, and "red lamp" would be searched as "redlamp".
       -->
       <ion-toolbar>
         <ion-searchbar placeholder="Search products" aria-label="Search products"
-          [debounce]="300" [attr.maxlength]="maxSearchLength" [value]="search()"
+          [debounce]="300" [attr.maxlength]="maxSearchLength"
           (ionInput)="onSearch($event.detail.value)" />
       </ion-toolbar>
       <ion-toolbar>
@@ -181,13 +186,18 @@ export class ProductsPage {
   private readonly searchSignal = signal('');
   /** What the sort control holds: the next restart's `sort`. */
   private readonly sortSignal = signal<ProductSort>('newest');
-  /** The search the rows on screen answer, for the empty state's sentence and the end line. */
+  /**
+   * The search the rows on screen answer, for the empty state's sentence and
+   * the end line. Set when a restart's first page replaces the rows, not when
+   * the restart is asked: until then, and after a failed restart, the rows
+   * are the old query's (#202) and the words must be too.
+   */
   private readonly searchedSignal = signal('');
 
   readonly search = this.searchSignal.asReadonly();
   readonly sort = this.sortSignal.asReadonly();
   readonly searched = this.searchedSignal.asReadonly();
-  protected readonly maxSearchLength = MAX_SEARCH_LENGTH;
+  readonly maxSearchLength = MAX_SEARCH_LENGTH;
 
   /**
    * Bumped by `reload()`. `load()` captures the generation it was called
@@ -235,7 +245,10 @@ export class ProductsPage {
    * still a restart. Cleared only by a first page that lands.
    */
   private readonly restartingSignal = signal(false);
-  /** A publish asked for a refresh inside a blocked window; the listing is stale until it is taken. */
+  /**
+   * A publish asked for a refresh, or the search or sort changed, inside a
+   * blocked window; the listing is stale until the restart is taken.
+   */
   private readonly refreshHeld = signal(false);
 
   // Writable only inside this class — CartStore.lines and CommandIdentity's
@@ -378,7 +391,6 @@ export class ProductsPage {
     const q = this.searchSignal();
     const sort = this.sortSignal();
     this.query = { q: q === '' ? undefined : q, sort: sort === 'newest' ? undefined : sort };
-    this.searchedSignal.set(q);
     this.restartingSignal.set(true);
     this.load(done);
   }
@@ -480,6 +492,7 @@ export class ProductsPage {
         this.loadingSignal.set(false);
         this.errorSignal.set(null);
         this.availability.record(page.items);
+        if (this.restartingSignal()) this.searchedSignal.set(this.query.q ?? '');
         this.productsSignal.update((existing) =>
           this.restartingSignal() ? page.items : [...existing, ...page.items],
         );
