@@ -901,6 +901,36 @@ describe('PublishPage', () => {
       controller.expectNone(ISSUE);
     });
 
+    it('gives a new owner’s upload its own replay, after the last owner spent theirs', async () => {
+      const unauthorized = () =>
+        controller
+          .expectOne(ISSUE)
+          .flush({ title: 'Unauthorized', status: 401 }, { status: 401, statusText: '' });
+
+      picked = png();
+      await fixture.componentInstance.chooseImage();
+      unauthorized();
+      await fixture.whenStable();
+      unauthorized(); // the one replay, refused again
+      await fixture.whenStable();
+      controller.expectNone(ISSUE);
+
+      user.set({
+        username: 'other', subject: 'subject-other', permissions: ['catalog:write'], expiresAt: 0,
+      });
+      fixture.detectChanges();
+      await fixture.whenStable();
+
+      picked = png();
+      await fixture.componentInstance.chooseImage();
+      unauthorized();
+      await fixture.whenStable();
+      controller.expectOne(ISSUE).flush(GRANT);
+      controller.expectOne(STORE).flush(null);
+      await fixture.whenStable();
+      expect(fixture.componentInstance.image()?.status).toBe('uploaded');
+    });
+
     it('shows a sign-in that fails under the image', async () => {
       signIn.mockImplementation(async () => {
         throw 'discovery failed';
