@@ -562,10 +562,16 @@ and `Program.cs` defines the two it names:
 | Route | Match | Policy | Budget |
 | --- | --- | --- | --- |
 | `catalog-public` | `GET /api/v1/catalog/**` | `anonymous` | fixed window, 100/min, keyed on remote IP, no queue |
-| `catalog-write` | `POST /api/v1/catalog/**` | `authenticated` | token bucket, 300/min, keyed on the subject claim, queue of 10 |
+| `catalog-own` | `GET /api/v1/catalog/products/mine` | `authenticated` | token bucket, 300/min, keyed on the subject claim, queue of 10 |
+| `catalog-write` | `POST /api/v1/catalog/**` | `authenticated` | " |
 | `ordering` | `/api/v1/orders/**` | `authenticated` | " |
 | `inventory-admin` | `/api/v1/inventory/**` | `authenticated` | " |
 | `web-bff` | `/bff/**` | `authenticated` | " |
+
+`catalog-own` is the one `GET` under the catalogue prefix that `catalog-public`
+does not take: a seller's own list names a caller, so it has a literal route,
+and YARP prefers a literal path over a catch-all (backend ADR-074).
+`isPublicCatalogueRead` makes the same exception.
 
 Two things in that table are easy to get wrong, and this client got both wrong
 in turn. The first is that the *method* is part of the route: publish POSTs to
