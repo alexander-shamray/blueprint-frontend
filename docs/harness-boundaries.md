@@ -480,6 +480,18 @@ the Store alias, present on `PATH` and not Python; `python` goes last because
 pinned only where the launcher can pin it: `python3` and `python` are whatever
 the host provides.
 
+**It hands the interpreter a Windows path where there is one
+(alexander-shamray/blueprint-frontend#143).** Under Git for Windows `pwd`
+prints `/c/dev/...`, and MSYS converts that for a native program only when the
+argument holds no apostrophe. In a checkout under `O'Brien` Python received the
+unconverted path, read it as `C:\c\dev\O'Brien\...` and could not open it, so
+every guard exited 2 and refused every `Bash`, `Edit` and `Write` call: loud,
+and fail-closed, but total. The launcher asks `pwd -W`, which prints
+`C:/dev/...` and needs no conversion; `dash` and the bash of a POSIX host
+reject the option and `pwd` answers there. `test_harness_helpers.py` runs a
+hook from a path holding an apostrophe under `sh` and `bash`, on every platform
+of the matrix.
+
 **It runs each candidate before choosing one, and remembers only that the
 first of them passed (blueprint-admin#44, ported for blueprint-frontend#62).**
 The probe was a second interpreter start on every `Bash`, `Edit` and `Write`
@@ -1786,10 +1798,16 @@ lagged HEAD. `PostToolUse` now matches `Bash` beside the four edit tools. A
 Bash event names no file, so its `cwd` decides, and that follows the shell
 into a worktree. A call that wrote nothing costs one detached `update` that
 changes nothing, coalesced behind the lock below, and a checkout with no index
-and none to seed starts no worker at all. **The PowerShell tool is not in the
-matcher**: its name as hook events report it is unconfirmed, and an
-alternative naming no real tool is silently inert
-(alexander-shamray/blueprint-frontend#142).
+and none to seed starts no worker at all. **The matcher names the PowerShell
+tool beside Bash (alexander-shamray/blueprint-frontend#142).** A commit or a
+pull run through it fired no refresh, so the index described the replaced tree
+while reporting itself fresh. The name was the open question, because an
+alternative naming no real tool is silently inert and the registration tests
+pass on it: 112 calls recorded in this workstation's transcripts carry
+`PowerShell` as the tool name, the search hint's `PreToolUse` entry already
+matches it, and blueprint-backend#515 settled the same name. Every shell call
+is a refresh trigger; the hook needs no code change, since a shell event names
+no file and its `cwd` decides.
 
 **Every git call one event makes shares one deadline**, because the hook
 is synchronous and `settings.json` gives it five seconds: validation and
