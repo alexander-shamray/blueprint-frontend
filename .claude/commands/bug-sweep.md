@@ -291,9 +291,9 @@ tracked, say so in the summary.
 - **The enforcing half is `disallowed-tools`, not an absent `allowed-tools`
   entry**: `Edit`, `Write` and `NotebookEdit` are denied by name, `git push
   origin` and its `-u` form are denied by name because the global allow would
-  otherwise take them, and the deny wins because precedence is deny first
-  (why: docs/commands/security-sweep.md, *What this command does not do*), and the raw `gh issue create` and the hand
-  route are denied.
+  otherwise take them (the deny wins because precedence is deny first), and
+  the raw `gh issue create` and the hand route are denied. (why:
+  docs/commands/security-sweep.md, *What this command does not do*)
 - **That is narrower than read-only, and the gap is `Bash`**: a redirection
   through a granted command can still write. The redirection half is closed
   since #20; an interpreter reached through a granted command is not.
