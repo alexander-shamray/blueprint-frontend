@@ -241,11 +241,34 @@ class TrailerHelper(Fixture):
             with self.subTest(pr=bad):
                 self.assertEqual(2, self.run_helper(TRAILER, pr=bad).returncode)
 
+    def test_the_repositorys_own_hooks_do_not_run_inside_the_rewrite(self):
+        # **The difference from the backend's suite (blueprint-frontend#180).** A `post-rewrite` hook in the
+        # repository's hooks directory runs after an amend or a rebase; this helper rewrites published history,
+        # so it points `core.hooksPath` at an empty directory for the run. The positive control comes first: the
+        # same hook does fire on a plain amend in this fixture, so its silence afterwards is the helper's doing.
+        self.two_commit_branch()
+        hook = '"$WORK/.git/hooks/post-rewrite"'
+        marker = '"$ROOT/hook-ran"'
+        made = sh(f'printf "#!/bin/sh\\ntouch {marker}\\n" > {hook} && chmod +x {hook}', WORK=self.work, ROOT=self.root)
+        self.assertEqual(0, made.returncode, made.stderr)
+        self.git("commit", "-q", "--amend", "--no-edit")
+        self.assertEqual(0, sh(f'test -e {marker}', ROOT=self.root).returncode, "the control hook never fired")
+        self.assertEqual(0, sh(f'rm {marker}', ROOT=self.root).returncode)
+        self.git("push", "-q", "--force", "origin", "HEAD")
+        out = self.run_helper(TRAILER)
+        self.assertEqual(0, out.returncode, out.stderr)
+        self.assertEqual(1, sh(f'test -e {marker}', ROOT=self.root).returncode, "the host's hook ran inside the helper")
+
     def test_the_helper_spells_its_rewrite_and_its_lease_itself(self):
         code = "\n".join(code_lines(TRAILER.read_text(encoding="utf-8")))
         self.assertIn('--force-with-lease="refs/heads/$branch:$remote"', code)
         self.assertNotIn("git push --force ", code)
         self.assertNotIn("git push -f", code)
+        # And the replay's flags, spelled for the reason git-rebase-onto-main.sh spells them.
+        for flag in ("--no-rebase-merges", "--no-update-refs", "--no-autosquash", "--no-fork-point", "--no-autostash"):
+            with self.subTest(flag=flag):
+                self.assertIn(flag, code)
+        self.assertIn("core.hooksPath", code)
 
 
 class RevertHelper(Fixture):
