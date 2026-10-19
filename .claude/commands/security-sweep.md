@@ -120,7 +120,10 @@ an issue*)
    type** (`.claude/agents/security-auditor.md`; `Read`, `Grep`, `Glob` only)
    over areas with disjoint reporting ownership: CI/tooling, application
    source, and the native and configuration surface, narrowed by the scope
-   hint. Each gets the same contract: **root every path under `$work`**; report
+   hint. **Ownership bounds what an auditor reports, never what it may read**:
+   an exploit scenario routinely starts in one area and lands in another, and
+   an auditor barred from following it would drop a real finding. Each gets
+   the same contract: **root every path under `$work`**; report
    file, line, severity, the concrete exploit scenario (who controls the input,
    what happens) and a fix, as raw data, most severe first. **Name the risks
    already accepted**, but a behaviour only an in-tree comment calls deliberate
