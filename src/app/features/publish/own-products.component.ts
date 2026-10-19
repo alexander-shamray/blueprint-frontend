@@ -1,5 +1,6 @@
 import {
-  ChangeDetectionStrategy, Component, Signal, computed, effect, inject, signal, untracked,
+  ChangeDetectionStrategy, Component, Signal, WritableSignal, computed, effect, inject, signal,
+  untracked,
 } from '@angular/core';
 import { DatePipe } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
@@ -110,12 +111,14 @@ function splitAmountErrors(fields: Readonly<Record<string, readonly string[]>> |
               -->
               <div slot="end" class="reprice" role="group" [attr.aria-label]="'Reprice ' + product.name">
                 <ion-input type="number" inputmode="decimal" [formControl]="priceControl"
-                  [label]="'New price in ' + product.currency" data-testid="price-input"></ion-input>
+                  [autofocus]="true" [label]="'New price in ' + product.currency"
+                  data-testid="price-input"></ion-input>
                 @for (message of priceMessages(); track $index) {
-                  <ion-note class="field-error" color="danger" data-field="amount">{{ message }}</ion-note>
+                  <ion-note class="field-error" color="danger" data-field="amount"
+                    role="alert">{{ message }}</ion-note>
                 }
-                @if (isRepricing()) {
-                  <ion-note data-testid="repricing">Saving…</ion-note>
+                @if (isRepricing(product)) {
+                  <ion-note data-testid="repricing" role="status">Saving…</ion-note>
                 }
                 <ion-button fill="solid" data-testid="confirm-reprice"
                   [disabled]="priceControl.invalid || rateLimit.blocked()"
@@ -203,10 +206,17 @@ export class OwnProductsComponent {
 
   /** The product whose price is being typed, if any: one editor at a time. */
   private readonly pricingSignal = signal<string | null>(null);
-  /** Reprice requests out: a count, since a second press sends a second request. */
-  private readonly repricingSignal = signal(0);
-  /** A 400's messages for the amount, which sit under the field and leave the banner. */
-  private readonly priceMessagesSignal = signal<readonly string[]>([]);
+  /** Reprice requests out, per product: a count, since a second press sends a second request. */
+  private readonly repricingSignal = signal<ReadonlyMap<string, number>>(new Map());
+  /**
+   * A 400's messages for the amount, which sit under the field and leave the
+   * banner. Held with the product they are about: the field is shared by the
+   * rows, and a late answer for one must not appear under another's editor.
+   */
+  private readonly priceMessagesSignal = signal<{
+    readonly productId: string;
+    readonly messages: readonly string[];
+  } | null>(null);
   /**
    * One id per product's reprice, apart from its withdrawal's: they are two
    * commands, and the backend keys each on its own operation. Held across a
@@ -230,8 +240,11 @@ export class OwnProductsComponent {
   readonly confirming: Signal<string | null> = this.confirmingSignal.asReadonly();
   /** The product whose price is open for typing. */
   readonly pricing: Signal<string | null> = this.pricingSignal.asReadonly();
-  readonly isRepricing = computed(() => this.repricingSignal() > 0);
-  readonly priceMessages: Signal<readonly string[]> = this.priceMessagesSignal.asReadonly();
+  /** The amount's messages for the open editor, and only for it. */
+  readonly priceMessages = computed<readonly string[]>(() => {
+    const held = this.priceMessagesSignal();
+    return held !== null && held.productId === this.pricingSignal() ? held.messages : [];
+  });
 
   readonly showSkeleton = computed(
     () => this.loadingSignal() && this.productsSignal().length === 0 && this.errorSignal() === null,
@@ -269,8 +282,10 @@ export class OwnProductsComponent {
     // The messages were about the value that was sent, so they go with it.
     this.priceControl.valueChanges.subscribe(() => {
       const productId = this.pricingSignal();
-      if (productId !== null) this.priceIdentities.get(productId)?.onEdit();
-      this.priceMessagesSignal.set([]);
+      if (productId !== null) {
+        this.priceIdentities.get(productId)?.onEdit();
+        this.clearPriceMessages(productId);
+      }
     });
 
     // `ProductsPage`'s refresh effects, for the same reason: the Publish tab
@@ -305,9 +320,9 @@ export class OwnProductsComponent {
         this.priceIdentities.clear();
         this.replayedAfterSignIn.clear();
         this.pendingSignal.set(new Map());
-        this.repricingSignal.set(0);
+        this.repricingSignal.set(new Map());
         this.pricingSignal.set(null);
-        this.priceMessagesSignal.set([]);
+        this.priceMessagesSignal.set(null);
         this.confirmingSignal.set(null);
         this.actionErrorSignal.set(null);
         this.productsSignal.set([]);
@@ -464,7 +479,7 @@ export class OwnProductsComponent {
   askToReprice(product: OwnProduct): void {
     this.actionErrorSignal.set(null);
     this.confirmingSignal.set(null);
-    this.priceMessagesSignal.set([]);
+    this.priceMessagesSignal.set(null);
     this.pricingSignal.set(product.productId);
     // Without the event: seeding the field is not an edit of it.
     this.priceControl.setValue(product.amount, { emitEvent: false });
@@ -472,7 +487,12 @@ export class OwnProductsComponent {
 
   cancelReprice(): void {
     this.pricingSignal.set(null);
-    this.priceMessagesSignal.set([]);
+    this.priceMessagesSignal.set(null);
+  }
+
+  /** Whether a reprice of this product is out. */
+  isRepricing(product: OwnProduct): boolean {
+    return (this.repricingSignal().get(product.productId) ?? 0) > 0;
   }
 
   /**
@@ -487,20 +507,24 @@ export class OwnProductsComponent {
    */
   reprice(product: OwnProduct): void {
     const amount = this.priceControl.value;
-    if (
-      product.withdrawnAt !== null ||
-      amount === null ||
-      this.priceControl.invalid ||
-      this.rateLimit.blocked()
-    ) {
-      return;
-    }
+    if (this.priceControl.invalid || amount === null) return;
+    this.sendReprice(product, amount);
+  }
+
+  /**
+   * The send, with the amount given. A replay after a sign-in goes through
+   * here with the amount it was refused with, because the field is shared by
+   * the rows and the seller may have opened another by the time the sign-in
+   * returns: re-reading it would send that row's amount under this row's id.
+   */
+  private sendReprice(product: OwnProduct, amount: number): void {
+    if (product.withdrawnAt !== null || this.rateLimit.blocked()) return;
 
     const identity = this.priceIdentityFor(product.productId);
     const changesAtIssue = this.subjectChanges;
-    this.repricingSignal.update((count) => count + 1);
+    this.adjustCount(this.repricingSignal, product.productId, +1);
     this.actionErrorSignal.set(null);
-    this.priceMessagesSignal.set([]);
+    this.clearPriceMessages(product.productId);
 
     this.catalog
       .changePrice(product.productId, {
@@ -511,12 +535,12 @@ export class OwnProductsComponent {
       .subscribe({
         next: () => {
           if (this.subjectChanges !== changesAtIssue) return;
-          this.repricingSignal.update((count) => count - 1);
+          this.adjustCount(this.repricingSignal, product.productId, -1);
           this.repriced(product.productId);
         },
         error: (failure: unknown) => {
           if (this.subjectChanges !== changesAtIssue) return;
-          this.repricingSignal.update((count) => count - 1);
+          this.adjustCount(this.repricingSignal, product.productId, -1);
           const displayed = mapError(failure, { permission: PERMISSIONS.catalogWrite });
           identity.onFailure(displayed);
 
@@ -540,7 +564,7 @@ export class OwnProductsComponent {
 
           if (displayed.kind === 'validation') {
             const { amount: messages, rest } = splitAmountErrors(displayed.fields);
-            this.priceMessagesSignal.set(messages);
+            this.priceMessagesSignal.set({ productId: product.productId, messages });
             this.actionErrorSignal.set({
               ...displayed,
               fields: Object.keys(rest).length > 0 ? rest : undefined,
@@ -552,7 +576,9 @@ export class OwnProductsComponent {
 
           // Spec §6's 401 row, as a withdrawal answers it.
           if (displayed.kind === 'signIn') {
-            this.signInAndReplay(`price:${product.productId}`, () => this.reprice(product));
+            this.signInAndReplay(`price:${product.productId}`, () =>
+              this.sendReprice(product, amount),
+            );
             return;
           }
 
@@ -587,7 +613,12 @@ export class OwnProductsComponent {
     this.priceIdentities.delete(productId);
     this.replayedAfterSignIn.delete(`price:${productId}`);
     if (this.pricingSignal() === productId) this.pricingSignal.set(null);
-    this.priceMessagesSignal.set([]);
+    this.clearPriceMessages(productId);
+  }
+
+  /** Clears the amount's messages if they are this product's, and leaves another row's alone. */
+  private clearPriceMessages(productId: string): void {
+    if (this.priceMessagesSignal()?.productId === productId) this.priceMessagesSignal.set(null);
   }
 
   private priceIdentityFor(productId: string): CommandIdentity {
@@ -609,9 +640,18 @@ export class OwnProductsComponent {
   }
 
   private setPending(productId: string, pending: boolean): void {
-    this.pendingSignal.update((current) => {
+    this.adjustCount(this.pendingSignal, productId, pending ? 1 : -1);
+  }
+
+  /** Moves one product's count of requests out by a step, and drops the entry at zero. */
+  private adjustCount(
+    counts: WritableSignal<ReadonlyMap<string, number>>,
+    productId: string,
+    step: 1 | -1,
+  ): void {
+    counts.update((current) => {
       const next = new Map(current);
-      const count = Math.max(0, (next.get(productId) ?? 0) + (pending ? 1 : -1));
+      const count = Math.max(0, (next.get(productId) ?? 0) + step);
       if (count === 0) next.delete(productId);
       else next.set(productId, count);
       return next;
