@@ -10478,13 +10478,17 @@ class ARememberedGuardAnswersAsAProbedOne(LauncherMarkCases, unittest.TestCase):
         probed, remembered = self.both(box)
         self.assertEqual((0, 0), (probed.returncode, remembered.returncode))
         self.assertEqual(probed.stdout, remembered.stdout)
-        guard = os.path.normcase(str(box.hooks / "guard-git-argv.py"))
+        guard = box.hooks / "guard-git-argv.py"
         seen = json.loads(remembered.stdout)
-        self.assertEqual(["__main__", guard, guard, 1, True], seen[:5])
-        # `sys.path[0]` is spelled as the interpreter spells it — through the
-        # link on macOS, where the temp root is one into `/private`, and in
-        # the short form on a Windows runner — so it is asked to be the hooks
-        # directory rather than to be spelled like it.
+        self.assertEqual(["__main__", 1, True], [seen[0], seen[3], seen[4]])
+        # The paths are spelled as the interpreter spells them — through the
+        # link on macOS, where the temp root is one into `/private`, and on a
+        # Windows runner in the long form, where the launcher's `pwd -W`
+        # expands the short `RUNNER~1` the temp root is given in
+        # (blueprint-frontend#143) — so each is asked to be the file or the
+        # hooks directory rather than to be spelled like it.
+        self.assertTrue(os.path.samefile(seen[1], guard), seen[1])
+        self.assertTrue(os.path.samefile(seen[2], guard), seen[2])
         self.assertTrue(os.path.samefile(seen[5], box.hooks), seen[5])
 
     def test_a_guard_that_fails_falls_the_same_way_on_both_paths(self):
