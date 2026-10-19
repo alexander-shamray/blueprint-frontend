@@ -1,11 +1,13 @@
 import {
-  ChangeDetectionStrategy, Component, DestroyRef, computed, effect, inject, signal, untracked,
+  ChangeDetectionStrategy, Component, DestroyRef, LOCALE_ID, computed, effect, inject, signal,
+  untracked,
 } from '@angular/core';
 import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
+import { FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
 import { ActivatedRoute } from '@angular/router';
 import { map } from 'rxjs';
 import {
-  IonButton, IonChip, IonContent, IonHeader, IonItem, IonLabel, IonNote, IonSegment,
+  IonButton, IonChip, IonContent, IonHeader, IonInput, IonItem, IonLabel, IonNote, IonSegment,
   IonSegmentButton, IonTitle, IonToolbar,
 } from '@ionic/angular';
 import { SavedAddressApi } from '@core/api/saved-address.api';
@@ -13,6 +15,8 @@ import { Address } from '@core/api/types';
 import { AuthService } from '@core/auth/auth.service';
 import { APPEARANCES, Appearance, AppearanceStore } from '@core/theme/appearance.store';
 import { DisplayError, mapError } from '@core/errors/error-mapper';
+import { ADDRESS_FIELDS, AddressField, splitAddressErrors } from '@shared/address/address-errors';
+import { countryOptions } from '@shared/address/countries';
 import { ErrorBannerComponent } from '@shared/error-banner.component';
 
 /** Spec §5.6. */
@@ -20,10 +24,16 @@ import { ErrorBannerComponent } from '@shared/error-banner.component';
   selector: 'app-account',
   standalone: true,
   imports: [
-    IonButton, IonChip, IonContent, IonHeader, IonItem, IonLabel, IonNote, IonSegment,
-    IonSegmentButton, IonTitle, IonToolbar, ErrorBannerComponent,
+    IonButton, IonChip, IonContent, IonHeader, IonInput, IonItem, IonLabel, IonNote, IonSegment,
+    IonSegmentButton, IonTitle, IonToolbar, ReactiveFormsModule, ErrorBannerComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
+  styles: `
+    .field-error { display: block; padding: .25rem 1rem 0; font-size: .875rem; }
+    .country { flex: 0 0 auto; margin-right: 1rem; }
+    select { flex: 1; min-height: 2.75rem; background: transparent; color: inherit;
+             border: none; font: inherit; }
+  `,
   template: `
     <ion-header><ion-toolbar><ion-title>Account</ion-title></ion-toolbar></ion-header>
 
@@ -63,22 +73,78 @@ import { ErrorBannerComponent } from '@shared/error-banner.component';
           </ion-label>
         </ion-item>
 
-        @if (savedAddress(); as address) {
-          <ion-item data-testid="saved-address">
-            <ion-label>
-              <h3>Saved delivery address</h3>
-              <p>{{ address.line1 }}</p>
-              @if (address.line2) {
-                <p>{{ address.line2 }}</p>
-              }
-              <p>{{ address.postalCode }} {{ address.city }}, {{ address.country }}</p>
-              <ion-note>Offered at checkout. Save a different one there to replace it.</ion-note>
-            </ion-label>
-          </ion-item>
-          <ion-button expand="block" fill="outline" data-testid="forget-address"
-            (click)="forgetAddress()">
-            Forget this address
-          </ion-button>
+        @if (editingAddress()) {
+          <!--
+            The saved address, being edited. The same five fields as the order's
+            form, and the 400's messages for them sit under the control they
+            concern, as there; what is typed is held only while the editor is
+            open, and a sign-out closes it.
+          -->
+          <form [formGroup]="addressForm" (ngSubmit)="saveAddress()" data-testid="address-form">
+            <ion-item><ion-input label="Line 1" formControlName="line1" required></ion-input></ion-item>
+            @for (message of addressMessages().line1 ?? []; track $index) {
+              <ion-note class="field-error" color="danger" role="alert" data-field="line1">{{ message }}</ion-note>
+            }
+            <ion-item><ion-input label="Line 2" formControlName="line2"></ion-input></ion-item>
+            @for (message of addressMessages().line2 ?? []; track $index) {
+              <ion-note class="field-error" color="danger" role="alert" data-field="line2">{{ message }}</ion-note>
+            }
+            <ion-item><ion-input label="City" formControlName="city" required></ion-input></ion-item>
+            @for (message of addressMessages().city ?? []; track $index) {
+              <ion-note class="field-error" color="danger" role="alert" data-field="city">{{ message }}</ion-note>
+            }
+            <ion-item>
+              <ion-input label="Postal code" formControlName="postalCode" required></ion-input>
+            </ion-item>
+            @for (message of addressMessages().postalCode ?? []; track $index) {
+              <ion-note class="field-error" color="danger" role="alert" data-field="postalCode">{{ message }}</ion-note>
+            }
+            <ion-item>
+              <label class="country" for="account-country">Country</label>
+              <select id="account-country" formControlName="country" required>
+                <option value="" disabled>Choose a country</option>
+                @for (option of countries; track option.code) {
+                  <option [value]="option.code">{{ option.name }}</option>
+                }
+              </select>
+            </ion-item>
+            @for (message of addressMessages().country ?? []; track $index) {
+              <ion-note class="field-error" color="danger" role="alert" data-field="country">{{ message }}</ion-note>
+            }
+            <ion-button expand="block" type="submit" data-testid="save-address"
+              [disabled]="addressForm.invalid || savingAddress()">
+              @if (savingAddress()) { Saving… } @else { Save address }
+            </ion-button>
+            <ion-button expand="block" fill="clear" type="button" data-testid="cancel-address"
+              (click)="cancelEditAddress()">Cancel</ion-button>
+          </form>
+        } @else {
+          @if (savedAddress(); as address) {
+            <ion-item data-testid="saved-address">
+              <ion-label>
+                <h3>Saved delivery address</h3>
+                <p>{{ address.line1 }}</p>
+                @if (address.line2) {
+                  <p>{{ address.line2 }}</p>
+                }
+                <p>{{ address.postalCode }} {{ address.city }}, {{ address.country }}</p>
+                <ion-note>Offered at checkout, where you can also save a different one.</ion-note>
+              </ion-label>
+            </ion-item>
+            <ion-button expand="block" fill="outline" data-testid="edit-address"
+              (click)="editAddress()">
+              Change this address
+            </ion-button>
+            <ion-button expand="block" fill="outline" data-testid="forget-address"
+              (click)="forgetAddress()">
+              Forget this address
+            </ion-button>
+          } @else {
+            <ion-button expand="block" fill="outline" data-testid="add-address"
+              (click)="editAddress()">
+              Add a delivery address
+            </ion-button>
+          }
         }
 
         <ion-button expand="block" (click)="signOut()">Sign out</ion-button>
@@ -118,13 +184,38 @@ export class AccountPage {
   private readonly currentUser = this.auth.user();
 
   /**
-   * The signed-in buyer's saved delivery address, shown for them to see and
-   * forget. Held only while they are signed in: it is personal data, so a
-   * sign-out, or a different buyer, empties it before anything else happens.
-   * Changing it is done at checkout, where it is entered.
+   * The signed-in buyer's saved delivery address, shown for them to see,
+   * change and forget. Held only while they are signed in: it is personal data,
+   * so a sign-out, or a different buyer, empties it before anything else
+   * happens. Checkout can also replace it, by saving a different one there.
    */
   private readonly savedAddressState = signal<Address | null>(null);
   readonly savedAddress = this.savedAddressState.asReadonly();
+
+  /**
+   * The editor. The same five members as the order's form, with the same
+   * required set (`PlaceOrderValidator` and the saved address's own validator
+   * ask for the same things), and the server judges the values, a prefilled
+   * one like a typed one. `Validators.required` accepts nothing else here that
+   * would matter: these are text.
+   */
+  readonly addressForm = new FormGroup({
+    line1: new FormControl('', { nonNullable: true, validators: Validators.required }),
+    line2: new FormControl('', { nonNullable: true }),
+    city: new FormControl('', { nonNullable: true, validators: Validators.required }),
+    postalCode: new FormControl('', { nonNullable: true, validators: Validators.required }),
+    country: new FormControl('', { nonNullable: true, validators: Validators.required }),
+  });
+  private readonly editingState = signal(false);
+  private readonly savingState = signal(false);
+  private readonly addressMessagesState = signal<
+    Partial<Record<AddressField, readonly string[]>>
+  >({});
+  readonly editingAddress = this.editingState.asReadonly();
+  readonly savingAddress = this.savingState.asReadonly();
+  /** A 400's messages for the editor's controls, by control. */
+  readonly addressMessages = this.addressMessagesState.asReadonly();
+  protected readonly countries = countryOptions(inject(LOCALE_ID));
 
   readonly username = computed(() => this.currentUser()?.username ?? null);
   readonly permissions = computed(() => this.currentUser()?.permissions ?? []);
@@ -206,11 +297,102 @@ export class AccountPage {
       const current = subject();
       untracked(() => {
         // Emptied first: a different buyer, or none, must never be left looking
-        // at the last one's address while the read is out.
+        // at the last one's address while the read is out, or at what they were
+        // typing into the editor.
         this.savedAddressState.set(null);
+        this.closeEditor();
         this.readSavedAddress(current);
       });
     });
+
+    // An edit after a refusal makes the refusal's messages stale: they were
+    // about the value that was sent.
+    for (const field of ADDRESS_FIELDS) {
+      this.addressForm.controls[field].valueChanges.subscribe(() => {
+        if (this.addressMessagesState()[field] === undefined) return;
+        this.addressMessagesState.update((messages) => {
+          const remaining = { ...messages };
+          delete remaining[field];
+          return remaining;
+        });
+      });
+    }
+  }
+
+  /** Opens the editor on the saved address, or empty when there is none. */
+  editAddress(): void {
+    this.errorState.set(null);
+    this.addressMessagesState.set({});
+    const saved = this.savedAddressState();
+    this.addressForm.reset({
+      line1: saved?.line1 ?? '',
+      line2: saved?.line2 ?? '',
+      city: saved?.city ?? '',
+      postalCode: saved?.postalCode ?? '',
+      country: saved?.country ?? '',
+    });
+    this.editingState.set(true);
+  }
+
+  cancelEditAddress(): void {
+    this.closeEditor();
+  }
+
+  /**
+   * Replaces the saved address with what is in the editor. The PUT is
+   * convergent (the same request leaves the row the first left), so there is no
+   * command id, and a second press needs no guard. The reply is the address as
+   * the server normalised it, and that is what is shown, not what was typed.
+   * A 400's messages for a control sit under it and leave the banner, which
+   * keeps only the keys no control here owns.
+   */
+  saveAddress(): void {
+    if (this.addressForm.invalid) return;
+
+    const value = this.addressForm.getRawValue();
+    const address: Address = {
+      ...value,
+      // Empty means absent, as the order's form sends it.
+      line2: value.line2.trim() === '' ? null : value.line2,
+    };
+    const request = ++this.latestRequest;
+    this.errorState.set(null);
+    this.addressMessagesState.set({});
+    this.savingState.set(true);
+
+    this.savedAddressApi.save(address).subscribe({
+      next: (saved) => {
+        // Dropped if the session moved on, or a forget came after: the editor
+        // belongs to whoever opened it.
+        if (request !== this.latestRequest) return;
+        this.savingState.set(false);
+        this.savedAddressState.set(saved);
+        this.closeEditor();
+      },
+      error: (failure: unknown) => {
+        if (request !== this.latestRequest) return;
+        this.savingState.set(false);
+        const displayed = mapError(failure);
+        if (displayed.kind === 'validation') {
+          const { byField, rest } = splitAddressErrors(displayed.fields, '');
+          this.addressMessagesState.set(byField);
+          this.errorState.set({
+            ...displayed,
+            fields: Object.keys(rest).length > 0 ? rest : undefined,
+          });
+          return;
+        }
+        this.errorState.set(displayed);
+      },
+    });
+  }
+
+  /** Closes the editor and drops what was typed: it is personal data. */
+  private closeEditor(): void {
+    this.editingState.set(false);
+    this.savingState.set(false);
+    this.addressMessagesState.set({});
+    this.addressForm.reset();
   }
 
   /**
