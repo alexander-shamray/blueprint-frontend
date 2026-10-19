@@ -24,6 +24,7 @@ CEILINGS = {
     "review-branch.md": 11700,
     "branch.md": 9900,
     "security-sweep.md": 14600,
+    "bug-sweep.md": 20400,
 }
 
 # `docs/commands/<name>.md, *<heading>*`, after whitespace is collapsed: the
