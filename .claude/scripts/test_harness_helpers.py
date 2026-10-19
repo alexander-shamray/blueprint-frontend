@@ -5922,7 +5922,9 @@ class TheGitArgvGuard(unittest.TestCase):
                     bound = [node.name]
                 elif isinstance(node, ast.Assign):
                     bound = [name.id for target in node.targets
-                             for name in ast.walk(target) if isinstance(name, ast.Name)]
+                             for name in ast.walk(target)
+                             if isinstance(name, ast.Name)
+                             and isinstance(name.ctx, ast.Store)]
                 elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
                     bound = [node.target.id]
                 else:
@@ -5939,6 +5941,8 @@ class TheGitArgvGuard(unittest.TestCase):
         self.assertEqual(["f"], rebound("f = 1\ndef f(): pass\n"))
         self.assertEqual(["B"], rebound("A, B = 1, 2\nB: int = 3\n"))
         self.assertEqual([], rebound("A = 1\nB = 2\n"))
+        # Filling a table is no rebinding: only a name stored to counts.
+        self.assertEqual([], rebound("A = {}\nA['k'] = 1\nA.x = 2\n"))
         hooks = sorted((SCRIPTS.parent / "hooks").glob("*.py"))
         self.assertIn(HOOK, hooks)
         for hook in hooks:
