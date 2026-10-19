@@ -223,6 +223,13 @@ the same PR. It waives nothing else. In particular:
 - `client-architecture.md` sections superseded with the old claim kept, never
   rewritten;
 - `main` stays green;
+- every commit carries `PR: #<n>`, and every intermediate commit lints and
+  builds. A pull request lands by rebase, so the trailer is the only record of
+  which pull request a commit on `main` came from: `/pr` adds it once the
+  number exists, `/commit` writes it after, and the commit gate refuses a
+  range without it. The `commits` job lints and builds each commit but the
+  head, which `web` covers, so `git bisect` meets only commits that build.
+  Reverting a pull request is `git-revert-pr.sh <n>`;
 - when a change closes an issue, `Closes #n` as a bare line, not only inside
   a table cell;
 - a kind label and a severity label on every issue;

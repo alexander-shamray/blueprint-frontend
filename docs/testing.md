@@ -115,6 +115,21 @@ section and states neither. The pin names the CLI only: its six dependencies
 wheel of the native ones, which a requirements file with `--require-hashes`
 would carry and this paragraph does not.
 
+**The commit gate needs a pull request's number and a base**, and reads git
+rather than `gh`, so a branch can run it once its pull request exists
+(#207):
+
+```bash
+git fetch origin main
+py -3.12 .github/commit-gate/commit_gate.py --pr <n> origin/main HEAD
+```
+
+Its own suite runs in the workflow that enforces it (`python -m unittest` in
+`.github/commit-gate/`); the two helpers it pairs with,
+`git-trailer-pr.sh` and `git-revert-pr.sh`, are covered by
+`test_git_pr_trailer_helpers.py` in the harness suite. Reverting a pull request
+is `bash .claude/scripts/git-revert-pr.sh <n>` from a working branch.
+
 **`npm test` must exit, not watch.** The Angular unit-test builder runs once
 and exits here, and `CI=true npm test` is how that is confirmed locally. A
 watch-mode test step does not fail a build — it consumes the job's entire

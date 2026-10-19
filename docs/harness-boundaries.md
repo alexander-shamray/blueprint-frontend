@@ -1575,8 +1575,9 @@ of this file instead of the shared-checkout path"*, measured on the PR that
 added this paragraph — so for `/branch`'s sessions the update is still reported
 as owed, and made once the session is back in the main checkout.
 
-**The eleventh was opened deliberately rather than found**, and it is the only
-force push in this repository. Branch updates are rebases now (#57), so a
+**The eleventh was opened deliberately rather than found**, and until
+`git-trailer-pr.sh` (below) it was the only force push in this repository.
+Branch updates are rebases now (#57), so a
 branch's published commits are rewritten, and `.claude/settings.json` denies
 `git push --force`, `--force-with-lease` and `-f` alike. **Those denies are
 untouched**, and the eighth entry's parser judges a push exactly as it did
@@ -1651,6 +1652,27 @@ there `/ship` step 0 reads the same thing for its own reasons; here it reads
 length against reading content at all. So nothing downstream would see the
 loss, and the check that refuses such a merge sits in the script that would
 otherwise have done the dropping, before it replays anything.
+
+**A second helper rewrites published commits, and is a second force push
+(#207).** `git-trailer-pr.sh` adds `PR: #<n>` to the commits of the branch
+checked out, which changes their SHAs, so it leases its push as the rebase
+helper does, and for the same reason keeps the repository's own hooks and the
+five `rebase.*` keys out of the replay (#180): it sets `core.hooksPath` to an
+empty directory through the environment once, before any git runs, and spells
+`--no-rebase-merges --no-update-refs --no-autosquash --no-fork-point
+--no-autostash`. The backend's helper of the same name does neither, and the
+difference is deliberate: the suite plants a `post-rewrite` hook, shows it
+fires on a plain amend, and shows the helper runs none. It takes one number and
+spells the `git rebase -x` command itself, so no `-x` grant stands beside it,
+and it refuses a pull request that is not an open, same-repository one into
+`main` for this branch, a dirty tree, a remote that differs from the checkout
+in either direction, a merge commit, and a commit that already names another
+pull request. Its residual is a push that fails after the rewrite: the local
+branch then carries the trailers and origin's does not, and a rerun finishes
+it, because a commit that has the trailer is skipped. It is granted to `/pr`
+and `/ship`, with the arguments held to plain words like every helper's.
+`git-revert-pr.sh` writes no remote: it reads trailers off `origin/main` and
+reverts on the current branch, and no command grants it; it is run by hand.
 
 **The sweeps' item 5 (#75) closed by the tenth entry's shape** — a second read-only
 dispatch returns a verdict, the parent opens nothing in `$work`, and the issue
