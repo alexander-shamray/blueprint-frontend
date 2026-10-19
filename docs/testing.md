@@ -87,9 +87,10 @@ each class its own temporary directory, because a class asserts what the
 shared one holds; runs the classes its `ALONE` set names, whose subject is a
 time limit, alone after the rest, because a host busy with every other class
 misses those limits for no fault of the code; and fails unless it ran every
-test discovery found. **CI keeps `python -m unittest discover`**, where the
-suite is already quick, so this is a local convenience and not a second gate:
-a case that passes here and fails there is still red.
+test discovery found. **CI keeps `python -m unittest discover`** because it is
+the gate — one spelling on all three runners, Windows included, and nothing
+between it and the suite — so this is a local convenience and not a second
+gate: a case that passes here and fails there is still red.
 
 **`npm test` must exit, not watch.** The Angular unit-test builder runs once
 and exits here, and `CI=true npm test` is how that is confirmed locally. A
