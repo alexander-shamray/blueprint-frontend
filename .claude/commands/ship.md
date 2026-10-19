@@ -1,7 +1,7 @@
 ---
 description: Start from a clean main, fork a worktree where one can be forked, branch, commit, push and open a PR, run the local review until a round has nothing open, then merge the PR and tear the workspace down. Decides for itself rather than stopping to ask
 argument-hint: "[what the change does] — omit and each step derives its own"
-allowed-tools: Read, Grep, Glob, Write, Skill, Agent(branch-reviewer), EnterWorktree, ExitWorktree, Bash(git status:*), Bash(git diff:*), Bash(git branch --list:*), Bash(git branch --show-current), Bash(git branch -a), Bash(git log:*), Bash(bash .claude/scripts/git-fetch-origin.sh:*), Bash(git show:*), Bash(bash .claude/scripts/git-branch-create.sh:*), Bash(bash .claude/scripts/git-worktree-fork.sh:*), Bash(bash .claude/scripts/git-switch-existing.sh:*), Bash(bash .claude/scripts/git-rebase-onto-main.sh:*), Bash(git rev-parse:*), Bash(git worktree list:*), Bash(ls:*), Bash(git add:*), Bash(git commit:*), Bash(bash .claude/scripts/git-unstage.sh:*), Bash(git push -u origin:*), Bash(git push origin:*), Bash(wc:*), Bash(bash .claude/scripts/gh-pr-create.sh), Bash(bash .claude/scripts/pr-state.sh:*), Bash(bash .claude/scripts/pr-for-branch.sh:*), Bash(gh pr checks:*), Bash(bash .claude/scripts/gh-pr-merge.sh:*), Bash(bash .claude/scripts/git-pull-ff-only.sh), Bash(git merge-base --is-ancestor:*), Bash(bash .claude/scripts/git-worktree-remove.sh:*), Bash(git worktree prune:*), Bash(sleep:*), Bash(bash .claude/scripts/pr-locality.sh:*), Bash(bash .claude/scripts/npm-checks.sh:*), Bash(bash .claude/scripts/gh-issue-create.sh:*)
+allowed-tools: Read, Grep, Glob, Write, Skill, Agent(branch-reviewer), EnterWorktree, ExitWorktree, Bash(git status:*), Bash(git diff:*), Bash(git branch --list:*), Bash(git branch --show-current), Bash(git branch -a), Bash(git log:*), Bash(bash .claude/scripts/git-fetch-origin.sh:*), Bash(git show:*), Bash(bash .claude/scripts/git-branch-create.sh:*), Bash(bash .claude/scripts/git-worktree-fork.sh:*), Bash(bash .claude/scripts/git-switch-existing.sh:*), Bash(bash .claude/scripts/git-rebase-onto-main.sh:*), Bash(git rev-parse:*), Bash(git worktree list:*), Bash(ls:*), Bash(git add:*), Bash(git commit:*), Bash(bash .claude/scripts/git-unstage.sh:*), Bash(git push -u origin:*), Bash(git push origin:*), Bash(wc:*), Bash(bash .claude/scripts/gh-pr-create.sh), Bash(bash .claude/scripts/pr-state.sh:*), Bash(bash .claude/scripts/pr-for-branch.sh:*), Bash(bash .claude/scripts/git-trailer-pr.sh:*), Bash(gh pr checks:*), Bash(bash .claude/scripts/gh-pr-merge.sh:*), Bash(bash .claude/scripts/git-pull-ff-only.sh), Bash(git merge-base --is-ancestor:*), Bash(bash .claude/scripts/git-worktree-remove.sh:*), Bash(git worktree prune:*), Bash(sleep:*), Bash(bash .claude/scripts/pr-locality.sh:*), Bash(bash .claude/scripts/npm-checks.sh:*), Bash(bash .claude/scripts/gh-issue-create.sh:*)
 disallowed-tools: Edit(.claude/**), Edit(./.claude/**), Edit(.github/**), Edit(./.github/**), Edit(.remember/**), Edit(./.remember/**), Edit(android/**), Edit(./android/**), Edit(ios/**), Edit(./ios/**), Edit(.git/**), Edit(./.git/**), Edit(.git), Edit(./.git), Edit(package.json), Edit(./package.json), Edit(package-lock.json), Edit(./package-lock.json), Edit(npm-shrinkwrap.json), Edit(./npm-shrinkwrap.json), Edit(.npmrc), Edit(./.npmrc), Edit(angular.json), Edit(./angular.json), Edit(tsconfig.json), Edit(./tsconfig.json), Edit(tsconfig.app.json), Edit(./tsconfig.app.json), Edit(tsconfig.spec.json), Edit(./tsconfig.spec.json), Edit(eslint.config.js), Edit(./eslint.config.js), Edit(.prettierrc), Edit(./.prettierrc), Edit(capacitor.config.ts), Edit(./capacitor.config.ts), Edit(playwright.config.ts), Edit(./playwright.config.ts), Edit(ionic.config.json), Edit(./ionic.config.json), Edit(.nvmrc), Edit(./.nvmrc), Edit(.editorconfig), Edit(./.editorconfig), Edit(.gitattributes), Edit(./.gitattributes), Edit(.gitignore), Edit(./.gitignore), Edit(CLAUDE.md), Edit(./CLAUDE.md), Edit(README.md), Edit(./README.md), Edit(**/*.config.js), Edit(**/*.config.cjs), Edit(**/*.config.mjs), Edit(**/vitest.config.ts), Edit(**/vite.config.ts), Edit(**/playwright.config.ts), Edit(**/capacitor.config.ts), Edit(**/*.config.mts), Edit(**/package.json), Edit(**/.npmrc), Edit(**/tsconfig*.json), Edit(**/.prettierrc*), Edit(node_modules/**), Edit(./node_modules/**), Edit(.mcp.json), Edit(./.mcp.json), Edit(.codeindexignore), Edit(./.codeindexignore), Agent(general-purpose), Agent(claude), Agent(Explore), Agent(Plan), Agent(claude-code-guide), Agent(statusline-setup), Bash(bash .claude/scripts/gh-sweep-issue-create.sh:*)
 ---
 
@@ -259,7 +259,9 @@ no PR, the commonest state step 1 produces; it keeps its job in step 6.
    action another person can see, so it gets a line in the report whether or
    not it did anything. `/pr` stops on an open PR from this branch; inside this
    chain, step 5 is that decision already made, and pushes that close review
-   findings update the PR without asking.
+   findings update the PR without asking. `/pr` also stamps the PR's number on
+   the branch's commits, before the first round, so the rewrite never forces a
+   recheck.
 
 5. **The local review.** Once the PR is open, review the branch in rounds of
    one `branch-reviewer` agent each (`.claude/agents/branch-reviewer.md`)
@@ -402,6 +404,10 @@ no PR, the commonest state step 1 produces; it keeps its job in step 6.
      merge commit and the landing is a rebase, so it can still be refused; that
      lands *before* the teardown, so report it rather than reaching for another
      method.
+   - **The wait names `commits` and `commit-gate`** (#207): it passes only when
+     the check list holds both beside the rest, because a pull request GitHub
+     started no workflows for lists nothing failing and `--fail-fast` exits 0.
+     A list missing either fails the wait, whatever the exit.
 
    **What resolves a stale branch is a rebase:**
 
