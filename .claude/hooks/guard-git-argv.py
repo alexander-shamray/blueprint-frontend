@@ -2027,16 +2027,16 @@ def expanded_target(literal, command):
 
 
 # **The application trees a command denies, judged only at a checkout's root.**
-# `/review-branch` denies `Edit(src/**)`, `docs/**`, `e2e/**` and `public/**`,
-# and a globally approved `ls > src/app/x.ts` wrote past every one of them —
-# the list above named the machinery and nothing a read-only review exists not
-# to touch. Raised by Copilot. A hook cannot see which command is running, so
-# the union of every command's denies is what it protects.
+# `/review-branch` denies `Edit(src/**)`, `docs/**`, `e2e/**`, `public/**` and
+# `tools/**`, and a globally approved `ls > src/app/x.ts` wrote past every one
+# of them — the list above named the machinery and nothing a read-only review
+# exists not to touch. Raised by Copilot. A hook cannot see which command is
+# running, so the union of every command's denies is what it protects.
 #
 # Matched as the FIRST component under the checkout containing the target,
 # not at any depth like the trees above: `src` and `docs` are ordinary names,
 # and refusing `/tmp/x/docs/out` would take scratch writes with them.
-APPLICATION_TREES = frozenset({"docs", "e2e", "public", "src"})
+APPLICATION_TREES = frozenset({"docs", "e2e", "public", "src", "tools"})
 
 
 def application_tree(literal):
