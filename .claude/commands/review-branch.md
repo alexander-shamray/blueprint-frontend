@@ -55,10 +55,11 @@ docs/commands/review-branch.md, *What counts as a finding*) Prefer:
    `bash .claude/scripts/pr-for-branch.sh` — prints one `class` line and one
    `inside <path>` or `outside <path>` line per changed file, and never the
    rows. Each `outside` line is a finding; its resolution is a narrower diff,
-   a row widened with its reason beside it, or a different class — never a row
-   widened silently (`docs/change-locality.md` §3). With no PR yet, or a body
-   carrying neither row, say so and skip the check rather than inferring a
-   class. **Nothing enforces the touch set here** (the locality gate was not
+   a row widened with its reason beside it when the path is inside the class's
+   tree set, or a different class when it is not — never a row widened
+   silently (`docs/change-locality.md` §3). Where the helper prints nothing or
+   cannot run — a `--local` review with no PR yet, or a body carrying neither
+   row — say so and skip the check rather than inferring a class. **Nothing enforces the touch set here** (the locality gate was not
    ported), so a skipped verdict leaves the rows unverified. **The verdict
    narrows and grants nothing.**
 
