@@ -6,6 +6,28 @@
     <base href="/" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <link rel="icon" type="image/x-icon" href="favicon.ico" />
+    <!--
+      The appearance, before first paint (#92). The stylesheet's dark sheet is
+      the class below, and the app puts it there once it has started; this does
+      it a moment earlier, from the stored choice and the device's own, so a
+      user who chose dark does not see a light flash. The key is Preferences'
+      on the web: group "CapacitorStorage", then the key AppearanceStore uses.
+      On native the stored choice is not in localStorage, so this follows the
+      device and the app corrects it at start-up, under the splash screen.
+    -->
+    <script>
+      (function () {
+        try {
+          var stored = localStorage.getItem('CapacitorStorage.appearance');
+          var dark =
+            stored === 'dark' ||
+            (stored !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches);
+          if (dark) document.documentElement.classList.add('ion-palette-dark');
+        } catch (failure) {
+          // Left on the light sheet; the app sets the class when it starts.
+        }
+      })();
+    </script>
   </head>
   <body>
     <app-root></app-root>
