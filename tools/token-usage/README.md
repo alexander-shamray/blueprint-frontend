@@ -1,0 +1,124 @@
+# The token-usage report
+
+[`docs/token-plan.md`](../../docs/token-plan.md) is the plan this directory
+measures for, and [`docs/token-usage.md`](../../docs/token-usage.md) holds the
+figures; this file records what a developer needs at the keyboard. Ported from
+blueprint-backend's `tools/token-usage` (blueprint-frontend#168), whose only
+change here is that `tools/quality-sets` is not ported, so the reading of its
+runs is kept and the runner is owed (`docs/token-plan.md`, *Owed*).
+
+```bash
+py -3.12 tools/token-usage/token_usage.py                      # this checkout's transcripts
+py -3.12 tools/token-usage/token_usage.py --since 2026-10-01 --json
+py -3.12 tools/token-usage/token_usage.py --since 2026-10-01 --spawns 40   # the costliest subagents and their tasks
+py -3.12 tools/token-usage/token_usage.py --since 2026-10-01 --tools 30    # what tool results put into main sessions
+py -3.12 tools/token-usage/token_usage.py --since 2026-10-01 --docs        # every tracked .md, who names it, how often it was opened
+py -3.12 tools/token-usage/token_usage.py --since 2026-10-01 --models      # each row split by the model that answered
+py -3.12 tools/token-usage/token_usage.py --session <id>      # one session and its subagents
+py -3.12 tools/token-usage/token_usage.py ~/.claude/projects/<dir> ...
+```
+
+It reads Claude Code's transcripts — a `<session>.jsonl` per session and a
+`<session>/subagents/agent-<id>.jsonl` per subagent — and sums each
+response's `usage` once, grouped by the slash command the session was
+running and by who answered: `main` for the session itself, the agent type
+for a subagent or for a session started as one, as each `tools/quality-sets`
+run is.
+
+| | |
+|---|---|
+| `contexts` | prompts for `main`, subagents spawned for an agent type |
+| `calls` | API responses, each counted once however many lines it was written across |
+| `mean_context` | what a call sent on average — fresh input, cache writes and cache reads — the context a turn re-sends |
+| `input`, `output` | uncached input and output |
+| `cache_write`, `cache_read` | the prompt cache's writes and reads |
+| `input_equivalent` | the input side priced as uncached input: writes at 1.25× (5-minute) or 2× (1-hour), reads at 0.1× |
+| `woken_equivalent` | the part of `input_equivalent` spent after a wake, before the next typed prompt |
+| `woken_write` | the part of `woken_equivalent` that was cache writes, priced 1.25× or 2× by their TTL: every cache write after a wake, new content and re-written context alike |
+
+**A command owns everything until the next prompt a person types**, so a
+command `/ship` loads through the `Skill` tool is counted as `/ship`, and a
+subagent belongs to the command running when it started. A harness command
+typed mid-run — `/compact`, `/reload-plugins`, `/model` and the others in
+`CARRY_ON` — does not end it. **A skill the session loads with no typed
+command** — a sweep a prompt asked for, a plugin's workflow — names the
+work after it as `skill:<name>`, until the next typed prompt or, for a
+plugin's skill, the next skill it loads; one of this repository's commands
+loaded as a skill keeps the commands it loads, as a typed one does. That
+can be long: a session that loads one skill and then runs a review loop on
+wakes counts the whole loop under it, so read what a skill costs from
+`--spawns` descriptions rather than from its row. **A prompt no person
+typed** — a task notification, a scheduled wake — keeps the label, because
+most are a background agent or CI watch reporting back inside the
+command's own run; what the session spent from the first such wake to the
+next typed prompt is `woken_equivalent`, beside `input_equivalent` and
+part of it. The first and last day counted go to stderr.
+`--spawns N` lists single subagents instead, costliest first, each with the
+description it was spawned with — which says why a command no one wrote to
+delegate spent most of its tokens in agents. `--tools N` lists the
+commands and tools whose results put the most text into main sessions,
+in characters and about a quarter as many tokens: what a large context is
+made of, since a result stays in it for every later turn. A subagent's type
+comes from its `.meta.json`, else from the parent's tool result naming it,
+else it is `subagent`.
+
+`--models` splits each command and agent row by the `message.model` of the
+responses it sums, adding a `model` column, so what a built-in agent such
+as `Explore` actually ran on is read rather than assumed; a response with
+no model is counted under `(unknown)`. It is a view of its own, like the
+others, and the total is the same as the default's.
+
+`--docs` lists every markdown file `git ls-files` tracks in the checkout it
+runs from, with how often a main session and a subagent opened it — with
+`Read`, or with `cat`, `head`, `tail`, `sed` or `Get-Content` in a shell —
+in how many `contexts`, a main session or a subagent each, and in how many
+of those `over_half` of its lines were read: a `Read` covers its `offset`
+for its `limit`, 2,000 lines when none is named; `head`, `tail` and a
+`Get-Content` count cover their lines, and so does a `sed -n` address, a
+line number or a pattern between slashes that the report finds in the
+file's text as sed would; a later stage of the pipe that counts lines,
+`head`, `tail`, `sed -n` or `Select-Object`, narrows them, `cat` or
+another printer passes them on, a `grep` covers the lines its result
+printed, by the numbers `-n` gives or else by their text in order,
+unless the call ran any other command but `cd <dir>`, `export NAME=value`
+or `set` with `-e`, `-u` or `-o <name>` or their `+` forms, and a stage
+the report cannot place, such as `sort`, covers none; and a call whose
+result was an error covers nothing, unless the error is a shell's non-zero
+exit, after which what the command printed still counts. A `|` or `;`
+inside quotes is part of a pattern, not a pipe or a second command. An
+agent's own session, as a `tools/quality-sets` run is, opens as a
+subagent. Each file is grouped by who
+names it: an `entry point` is a command, an agent or a skill's
+`SKILL.md`; `named by entry` is a file one of them names; `CLAUDE.md only`
+is one only `CLAUDE.md` names; `none` is the rest. A name is a path from
+the root or from the citing file, a base name no other tracked file has, or
+a template with a directory such as `docs/commands/<name>.md`. A read in a
+worktree, a sibling fork or the worktree a `tools/quality-sets` run read
+counts for the checkout's file, whatever that tree's commit. Each group's
+size, mean reads and never-read count go to stderr. It answers which
+documents a run never reaches, not which it needs: a file opened by `grep`
+or found through a link is not counted, and an unread file a person reads
+is not dead.
+
+The default directory is `~/.claude/projects/` plus the checkout's absolute
+path with every character that is not a letter or digit made a dash, which
+is how Claude Code names it — and, beside it, every directory whose name
+is that one followed by a dash: the worktrees `/branch` makes under
+`.claude/worktrees/` and the sibling forks it makes when that directory is
+not writable. A different checkout whose path only extends this one's is
+read too, so name such a directory explicitly when it matters. Run from a
+worktree, it reads the same set. **It also reads each `tools/quality-sets`
+run**, whose `claude -p` sessions Claude Code files under the run's
+worktree in the system temp directory: a directory named as that tool's
+`review_workspace` and `sweep_root` name them is counted under
+`quality-sets:review` or `quality-sets:sweep`, named on the command line
+or found by default. The directories read go to stderr. On a machine that
+has run blueprint-backend's runner, its rows appear in this report too.
+Transcripts are local to the machine that ran the sessions, so a baseline
+is measured there.
+
+Stdlib only, and the suite writes its transcripts to a temporary directory:
+
+```bash
+cd tools/token-usage && py -3.12 -m unittest discover -p 'test_*.py'
+```
