@@ -25,15 +25,11 @@ const WAIT_MS = 6_000;
 async function within<T>(
   what: string,
   work: Promise<T>,
-  stuck: () => string = () => '',
   ms = WAIT_MS,
 ): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const expired = new Promise<never>((_, reject) => {
-    timer = setTimeout(
-      () => reject(new Error(`${what} did not settle within ${ms} ms${stuck()}`)),
-      ms,
-    );
+    timer = setTimeout(() => reject(new Error(`${what} did not settle within ${ms} ms`)), ms);
   });
   try {
     return await Promise.race([work, expired]);
@@ -71,7 +67,6 @@ async function hydrated(root: Element): Promise<void> {
         await within(
           `${host.tagName.toLowerCase()}.componentOnReady()`,
           host.componentOnReady(),
-          () => '',
           HOST_WAIT_MS,
         );
       } catch (failure) {
@@ -575,14 +570,14 @@ describe('OwnProductsComponent', () => {
       expect(request.request.body.amount).toBe(54.9);
       expect(request.request.body.currency).toBe('EUR');
       expect(request.request.body.commandId).toMatch(/^[0-9a-f-]{36}$/);
-      expect(page().isRepricing()).toBe(true);
+      expect(page().isRepricing(page().products()[0])).toBe(true);
 
       request.flush(null, { status: 204, statusText: 'No Content' });
       await settle();
 
       expect(refresh.current()).toBe(before + 1);
       expect(page().pricing()).toBeNull();
-      expect(page().isRepricing()).toBe(false);
+      expect(page().isRepricing(page().products()[0])).toBe(false);
       // The server's price is the one shown: the row is read back, never patched.
       expect(page().products()[0].amount).toBe(12.5);
       mine().flush({ items: [{ ...product('a'), amount: 54.9 }], nextCursor: null });
@@ -856,9 +851,10 @@ describe('OwnProductsComponent', () => {
     it('drops a reply that lands for a subject who has gone', async () => {
       await listed(product('a'));
 
-      page().askToReprice(page().products()[0]);
+      const row = page().products()[0];
+      page().askToReprice(row);
       type(9);
-      page().reprice(page().products()[0]);
+      page().reprice(row);
       const request = controller.expectOne(priceOf('a'));
       user.set({
         username: 'other', subject: 'subject-other', permissions: ['catalog:write'], expiresAt: 0,
@@ -870,8 +866,121 @@ describe('OwnProductsComponent', () => {
       request.flush(null, { status: 204, statusText: 'No Content' });
       await settle();
 
-      expect(page().isRepricing()).toBe(false);
+      expect(page().isRepricing(row)).toBe(false);
       expect(page().actionError()).toBeNull();
+    });
+
+    it('replays the amount it was refused with, not whatever the shared field holds by then', async () => {
+      await listed(product('a'), product('b'));
+      let finishSignIn: () => void = () => undefined;
+      signIn.mockImplementation(() => new Promise<void>((resolve) => (finishSignIn = resolve)));
+
+      page().askToReprice(page().products()[0]);
+      type(9);
+      page().reprice(page().products()[0]);
+      const first = controller.expectOne(priceOf('a'));
+      const id = first.request.body.commandId;
+      first.flush({ title: 'Unauthorized', status: 401 }, { status: 401, statusText: '' });
+      await settle();
+
+      // While the sign-in is out, the seller opens another row and types there.
+      page().askToReprice(page().products()[1]);
+      type(77);
+      finishSignIn();
+      await settle();
+
+      const replay = controller.expectOne(priceOf('a'));
+      expect(replay.request.body.commandId).toBe(id);
+      expect(replay.request.body.amount).toBe(9);
+      expect(replay.request.body.currency).toBe('EUR');
+      replay.flush(null, { status: 204, statusText: 'No Content' });
+      await settle();
+      mine().flush({ items: [product('a'), product('b')], nextCursor: null });
+      await settle();
+    });
+
+    it('keeps one row’s late answer off another row’s open editor', async () => {
+      await listed(product('a'), product('b'));
+
+      page().askToReprice(page().products()[0]);
+      type(-1);
+      page().reprice(page().products()[0]);
+      const late = controller.expectOne(priceOf('a'));
+      expect(page().isRepricing(page().products()[0])).toBe(true);
+
+      page().askToReprice(page().products()[1]);
+      fixture.detectChanges();
+      expect(page().isRepricing(page().products()[1])).toBe(false);
+      expect(fixture.nativeElement.querySelector('[data-testid="repricing"]')).toBeNull();
+
+      late.flush(
+        { status: 400, errors: { Amount: ['Must be at least 0.'] } },
+        { status: 400, statusText: 'Bad Request' },
+      );
+      await settle();
+      fixture.detectChanges();
+
+      // B's editor is open and A's message is not under it.
+      expect(page().pricing()).toBe('b');
+      expect(page().priceMessages()).toEqual([]);
+      expect(fixture.nativeElement.querySelector('[data-field="amount"]')).toBeNull();
+    });
+
+    it('keeps one row’s success from clearing another row’s messages', async () => {
+      await listed(product('a'), product('b'));
+
+      page().askToReprice(page().products()[1]);
+      type(-1);
+      page().reprice(page().products()[1]);
+      controller.expectOne(priceOf('b')).flush(
+        { status: 400, errors: { Amount: ['Must be at least 0.'] } },
+        { status: 400, statusText: 'Bad Request' },
+      );
+      await settle();
+      expect(page().priceMessages()).toEqual(['Must be at least 0.']);
+
+      // A's reprice lands while B's editor, with its messages, is open.
+      const a = product('a');
+      (page() as unknown as { sendReprice(p: OwnProduct, n: number): void }).sendReprice(a, 5);
+      controller.expectOne(priceOf('a')).flush(null, { status: 204, statusText: 'No Content' });
+      await settle();
+
+      expect(page().pricing()).toBe('b');
+      expect(page().priceMessages()).toEqual(['Must be at least 0.']);
+      mine().flush({ items: [product('a'), product('b')], nextCursor: null });
+      await settle();
+    });
+
+    it('holds the id through an edit after a 502, and an id_reused then says the edit was not applied', async () => {
+      await listed(product('a'));
+
+      page().askToReprice(page().products()[0]);
+      type(9);
+      page().reprice(page().products()[0]);
+      const first = controller.expectOne(priceOf('a'));
+      const id = first.request.body.commandId;
+      first.flush({ title: 'Bad Gateway', status: 502 }, { status: 502, statusText: '' });
+      await settle();
+
+      // Edited after a failure that may have committed: the id stays, because
+      // a fresh one for a changed amount would be a second reprice if the first
+      // had landed.
+      type(10);
+      page().reprice(page().products()[0]);
+      const second = controller.expectOne(priceOf('a'));
+      expect(second.request.body.commandId).toBe(id);
+      expect(second.request.body.amount).toBe(10);
+      second.flush(
+        { title: 'Conflict', status: 409, code: 'command.id_reused' },
+        { status: 409, statusText: 'Conflict' },
+      );
+      await settle();
+
+      expect(page().actionError()?.kind).toBe('idReused');
+      expect(page().pricing()).toBeNull();
+      mine().flush({ items: [{ ...product('a'), amount: 9 }], nextCursor: null });
+      await settle();
+      expect(page().products()[0].amount).toBe(9);
     });
 
     it('stays shut while the gateway’s window is closed', async () => {
