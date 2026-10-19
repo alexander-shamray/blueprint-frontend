@@ -97,7 +97,15 @@ esac
 # runs sits beside it, so the launcher and the module it runs cannot come from
 # different checkouts. `CDPATH=` because a `CDPATH` set in the environment makes `cd`
 # print the directory it chose and land somewhere else.
-dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+#
+# **Under MSYS the interpreter is handed a Windows path, where there is one
+# (blueprint-frontend#143).** `pwd` prints `/c/dev/...`, which MSYS converts
+# for a native program only when the argument holds no apostrophe, so
+# `py -3.12 "/c/dev/O'Brien/.claude/hooks/x.py"` read the path as
+# `C:\c\dev\O'Brien\...` and every guarded call failed closed. `pwd -W`
+# prints `C:/dev/...`, which needs no conversion. Dash and the bash of a POSIX
+# host reject the option and exit non-zero, and `pwd` answers there.
+dir=$(CDPATH= cd -- "$(dirname -- "$0")" && { pwd -W 2>/dev/null || pwd; })
 
 # The candidate the probes below reach first on this host, found the way they
 # find it, and the name its mark goes by. It is the only candidate a mark may

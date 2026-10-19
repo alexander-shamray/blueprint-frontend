@@ -9418,17 +9418,73 @@ class TheHookWiringRunsOnMoreThanOneOperatingSystem(unittest.TestCase):
 
     LAUNCHER = SCRIPTS.parent / "hooks" / "run-guard.sh"
 
-    def commands(self):
+    def commands_by_event(self):
+        # **Every event the file registers, not `PreToolUse` alone (#152).**
+        # The entries under `PostToolUse`, `SessionStart` and
+        # `UserPromptSubmit` are hooks too, and a third wired there as
+        # `py -3.12 …` or past `run-guard.sh` would have passed both cases
+        # below: a gate that silently stopped covering the newest surface.
         settings = json.loads(SETTINGS.read_text(encoding="utf-8"))
-        return [
-            h.get("command", "")
-            for entry in settings.get("hooks", {}).get("PreToolUse", [])
-            for h in entry.get("hooks", [])
-        ]
+        return {
+            event: [
+                h.get("command", "")
+                for entry in entries
+                for h in entry.get("hooks", [])
+            ]
+            for event, entries in settings.get("hooks", {}).items()
+        }
+
+    def commands(self):
+        return [command
+                for found in self.commands_by_event().values()
+                for command in found]
+
+    def test_every_registered_event_holds_a_command_these_cases_judge(self):
+        # The subject test: what the two cases below are LOOKING AT, not what
+        # they found. An event registered with no command is one nothing here
+        # judges, and the four named are the ones wired today, so a reader who
+        # drops one of them from the file is told by this case and not by a
+        # silence.
+        by_event = self.commands_by_event()
+        self.assertLessEqual(
+            {"PreToolUse", "PostToolUse", "SessionStart", "UserPromptSubmit"},
+            set(by_event))
+        for event, found in by_event.items():
+            with self.subTest(event=event):
+                self.assertTrue(found, f"{event} is registered with no command")
+
+    def test_the_launcher_runs_a_hook_from_a_path_holding_an_apostrophe(self):
+        # blueprint-frontend#143: under MSYS the launcher handed the
+        # interpreter `/c/dev/O'Brien/...`, which MSYS leaves unconverted when
+        # the argument holds an apostrophe, so Python read `C:\c\dev\...`
+        # and every hook failed. On a POSIX host the case passes before and
+        # after; on Windows it is the one that fails without `pwd -W`.
+        parent = Path(tempfile.mkdtemp(prefix="launcher-apos-"))
+        self.addCleanup(shutil.rmtree, str(parent), ignore_errors=True)
+        hooks = parent / "O'Brien" / ".claude" / "hooks"
+        hooks.mkdir(parents=True)
+        for name in ("run-guard.sh", "run-guard.py", "guard-git-argv.py"):
+            shutil.copy2(self.LAUNCHER.parent / name, hooks / name)
+        event = json.dumps({"tool_name": "Bash",
+                            "tool_input": {"command": "ls > package.json"}})
+        shells = {BASH, shutil.which("sh")} - {None}
+        for shell in sorted(shells):
+            with self.subTest(shell=shell):
+                # The path travels in the environment, the way a hook wiring's
+                # `${CLAUDE_PROJECT_DIR}` does: as an argument it is re-parsed
+                # by MSYS's own command-line handling, which drops the
+                # apostrophe before the launcher ever runs.
+                out = subprocess.run(
+                    [shell, "-c", 'sh "$LAUNCHER" guard-git-argv.py'],
+                    input=event, capture_output=True, text=True,
+                    env={**os.environ,
+                         "LAUNCHER": str(hooks / "run-guard.sh")})
+                self.assertEqual(0, out.returncode, out.stderr)
+                self.assertIn("permissionDecision", out.stdout)
 
     def test_no_hook_command_names_a_windows_only_interpreter(self):
         found = self.commands()
-        self.assertTrue(found, "no PreToolUse hook is registered at all")
+        self.assertTrue(found, "no hook is registered at all")
         for command in found:
             with self.subTest(command=command):
                 self.assertNotIn("py -3.12", command)
@@ -10773,11 +10829,12 @@ class TestCodebaseIndexSkillGrants(unittest.TestCase):
                     if "Edit" in e.get("matcher", "").split("|")]
                 self.assertTrue(
                     matched, "no PostToolUse hook refreshes the index")
-                # And after every Bash call, which changes tracked files as
+                # And after every shell call, which changes tracked files as
                 # often as the edit tools do
-                # (alexander-shamray/blueprint-frontend#136).
+                # (alexander-shamray/blueprint-frontend#136, #142).
                 self.assertEqual(
-                    {"Edit", "Write", "MultiEdit", "NotebookEdit", "Bash"},
+                    {"Edit", "Write", "MultiEdit", "NotebookEdit", "Bash",
+                     "PowerShell"},
                     set(matched[0]["matcher"].split("|")))
                 # A hook of any other type is text Claude Code never runs.
                 self.assertEqual("command", matched[0]["hooks"][0]["type"])

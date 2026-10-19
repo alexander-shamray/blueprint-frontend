@@ -2119,11 +2119,15 @@ class TheRefreshIsWiredThroughTheLauncher(unittest.TestCase):
         for entry in self.entries_running_this_hook()["SessionStart"]:
             self.assertNotIn("matcher", entry)
 
-    def test_the_edit_entry_also_runs_after_every_bash_call(self):
+    def test_the_edit_entry_also_runs_after_every_shell_call(self):
         # blueprint-frontend#136: commits, pulls, rebases and edit scripts change tracked files
-        # through the shell. The four edit tools and Bash, and nothing else.
+        # through the shell, and #142 added the second shell tool, PowerShell,
+        # whose name hook events report as written here (112 calls in
+        # transcripts carry it). The four edit tools and both shells, and
+        # nothing else.
         [entry] = self.entries_running_this_hook()["PostToolUse"]
-        self.assertEqual({"Edit", "Write", "MultiEdit", "NotebookEdit", "Bash"},
+        self.assertEqual({"Edit", "Write", "MultiEdit", "NotebookEdit", "Bash",
+                          "PowerShell"},
                          set(entry["matcher"].split("|")))
 
     def test_the_launcher_admits_it(self):

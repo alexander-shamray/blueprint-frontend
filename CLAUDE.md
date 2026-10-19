@@ -219,7 +219,7 @@ rather than here. Four rules reach every session, so they stay:
   `hooks` name — which locates a compatible Python launcher before invoking
   the hook. The index refresh and the three hints are not guards. The refresh
   covers the checkout a change landed in — the edited file's, or the event's
-  `cwd` for a Bash call — after an edit, after every Bash call and
+  `cwd` for a shell call — after an edit, after every shell call and
   on a session start, seeding a worktree's index from the main checkout's,
   while the MCP server stays on the startup checkout. The query hint points a
   locate or impact prompt at the index, and the search hint refuses a
