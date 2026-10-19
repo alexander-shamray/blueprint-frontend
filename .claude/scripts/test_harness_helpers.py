@@ -11416,7 +11416,10 @@ class TheCodeIndexCliIsInstalledAtAPinnedVersion(unittest.TestCase):
 
     DOCS = SCRIPTS.parent.parent / "docs" / "testing.md"
     CLAUDE = SCRIPTS.parent.parent / "CLAUDE.md"
-    INSTALL = re.compile(r"pip install\s+codebase-index(?P<spec>\S*)")
+    # Any flags or quotes between `pip install` and the name (`-U`, `--user`,
+    # `"codebase-index"`), on the one line, and the specifier the name carries.
+    INSTALL = re.compile(
+        r"pip install[^\n]*?codebase-index(?P<spec>[^\s\"'`]*)")
 
     def test_the_owner_names_an_exact_version_and_a_wheel_hash(self):
         text = self.DOCS.read_text(encoding="utf-8")
@@ -11431,6 +11434,16 @@ class TheCodeIndexCliIsInstalledAtAPinnedVersion(unittest.TestCase):
                 with self.subTest(path=path.name, spec=match["spec"]):
                     self.assertRegex(match["spec"], r"^==\d+\.\d+\.\d+")
         self.assertGreater(found, 0, "no install instruction was found to judge")
+
+    def test_claude_md_cites_the_owner_instead_of_restating_the_install(self):
+        # CLAUDE.md names no version, so the case above finds nothing in it by
+        # design. What holds its half is that it points at the owner and that
+        # the owner says the pin is there: delete either and a reader is told
+        # to install the CLI with no version at all.
+        claude = self.CLAUDE.read_text(encoding="utf-8")
+        self.assertIn("`docs/testing.md` pins", claude)
+        self.assertIn("The code-index CLI is pinned",
+                      self.DOCS.read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":
