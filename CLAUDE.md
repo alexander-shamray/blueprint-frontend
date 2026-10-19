@@ -15,6 +15,7 @@ anything — is owned elsewhere and cited from here by name, never restated.
 | [`docs/superpowers/plans/2026-09-10-blueprint-frontend.md`](docs/superpowers/plans/2026-09-10-blueprint-frontend.md) | The delivery record, Tasks 0–20 — complete; cited for a task's title and order, never as current truth |
 | [`docs/harness-boundaries.md`](docs/harness-boundaries.md) | What the harness grants these commands, and refuses |
 | [`docs/commands/`](docs/commands/) | The argument behind each long command (`/ship`, `/branch`, `/bug-sweep`, `/security-sweep`, `/review-branch`): the command file is the runbook, resident while it runs, and each rule in it cites the section here that argues it. Read the one for a command before editing or disputing that command |
+| [`docs/token-plan.md`](docs/token-plan.md) | Where a session's tokens go and the steps that cut them; [`docs/token-usage.md`](docs/token-usage.md) holds the measurements and `tools/token-usage/` the report |
 | [`docs/style-guide.md`](docs/style-guide.md) | The prose, TypeScript and Angular dialect, and which rules a linter enforces |
 | [`docs/testing.md`](docs/testing.md) | What a checkout needs that `package.json` and `ci.yml` cannot say: the Playwright prerequisites, the worktree install, the setup file |
 | [`.claude/skills/codebase-index/`](.claude/skills/codebase-index/) | Query the local index before reading whole files |
@@ -51,6 +52,7 @@ android/, ios/         committed, not generated here; CI compiles the manifest a
 capacitor.config.ts    the one file that decides what `cap sync` writes into both
 .github/workflows/     ci — the jobs `docs/client-architecture.md` §14 names, including `harness`
 .claude/               commands, agents, hooks, scripts
+tools/                 token-usage/ — the report on where a session's tokens go
 docs/                  this file's table, above
 ```
 
