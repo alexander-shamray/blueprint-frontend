@@ -202,7 +202,7 @@ What an agent does instead of touring the corpus:
    the unit suite and the web build cover none of it.
 7. Commit with `/commit`; the body argues the change and, when the change
    closes an issue, carries a bare `Closes #n` line. Open the PR with `/pr`.
-8. In the review loops, a finding that asks for a restated count, a
+8. In the review, a finding that asks for a restated count, a
    "since PR-NN" sentence, or a corpus-wide rename of something whose owner
    site is already correct is answered by citing this file, not by editing.
 9. Stop. Do not open `CLAUDE.md` looking for a sentence that still names the
