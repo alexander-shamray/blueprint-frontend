@@ -3,8 +3,9 @@ import {
 } from '@angular/core';
 import { DatePipe } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
+import { FormControl, ReactiveFormsModule, Validators } from '@angular/forms';
 import {
-  IonButton, IonInfiniteScroll, IonInfiniteScrollContent, IonItem, IonLabel, IonList,
+  IonButton, IonInfiniteScroll, IonInfiniteScrollContent, IonInput, IonItem, IonLabel, IonList,
   IonListHeader, IonNote, IonThumbnail,
 } from '@ionic/angular';
 import { CatalogApi } from '@core/api/catalog.api';
@@ -19,9 +20,24 @@ import { ErrorBannerComponent } from '@shared/error-banner.component';
 import { MoneyPipe } from '@shared/money.pipe';
 import { SkeletonListComponent } from '@shared/skeleton-list.component';
 
+/** `Amount`'s messages from a 400, apart from the keys no control here owns. */
+function splitAmountErrors(fields: Readonly<Record<string, readonly string[]>> | undefined): {
+  readonly amount: readonly string[];
+  readonly rest: Readonly<Record<string, readonly string[]>>;
+} {
+  const rest: Record<string, readonly string[]> = {};
+  let amount: readonly string[] = [];
+  for (const [key, messages] of Object.entries(fields ?? {})) {
+    if (key.toLowerCase() === 'amount') amount = [...amount, ...messages];
+    else rest[key] = messages;
+  }
+  return { amount, rest };
+}
+
 /**
- * The seller's own products, under the Publish form, and the one action a
- * seller has on a product once it is out: withdrawing it (#107). Read from
+ * The seller's own products, under the Publish form, and the two actions a
+ * seller has on a product once it is out: repricing it (#176) and withdrawing
+ * it (#107). Read from
  * `GET /v1/catalog/products/mine`, newest first, withdrawn ones included with
  * the time they went, because the seller's list keeps what the public reads
  * hide (backend ADR-074). Both the read and the withdrawal are behind
@@ -41,9 +57,9 @@ import { SkeletonListComponent } from '@shared/skeleton-list.component';
   selector: 'app-own-products',
   standalone: true,
   imports: [
-    DatePipe, IonButton, IonInfiniteScroll, IonInfiniteScrollContent, IonItem, IonLabel, IonList,
-    IonListHeader, IonNote, IonThumbnail, EmptyStateComponent, ErrorBannerComponent, MoneyPipe,
-    SkeletonListComponent,
+    DatePipe, IonButton, IonInfiniteScroll, IonInfiniteScrollContent, IonInput, IonItem, IonLabel,
+    IonList, IonListHeader, IonNote, IonThumbnail, ReactiveFormsModule, EmptyStateComponent,
+    ErrorBannerComponent, MoneyPipe, SkeletonListComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -86,7 +102,27 @@ import { SkeletonListComponent } from '@shared/skeleton-list.component';
           </ion-label>
 
           @if (!product.withdrawnAt) {
-            @if (confirming() === product.productId) {
+            @if (pricing() === product.productId) {
+              <!--
+                The new price, in the currency the product already has: a price
+                cannot change currency (product.currency_fixed), so there is no
+                picker, and the amount goes out as typed.
+              -->
+              <div slot="end" class="reprice" role="group" [attr.aria-label]="'Reprice ' + product.name">
+                <ion-input type="number" inputmode="decimal" [formControl]="priceControl"
+                  [label]="'New price in ' + product.currency" data-testid="price-input"></ion-input>
+                @for (message of priceMessages(); track $index) {
+                  <ion-note class="field-error" color="danger" data-field="amount">{{ message }}</ion-note>
+                }
+                @if (isRepricing()) {
+                  <ion-note data-testid="repricing">Saving…</ion-note>
+                }
+                <ion-button fill="solid" data-testid="confirm-reprice"
+                  [disabled]="priceControl.invalid || rateLimit.blocked()"
+                  (click)="reprice(product)">Save</ion-button>
+                <ion-button fill="clear" data-testid="cancel-reprice" (click)="cancelReprice()">Cancel</ion-button>
+              </div>
+            } @else if (confirming() === product.productId) {
               <div slot="end" class="confirm" role="group" [attr.aria-label]="'Withdraw ' + product.name">
                 @if (isPending(product)) {
                   <ion-note data-testid="withdrawing">Withdrawing…</ion-note>
@@ -98,6 +134,8 @@ import { SkeletonListComponent } from '@shared/skeleton-list.component';
                 <ion-button fill="clear" (click)="cancelWithdraw()">Keep</ion-button>
               </div>
             } @else {
+              <ion-button slot="end" fill="clear" data-testid="reprice"
+                (click)="askToReprice(product)">Reprice</ion-button>
               <ion-button slot="end" fill="clear" color="danger" data-testid="withdraw"
                 (click)="askToWithdraw(product)">Withdraw</ion-button>
             }
@@ -117,6 +155,8 @@ import { SkeletonListComponent } from '@shared/skeleton-list.component';
   styles: `
     .withdrawn { color: var(--ion-color-medium); }
     .confirm { display: flex; align-items: center; gap: .25rem; }
+    .reprice { display: flex; flex-wrap: wrap; align-items: center; gap: .25rem; }
+    .field-error { display: block; font-size: .875rem; }
     .end { text-align: center; color: var(--ion-color-medium); padding: 1rem; }
   `,
 })
@@ -161,6 +201,26 @@ export class OwnProductsComponent {
   /** Withdrawals out, per product: a count, since a second press sends a second request. */
   private readonly pendingSignal = signal<ReadonlyMap<string, number>>(new Map());
 
+  /** The product whose price is being typed, if any: one editor at a time. */
+  private readonly pricingSignal = signal<string | null>(null);
+  /** Reprice requests out: a count, since a second press sends a second request. */
+  private readonly repricingSignal = signal(0);
+  /** A 400's messages for the amount, which sit under the field and leave the banner. */
+  private readonly priceMessagesSignal = signal<readonly string[]>([]);
+  /**
+   * One id per product's reprice, apart from its withdrawal's: they are two
+   * commands, and the backend keys each on its own operation. Held across a
+   * failure that may have committed; gone after a success.
+   */
+  private readonly priceIdentities = new Map<string, CommandIdentity>();
+
+  /**
+   * The new price. `Validators.required` and no more: it accepts `0`, which is
+   * a price (client-architecture §12, "A product may cost nothing"), and the
+   * rest of the rules are the backend's, answered per field.
+   */
+  readonly priceControl = new FormControl<number | null>(null, { validators: Validators.required });
+
   readonly products: Signal<readonly OwnProduct[]> = this.productsSignal.asReadonly();
   /** A page of the list failed to load. */
   readonly error: Signal<DisplayError | null> = this.errorSignal.asReadonly();
@@ -168,6 +228,10 @@ export class OwnProductsComponent {
   readonly actionError: Signal<DisplayError | null> = this.actionErrorSignal.asReadonly();
   /** The product whose Withdraw has been pressed once and waits on the second press. */
   readonly confirming: Signal<string | null> = this.confirmingSignal.asReadonly();
+  /** The product whose price is open for typing. */
+  readonly pricing: Signal<string | null> = this.pricingSignal.asReadonly();
+  readonly isRepricing = computed(() => this.repricingSignal() > 0);
+  readonly priceMessages: Signal<readonly string[]> = this.priceMessagesSignal.asReadonly();
 
   readonly showSkeleton = computed(
     () => this.loadingSignal() && this.productsSignal().length === 0 && this.errorSignal() === null,
@@ -200,6 +264,15 @@ export class OwnProductsComponent {
   constructor() {
     this.load();
 
+    // An edit after a validation failure releases the id, as the order form's
+    // does; after any other failure the id is held (`CommandIdentity.onEdit`).
+    // The messages were about the value that was sent, so they go with it.
+    this.priceControl.valueChanges.subscribe(() => {
+      const productId = this.pricingSignal();
+      if (productId !== null) this.priceIdentities.get(productId)?.onEdit();
+      this.priceMessagesSignal.set([]);
+    });
+
     // `ProductsPage`'s refresh effects, for the same reason: the Publish tab
     // root is cached for the session, so a construction loads once, and a
     // publish or a withdrawal asks for the reload through `CatalogRefresh`.
@@ -229,8 +302,12 @@ export class OwnProductsComponent {
       untracked(() => {
         this.subjectChanges++;
         this.identities.clear();
+        this.priceIdentities.clear();
         this.replayedAfterSignIn.clear();
         this.pendingSignal.set(new Map());
+        this.repricingSignal.set(0);
+        this.pricingSignal.set(null);
+        this.priceMessagesSignal.set([]);
         this.confirmingSignal.set(null);
         this.actionErrorSignal.set(null);
         this.productsSignal.set([]);
@@ -267,6 +344,7 @@ export class OwnProductsComponent {
 
   askToWithdraw(product: OwnProduct): void {
     this.actionErrorSignal.set(null);
+    this.cancelReprice();
     this.confirmingSignal.set(product.productId);
   }
 
@@ -320,7 +398,7 @@ export class OwnProductsComponent {
         // at the edge, so nothing was withdrawn, and the same command sent
         // again after a sign-in is the first one arriving with a token.
         if (displayed.kind === 'signIn') {
-          this.signInAndReplay(product);
+          this.signInAndReplay(`withdraw:${product.productId}`, () => this.withdraw(product));
           return;
         }
 
@@ -345,7 +423,7 @@ export class OwnProductsComponent {
    */
   private withdrawn(productId: string): void {
     this.identities.delete(productId);
-    this.replayedAfterSignIn.delete(productId);
+    this.replayedAfterSignIn.delete(`withdraw:${productId}`);
     this.confirmingSignal.set(null);
     // A second press's `request.in_progress` may have landed first; the
     // withdrawal it was waiting on is the answer that counts.
@@ -361,8 +439,8 @@ export class OwnProductsComponent {
    * page does not survive (spec §4.1); the native strategy returns with the
    * page still standing.
    */
-  private signInAndReplay(product: OwnProduct): void {
-    const replay = !this.replayedAfterSignIn.has(product.productId);
+  private signInAndReplay(key: string, resend: () => void): void {
+    const replay = !this.replayedAfterSignIn.has(key);
     const refusedSubject = this.auth.user()()?.subject ?? null;
     const changesAtRefusal = this.subjectChanges;
 
@@ -373,13 +451,152 @@ export class OwnProductsComponent {
           this.auth.user()()?.subject === refusedSubject &&
           this.subjectChanges === changesAtRefusal;
         if (replay && sameSubject) {
-          this.replayedAfterSignIn.add(product.productId);
-          this.withdraw(product);
+          this.replayedAfterSignIn.add(key);
+          resend();
         }
       },
       // `unknown`: signIn() can reject with a bare string (see CartPage.getQuote()).
       (failure: unknown) => this.actionErrorSignal.set(mapError(failure)),
     );
+  }
+
+  /** Opens the price for typing, with the product's own price in it. */
+  askToReprice(product: OwnProduct): void {
+    this.actionErrorSignal.set(null);
+    this.confirmingSignal.set(null);
+    this.priceMessagesSignal.set([]);
+    this.pricingSignal.set(product.productId);
+    // Without the event: seeding the field is not an edit of it.
+    this.priceControl.setValue(product.amount, { emitEvent: false });
+  }
+
+  cancelReprice(): void {
+    this.pricingSignal.set(null);
+    this.priceMessagesSignal.set([]);
+  }
+
+  /**
+   * Sends the typed amount and the product's own currency, under an id that
+   * belongs to this product's reprice. Refused here as well as by the binding:
+   * a product already withdrawn, a blank or invalid field, a closed window.
+   * Not refused while one is out, for the reason `withdraw()` gives: the body
+   * carries the id, so a second press is a replay the platform answers.
+   *
+   * The amount is the number as typed (client-architecture §9): the client
+   * rounds nothing, and the currency's rules and the bound are the backend's.
+   */
+  reprice(product: OwnProduct): void {
+    const amount = this.priceControl.value;
+    if (
+      product.withdrawnAt !== null ||
+      amount === null ||
+      this.priceControl.invalid ||
+      this.rateLimit.blocked()
+    ) {
+      return;
+    }
+
+    const identity = this.priceIdentityFor(product.productId);
+    const changesAtIssue = this.subjectChanges;
+    this.repricingSignal.update((count) => count + 1);
+    this.actionErrorSignal.set(null);
+    this.priceMessagesSignal.set([]);
+
+    this.catalog
+      .changePrice(product.productId, {
+        commandId: identity.current(),
+        amount,
+        currency: product.currency,
+      })
+      .subscribe({
+        next: () => {
+          if (this.subjectChanges !== changesAtIssue) return;
+          this.repricingSignal.update((count) => count - 1);
+          this.repriced(product.productId);
+        },
+        error: (failure: unknown) => {
+          if (this.subjectChanges !== changesAtIssue) return;
+          this.repricingSignal.update((count) => count - 1);
+          const displayed = mapError(failure, { permission: PERMISSIONS.catalogWrite });
+          identity.onFailure(displayed);
+
+          // This id's reprice was applied before, so the price is the new one
+          // and the list is told so by reading it.
+          if (displayed.kind === 'alreadyCommitted') {
+            this.repriced(product.productId);
+            return;
+          }
+
+          // command.id_reused: the first reprice under this id committed, and
+          // THIS one, which differs from it (the amount edited since), did not.
+          // The price on the row is the first one's; the banner says so and the
+          // list is read again to show it.
+          if (displayed.kind === 'idReused') {
+            this.finishPricing(product.productId);
+            this.actionErrorSignal.set(displayed);
+            this.reload();
+            return;
+          }
+
+          if (displayed.kind === 'validation') {
+            const { amount: messages, rest } = splitAmountErrors(displayed.fields);
+            this.priceMessagesSignal.set(messages);
+            this.actionErrorSignal.set({
+              ...displayed,
+              fields: Object.keys(rest).length > 0 ? rest : undefined,
+            });
+            return;
+          }
+
+          this.actionErrorSignal.set(displayed);
+
+          // Spec §6's 401 row, as a withdrawal answers it.
+          if (displayed.kind === 'signIn') {
+            this.signInAndReplay(`price:${product.productId}`, () => this.reprice(product));
+            return;
+          }
+
+          // 422 (`product.withdrawn`, `product.currency_fixed`) and 404 (a
+          // product this account no longer owns): the row on screen is stale,
+          // so the editor closes, the list is read again and the banner says why.
+          if (
+            displayed.kind === 'rule' ||
+            (failure instanceof HttpErrorResponse && failure.status === 404)
+          ) {
+            this.finishPricing(product.productId);
+            this.reload();
+          }
+        },
+      });
+  }
+
+  /**
+   * The new price landed. The Products tab shows it through the refresh a
+   * publish already asks for, and this list hears the same request and reads
+   * the row back: the price on screen is the server's, never the typed one.
+   * A cart that already holds the product keeps its listed price until the next
+   * quote, which is the only price the client trusts (client-architecture §8).
+   */
+  private repriced(productId: string): void {
+    this.finishPricing(productId);
+    this.actionErrorSignal.set(null);
+    this.catalogRefresh.request();
+  }
+
+  private finishPricing(productId: string): void {
+    this.priceIdentities.delete(productId);
+    this.replayedAfterSignIn.delete(`price:${productId}`);
+    if (this.pricingSignal() === productId) this.pricingSignal.set(null);
+    this.priceMessagesSignal.set([]);
+  }
+
+  private priceIdentityFor(productId: string): CommandIdentity {
+    let identity = this.priceIdentities.get(productId);
+    if (!identity) {
+      identity = new CommandIdentity();
+      this.priceIdentities.set(productId, identity);
+    }
+    return identity;
   }
 
   private identityFor(productId: string): CommandIdentity {
