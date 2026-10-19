@@ -30,8 +30,9 @@ import { TabsPage } from './tabs.page';
 // test's timeout, the loud outcome. A host whose component failed to load
 // never hydrates, though, and one such failure then took every later test in
 // the file to the limit with no word of which host it was. The bound names it,
-// and the first test below still fails loudly on it, by asserting that every
-// host carries the `hydrated` class.
+// and every mount still fails loudly on it, by asserting that every host
+// carries the `hydrated` class: a host given up on cannot slip into a later
+// mount (the signed-in tabs, say) with only a warning.
 async function mount(
   permissions: readonly string[],
   signedIn = false,
@@ -64,6 +65,9 @@ async function mount(
   const fixture = TestBed.createComponent(TabsPage);
   fixture.detectChanges();
   await hydrated(fixture.nativeElement);
+  expect(
+    ionicHosts(fixture.nativeElement).filter((host) => !host.classList.contains('hydrated')),
+  ).toEqual([]);
   return fixture;
 }
 
