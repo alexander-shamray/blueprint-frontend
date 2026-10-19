@@ -4,18 +4,8 @@ import { signal } from '@angular/core';
 import { afterEach, describe, expect, it } from 'vitest';
 import { AuthService } from '@core/auth/auth.service';
 import { CartPersistence } from '@core/cart/cart.persistence';
+import { hydrated, ionicHosts } from '@shared/testing/hydrated';
 import { TabsPage } from './tabs.page';
-
-/** A Stencil host element: resolves once its lazily loaded component has rendered. */
-interface StencilHost extends Element {
-  componentOnReady(): Promise<unknown>;
-}
-
-function ionicHosts(root: Element): StencilHost[] {
-  return [...root.querySelectorAll('*')].filter(
-    (el): el is StencilHost => el.tagName.startsWith('ION-') && 'componentOnReady' in el,
-  );
-}
 
 // Mounting is not finished when `detectChanges` returns, and treating it as
 // finished is what caused #31.
@@ -34,9 +24,14 @@ function ionicHosts(root: Element): StencilHost[] {
 // Awaiting `componentOnReady()` on every host moves hydration inside the test,
 // against a live fixture, so nothing Stencil started outlives the file. It
 // waits on the component's own readiness rather than on a guessed delay — the
-// same distinction `src/vitest-setup.ts` draws for `appload` — and it has no
-// bound of its own: a host that never hydrates fails on the test's timeout,
-// which is the loud outcome, where a bound would quietly hand the race back.
+// same distinction `src/vitest-setup.ts` draws for `appload`. The wait is the
+// shared `hydrated()`, which bounds each host (#261): this file used to have
+// none, on the argument that a host that never hydrates should fail on the
+// test's timeout, the loud outcome. A host whose component failed to load
+// never hydrates, though, and one such failure then took every later test in
+// the file to the limit with no word of which host it was. The bound names it,
+// and the first test below still fails loudly on it, by asserting that every
+// host carries the `hydrated` class.
 async function mount(
   permissions: readonly string[],
   signedIn = false,
@@ -68,7 +63,7 @@ async function mount(
 
   const fixture = TestBed.createComponent(TabsPage);
   fixture.detectChanges();
-  await Promise.all(ionicHosts(fixture.nativeElement).map((host) => host.componentOnReady()));
+  await hydrated(fixture.nativeElement);
   return fixture;
 }
 

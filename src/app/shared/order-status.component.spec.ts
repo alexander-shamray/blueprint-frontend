@@ -3,11 +3,7 @@ import { By } from '@angular/platform-browser';
 import { describe, expect, it } from 'vitest';
 import { BUYER_STATUSES } from '@core/api/types';
 import { OrderStatusComponent, statusLabel } from './order-status.component';
-
-/** A Stencil host element: resolves once its lazily loaded component has rendered. */
-interface StencilHost extends Element {
-  componentOnReady(): Promise<unknown>;
-}
+import { hydrated } from './testing/hydrated';
 
 /**
  * Mounts and waits for every Ionic host to hydrate, for the reason
@@ -19,10 +15,7 @@ async function mount(status: string): Promise<ComponentFixture<OrderStatusCompon
   const fixture = TestBed.createComponent(OrderStatusComponent);
   fixture.componentRef.setInput('status', status);
   fixture.detectChanges();
-  const hosts = [...fixture.nativeElement.querySelectorAll('*')].filter(
-    (el): el is StencilHost => el.tagName.startsWith('ION-') && 'componentOnReady' in el,
-  );
-  await Promise.all(hosts.map((host) => host.componentOnReady()));
+  await hydrated(fixture.nativeElement);
   return fixture;
 }
 

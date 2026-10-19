@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AuthService, CurrentUser } from '@core/auth/auth.service';
 import { ALREADY_COMMITTED } from '@core/commands/command-id';
 import { CatalogRefresh } from '@core/catalog/catalog-refresh';
+import { hydrated } from '@shared/testing/hydrated';
 import { ImagePickError, ImageSource } from './image-source';
 import { PublishPage } from './publish.page';
 
@@ -32,11 +33,6 @@ const GRANT = {
   expiresAt: '2026-10-18T03:02:25Z',
 };
 
-/** A Stencil host element: resolves once its lazily loaded component has rendered. */
-interface StencilHost extends Element {
-  componentOnReady(): Promise<unknown>;
-}
-
 // Every `ion-*` element this page renders is a lazy Stencil component:
 // connecting it starts a dynamic `import()` of its entry chunk, and nothing
 // else in this file waits for it. The last test used to end with those imports
@@ -46,13 +42,8 @@ interface StencilHost extends Element {
 // channel: `EnvironmentTeardownError: Closing rpc while "onUserConsoleLog" was
 // pending`, exit 1 with every test passing (#71). Same mechanism and same cure
 // as tabs.page.spec.ts (#31): wait on each host's own `componentOnReady()`
-// while the fixture is live, rather than on a guessed delay.
-async function hydrated(root: Element): Promise<void> {
-  const hosts = [...root.querySelectorAll('*')].filter(
-    (el): el is StencilHost => el.tagName.startsWith('ION-') && 'componentOnReady' in el,
-  );
-  await Promise.all(hosts.map((host) => host.componentOnReady()));
-}
+// while the fixture is live, rather than on a guessed delay. The wait is the
+// shared `hydrated()`, which also bounds each host (#261).
 
 describe('PublishPage', () => {
   let fixture: ComponentFixture<PublishPage>;
