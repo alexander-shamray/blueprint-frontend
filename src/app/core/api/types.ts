@@ -90,6 +90,20 @@ export interface WithdrawProductRequest {
 }
 
 /**
+ * Catalog.Api/Endpoints/ProductEndpoints.cs — `ChangePriceRequest`. The
+ * product is the route's. `decimal?` on the backend for the reason
+ * `PublishProductCommand.amount` gives, so the client sends the number typed
+ * and never `null` for a blank. The currency is the product's own: a price
+ * cannot change currency (`product.currency_fixed`, 422), so it is sent back as
+ * the listing gave it and never chosen again.
+ */
+export interface ChangePriceRequest {
+  readonly commandId: string;
+  readonly amount: number;
+  readonly currency: string;
+}
+
+/**
  * Web.Bff/ProductImages/ProductImageUploadRequest.cs — `ProductImageUploadRequest`.
  * The two values the client chooses; the server chooses the key, the host and
  * the expiry. The allowed types and the size bound are the BFF's validator's,

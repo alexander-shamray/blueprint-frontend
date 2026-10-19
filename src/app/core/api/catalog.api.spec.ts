@@ -143,4 +143,27 @@ describe('CatalogApi', () => {
     request.flush(null, { status: 204, statusText: 'No Content' });
     expect(seen).toHaveBeenCalledTimes(1);
   });
+
+  it('puts a new price to the product, the amount as given and the currency it already has', () => {
+    const seen = vi.fn();
+
+    api
+      .changePrice('a/b', {
+        commandId: '44444444-4444-4444-4444-444444444444',
+        amount: 54.9,
+        currency: 'EUR',
+      })
+      .subscribe(seen);
+
+    const request = controller.expectOne('http://localhost:5000/api/v1/catalog/products/a%2Fb/price');
+    expect(request.request.method).toBe('PUT');
+    expect(request.request.body).toEqual({
+      commandId: '44444444-4444-4444-4444-444444444444',
+      amount: 54.9,
+      currency: 'EUR',
+    });
+
+    request.flush(null, { status: 204, statusText: 'No Content' });
+    expect(seen).toHaveBeenCalledTimes(1);
+  });
 });
