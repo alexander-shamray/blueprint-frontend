@@ -3,9 +3,11 @@
 `python -m unittest discover -s .claude/scripts -p 'test_*.py'` runs the
 classes one after another, and on Windows most of their time is waiting for
 `git` and Git Bash processes to start (alexander-shamray/blueprint-frontend
-#259). The classes share no state — each builds its fixtures under a temporary
-directory — so running them side by side costs nothing in what is checked.
-CI keeps the plain command, where the suite is already quick.
+#259). The classes build their fixtures under the temporary directory and
+share two things beside it: the directory itself, of which `run_class` gives
+each class its own, and the host's time, which the classes in `ALONE` keep by
+running after the rest. CI keeps the plain command because it is the gate: one
+spelling on all three runners, and nothing between it and the suite.
 
 **It counts what it ran against what discovery found**, and fails when the two
 differ: a runner that silently dropped a class would report a green suite that
@@ -29,9 +31,9 @@ SCRIPTS = Path(__file__).resolve().parent
 ROOT = SCRIPTS.parent.parent
 
 # **Run alone, after the rest**: classes whose subject is a time limit, which
-# a host busy with every other class can miss for no fault of the code. The
-# detached index worker is given 60 s to run the wrapper, and `index-refresh.py`
-# gives one event's git calls three seconds (`GIT_BUDGET`); under the full
+# a host busy with every other class can miss for no fault of the code — the
+# detached worker's deadline in `TheDetachedWorkerReallyRuns`, and
+# `index-refresh.py`'s `GIT_BUDGET` for one event's git calls. Under the full
 # parallel load each was missed, a different case each run. A class missing
 # from this set fails loudly rather than passing, so the set can only be
 # short, never wrong.
