@@ -92,6 +92,29 @@ the gate — one spelling on all three runners, Windows included, and nothing
 between it and the suite — so this is a local convenience and not a second
 gate: a case that passes here and fails there is still red.
 
+**The code-index CLI is pinned, here** (alexander-shamray/blueprint-frontend#147).
+It is the one tool outside the lockfile that runs unprompted: the MCP server
+starts it at every session and the index-refresh hook runs it after every edit
+and every shell call, so a changed or compromised PyPI release would reach
+every host that installed it unpinned. The version is
+`codebase-index==2.0.0`, the release the development host already runs:
+
+```bash
+py -3.12 -m pip install codebase-index==2.0.0     # python -m pip elsewhere
+```
+
+Its wheel, `codebase_index-2.0.0-py3-none-any.whl`, hashes to
+`sha256:93d49a87957bef85bed7ee64f8c364d188cd4f48e9522161977215b41dc566ac`;
+`pip download codebase-index==2.0.0 --no-deps -d <empty dir>` followed by
+`pip hash <the wheel>` checks it against PyPI. **To move the pin**, install the
+new version, run the harness suite and a search through the MCP server, then
+change the version and the hash here in one commit; `CLAUDE.md` cites this
+section and states neither. The pin names the CLI only: its six dependencies
+(`pathspec`, `pydantic`, `rich`, `tree-sitter`, `tree-sitter-language-pack`,
+`typer`) float, because a hash for each would have to cover every platform's
+wheel of the native ones, which a requirements file with `--require-hashes`
+would carry and this paragraph does not.
+
 **`npm test` must exit, not watch.** The Angular unit-test builder runs once
 and exits here, and `CI=true npm test` is how that is confirmed locally. A
 watch-mode test step does not fail a build — it consumes the job's entire
