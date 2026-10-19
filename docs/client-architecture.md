@@ -514,9 +514,9 @@ this same body id. It records each command, which is a request whose body
 carries a `commandId`, as accepted or as the kind of its refusal. The router
 records each navigation's path. What it never records is fixed by its spec:
 no query string, since the OAuth return carries its `code` in one; no body
-field but the command id; no header, so no token; and nothing outside the
-gateway, which is the identity provider's discovery and token calls and the
-object store, whose pre-signed URL's query string is its signature. An
+field but the command id; no header, so no token; and no request that
+`isGatewayUrl` (`core/config/gateway-url.ts`) says is not the gateway's,
+which is where the requests that go elsewhere are named. An
 accepted command carries no correlation id, for the reason above: the client
 reads the body, and a 2xx has none.
 
