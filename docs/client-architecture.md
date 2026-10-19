@@ -729,9 +729,15 @@ call that reaches the platform's policy and stops at the store, and the
 argument for keeping it does not reach there either: the store applies no
 authorization policy, no limiter and no correlation of its own, and the
 signature in the URL is the whole of its authorization. That is why
-`ProductImagesApi.upload` is the one request the two interceptors leave
-alone. `isGatewayUrl` answers no for the store's host, so no bearer goes to
-it, and its refusals are not filed against a gateway bucket. The URL is never
+`ProductImagesApi.upload` is the one request *this client's own code* sends
+that the two interceptors leave alone. `isGatewayUrl` answers no for the
+store's host, so no bearer goes to it, and its refusals are not filed against
+a gateway bucket. It is not the only request they pass over: the same test
+leaves alone every request to a host other than the gateway's, and
+`angular-oauth2-oidc` sends Keycloak's discovery, key and token calls through
+this `HttpClient` to the identity provider's host. Those are left alone for
+the same reason, and the bearer must never be attached to them — the token
+call is what obtains it. The URL is never
 built here: it arrives in the BFF's answer, and the client sends
 `Content-Type` from the headers the signature covers. `Content-Length` it
 cannot set, because the browser forbids it, so the body is the file whose
