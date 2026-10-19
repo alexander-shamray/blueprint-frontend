@@ -1,7 +1,8 @@
 import {
-  ChangeDetectionStrategy, ChangeDetectorRef, Component, LOCALE_ID, computed, effect, inject,
-  signal, untracked,
+  ChangeDetectionStrategy, ChangeDetectorRef, Component, DestroyRef, LOCALE_ID, computed, effect,
+  inject, signal, untracked,
 } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { HttpErrorResponse } from '@angular/common/http';
 import { FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
 import { Router } from '@angular/router';
@@ -207,7 +208,8 @@ import { countryOptions } from './countries';
 })
 export class CheckoutPage {
   private readonly ordering = inject(OrderingApi);
-  private readonly savedAddress = inject(SavedAddressApi);
+  private readonly savedAddressApi = inject(SavedAddressApi);
+  private readonly destroyRef = inject(DestroyRef);
   private readonly changeDetector = inject(ChangeDetectorRef);
   private readonly auth = inject(AuthService);
 
@@ -348,6 +350,7 @@ export class CheckoutPage {
       untracked(() => {
         this.subjectChanges++;
         this.form.reset();
+        this.prefilled = false;
         this.saveAddress.reset();
         this.errorState.set(null);
         this.fieldErrorsState.set({});
@@ -366,9 +369,31 @@ export class CheckoutPage {
     const signedInSubject = computed(() => user()?.subject ?? null);
     effect(() => {
       const subject = signedInSubject();
-      if (subject === null) return;
-      untracked(() => this.prefillFromSaved(subject));
+      untracked(() => (subject === null ? this.dropPrefill() : this.prefillFromSaved(subject)));
     });
+  }
+
+  /**
+   * Whether the form holds an address this page filled in from the saved one
+   * and the buyer has not touched since.
+   */
+  private prefilled = false;
+
+  /**
+   * Nobody is signed in any more, so an address that came from the server and
+   * that the buyer never typed goes with the session: the form is not
+   * rendered signed out, but on native this page outlives the sign-out, and
+   * the saved address is not kept after it. An address the buyer typed or
+   * edited stays, as the form's values do for the owner's return; coming back
+   * signed in asks for the saved one again.
+   */
+  private dropPrefill(): void {
+    if (!this.prefilled) return;
+    this.prefilled = false;
+    if (!this.form.dirty) {
+      this.form.reset();
+      this.changeDetector.markForCheck();
+    }
   }
 
   /**
@@ -386,10 +411,11 @@ export class CheckoutPage {
    * kept: the address lives in the form, as a typed one does.
    */
   private prefillFromSaved(subject: string): void {
-    this.savedAddress.read().subscribe({
+    this.savedAddressApi.read().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (saved) => {
         if (saved === null || this.form.dirty) return;
         if ((this.auth.user()()?.subject ?? null) !== subject) return;
+        this.prefilled = true;
         this.form.patchValue(
           {
             line1: saved.line1,
@@ -598,7 +624,7 @@ export class CheckoutPage {
   private keepAddressIfAsked(address: Address): void {
     if (!this.saveAddress.value) return;
     this.saveAddress.reset();
-    this.savedAddress.save(address).subscribe({ error: () => undefined });
+    this.savedAddressApi.save(address).subscribe({ error: () => undefined });
   }
 
   /**

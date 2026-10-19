@@ -86,7 +86,8 @@ describe('CheckoutPage', () => {
     // most tests here are not about. Left open they would fail `verify()`, so
     // they are answered as a buyer with none saved is: the tests about prefill
     // answer their own read first.
-    for (const read of controller.match(SAVED)) {
+    // Reads only: an unexpected PUT is a failure `verify()` should report.
+    for (const read of controller.match((r) => r.url === SAVED && r.method === 'GET')) {
       read.flush(null, { status: 404, statusText: 'Not Found' });
     }
     controller.verify();
@@ -857,6 +858,55 @@ describe('CheckoutPage', () => {
       await fixture.whenStable();
 
       expect(fixture.componentInstance.form.controls.line1.value).toBe('1 Other Lane');
+    });
+
+    it('takes a prefilled address out of the form when the session ends, because it is not kept after sign-out', async () => {
+      const page = fixture.componentInstance;
+      pristine();
+      controller.expectOne(SAVED).flush(savedAddress);
+      await fixture.whenStable();
+      expect(page.form.controls.line1.value).toBe('9 Saved Road');
+
+      user.set(null);
+      fixture.detectChanges();
+      await fixture.whenStable();
+
+      expect(page.form.getRawValue()).toEqual({
+        line1: '', line2: '', city: '', postalCode: '', country: '',
+      });
+    });
+
+    it('asks again when the same buyer signs back in, and prefills the empty form', async () => {
+      const page = fixture.componentInstance;
+      pristine();
+      controller.expectOne(SAVED).flush(savedAddress);
+      await fixture.whenStable();
+      user.set(null);
+      fixture.detectChanges();
+      await fixture.whenStable();
+
+      user.set({ username: 'demo', subject: 'subject-demo', permissions: [], expiresAt: 1 });
+      fixture.detectChanges();
+      await fixture.whenStable();
+      controller.expectOne(SAVED).flush(savedAddress);
+      await fixture.whenStable();
+
+      expect(page.form.getRawValue()).toEqual(savedAddress);
+    });
+
+    it('keeps what the buyer typed when the session ends, as the form keeps its values for the owner', async () => {
+      const page = fixture.componentInstance;
+      pristine();
+      controller.expectOne(SAVED).flush(savedAddress);
+      await fixture.whenStable();
+      page.form.controls.line1.setValue('Typed Street');
+      page.form.controls.line1.markAsDirty();
+
+      user.set(null);
+      fixture.detectChanges();
+      await fixture.whenStable();
+
+      expect(page.form.controls.line1.value).toBe('Typed Street');
     });
 
     it('saves the address after the order is placed, when the buyer asked', async () => {
