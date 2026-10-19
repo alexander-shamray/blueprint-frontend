@@ -17,12 +17,13 @@ The *root* comes from the file the event edited, or from the event's `cwd`
 when it names none, walked up to its checkout, and is handed to that trusted
 wrapper as `--root`. `named` says why the file comes first.
 
-**It runs after every Bash call as well as every edit
-(alexander-shamray/blueprint-frontend#136).** Commits, pulls, rebases,
+**It runs after every shell call as well as every edit
+(alexander-shamray/blueprint-frontend#136, #142).** Commits, pulls, rebases,
 formatters and edit scripts change tracked files through the shell, and each
 left the index answering from the old text, with its recorded commit behind
-HEAD, while it reported itself fresh. A Bash event names no file, so its `cwd`
-decides, and that follows the shell into a worktree. A call that wrote nothing
+HEAD, while it reported itself fresh. A shell event, `Bash` or `PowerShell`,
+names no file, so its `cwd` decides, and that follows the shell into a
+worktree. A call that wrote nothing
 costs one `update` that changes nothing, detached and coalesced behind the
 lock below.
 
