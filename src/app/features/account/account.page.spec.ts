@@ -431,7 +431,10 @@ describe('AccountPage', () => {
           () =>
             new HttpErrorResponse({
               status: 400,
-              error: { status: 400, errors: { Line1: ['Too long.'], country: ['Not a code.'], Other: ['Odd.'] } },
+              error: {
+                status: 400,
+                errors: { Line1: ['Too long.'], country: ['Not a code.'], Other: ['Odd.'] },
+              },
             }),
         ),
       );
@@ -446,7 +449,9 @@ describe('AccountPage', () => {
         country: ['Not a code.'],
       });
       expect(fixture.componentInstance.error()?.fields).toEqual({ Other: ['Odd.'] });
-      expect(fixture.nativeElement.querySelector('[data-field="line1"]')?.textContent).toContain('Too long.');
+      expect(fixture.nativeElement.querySelector('[data-field="line1"]')?.textContent).toContain(
+        'Too long.',
+      );
       // The editor stays, with what was typed.
       expect(fixture.componentInstance.editingAddress()).toBe(true);
       expect(fixture.componentInstance.addressForm.getRawValue().line1).toBe('1 Example Street');
@@ -516,7 +521,7 @@ describe('AccountPage', () => {
       expect(fixture.componentInstance.editingAddress()).toBe(false);
     });
 
-    it('does not read again over a save in flight: the save’s answer is the one that counts', async () => {
+    it('ignores a read that was out before the save and lands after it', async () => {
       const { fixture, save, read } = await open(savedHome);
       const late = new Subject<Address | null>();
       read.mockReturnValueOnce(late);
@@ -529,6 +534,74 @@ describe('AccountPage', () => {
       late.next(savedHome);
 
       expect(fixture.componentInstance.savedAddress()).toEqual({ ...typed, line2: null });
+    });
+
+    it('still applies a save whose reply lands after a tab re-entry started a read', async () => {
+      const { fixture, save, read } = await open(savedHome);
+      const reply = new Subject<Address>();
+      save.mockReturnValue(reply);
+      fixture.componentInstance.editAddress();
+      fixture.componentInstance.addressForm.setValue(typed);
+      fixture.componentInstance.saveAddress();
+      expect(fixture.componentInstance.savingAddress()).toBe(true);
+
+      // Away and back while the PUT is out: Ionic calls this on every entry.
+      const stale = new Subject<Address | null>();
+      read.mockReturnValueOnce(stale);
+      fixture.componentInstance.ionViewWillEnter();
+      reply.next({ ...typed, line2: null });
+      stale.next(savedHome);
+
+      expect(fixture.componentInstance.savingAddress()).toBe(false);
+      expect(fixture.componentInstance.editingAddress()).toBe(false);
+      expect(fixture.componentInstance.savedAddress()).toEqual({ ...typed, line2: null });
+    });
+
+    it('still shows a refusal that lands after a tab re-entry started a read', async () => {
+      const { fixture, save, read } = await open(savedHome);
+      const reply = new Subject<Address>();
+      save.mockReturnValue(reply);
+      fixture.componentInstance.editAddress();
+      fixture.componentInstance.addressForm.setValue(typed);
+      fixture.componentInstance.saveAddress();
+
+      read.mockReturnValueOnce(new Subject<Address | null>());
+      fixture.componentInstance.ionViewWillEnter();
+      reply.error(new HttpErrorResponse({ status: 503 }));
+
+      expect(fixture.componentInstance.savingAddress()).toBe(false);
+      expect(fixture.componentInstance.editingAddress()).toBe(true);
+      expect(fixture.componentInstance.error()).not.toBeNull();
+    });
+
+    it('lets a newer save stand over an older one that lands late', async () => {
+      const { fixture, save } = await open(savedHome);
+      const first = new Subject<Address>();
+      const second = new Subject<Address>();
+      save.mockReturnValueOnce(first).mockReturnValueOnce(second);
+      fixture.componentInstance.editAddress();
+      fixture.componentInstance.addressForm.setValue(typed);
+      fixture.componentInstance.saveAddress();
+      fixture.componentInstance.addressForm.patchValue({ city: 'Lusail' });
+      fixture.componentInstance.saveAddress();
+
+      second.next({ ...typed, city: 'Lusail', line2: null });
+      first.next({ ...typed, line2: null });
+
+      expect(fixture.componentInstance.savedAddress()?.city).toBe('Lusail');
+    });
+
+    it('stops listening for a save when the page is destroyed', async () => {
+      const { fixture, save } = await open(null);
+      const reply = new Subject<Address>();
+      save.mockReturnValue(reply);
+      fixture.componentInstance.editAddress();
+      fixture.componentInstance.addressForm.setValue(typed);
+      fixture.componentInstance.saveAddress();
+
+      fixture.destroy();
+
+      expect(reply.observed).toBe(false);
     });
   });
 
