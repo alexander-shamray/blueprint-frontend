@@ -1282,6 +1282,38 @@ asking; the rule is read in review, not by a gate. This entry supersedes spec
 §4's "nothing else in the application asks which platform it is on", which is
 left as written.
 
+### The app has a palette, and the appearance is the user's to choose
+
+*The claim.* Spec §10: "Theming beyond Ionic's defaults and a light and dark
+palette" is out of scope. Until #92 the theme was one import, Ionic's
+`prefers-color-scheme` dark palette, and the app followed the device with no
+way to say otherwise.
+
+*What the client did.* `src/theme/variables.css` is a palette and a few tokens
+(spacing, radii, a grid), a cyanotype for an app called Blueprint: drafting
+paper with ink on it in the light sheet, the blueprint itself in the dark one.
+It is one brand in two sheets, and a theme picker stays out of scope. No page
+carries a colour of its own. Account offers System, Light and Dark, kept in
+Capacitor Preferences (`AppearanceStore`), and System is the default.
+
+Three decisions a reader would otherwise "correct". The stylesheet is Ionic's
+*class-based* dark palette (`.ion-palette-dark` on the root) and not its
+media-query one, because a choice of Light on a dark device has to win, and a
+media query cannot be overridden by a setting; "System" is the store asking
+`prefers-color-scheme` and following it. `index.html` carries a four-line
+script that puts the class on before first paint from the stored choice,
+duplicating the store's rule on purpose, since a service cannot run before the
+first paint it is meant to precede; a spec reads that script out of the file
+and holds it to the key `Preferences` writes. And on native the stored choice
+is not in `localStorage`, so the script follows the device there and the app
+corrects it at start-up, under the splash screen; the status bar following the
+choice is #86's.
+
+*What is not done.* The contrast of both sheets was computed when the values
+were chosen and is held by the axe walk in `e2e/a11y.spec.ts`, which runs in
+CI and not in the unit suite. Visual baselines for the two sheets are #102's.
+This entry supersedes spec §10's "theming" bullet, which is left as written.
+
 ## 13. The bundle budget is set above the bundle, not at it
 
 `npm run build` was failing before this work could ship, and the failure was the

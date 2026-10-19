@@ -5,11 +5,13 @@ import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute } from '@angular/router';
 import { map } from 'rxjs';
 import {
-  IonButton, IonChip, IonContent, IonHeader, IonItem, IonLabel, IonNote, IonTitle, IonToolbar,
+  IonButton, IonChip, IonContent, IonHeader, IonItem, IonLabel, IonNote, IonSegment,
+  IonSegmentButton, IonTitle, IonToolbar,
 } from '@ionic/angular';
 import { SavedAddressApi } from '@core/api/saved-address.api';
 import { Address } from '@core/api/types';
 import { AuthService } from '@core/auth/auth.service';
+import { APPEARANCES, Appearance, AppearanceStore } from '@core/theme/appearance.store';
 import { DisplayError, mapError } from '@core/errors/error-mapper';
 import { ErrorBannerComponent } from '@shared/error-banner.component';
 
@@ -18,8 +20,8 @@ import { ErrorBannerComponent } from '@shared/error-banner.component';
   selector: 'app-account',
   standalone: true,
   imports: [
-    IonButton, IonChip, IonContent, IonHeader, IonItem, IonLabel, IonNote, IonTitle,
-    IonToolbar, ErrorBannerComponent,
+    IonButton, IonChip, IonContent, IonHeader, IonItem, IonLabel, IonNote, IonSegment,
+    IonSegmentButton, IonTitle, IonToolbar, ErrorBannerComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -84,6 +86,20 @@ import { ErrorBannerComponent } from '@shared/error-banner.component';
         <ion-button expand="block" (click)="signIn()">Sign in</ion-button>
       }
 
+      <ion-item lines="none"><ion-label><h3>Appearance</h3></ion-label></ion-item>
+      <ion-segment aria-label="Appearance" data-testid="appearance"
+        [value]="appearance()" (ionChange)="chooseAppearance($event)">
+        <ion-segment-button value="system" data-testid="appearance-system">
+          <ion-label>System</ion-label>
+        </ion-segment-button>
+        <ion-segment-button value="light" data-testid="appearance-light">
+          <ion-label>Light</ion-label>
+        </ion-segment-button>
+        <ion-segment-button value="dark" data-testid="appearance-dark">
+          <ion-label>Dark</ion-label>
+        </ion-segment-button>
+      </ion-segment>
+
       <ion-item><ion-note>{{ tokenPosture() }}</ion-note></ion-item>
     </ion-content>
   `,
@@ -93,6 +109,10 @@ export class AccountPage {
   private readonly route = inject(ActivatedRoute);
 
   private readonly savedAddressApi = inject(SavedAddressApi);
+  private readonly appearanceStore = inject(AppearanceStore);
+
+  /** The sheet the user chose, shown selected; the choice itself is `AppearanceStore`'s (#92). */
+  readonly appearance = this.appearanceStore.choice;
   private readonly destroyRef = inject(DestroyRef);
 
   private readonly currentUser = this.auth.user();
@@ -240,6 +260,17 @@ export class AccountPage {
       next: () => this.savedAddressState.set(null),
       error: (failure: unknown) => this.errorState.set(mapError(failure)),
     });
+  }
+
+  /**
+   * The segment's change. Its value is whatever the clicked button carried, so
+   * anything that is not one of the three is ignored rather than stored: a
+   * value kept here is read back at every launch.
+   */
+  chooseAppearance(event: Event): void {
+    const value = (event as CustomEvent<{ value?: unknown }>).detail?.value;
+    if (!APPEARANCES.some((appearance) => appearance === value)) return;
+    void this.appearanceStore.choose(value as Appearance);
   }
 
   signIn(): void {

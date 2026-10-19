@@ -4,6 +4,7 @@ import { signal } from '@angular/core';
 import { BehaviorSubject, Observable, Subject, of, throwError } from 'rxjs';
 import { describe, expect, it, vi } from 'vitest';
 import { SavedAddressApi } from '@core/api/saved-address.api';
+import { Appearance, AppearanceStore } from '@core/theme/appearance.store';
 import { Address } from '@core/api/types';
 import { AuthService, CurrentUser } from '@core/auth/auth.service';
 import { AccountPage } from './account.page';
@@ -25,6 +26,8 @@ function mount(
   const session = signal(user);
   const read = vi.fn((): Observable<Address | null> => of(saved));
   const remove = vi.fn((): Observable<void> => of(undefined));
+  const chosen = signal<Appearance>('system');
+  const choose = vi.fn(async (appearance: Appearance) => chosen.set(appearance));
   // A BehaviorSubject rather than of(): one test pushes a SECOND value
   // through it, which is the only way to exercise a reused component
   // receiving a different `denied` without a fresh construction.
@@ -52,12 +55,13 @@ function mount(
         },
       },
       { provide: SavedAddressApi, useValue: { read, remove } },
+      { provide: AppearanceStore, useValue: { choice: chosen.asReadonly(), choose } },
     ],
   });
 
   const fixture: ComponentFixture<AccountPage> = TestBed.createComponent(AccountPage);
   fixture.detectChanges();
-  return { fixture, signIn, signOut, queryParams, session, read, remove };
+  return { fixture, signIn, signOut, queryParams, session, read, remove, choose, chosen };
 }
 
 const demo: CurrentUser = {
@@ -267,6 +271,59 @@ describe('AccountPage', () => {
     fixture.detectChanges();
 
     expect(fixture.nativeElement.textContent).not.toContain('needs you to be signed in');
+  });
+
+  describe('the appearance (#92)', () => {
+    const changeTo = (value: unknown) => new CustomEvent('ionChange', { detail: { value } });
+
+    it('offers system, light and dark to anybody, signed in or not', () => {
+      for (const user of [demo, null]) {
+        const { fixture } = mount(user, true);
+        const labels = [...fixture.nativeElement.querySelectorAll('ion-segment-button')].map(
+          (button: HTMLElement) => button.textContent?.trim(),
+        );
+        expect(labels).toEqual(['System', 'Light', 'Dark']);
+      }
+    });
+
+    it('hands the segment its chosen value, which starts on system', () => {
+      const { fixture, chosen } = mount(null, true);
+      const segment: HTMLElement & { value?: string } = fixture.nativeElement.querySelector(
+        '[data-testid="appearance"]',
+      );
+      expect(segment.value).toBe('system');
+
+      chosen.set('dark');
+      fixture.detectChanges();
+      expect(segment.value).toBe('dark');
+    });
+
+    it.each(['system', 'light', 'dark'] as const)('keeps a choice of %s', (value) => {
+      const { fixture, choose } = mount(null, true);
+
+      fixture.componentInstance.chooseAppearance(changeTo(value));
+
+      expect(choose).toHaveBeenCalledWith(value);
+    });
+
+    it.each([undefined, null, 'purple', '', 3, {}])(
+      'ignores a segment value of %j rather than storing it',
+      (value) => {
+        const { fixture, choose } = mount(null, true);
+
+        fixture.componentInstance.chooseAppearance(changeTo(value));
+
+        expect(choose).not.toHaveBeenCalled();
+      },
+    );
+
+    it('ignores an event with no detail', () => {
+      const { fixture, choose } = mount(null, true);
+
+      fixture.componentInstance.chooseAppearance(new Event('ionChange'));
+
+      expect(choose).not.toHaveBeenCalled();
+    });
   });
 
   describe('the saved address (#109)', () => {
