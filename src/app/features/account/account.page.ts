@@ -1,7 +1,7 @@
 import {
-  ChangeDetectionStrategy, Component, computed, effect, inject, signal, untracked,
+  ChangeDetectionStrategy, Component, DestroyRef, computed, effect, inject, signal, untracked,
 } from '@angular/core';
-import { toSignal } from '@angular/core/rxjs-interop';
+import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute } from '@angular/router';
 import { map } from 'rxjs';
 import {
@@ -93,6 +93,7 @@ export class AccountPage {
   private readonly route = inject(ActivatedRoute);
 
   private readonly savedAddressApi = inject(SavedAddressApi);
+  private readonly destroyRef = inject(DestroyRef);
 
   private readonly currentUser = this.auth.user();
 
@@ -183,37 +184,60 @@ export class AccountPage {
     const subject = computed(() => this.currentUser()?.subject ?? null);
     effect(() => {
       const current = subject();
-      untracked(() => this.loadSavedAddress(current));
+      untracked(() => {
+        // Emptied first: a different buyer, or none, must never be left looking
+        // at the last one's address while the read is out.
+        this.savedAddressState.set(null);
+        this.readSavedAddress(current);
+      });
     });
   }
 
   /**
-   * Account is a tab root and is never destroyed, so this follows the session
-   * instead of the page's life. The address is emptied before the read, and a
-   * read that lands after the session moved on is dropped. A failed read shows
-   * nothing: the address is a convenience, and an empty section is its honest
-   * fallback.
+   * Account is a tab root and is never destroyed, so the constructor runs once
+   * per app session, and an address saved or replaced at checkout since would
+   * never appear. Ionic calls this on every entry, as it does `OrdersPage`'s
+   * reload, and the address is read again then. The old one stays on screen
+   * until the new one lands, because the same buyer is looking at it.
    */
-  private loadSavedAddress(subject: string | null): void {
-    this.savedAddressState.set(null);
+  ionViewWillEnter(): void {
+    this.readSavedAddress(this.currentUser()?.subject ?? null);
+  }
+
+  /**
+   * Counts the reads and forgets, so an answer is applied only if nothing was
+   * asked or forgotten after it. That one rule covers both ways a read can be
+   * out of date: it lands after a forget, which would put back an address the
+   * server has deleted, or after the session moved on, because every session
+   * change asks again (or, with nobody signed in, counts without asking).
+   */
+  private latestRequest = 0;
+
+  /**
+   * A failed read shows nothing: the address is a convenience, and an empty
+   * section is its honest fallback.
+   */
+  private readSavedAddress(subject: string | null): void {
+    const request = ++this.latestRequest;
     if (subject === null) return;
 
-    this.savedAddressApi.read().subscribe({
-      next: (saved) => {
-        if ((this.currentUser()?.subject ?? null) === subject) this.savedAddressState.set(saved);
-      },
-      error: () => undefined,
-    });
+    this.savedAddressApi
+      .read()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (saved) => {
+          if (request === this.latestRequest) this.savedAddressState.set(saved);
+        },
+        error: () => undefined,
+      });
   }
 
   forgetAddress(): void {
     this.errorState.set(null);
-    const subject = this.currentUser()?.subject ?? null;
+    this.latestRequest++;
 
     this.savedAddressApi.remove().subscribe({
-      next: () => {
-        if ((this.currentUser()?.subject ?? null) === subject) this.savedAddressState.set(null);
-      },
+      next: () => this.savedAddressState.set(null),
       error: (failure: unknown) => this.errorState.set(mapError(failure)),
     });
   }

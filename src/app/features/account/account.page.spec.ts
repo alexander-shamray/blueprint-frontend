@@ -1,7 +1,7 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { ActivatedRoute, convertToParamMap, provideRouter } from '@angular/router';
 import { signal } from '@angular/core';
-import { BehaviorSubject, Observable, of, throwError } from 'rxjs';
+import { BehaviorSubject, Observable, Subject, of, throwError } from 'rxjs';
 import { describe, expect, it, vi } from 'vitest';
 import { SavedAddressApi } from '@core/api/saved-address.api';
 import { Address } from '@core/api/types';
@@ -347,13 +347,79 @@ describe('AccountPage', () => {
     });
 
     it('shows nothing when the read fails, rather than an error about a convenience', async () => {
-      const { fixture } = mount(demo, true);
-      TestBed.inject(SavedAddressApi).read = (() => throwError(() => new Error('down'))) as never;
-      fixture.componentInstance['loadSavedAddress']('s');
+      const { fixture, read } = mount(demo, true);
+      read.mockReturnValue(throwError(() => new Error('down')));
+
+      fixture.componentInstance.ionViewWillEnter();
       fixture.detectChanges();
 
       expect(shown(fixture)).toBeNull();
       expect(fixture.componentInstance.error()).toBeNull();
+    });
+
+    it('reads it again on every entry, so one saved at checkout since is there (the tab root is never rebuilt)', async () => {
+      const { fixture, read } = mount(demo, true);
+      await fixture.whenStable();
+      expect(fixture.componentInstance.savedAddress()).toBeNull();
+
+      read.mockReturnValue(of(savedHome));
+      fixture.componentInstance.ionViewWillEnter();
+      fixture.detectChanges();
+
+      expect(read).toHaveBeenCalledTimes(2);
+      expect(shown(fixture)?.textContent).toContain('9 Saved Road');
+    });
+
+    it('keeps showing the address while an entry reads it again', async () => {
+      const { fixture, read } = mount(demo, true, undefined, savedHome);
+      await fixture.whenStable();
+      read.mockReturnValue(new Subject<Address | null>());
+
+      fixture.componentInstance.ionViewWillEnter();
+
+      expect(fixture.componentInstance.savedAddress()).toEqual(savedHome);
+    });
+
+    it('drops a read that lands after the session ended', async () => {
+      const { fixture, read, session } = mount(demo, true);
+      const late = new Subject<Address | null>();
+      read.mockReturnValueOnce(late);
+      fixture.componentInstance.ionViewWillEnter();
+
+      session.set(null);
+      fixture.detectChanges();
+      await fixture.whenStable();
+      late.next(savedHome);
+
+      expect(fixture.componentInstance.savedAddress()).toBeNull();
+    });
+
+    it('drops a read that lands after another buyer signed in', async () => {
+      const { fixture, read, session } = mount(demo, true);
+      const late = new Subject<Address | null>();
+      read.mockReturnValueOnce(late);
+      fixture.componentInstance.ionViewWillEnter();
+
+      session.set({ ...demo, subject: 'someone-else' });
+      fixture.detectChanges();
+      await fixture.whenStable();
+      late.next(savedHome);
+
+      expect(fixture.componentInstance.savedAddress()).toBeNull();
+    });
+
+    it('drops a read that lands after the address was forgotten', async () => {
+      const { fixture, read, remove } = mount(demo, true, undefined, savedHome);
+      await fixture.whenStable();
+      const late = new Subject<Address | null>();
+      read.mockReturnValueOnce(late);
+      fixture.componentInstance.ionViewWillEnter();
+
+      fixture.componentInstance.forgetAddress();
+      late.next(savedHome);
+
+      expect(remove).toHaveBeenCalledOnce();
+      expect(fixture.componentInstance.savedAddress()).toBeNull();
     });
 
     it('forgets it on the buyer’s say-so, and stops showing it', async () => {
