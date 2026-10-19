@@ -1254,6 +1254,34 @@ restart of the app, or written into the page's address. This entry
 supersedes spec §10's "search" in its first bullet, which is left as
 written.
 
+### Three factories ask which platform it is on, behind three interfaces
+
+*The claim.* Spec §4: a factory picks the auth strategy from Capacitor's
+`isNativePlatform()`, and "nothing else in the application asks which platform
+it is on". `auth.providers.ts` and `auth.service.ts` repeated it as "the one
+place".
+
+*What is true.* Three places ask, each inside the factory of an interface
+(#264). `provideAuth()` asks `isNativePlatform()` to pick the auth strategy.
+`SYSTEM_BROWSER`'s factory in `native-auth.strategy.ts` passes
+`Capacitor.getPlatform()` to `adaptBrowser`. `ImageSource`'s factory in
+`features/publish/image-source.ts` asks `isNativePlatform()` to pick the
+native or the web image source (#258, #262). No screen, guard or interceptor
+asks, and that is the rule that holds: spec §1.3, "platform differences are
+isolated behind interfaces; a screen never asks which platform it is on".
+
+*What the client did.* Nothing in behaviour. The comments that claimed a single
+place now say that the factory of an interface may ask, and that nothing
+outside such a factory does. One platform token in `core/` that every factory
+reads would keep the old sentence true, and was not built: the three questions
+differ (a boolean twice, a name once), and a token would couple three
+unrelated interfaces to one more shared symbol for the sake of a sentence.
+
+*What is not done.* Nothing yet stops a fourth factory, or a component, from
+asking; the rule is read in review, not by a gate. This entry supersedes spec
+§4's "nothing else in the application asks which platform it is on", which is
+left as written.
+
 ## 13. The bundle budget is set above the bundle, not at it
 
 `npm run build` was failing before this work could ship, and the failure was the
