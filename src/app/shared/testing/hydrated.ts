@@ -35,18 +35,26 @@ export async function within<T>(what: string, work: Promise<T>, ms: number): Pro
 }
 
 /**
- * Tags whose lazily loaded component failed to load in this process. Stencil
+ * Tags whose lazily loaded component failed to load in this spec file. Stencil
  * logs `Constructor for "ion-x#undefined" was not found` once, does not retry,
  * and that tag's `componentOnReady()` never resolves, in this test and every
- * later one. In the runs that hung it was whichever Ionic component the first
- * test happened to load first (`ion-spinner` in one, `ion-input` in the next),
- * so it is the load that is unreliable and not any one component. A wait with
- * no bound then ran every later test to Vitest's limit, each, which is how one
- * failure became a whole file's worth (#261).
+ * later one in the file. In the runs that hung it was whichever Ionic component
+ * the first test happened to load first (`ion-spinner` in one, `ion-input` in
+ * the next), so it is the load that is unreliable and not any one component. A
+ * wait with no bound then ran every later test to Vitest's limit, each, which
+ * is how one failure became a whole file's worth (#261).
+ *
+ * Module-level, and Vitest gives each spec file its own module registry, so
+ * "the rest of the file" is the whole scope: each file pays one bound per bad
+ * tag, and a tag given up on in one file is waited on afresh in the next.
  */
 const neverReady = new Set<string>();
 
-/** Long enough for a chunk to load on a loaded host, shorter than Vitest's 10 s test limit. */
+/**
+ * Per host, and the hosts are waited on together, so one `hydrated()` costs at
+ * most this once. Long enough for a chunk to load on a loaded host, and under
+ * Vitest's 10 s limit for the hook or test it runs in.
+ */
 export const HOST_WAIT_MS = 5_000;
 
 /** Forgets which tags were given up on. For the helper's own spec only. */
@@ -60,22 +68,27 @@ export function forgetNeverReady(): void {
  * the file finished is the teardown race of #31 and #71.
  *
  * Each host has its own bound. One that misses it is named in a warning and
- * not waited on again in this run, since a host whose component failed to load
- * has no import left in flight to race the teardown, and waiting for it again
- * only costs every later test the bound. The price is that a host that was
- * merely slower than the bound is given up on too, and its chunk may land
- * late: a warning naming it is the signal, and a spec that asserts `hydrated`
- * (`tabs.page.spec.ts`) fails on it by name.
+ * not waited on again in this spec file, since a host whose component failed
+ * to load has no import left in flight to race the teardown, and waiting for
+ * it again only costs every later test the bound. The price is that a host
+ * that was merely slower than the bound is given up on too, and its chunk may
+ * land late: a warning naming it is the signal, and a spec that asserts the
+ * `hydrated` class on what it mounted (`tabs.page.spec.ts`) fails on it by
+ * name.
  */
 export async function hydrated(root: Element, hostWaitMs = HOST_WAIT_MS): Promise<void> {
   const hosts = ionicHosts(root).filter((host) => !neverReady.has(host.tagName));
   await Promise.all(
     hosts.map(async (host) => {
       try {
-        await within(`${host.tagName.toLowerCase()}.componentOnReady()`, host.componentOnReady(), hostWaitMs);
+        await within(
+          `${host.tagName.toLowerCase()}.componentOnReady()`,
+          host.componentOnReady(),
+          hostWaitMs,
+        );
       } catch (failure) {
         neverReady.add(host.tagName);
-        console.warn(`${(failure as Error).message}; not waited on again in this run`);
+        console.warn(`${(failure as Error).message}; not waited on again in this spec file`);
       }
     }),
   );
