@@ -59,7 +59,8 @@ is routing around a refusal, not pushing.
 
 One line, semantic prefix, the same form as the commits. It names the change,
 not the file count. Where the branch implements a task from the
-implementation plan, use its `## Task n:` heading verbatim.
+implementation plan, use its `## Task n:` title as the description, after the
+type and scope; the gate's subject form has no room for the `Task n:` prefix.
 
 A branch carrying several related commits takes a title that covers them
 honestly — `chore: Claude Code guidance, return types in the samples, and the
