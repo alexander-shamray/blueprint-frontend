@@ -8,74 +8,15 @@ import { AuthService, CurrentUser } from '@core/auth/auth.service';
 import { CatalogRefresh } from '@core/catalog/catalog-refresh';
 import { RateLimitWindows } from '@core/errors/rate-limit';
 import { rateLimitInterceptor } from '@core/errors/rate-limit.interceptor';
+import { hydrated, within } from '@shared/testing/hydrated';
 import { OwnProductsComponent } from './own-products.component';
 
-/** A Stencil host element: resolves once its lazily loaded component has rendered. */
-interface StencilHost extends Element {
-  componentOnReady(): Promise<unknown>;
-}
-
 /**
- * Longer than any wait here takes, and shorter than Vitest's 10 s test limit.
- * In some full runs every test after the first hung until that limit with no
- * word of which wait it was (#261); a wait that gives up first can say.
+ * Longer than any wait here takes, and shorter than Vitest's 10 s test limit,
+ * so a `whenStable()` that hangs says so by name (#261). The hydration wait has
+ * its own bound, in the shared helper.
  */
 const WAIT_MS = 6_000;
-
-async function within<T>(
-  what: string,
-  work: Promise<T>,
-  ms = WAIT_MS,
-): Promise<T> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const expired = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new Error(`${what} did not settle within ${ms} ms`)), ms);
-  });
-  try {
-    return await Promise.race([work, expired]);
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-/**
- * Tags whose lazily loaded component failed to load in this process (#261).
- * Stencil logs `Constructor for "ion-x#undefined" was not found` once, does not
- * retry, and that tag's `componentOnReady()` never resolves, in this test and
- * every later one. In the runs that hung it was whichever Ionic component the
- * first test happened to load first, `ion-spinner` in one and `ion-input` in
- * the next, so it is the load that is unreliable and not any one component. A
- * host that never became ready cannot hydrate late either, which is all this
- * wait guards against, so a tag that missed its bound once is not waited on
- * again.
- */
-const neverReady = new Set<string>();
-const HOST_WAIT_MS = 2_000;
-
-/**
- * `publish.page.spec.ts`'s wait, for the reason it gives (#71), with a bound
- * on each host and the failure named rather than hung on (#261).
- */
-async function hydrated(root: Element): Promise<void> {
-  const hosts = [...root.querySelectorAll('*')].filter(
-    (el): el is StencilHost =>
-      el.tagName.startsWith('ION-') && 'componentOnReady' in el && !neverReady.has(el.tagName),
-  );
-  await Promise.all(
-    hosts.map(async (host) => {
-      try {
-        await within(
-          `${host.tagName.toLowerCase()}.componentOnReady()`,
-          host.componentOnReady(),
-          HOST_WAIT_MS,
-        );
-      } catch (failure) {
-        neverReady.add(host.tagName);
-        console.warn(`${(failure as Error).message}; not waited on again in this run`);
-      }
-    }),
-  );
-}
 
 const MINE = 'http://localhost:5000/api/v1/catalog/products/mine';
 const withdrawalOf = (id: string) => `http://localhost:5000/api/v1/catalog/products/${id}/withdrawal`;
@@ -106,7 +47,7 @@ describe('OwnProductsComponent', () => {
     );
 
   async function settle(): Promise<void> {
-    await within('fixture.whenStable()', fixture.whenStable());
+    await within('fixture.whenStable()', fixture.whenStable(), WAIT_MS);
     fixture.detectChanges();
   }
 
