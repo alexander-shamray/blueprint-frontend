@@ -13,6 +13,7 @@ import { authInterceptor } from '@core/auth/auth.interceptor';
 import { rateLimitInterceptor } from '@core/errors/rate-limit.interceptor';
 import { provideAuth } from '@core/auth/auth.providers';
 import { CartStore } from '@core/cart/cart.store';
+import { AppearanceStore } from '@core/theme/appearance.store';
 import { clientLogInterceptor } from '@core/log/client-log.interceptor';
 import { provideClientLog } from '@core/log/client-log.providers';
 
@@ -71,5 +72,9 @@ export const appConfig: ApplicationConfig = {
     // CartStore itself, by refusing to ever persist the array the store was
     // born with (see `CartStore.INITIAL`), not by anything here.
     provideAppInitializer(() => inject(CartStore).restore()),
+    // The appearance the user chose, put on the root before the first screen is
+    // built. `index.html` has already set it from localStorage on the web; on
+    // native this is the first place the stored choice is read (#92).
+    provideAppInitializer(() => inject(AppearanceStore).restore()),
   ],
 };
