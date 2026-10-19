@@ -21,8 +21,8 @@ import { DisplayError, mapError } from '@core/errors/error-mapper';
 import { RateLimitWindows } from '@core/errors/rate-limit';
 import { ErrorBannerComponent } from '@shared/error-banner.component';
 import { MoneyPipe } from '@shared/money.pipe';
-import { ADDRESS_FIELDS, AddressField, splitAddressErrors } from './address-errors';
-import { countryOptions } from './countries';
+import { ADDRESS_FIELDS, AddressField, splitAddressErrors } from '@shared/address/address-errors';
+import { countryOptions } from '@shared/address/countries';
 
 /**
  * Spec §5.3. The address form mirrors AddressDto's five fields with the same
