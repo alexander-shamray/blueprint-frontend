@@ -1373,6 +1373,16 @@ not have, is allowed by id in the job's `ALLOWED` list with an expiry and a
 reason; an expired row fails the job again, which is the difference between an
 allow-list and a disabled job. The rows live in the job and nowhere else.
 
+The `commits` job runs on pull requests only and lints and builds every commit
+before the head (one `npm ci`, repeated when a commit's `package-lock.json`
+differs from the one last installed), because a pull request lands by rebase
+and `web` sees only the head: a commit in the middle that does not build costs
+a `git bisect` its whole range. It does not run the tests, which cost one step
+when red. A separate workflow, `commit-gate.yml`, holds every commit of a pull
+request to a `PR: #<n>` trailer and `/commit`'s subject form, since a rebase
+landing leaves no merge commit to name the pull request;
+`.github/commit-gate/README.md` owns its rules (#207).
+
 The `e2e` job checks out this repository and the backend, starts the backend's
 Compose stack with `--wait`, polls the gateway's `/health/ready` for five
 minutes, and runs the Playwright smoke against it. It is deliberately not
