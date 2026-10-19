@@ -244,9 +244,11 @@ ion-chip {
  * An unselected segment label. Ionic draws it as the text colour at 60%
  * opacity, which was 4.27:1 on the paper in the light sheet (the ink is not as
  * dark as the black Ionic assumes) and which no step variable reaches. The
- * palette's own muted colour clears the bar on both sheets.
+ * palette's own muted colour clears the bar on both sheets. Material mode
+ * only: iOS mode derives the checked label's colour from `--color`, so setting
+ * it there would recolour the checked label too.
  */
-ion-segment-button {
+:root.md ion-segment-button {
   --color: var(--ion-color-medium);
 }
 
