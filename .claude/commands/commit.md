@@ -47,9 +47,12 @@ British spelling in prose, identifiers left alone.>
 ```
 
 - Types are `docs:`, `feat(<scope>):`, `fix:`, `chore:`, `refactor:`, `test:`.
-  **Implementing a plan task? Use its `## Task n:` heading verbatim** — the
-  implementation plan under `docs/superpowers/plans/` already writes them in
-  this form, and matching it is what lets the plan be traced against the log.
+  **Implementing a plan task? Use its `## Task n:` title as the description**,
+  after the type and scope (`feat(cart): Cart store and persistence`) — the
+  implementation plan under `docs/superpowers/plans/` writes the titles, and
+  matching them is what lets the plan be traced against the log. The commit
+  gate refuses a subject outside the `<type>(<scope>): <what changed>` form,
+  so the heading's own `Task n:` prefix is not the subject.
 - The body carries the argument and the honest cost. `docs: annotate the return
   types in the service samples` earns its keep with *"a reader of a fenced code
   block has no hover and no go-to-definition"* — the reason, not the count.
