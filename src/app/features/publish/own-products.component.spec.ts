@@ -15,12 +15,43 @@ interface StencilHost extends Element {
   componentOnReady(): Promise<unknown>;
 }
 
+/**
+ * Longer than any wait here takes, and shorter than Vitest's 10 s test limit.
+ * In some full runs every test after the first hung until that limit with no
+ * word of which wait it was (#261); a wait that gives up first can say.
+ */
+const WAIT_MS = 6_000;
+
+async function within<T>(
+  what: string,
+  work: Promise<T>,
+  stuck: () => string = () => '',
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const expired = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () => reject(new Error(`${what} did not settle within ${WAIT_MS} ms${stuck()}`)),
+      WAIT_MS,
+    );
+  });
+  try {
+    return await Promise.race([work, expired]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /** `publish.page.spec.ts`'s wait, for the reason it gives (#71). */
 async function hydrated(root: Element): Promise<void> {
   const hosts = [...root.querySelectorAll('*')].filter(
     (el): el is StencilHost => el.tagName.startsWith('ION-') && 'componentOnReady' in el,
   );
-  await Promise.all(hosts.map((host) => host.componentOnReady()));
+  const waiting = new Set(hosts);
+  await within(
+    'componentOnReady()',
+    Promise.all(hosts.map((host) => host.componentOnReady().then(() => waiting.delete(host)))),
+    () => `; still waiting on ${[...waiting].map((host) => host.tagName.toLowerCase()).join(', ')}`,
+  );
 }
 
 const MINE = 'http://localhost:5000/api/v1/catalog/products/mine';
@@ -52,7 +83,7 @@ describe('OwnProductsComponent', () => {
     );
 
   async function settle(): Promise<void> {
-    await fixture.whenStable();
+    await within('fixture.whenStable()', fixture.whenStable());
     fixture.detectChanges();
   }
 
