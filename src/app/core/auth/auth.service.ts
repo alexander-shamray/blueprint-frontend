@@ -16,7 +16,8 @@ export interface CurrentUser {
 
 /**
  * One interface, two implementations, one factory (spec §4). Nothing in the
- * application asks which platform it is on; auth.providers.ts asks once.
+ * application outside a factory asks which platform it is on; this one's is in
+ * auth.providers.ts.
  * Abstract class rather than an InjectionToken plus interface, because Angular
  * can then use the class itself as the token and a component's constructor
  * reads as the dependency it is.
