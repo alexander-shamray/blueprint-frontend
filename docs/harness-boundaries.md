@@ -2200,13 +2200,13 @@ there without comparing the source beside it, unchecked or not
 (alexander-shamray/blueprint-frontend#265). So the guard names every hash-based
 `.pyc` under the checkout's hooks (the names folded to lower case, as a
 case-insensitive filesystem opens them), any linked directory below the hooks,
-and any file whose header it cannot read, and compares each with the hooks' own checkout, which holds none:
-a force-added one is refused on the wrapper's route and asked about on the
-helpers'. **A timestamp `.pyc` is not named**: Python compares its recorded
-mtime with the source's, a checkout sets the source's to the time it ran, and so
-a committed one is recompiled over. **What stays open**: a timestamp `.pyc`
-whose recorded mtime a branch could predict, and bytecode written between the
-guard's reading and the route's run.
+and any file whose header it cannot read, and compares each with the hooks' own
+checkout, which holds none: a force-added one is refused on the wrapper's route
+and asked about on the helpers'. **A timestamp `.pyc` is not named**: Python
+compares its recorded mtime with the source's, a checkout sets the source's to
+the time it ran, and so a committed one is recompiled over. **What stays
+open**: a timestamp `.pyc` whose recorded mtime a branch could predict, and
+bytecode written between the guard's reading and the route's run.
 
 **The route's term is single-quoted**
 (alexander-shamray/blueprint-frontend#145), in the skill's markdown and in the
