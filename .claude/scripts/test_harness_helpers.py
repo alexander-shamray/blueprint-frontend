@@ -11403,5 +11403,35 @@ class TheBranchTableNamesWhatThePushGuardAdmits(unittest.TestCase):
         self.assertEqual("main", current())
 
 
+class TheCodeIndexCliIsInstalledAtAPinnedVersion(unittest.TestCase):
+    """blueprint-frontend#147 — the CLI the hooks and the MCP server run
+    unprompted was installed unpinned.
+
+    `docs/testing.md` owns the version and `CLAUDE.md` cites it, so the cases
+    ask both halves of that: the owner carries an exact pin and the hash of its
+    wheel, and no tracked prose tells a reader to install the package without
+    one. A pin that moves in the owner alone is the drift the second case
+    holds.
+    """
+
+    DOCS = SCRIPTS.parent.parent / "docs" / "testing.md"
+    CLAUDE = SCRIPTS.parent.parent / "CLAUDE.md"
+    INSTALL = re.compile(r"pip install\s+codebase-index(?P<spec>\S*)")
+
+    def test_the_owner_names_an_exact_version_and_a_wheel_hash(self):
+        text = self.DOCS.read_text(encoding="utf-8")
+        self.assertRegex(text, r"codebase-index==\d+\.\d+\.\d+")
+        self.assertRegex(text, r"sha256:[0-9a-f]{64}")
+
+    def test_no_install_instruction_leaves_the_package_unpinned(self):
+        found = 0
+        for path in (self.DOCS, self.CLAUDE):
+            for match in self.INSTALL.finditer(path.read_text(encoding="utf-8")):
+                found += 1
+                with self.subTest(path=path.name, spec=match["spec"]):
+                    self.assertRegex(match["spec"], r"^==\d+\.\d+\.\d+")
+        self.assertGreater(found, 0, "no install instruction was found to judge")
+
+
 if __name__ == "__main__":
     unittest.main()
