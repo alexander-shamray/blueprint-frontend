@@ -125,6 +125,41 @@ git commit -qm "the branch edits a.txt" && git push -q origin feat/x
 '''
 
 
+# **Built once and copied, not built per test**
+# (alexander-shamray/blueprint-frontend#259). A fixture is about fifteen `git`
+# processes, every one slow to start under Git Bash on Windows, and building it
+# in each `setUp` made this module the largest single cost of the local suite.
+# A copy is one `cp -a` and one `git remote set-url`: the clone records its
+# origin by absolute path, and nothing else in either repository names one.
+# Each test still gets a repository of its own, so no case sees another's.
+_TEMPLATES = {}
+
+
+def fixture(*steps):
+    """A fresh copy of FIXTURE with `steps` run in its work tree, built once."""
+    if steps not in _TEMPLATES:
+        root = run_bash(FIXTURE).stdout.strip()
+        if not root:
+            raise RuntimeError("the fixture produced no path")
+        for step in steps:
+            done = run_bash('cd "$W" && ' + step, W=root + "/work")
+            if done.returncode:
+                raise RuntimeError(f"a fixture step failed: {done.stderr}")
+        _TEMPLATES[steps] = root
+    copy = run_bash(
+        'set -eu; copy=$(mktemp -d); cp -a "$T/." "$copy/"; '
+        'git -C "$copy/work" remote set-url origin "$copy/remote.git"; '
+        'printf %s "$copy"', T=_TEMPLATES[steps])
+    if copy.returncode:
+        raise RuntimeError(f"the fixture could not be copied: {copy.stderr}")
+    return copy.stdout.strip()
+
+
+def tearDownModule():
+    for root in _TEMPLATES.values():
+        run_bash('rm -rf "$R"', R=root)
+
+
 class TheFlagsAreTheScriptsOwn(unittest.TestCase):
     """The grant buys `bash <this file>`, so the flags are never a caller's to
     choose. A prefix rule cannot exclude a trailing flag, which is why this
@@ -194,7 +229,7 @@ class TheFlagsAreTheScriptsOwn(unittest.TestCase):
 class TheHelperRefusesBeforeItRewrites(unittest.TestCase):
 
     def setUp(self):
-        self.root = run_bash(FIXTURE).stdout.strip()
+        self.root = fixture()
         self.assertTrue(self.root, "the fixture produced no path")
         self.addCleanup(lambda: run_bash('rm -rf "$R"', R=self.root))
         self.work = self.root + "/work"
@@ -369,7 +404,7 @@ class TheHostsHooksNeverRunInAReplay(unittest.TestCase):
     HOOKS = ("pre-rebase", "post-rewrite", "pre-push", "reference-transaction")
 
     def setUp(self):
-        self.root = run_bash(FIXTURE).stdout.strip()
+        self.root = fixture()
         self.assertTrue(self.root, "the fixture produced no path")
         self.addCleanup(lambda: run_bash('rm -rf "$R"', R=self.root))
         self.work = self.root + "/work"
@@ -449,10 +484,9 @@ class AConflictIsTheCaseRebaseIsHereFor(unittest.TestCase):
     """
 
     def setUp(self):
-        self.root = run_bash(FIXTURE).stdout.strip()
+        self.root = fixture(CONFLICT)
         self.addCleanup(lambda: run_bash('rm -rf "$R"', R=self.root))
         self.work = self.root + "/work"
-        self.at(CONFLICT)
 
     def at(self, script):
         return run_bash('cd "$W" && ' + script, W=self.work)
@@ -521,7 +555,7 @@ class ALegacyMergeForwardIsNotSilentlyDropped(unittest.TestCase):
     loses it before the push, which no lease can see."""
 
     def setUp(self):
-        self.root = run_bash(FIXTURE).stdout.strip()
+        self.root = fixture()
         self.addCleanup(lambda: run_bash('rm -rf "$R"', R=self.root))
         self.work = self.root + "/work"
 
@@ -561,7 +595,7 @@ class ALegacyMergeForwardIsNotSilentlyDropped(unittest.TestCase):
 class TheHelperPublishesWhatItRebased(unittest.TestCase):
 
     def setUp(self):
-        self.root = run_bash(FIXTURE).stdout.strip()
+        self.root = fixture()
         self.addCleanup(lambda: run_bash('rm -rf "$R"', R=self.root))
         self.work = self.root + "/work"
 
