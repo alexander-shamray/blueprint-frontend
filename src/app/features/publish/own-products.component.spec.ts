@@ -12,9 +12,10 @@ import { hydrated, within } from '@shared/testing/hydrated';
 import { OwnProductsComponent } from './own-products.component';
 
 /**
- * Longer than any wait here takes, and shorter than Vitest's 10 s test limit,
- * so a `whenStable()` that hangs says so by name (#261). The hydration wait has
- * its own bound, in the shared helper.
+ * Longer than one `whenStable()` here takes, and shorter than Vitest's 10 s
+ * limit on its own, so one that hangs says so by name (#261). A test that calls
+ * `settle()` several times can still pass the limit before any one bound fires;
+ * the bound is per wait. The hydration wait has its own, in the shared helper.
  */
 const WAIT_MS = 6_000;
 
