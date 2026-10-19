@@ -75,9 +75,12 @@ for (const colorScheme of ['light', 'dark'] as const) {
         // The ceiling is 15 s because one WebKit scan of the quoted cart, late
         // in a full run against a stack holding every earlier test's orders,
         // outlasted 5 s (#268). Playwright's own message for that, "Timeout
-        // exceeded while waiting on the predicate", means no poll returned a
-        // value at all, so `last` records how far the poll got: a red run says
-        // whether a scan finished and what it held, or never finished.
+        // 5000ms exceeded while waiting on the predicate", means no poll
+        // returned a value at all, so `last` records how far the poll got: a
+        // red run says whether a scan finished and what it held, or never
+        // finished. The ceiling holds only while the walk is inside the test's
+        // 60 s budget (playwright.config.ts); past that Playwright reports the
+        // test timeout instead, and `last` is not shown.
         let last = 'no scan finished';
         try {
           await expect
