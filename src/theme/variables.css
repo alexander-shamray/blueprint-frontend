@@ -19,15 +19,12 @@
  */
 @import '@ionic/angular/css/palettes/dark.class.css';
 
-/* Tokens: the few numbers every screen shares, so a page sets none of its own. */
+/*
+ * Tokens: the numbers the global rules at the foot of this file use. Only what
+ * has a consumer is here; a spacing scale will be added with the first rule
+ * that spends it, and pages still set their own padding until then.
+ */
 :root {
-  --bp-space-1: 4px;
-  --bp-space-2: 8px;
-  --bp-space-3: 16px;
-  --bp-space-4: 24px;
-  --bp-space-5: 40px;
-
-  --bp-radius-sm: 2px;
   --bp-radius-md: 4px;
   --bp-radius-lg: 8px;
 
