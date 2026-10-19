@@ -133,13 +133,16 @@ docs/commands/branch.md, *A branch is a workspace, not a HEAD*)
 
    **A new worktree has no `node_modules`.** Run `npm ci` once after moving
    in, never `install`, and again after a lockfile change;
-   `npm-checks.sh` refuses a worktree without it.
+   `npm-checks.sh` refuses a worktree without it. It does not seal the worktree
+   off: the module walk still reaches `main`'s `node_modules`, so a branch that
+   drops a dependency it still imports can pass here and fail in CI.
 
    **If the fork fails, read the message before falling back.** Fall back to
    an in-place branch only when git says it could not create leading
-   directories for permission reasons; anything else stops the command and
-   is reported verbatim. Then check whether the branch survived the failed
-   fork:
+   directories for permission reasons, and then **report the failure and say
+   the worktree could not be created**; anything else stops the command and
+   is reported verbatim, unnamed rather than misnamed. Then check whether the
+   branch survived the failed fork:
 
    | After the failed fork | Take |
    |---|---|
