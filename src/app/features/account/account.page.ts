@@ -81,23 +81,33 @@ import { ErrorBannerComponent } from '@shared/error-banner.component';
             open, and a sign-out closes it.
           -->
           <form [formGroup]="addressForm" (ngSubmit)="saveAddress()" data-testid="address-form">
-            <ion-item><ion-input label="Line 1" formControlName="line1" required></ion-input></ion-item>
+            <ion-item>
+              <ion-input label="Line 1" formControlName="line1" required></ion-input>
+            </ion-item>
             @for (message of addressMessages().line1 ?? []; track $index) {
-              <ion-note class="field-error" color="danger" role="alert" data-field="line1">{{ message }}</ion-note>
+              <ion-note class="field-error" color="danger" role="alert" data-field="line1">
+                {{ message }}
+              </ion-note>
             }
             <ion-item><ion-input label="Line 2" formControlName="line2"></ion-input></ion-item>
             @for (message of addressMessages().line2 ?? []; track $index) {
-              <ion-note class="field-error" color="danger" role="alert" data-field="line2">{{ message }}</ion-note>
+              <ion-note class="field-error" color="danger" role="alert" data-field="line2">
+                {{ message }}
+              </ion-note>
             }
             <ion-item><ion-input label="City" formControlName="city" required></ion-input></ion-item>
             @for (message of addressMessages().city ?? []; track $index) {
-              <ion-note class="field-error" color="danger" role="alert" data-field="city">{{ message }}</ion-note>
+              <ion-note class="field-error" color="danger" role="alert" data-field="city">
+                {{ message }}
+              </ion-note>
             }
             <ion-item>
               <ion-input label="Postal code" formControlName="postalCode" required></ion-input>
             </ion-item>
             @for (message of addressMessages().postalCode ?? []; track $index) {
-              <ion-note class="field-error" color="danger" role="alert" data-field="postalCode">{{ message }}</ion-note>
+              <ion-note class="field-error" color="danger" role="alert" data-field="postalCode">
+                {{ message }}
+              </ion-note>
             }
             <ion-item>
               <label class="country" for="account-country">Country</label>
@@ -109,7 +119,9 @@ import { ErrorBannerComponent } from '@shared/error-banner.component';
               </select>
             </ion-item>
             @for (message of addressMessages().country ?? []; track $index) {
-              <ion-note class="field-error" color="danger" role="alert" data-field="country">{{ message }}</ion-note>
+              <ion-note class="field-error" color="danger" role="alert" data-field="country">
+                {{ message }}
+              </ion-note>
             }
             <ion-button expand="block" type="submit" data-testid="save-address"
               [disabled]="addressForm.invalid || savingAddress()">
@@ -296,6 +308,8 @@ export class AccountPage {
     effect(() => {
       const current = subject();
       untracked(() => {
+        // Whatever was out for the last session is its own, and lands on nothing.
+        this.sessionEpoch++;
         // Emptied first: a different buyer, or none, must never be left looking
         // at the last one's address while the read is out, or at what they were
         // typing into the editor.
@@ -355,36 +369,44 @@ export class AccountPage {
       // Empty means absent, as the order's form sends it.
       line2: value.line2.trim() === '' ? null : value.line2,
     };
-    const request = ++this.latestRequest;
+    const epoch = this.sessionEpoch;
+    const save = ++this.saveSequence;
+    // Only the session changing or a newer save makes this reply someone
+    // else's. A read or a tab re-entry while it is out does not: the PUT has
+    // reached the server either way, and its answer is the newest word on the
+    // address.
+    const mine = (): boolean => epoch === this.sessionEpoch && save === this.saveSequence;
     this.errorState.set(null);
     this.addressMessagesState.set({});
     this.savingState.set(true);
 
-    this.savedAddressApi.save(address).subscribe({
-      next: (saved) => {
-        // Dropped if the session moved on, or a forget came after: the editor
-        // belongs to whoever opened it.
-        if (request !== this.latestRequest) return;
-        this.savingState.set(false);
-        this.savedAddressState.set(saved);
-        this.closeEditor();
-      },
-      error: (failure: unknown) => {
-        if (request !== this.latestRequest) return;
-        this.savingState.set(false);
-        const displayed = mapError(failure);
-        if (displayed.kind === 'validation') {
-          const { byField, rest } = splitAddressErrors(displayed.fields, '');
-          this.addressMessagesState.set(byField);
-          this.errorState.set({
-            ...displayed,
-            fields: Object.keys(rest).length > 0 ? rest : undefined,
-          });
-          return;
-        }
-        this.errorState.set(displayed);
-      },
-    });
+    this.savedAddressApi
+      .save(address)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (saved) => {
+          if (!mine()) return;
+          // A read that was out when this landed is older than it.
+          this.latestRequest++;
+          this.savedAddressState.set(saved);
+          this.closeEditor();
+        },
+        error: (failure: unknown) => {
+          if (!mine()) return;
+          this.savingState.set(false);
+          const displayed = mapError(failure);
+          if (displayed.kind === 'validation') {
+            const { byField, rest } = splitAddressErrors(displayed.fields, '');
+            this.addressMessagesState.set(byField);
+            this.errorState.set({
+              ...displayed,
+              fields: Object.keys(rest).length > 0 ? rest : undefined,
+            });
+            return;
+          }
+          this.errorState.set(displayed);
+        },
+      });
   }
 
   /** Closes the editor and drops what was typed: it is personal data. */
@@ -414,6 +436,15 @@ export class AccountPage {
    * change asks again (or, with nobody signed in, counts without asking).
    */
   private latestRequest = 0;
+
+  /**
+   * Counts the sessions this page has seen, and the saves it has sent. A
+   * save's reply is applied only if neither moved: it is not ordered by
+   * `latestRequest`, because a read or a tab re-entry while a save is out must
+   * not strand the editor on "Saving…".
+   */
+  private sessionEpoch = 0;
+  private saveSequence = 0;
 
   /**
    * A failed read shows nothing: the address is a convenience, and an empty
