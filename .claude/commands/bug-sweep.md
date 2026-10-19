@@ -20,9 +20,12 @@ as confirmation, and what the round hunts.
 intent and not against a document: an inverted condition, a guard that admits,
 a retry that double-applies, a test a do-nothing implementation would satisfy.
 If explaining it requires quoting the spec, it is not this command's finding.
-`/security-sweep` owns exploitable weaknesses and `/review-branch` one branch
-against `main`. The overlap with the security sweep is handled by the
-de-duplicate gate, which enumerates issues regardless of label. (why:
+`/security-sweep` owns exploitable weaknesses, and `/review-branch` one branch
+against `main`. **A defect that is merely *also* noticeable by an attacker
+stays here; one whose whole significance is that someone hostile can reach it
+goes to the security sweep.** The overlap is handled by the de-duplicate gate,
+which enumerates issues regardless of label, so the boundary decides where a
+*new* finding is filed and is not load-bearing for correctness. (why:
 docs/commands/bug-sweep.md, *What this command hunts, and what it hands over*)
 
 ## Severity, and why the bar is high
@@ -92,8 +95,10 @@ git worktree list --porcelain                        # AFTER — the new `worktr
 - **`$work` is the path field of the one `worktree `-prefixed line that
   appeared** between the two porcelain listings, prefix stripped, ending in the
   `secsweep-` basename the helper printed (the prefix is shared with
-  `/security-sweep` and historical). A record whose path begins with a double
-  quote is a root that could not be established: stop, under *Never fail open*.
+  `/security-sweep` and historical, so a stray temp directory does not say
+  which command left it: **the run summary says which command owns the
+  directory it reports**). A record whose path begins with a double quote is a
+  root that could not be established: stop, under *Never fail open*.
 - **No `cygpath`, no `mktemp`, no shell reader in the grant.**
 - **`$work` is never unset**, and `$pinned` is captured once and passed to both
   the summary and the helper.
@@ -286,8 +291,8 @@ tracked, say so in the summary.
 - **The enforcing half is `disallowed-tools`, not an absent `allowed-tools`
   entry**: `Edit`, `Write` and `NotebookEdit` are denied by name, `git push
   origin` and its `-u` form are denied by name because the global allow would
-  otherwise take them (`/security-sweep` argues it once, and the deny wins
-  because precedence is deny first), and the raw `gh issue create` and the hand
+  otherwise take them, and the deny wins because precedence is deny first
+  (why: docs/commands/security-sweep.md, *What this command does not do*), and the raw `gh issue create` and the hand
   route are denied.
 - **That is narrower than read-only, and the gap is `Bash`**: a redirection
   through a granted command can still write. The redirection half is closed
