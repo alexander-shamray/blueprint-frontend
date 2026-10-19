@@ -2192,11 +2192,20 @@ siblings through `$(dirname "${BASH_SOURCE[0]}")` and a list per helper would
 fall behind the files. **What it costs**: a worktree cut from an `origin/main`
 newer than the startup checkout's `main` asks too, until that checkout is
 pulled. **What stays open**: an in-place branch's helpers run from the startup
-checkout itself, where the hook is the branch's own as well;
-`npm-checks.sh` runs the branch's `package.json` scripts by design; and
-`.claude/hooks/__pycache__/` is not compared, because each checkout writes its
-own as its hooks run, though Python loads an unchecked-hash `.pyc` there
-without reading the source beside it.
+checkout itself, where the hook is the branch's own as well; and
+`npm-checks.sh` runs the branch's `package.json` scripts by design.
+**`.claude/hooks/__pycache__/` is not compared as a directory**, because each
+checkout writes its own as its hooks run, but Python loads a hash-based `.pyc`
+there without comparing the source beside it, unchecked or not
+(alexander-shamray/blueprint-frontend#265). So the guard names every hash-based
+`.pyc` under the checkout's hooks, any that is a link, and any whose header it
+cannot read, and compares each with the hooks' own checkout, which holds none:
+a force-added one is refused on the wrapper's route and asked about on the
+helpers'. **A timestamp `.pyc` is not named**: Python compares its recorded
+mtime with the source's, a checkout sets the source's to the time it ran, and so
+a committed one is recompiled over. **What stays open**: a timestamp `.pyc`
+whose recorded mtime a branch could predict, and bytecode written between the
+guard's reading and the route's run.
 
 **The route's term is single-quoted**
 (alexander-shamray/blueprint-frontend#145), in the skill's markdown and in the

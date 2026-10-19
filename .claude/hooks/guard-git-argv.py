@@ -4471,7 +4471,6 @@ LINK_WORD = re.compile(
 ARCHIVE_WORD = re.compile(
     r"(?<![\w-])(?:tarfile|zipfile|unpack_archive|extractall)(?![\w-])",
     re.IGNORECASE)
-GIT_WORD = re.compile(r"(?<![\w.-])git(?![\w.-])", re.IGNORECASE)
 # Programs that run a script they are handed. Only a run holding one has its
 # quoted arguments searched, so `gh pr create --body "a link to the git
 # docs"` is prose and not a script (PR 215's review).
@@ -5787,7 +5786,7 @@ def index_wrapper_differs(command, launches):
         return None
     if hooks_checkout(base):
         return None
-    found = copy_difference(base, INDEX_WRAPPER_FILES)
+    found = copy_difference(base, INDEX_WRAPPER_FILES + bytecode_names(base))
     if found is None:
         return None
     name, linked = found
@@ -5877,15 +5876,60 @@ HELPER_HOOKS = ".claude/hooks"
 PROMPTS = []
 
 
+def bytecode_names(base):
+    """The bytecode under `base`'s hooks that Python would run without its source.
+
+    **A `.pyc` whose header carries PEP 552's hash flag is used without
+    comparing the source's mtime** (alexander-shamray/blueprint-frontend#265):
+    unchecked, it is not read against the source at all, and checked, it is read
+    against the source's hash only, which a crafted file satisfies. A checkout
+    carrying one, force-added past `.gitignore`, passes the byte comparison
+    with an untouched `index-refresh.py` and runs other code. A timestamp
+    `.pyc` is not named: its recorded mtime is compared with the source's,
+    which a checkout sets to the time it ran, so a committed one never matches
+    and is recompiled over. That is what lets each checkout keep the `.pyc`
+    files its own tests wrote without asking in every worktree.
+
+    A `.pyc` that cannot be read, or is a link, is named as well, since a header
+    that was not seen cannot be cleared. `copy_difference` then compares the
+    name with the hooks' own checkout, which holds no hash-based file.
+    """
+    found = []
+    for here, directories, files in os.walk(os.path.join(base, HELPER_HOOKS)):
+        directories[:] = [entry for entry in directories
+                          if not os.path.islink(os.path.join(here, entry))]
+        if os.path.basename(here) != "__pycache__":
+            continue
+        relative = os.path.relpath(here, base).replace(os.sep, "/")
+        for entry in files:
+            if not entry.endswith(".pyc"):
+                continue
+            path = os.path.join(here, entry)
+            header = None if os.path.islink(path) else _head(path)
+            # Bytes 4..8 are the flags word; bit 0 is "hash-based".
+            if header is None or len(header) < 8 or header[4] & 1:
+                found.append(f"{relative}/{entry}")
+    return tuple(sorted(found))
+
+
+def _head(path):
+    """`path`'s first sixteen bytes, or None where there is no file to read."""
+    try:
+        with open(path, "rb") as handle:
+            return handle.read(16)
+    except OSError:
+        return None
+
+
 def helper_names(base):
     """Every helper and hook file either checkout holds, and the wrapper's route.
 
     The union, so a file the branch added or removed is a difference too.
-    `__pycache__` is left out: each checkout writes its own as its hooks run,
-    so comparing it would ask in every worktree, and
-    `docs/harness-boundaries.md` states what that leaves open.
+    `__pycache__` is left out of the walk: each checkout writes its own as its
+    hooks run, so comparing it would ask in every worktree. What Python would
+    run from it without the source is `bytecode_names`, added for `base` alone.
     """
-    names = set(INDEX_WRAPPER_FILES)
+    names = set(INDEX_WRAPPER_FILES) | set(bytecode_names(base))
     for root in (base, HOOK_CHECKOUT):
         try:
             entries = os.listdir(os.path.join(root, HELPER_SCRIPTS))

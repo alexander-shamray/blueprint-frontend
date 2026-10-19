@@ -102,6 +102,7 @@ and no SDK. `git` because one case drives a real worktree round trip, and
 `jq` because the pull request helpers parse what `gh` returns.
 """
 
+import ast
 import importlib.util
 import json
 import os
@@ -5826,6 +5827,100 @@ class TheGitArgvGuard(unittest.TestCase):
                         run + "; env -C docs " + run):
             with self.subTest(command=command):
                 self.assertIn("#255", self.assertAsked(command, cwd=root))
+
+    def test_bytecode_python_would_run_without_its_source_is_a_difference(self):
+        # **Python reads `__pycache__` before the source** (blueprint-frontend
+        # #265): a `.pyc` whose header carries the hash flag is used without
+        # the source's mtime being compared, so a force-added one runs in place
+        # of an untouched hook the byte comparison passed. A timestamp `.pyc`
+        # is checked against the source and is not named, which is what keeps
+        # a worktree whose tests wrote their own from asking.
+        trusted = SCRIPTS.parent.parent
+        hook = in_process_hook.load(HOOK)[0]
+        wrapper = "bash .claude/skills/codebase-index/scripts/run-index stats --json"
+        helper = "bash .claude/scripts/pr-state.sh 1"
+        names = tuple(f".claude/scripts/{path.name}"
+                      for path in sorted(SCRIPTS.glob("*.sh"))) + tuple(
+            path.relative_to(trusted).as_posix()
+            for path in sorted((trusted / ".claude/hooks").rglob("*"))
+            if path.is_file() and "__pycache__" not in path.parts
+        ) + hook.INDEX_WRAPPER_FILES
+        planted = ".claude/hooks/__pycache__/index-refresh.cpython-312.pyc"
+        magic = importlib.util.MAGIC_NUMBER
+        with tempfile.TemporaryDirectory() as scratch:
+            copy = Path(scratch)
+            for name in dict.fromkeys(names):
+                (copy / name).parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(trusted / name, copy / name)
+            # Positive control: with no bytecode both routes are admitted, or
+            # every refusal below could be the guard refusing the directory.
+            self.assertAdmitted(wrapper, cwd=scratch)
+            self.assertAdmitted(helper, cwd=scratch)
+            path = copy / planted
+            path.parent.mkdir(parents=True, exist_ok=True)
+            # Timestamp-based, as an interpreter writes it: not a difference.
+            path.write_bytes(magic + (0).to_bytes(4, "little") + bytes(8) + b"code")
+            self.assertAdmitted(wrapper, cwd=scratch)
+            self.assertAdmitted(helper, cwd=scratch)
+            # Hash-based, unchecked (1) and checked (3), then a header too
+            # short to read a flag from.
+            for label, content in (
+                    ("unchecked", magic + (1).to_bytes(4, "little") + bytes(8) + b"code"),
+                    ("checked", magic + (3).to_bytes(4, "little") + bytes(8) + b"code"),
+                    ("truncated", magic)):
+                with self.subTest(pyc=label):
+                    path.write_bytes(content)
+                    self.assertIn("#146", self.assertRefused(wrapper, cwd=scratch))
+                    self.assertIn("#255", self.assertAsked(helper, cwd=scratch))
+            # A hash-based file in a package below the hooks is read too.
+            path.unlink()
+            deep = copy / ".claude/hooks/json/__pycache__/__init__.cpython-312.pyc"
+            deep.parent.mkdir(parents=True)
+            deep.write_bytes(magic + (1).to_bytes(4, "little") + bytes(8))
+            self.assertIn("#255", self.assertAsked(helper, cwd=scratch))
+            deep.unlink()
+            self.assertAdmitted(helper, cwd=scratch)
+            # The hooks' own checkout is never asked about itself.
+            self.assertAdmitted(wrapper, cwd=str(trusted))
+
+    def test_no_hook_binds_a_module_level_name_twice(self):
+        # **A name bound twice at module level keeps only the second**
+        # (blueprint-frontend#266): `guard-git-argv.py` held `GIT_WORD` twice,
+        # so a reader editing the first changed nothing, and on #255 a new
+        # pattern named `HELPER_SCRIPT` narrowed a check by taking over a name
+        # another pattern held. The test's subject is the rebinding, not one
+        # of its consequences.
+        def rebound(source):
+            seen, twice = set(), []
+            for node in ast.parse(source).body:
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                    bound = [node.name]
+                elif isinstance(node, ast.Assign):
+                    bound = [name.id for target in node.targets
+                             for name in ast.walk(target) if isinstance(name, ast.Name)]
+                elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+                    bound = [node.target.id]
+                else:
+                    continue
+                for name in bound:
+                    if name in seen:
+                        twice.append(name)
+                    seen.add(name)
+            return twice
+
+        # The check sees what it is for: a rebinding, a rebinding by `def`,
+        # and a rebinding of one name among several.
+        self.assertEqual(["A"], rebound("A = 1\nA = 2\n"))
+        self.assertEqual(["f"], rebound("f = 1\ndef f(): pass\n"))
+        self.assertEqual(["B"], rebound("A, B = 1, 2\nB: int = 3\n"))
+        self.assertEqual([], rebound("A = 1\nB = 2\n"))
+        hooks = sorted((SCRIPTS.parent / "hooks").glob("*.py"))
+        self.assertIn(HOOK, hooks)
+        for hook in hooks:
+            with self.subTest(hook=hook.name):
+                self.assertEqual(
+                    [], rebound(hook.read_text(encoding="utf-8")),
+                    f"{hook.name} binds these names at module level more than once")
 
     def test_only_a_name_known_to_be_harmless_is_assigned_before_git(self):
         # **The name list is an enumeration, so a variable nobody listed
