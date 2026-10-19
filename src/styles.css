@@ -1,14 +1,6 @@
 /* You can add global styles to this file, and also import other style files */
 
 /*
- * The selected tab's label in the dark palette. Ionic draws it in the primary
- * colour (#4d8dff) over a #263143 focus tint, which is 4.09:1 — under the 4.5:1
- * that 12px text needs (axe, `color-contrast`, e2e/a11y.spec.ts). The tint of
- * the primary is the palette's own next step up and clears it. The palette
- * proper is #92's, which will be born under this gate.
+ * Global rules only. The palette and the tokens are `src/theme/variables.css`,
+ * and no page carries a colour of its own (#92).
  */
-@media (prefers-color-scheme: dark) {
-  ion-tab-button {
-    --color-selected: var(--ion-color-primary-tint);
-  }
-}
