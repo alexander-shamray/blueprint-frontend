@@ -82,7 +82,6 @@ jobs:
     runs-on: ubuntu-latest
     env:
       ALLOWED: |
-        GHSA-ff3f-86qr-9cv3 2026-11-18 SSR-only denial of service; this client is not server-rendered. Closed by #247
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
