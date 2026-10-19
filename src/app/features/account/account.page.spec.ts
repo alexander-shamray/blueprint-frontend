@@ -1,3 +1,4 @@
+import { HttpErrorResponse } from '@angular/common/http';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { ActivatedRoute, convertToParamMap, provideRouter } from '@angular/router';
 import { signal } from '@angular/core';
@@ -26,6 +27,7 @@ function mount(
   const session = signal(user);
   const read = vi.fn((): Observable<Address | null> => of(saved));
   const remove = vi.fn((): Observable<void> => of(undefined));
+  const save = vi.fn((address: Address): Observable<Address> => of(address));
   const chosen = signal<Appearance>('system');
   const choose = vi.fn(async (appearance: Appearance) => chosen.set(appearance));
   // A BehaviorSubject rather than of(): one test pushes a SECOND value
@@ -54,14 +56,14 @@ function mount(
           hasPermission: (n: string) => user?.permissions.includes(n) ?? false,
         },
       },
-      { provide: SavedAddressApi, useValue: { read, remove } },
+      { provide: SavedAddressApi, useValue: { read, remove, save } },
       { provide: AppearanceStore, useValue: { choice: chosen.asReadonly(), choose } },
     ],
   });
 
   const fixture: ComponentFixture<AccountPage> = TestBed.createComponent(AccountPage);
   fixture.detectChanges();
-  return { fixture, signIn, signOut, queryParams, session, read, remove, choose, chosen };
+  return { fixture, signIn, signOut, queryParams, session, read, remove, save, choose, chosen };
 }
 
 const demo: CurrentUser = {
@@ -323,6 +325,210 @@ describe('AccountPage', () => {
       fixture.componentInstance.chooseAppearance(new Event('ionChange'));
 
       expect(choose).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('changing the saved address (#109)', () => {
+    const typed = {
+      line1: '1 Example Street', line2: '', city: 'Doha', postalCode: '00000', country: 'QA',
+    };
+    const open = async (saved: Address | null) => {
+      const mounted = mount(demo, true, undefined, saved);
+      await mounted.fixture.whenStable();
+      mounted.fixture.detectChanges();
+      return mounted;
+    };
+    const byTestId = (fixture: ComponentFixture<AccountPage>, id: string) =>
+      fixture.nativeElement.querySelector(`[data-testid="${id}"]`) as HTMLElement | null;
+
+    it('offers to add one when none is saved, and to change it when one is', async () => {
+      const none = await open(null);
+      expect(byTestId(none.fixture, 'add-address')).not.toBeNull();
+      expect(byTestId(none.fixture, 'edit-address')).toBeNull();
+
+      const some = await open(savedHome);
+      expect(byTestId(some.fixture, 'edit-address')).not.toBeNull();
+      expect(byTestId(some.fixture, 'add-address')).toBeNull();
+    });
+
+    it('offers nothing to a visitor who is not signed in', async () => {
+      const { fixture } = mount(null, true);
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      expect(byTestId(fixture, 'add-address')).toBeNull();
+      expect(byTestId(fixture, 'edit-address')).toBeNull();
+    });
+
+    it('opens on the saved address', async () => {
+      const { fixture } = await open(savedHome);
+
+      fixture.componentInstance.editAddress();
+      fixture.detectChanges();
+
+      expect(fixture.componentInstance.addressForm.getRawValue()).toEqual({
+        line1: '9 Saved Road', line2: 'Flat 2', city: 'Leeds', postalCode: 'LS1 1AA', country: 'GB',
+      });
+      expect(byTestId(fixture, 'address-form')).not.toBeNull();
+      expect(byTestId(fixture, 'saved-address')).toBeNull();
+    });
+
+    it('opens empty when none is saved', async () => {
+      const { fixture } = await open(null);
+
+      fixture.componentInstance.editAddress();
+
+      expect(fixture.componentInstance.addressForm.getRawValue()).toEqual({
+        line1: '', line2: '', city: '', postalCode: '', country: '',
+      });
+    });
+
+    it('sends the five members with a blank second line as null, and shows what the server answers', async () => {
+      const { fixture, save } = await open(savedHome);
+      save.mockReturnValue(of({ ...typed, line2: null, city: 'Doha City' }));
+
+      fixture.componentInstance.editAddress();
+      fixture.componentInstance.addressForm.setValue(typed);
+      fixture.componentInstance.saveAddress();
+      fixture.detectChanges();
+
+      expect(save).toHaveBeenCalledWith({ ...typed, line2: null });
+      expect(fixture.componentInstance.editingAddress()).toBe(false);
+      expect(fixture.componentInstance.savedAddress()).toEqual({
+        ...typed, line2: null, city: 'Doha City',
+      });
+      expect(byTestId(fixture, 'saved-address')?.textContent).toContain('Doha City');
+    });
+
+    it('sends nothing for an incomplete form', async () => {
+      const { fixture, save } = await open(null);
+
+      fixture.componentInstance.editAddress();
+      fixture.componentInstance.addressForm.patchValue({ ...typed, city: '' });
+      fixture.componentInstance.saveAddress();
+
+      expect(save).not.toHaveBeenCalled();
+      expect(fixture.componentInstance.addressForm.invalid).toBe(true);
+    });
+
+    it('cancels without sending, and drops what was typed', async () => {
+      const { fixture, save } = await open(savedHome);
+
+      fixture.componentInstance.editAddress();
+      fixture.componentInstance.addressForm.patchValue({ line1: 'Typed Street' });
+      fixture.componentInstance.cancelEditAddress();
+
+      expect(save).not.toHaveBeenCalled();
+      expect(fixture.componentInstance.editingAddress()).toBe(false);
+      expect(fixture.componentInstance.addressForm.getRawValue().line1).toBe('');
+      expect(fixture.componentInstance.savedAddress()).toEqual(savedHome);
+    });
+
+    it('puts a 400’s member messages under their controls and keeps the rest in the banner', async () => {
+      const { fixture, save } = await open(null);
+      save.mockReturnValue(
+        throwError(
+          () =>
+            new HttpErrorResponse({
+              status: 400,
+              error: { status: 400, errors: { Line1: ['Too long.'], country: ['Not a code.'], Other: ['Odd.'] } },
+            }),
+        ),
+      );
+
+      fixture.componentInstance.editAddress();
+      fixture.componentInstance.addressForm.setValue(typed);
+      fixture.componentInstance.saveAddress();
+      fixture.detectChanges();
+
+      expect(fixture.componentInstance.addressMessages()).toEqual({
+        line1: ['Too long.'],
+        country: ['Not a code.'],
+      });
+      expect(fixture.componentInstance.error()?.fields).toEqual({ Other: ['Odd.'] });
+      expect(fixture.nativeElement.querySelector('[data-field="line1"]')?.textContent).toContain('Too long.');
+      // The editor stays, with what was typed.
+      expect(fixture.componentInstance.editingAddress()).toBe(true);
+      expect(fixture.componentInstance.addressForm.getRawValue().line1).toBe('1 Example Street');
+    });
+
+    it('clears a control’s messages when that control is edited', async () => {
+      const { fixture, save } = await open(null);
+      save.mockReturnValue(
+        throwError(
+          () =>
+            new HttpErrorResponse({
+              status: 400,
+              error: { status: 400, errors: { Line1: ['Too long.'], City: ['Required.'] } },
+            }),
+        ),
+      );
+      fixture.componentInstance.editAddress();
+      fixture.componentInstance.addressForm.setValue(typed);
+      fixture.componentInstance.saveAddress();
+
+      fixture.componentInstance.addressForm.controls.line1.setValue('Shorter');
+
+      expect(fixture.componentInstance.addressMessages()).toEqual({ city: ['Required.'] });
+    });
+
+    it('shows a failed save in the banner and keeps the editor and the saved address', async () => {
+      const { fixture, save } = await open(savedHome);
+      save.mockReturnValue(throwError(() => new Error('down')));
+
+      fixture.componentInstance.editAddress();
+      fixture.componentInstance.saveAddress();
+      fixture.detectChanges();
+
+      expect(fixture.componentInstance.error()).not.toBeNull();
+      expect(fixture.componentInstance.editingAddress()).toBe(true);
+      expect(fixture.componentInstance.savedAddress()).toEqual(savedHome);
+      expect(fixture.componentInstance.savingAddress()).toBe(false);
+    });
+
+    it('closes the editor and empties it when the session ends', async () => {
+      const { fixture, session } = await open(savedHome);
+      fixture.componentInstance.editAddress();
+      fixture.componentInstance.addressForm.patchValue({ line1: 'Typed Street' });
+
+      session.set(null);
+      fixture.detectChanges();
+      await fixture.whenStable();
+
+      expect(fixture.componentInstance.editingAddress()).toBe(false);
+      expect(fixture.componentInstance.addressForm.getRawValue().line1).toBe('');
+    });
+
+    it('does not let a save that lands after the session moved on put an address on screen', async () => {
+      const { fixture, save, session } = await open(null);
+      const late = new Subject<Address>();
+      save.mockReturnValue(late);
+      fixture.componentInstance.editAddress();
+      fixture.componentInstance.addressForm.setValue(typed);
+      fixture.componentInstance.saveAddress();
+
+      session.set({ ...demo, subject: 'someone-else' });
+      fixture.detectChanges();
+      await fixture.whenStable();
+      late.next({ ...typed, line2: null });
+
+      expect(fixture.componentInstance.savedAddress()).toBeNull();
+      expect(fixture.componentInstance.editingAddress()).toBe(false);
+    });
+
+    it('does not read again over a save in flight: the save’s answer is the one that counts', async () => {
+      const { fixture, save, read } = await open(savedHome);
+      const late = new Subject<Address | null>();
+      read.mockReturnValueOnce(late);
+      fixture.componentInstance.ionViewWillEnter();
+      save.mockReturnValue(of({ ...typed, line2: null }));
+      fixture.componentInstance.editAddress();
+      fixture.componentInstance.addressForm.setValue(typed);
+      fixture.componentInstance.saveAddress();
+
+      late.next(savedHome);
+
+      expect(fixture.componentInstance.savedAddress()).toEqual({ ...typed, line2: null });
     });
   });
 
