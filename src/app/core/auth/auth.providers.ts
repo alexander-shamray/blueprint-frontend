@@ -6,8 +6,10 @@ import { NativeAuthStrategy } from './native-auth.strategy';
 import { WebAuthStrategy } from './web-auth.strategy';
 
 /**
- * The one place the application asks which platform it is on (spec §4). Every
- * screen, guard and interceptor below this line sees only AuthService.
+ * Where the auth strategy is picked by platform (spec §4). Each interface's
+ * factory may ask which platform it is on, and nothing else does (architecture
+ * §12). Every screen, guard and interceptor below this line sees only
+ * AuthService.
  *
  * Both strategies are registered, and only the one the factory picks is ever
  * constructed: `inject()` inside a factory is lazy, so the web build never
