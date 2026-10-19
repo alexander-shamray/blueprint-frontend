@@ -15,6 +15,11 @@ const validAddress = {
   line1: '1 Example Street', line2: '', city: 'Doha', postalCode: '00000', country: 'QA',
 };
 
+const SAVED = 'http://localhost:5000/bff/v1/saved-address';
+const savedAddress = {
+  line1: '9 Saved Road', line2: 'Flat 2', city: 'Leeds', postalCode: 'LS1 1AA', country: 'GB',
+};
+
 describe('CheckoutPage', () => {
   let fixture: ComponentFixture<CheckoutPage>;
   let controller: HttpTestingController;
@@ -76,7 +81,16 @@ describe('CheckoutPage', () => {
     fixture.componentInstance.form.setValue(validAddress);
   });
 
-  afterEach(() => controller.verify());
+  afterEach(() => {
+    // The page asks for a saved address whenever somebody is signed in, which
+    // most tests here are not about. Left open they would fail `verify()`, so
+    // they are answered as a buyer with none saved is: the tests about prefill
+    // answer their own read first.
+    for (const read of controller.match(SAVED)) {
+      read.flush(null, { status: 404, statusText: 'Not Found' });
+    }
+    controller.verify();
+  });
 
   it('carries the currency from the quote, not from a picker', () => {
     expect(fixture.componentInstance.currency()).toBe('GBP');
@@ -720,6 +734,191 @@ describe('CheckoutPage', () => {
       select.dispatchEvent(new Event('change'));
 
       expect(fixture.componentInstance.form.controls.country.value).toBe('GB');
+    });
+  });
+
+  describe('the saved address (#109)', () => {
+    /** Starts from an empty form, as the page does when nothing has been typed. */
+    function pristine(): void {
+      fixture.componentInstance.form.reset();
+    }
+
+    it('asks for it once somebody is signed in, and fills the empty form from it', async () => {
+      pristine();
+      const read = controller.expectOne(SAVED);
+      expect(read.request.method).toBe('GET');
+      read.flush(savedAddress);
+      await fixture.whenStable();
+
+      expect(fixture.componentInstance.form.getRawValue()).toEqual(savedAddress);
+      expect(fixture.componentInstance.form.valid).toBe(true);
+    });
+
+    it('sends the prefilled address as the order’s, with no edit needed', async () => {
+      pristine();
+      controller.expectOne(SAVED).flush(savedAddress);
+      await fixture.whenStable();
+
+      fixture.componentInstance.placeOrder();
+
+      expect(controller.expectOne('http://localhost:5000/api/v1/orders').request.body
+        .shippingAddress).toEqual(savedAddress);
+    });
+
+    it('fills a saved address with no second line as an empty one', async () => {
+      pristine();
+      controller.expectOne(SAVED).flush({ ...savedAddress, line2: null });
+      await fixture.whenStable();
+
+      expect(fixture.componentInstance.form.controls.line2.value).toBe('');
+    });
+
+    it('does not announce the prefill as an edit, so it leaves the command id alone', async () => {
+      const page = fixture.componentInstance;
+      page.placeOrder();
+      const first = controller.expectOne('http://localhost:5000/api/v1/orders');
+      const firstId = first.request.body.commandId;
+      first.flush(
+        { status: 400, errors: { 'ShippingAddress.PostalCode': ['Not a postal code.'] } },
+        { status: 400, statusText: 'Bad Request' },
+      );
+      await fixture.whenStable();
+
+      // The read lands after a refusal. Were it an edit it would mint a fresh id.
+      controller.expectOne(SAVED).flush(savedAddress);
+      await fixture.whenStable();
+      page.placeOrder();
+
+      const second = controller.expectOne('http://localhost:5000/api/v1/orders');
+      expect(second.request.body.commandId).toBe(firstId);
+      second.flush('44444444-4444-4444-4444-444444444444', { status: 200, statusText: 'OK' });
+      await fixture.whenStable();
+    });
+
+    it('never replaces an address the buyer has begun to type', async () => {
+      const page = fixture.componentInstance;
+      page.form.controls.line1.setValue('Typed Street');
+      page.form.controls.line1.markAsDirty();
+
+      controller.expectOne(SAVED).flush(savedAddress);
+      await fixture.whenStable();
+
+      expect(page.form.controls.line1.value).toBe('Typed Street');
+      expect(page.form.controls.city.value).toBe('Doha');
+    });
+
+    it('leaves the form empty and usable when none is saved', async () => {
+      pristine();
+      controller.expectOne(SAVED).flush(null, { status: 404, statusText: 'Not Found' });
+      await fixture.whenStable();
+
+      expect(fixture.componentInstance.form.getRawValue()).toEqual({
+        line1: '', line2: '', city: '', postalCode: '', country: '',
+      });
+    });
+
+    it('leaves the form as it was when the read fails, and says nothing about it', async () => {
+      pristine();
+      controller.expectOne(SAVED).flush(
+        { title: 'Server error', status: 500 },
+        { status: 500, statusText: 'Error' },
+      );
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      expect(fixture.componentInstance.form.controls.line1.value).toBe('');
+      expect(fixture.componentInstance.error()).toBeNull();
+    });
+
+    it('drops a read that lands after the session moved to somebody else', async () => {
+      pristine();
+      const [mine] = controller.match(SAVED);
+      user.set({ username: 'other', subject: 'subject-other', permissions: [], expiresAt: 0 });
+      fixture.detectChanges();
+      await fixture.whenStable();
+
+      mine.flush(savedAddress);
+      await fixture.whenStable();
+
+      expect(fixture.componentInstance.form.controls.line1.value).toBe('');
+    });
+
+    it('asks again for the next buyer, whose form was started again', async () => {
+      pristine();
+      controller.expectOne(SAVED).flush(savedAddress);
+      await fixture.whenStable();
+
+      user.set({ username: 'other', subject: 'subject-other', permissions: [], expiresAt: 0 });
+      fixture.detectChanges();
+      await fixture.whenStable();
+      expect(fixture.componentInstance.form.controls.line1.value).toBe('');
+
+      controller.expectOne(SAVED).flush({ ...savedAddress, line1: '1 Other Lane' });
+      await fixture.whenStable();
+
+      expect(fixture.componentInstance.form.controls.line1.value).toBe('1 Other Lane');
+    });
+
+    it('saves the address after the order is placed, when the buyer asked', async () => {
+      const page = fixture.componentInstance;
+      page.saveAddress.setValue(true);
+      page.placeOrder();
+      controller.expectOne('http://localhost:5000/api/v1/orders')
+        .flush('44444444-4444-4444-4444-444444444444', { status: 200, statusText: 'OK' });
+      await fixture.whenStable();
+
+      const put = controller.expectOne((r) => r.url === SAVED && r.method === 'PUT');
+      expect(put.request.body).toEqual({ ...validAddress, line2: null });
+      put.flush({ ...validAddress, line2: null });
+    });
+
+    it('does not save it when the buyer did not ask', async () => {
+      fixture.componentInstance.placeOrder();
+      controller.expectOne('http://localhost:5000/api/v1/orders')
+        .flush('44444444-4444-4444-4444-444444444444', { status: 200, statusText: 'OK' });
+      await fixture.whenStable();
+
+      expect(controller.match((r) => r.url === SAVED && r.method === 'PUT')).toEqual([]);
+    });
+
+    it('does not save an address the order was refused with', async () => {
+      const page = fixture.componentInstance;
+      page.saveAddress.setValue(true);
+      page.placeOrder();
+      controller.expectOne('http://localhost:5000/api/v1/orders')
+        .flush({ title: 'Server error', status: 500 }, { status: 500, statusText: 'Error' });
+      await fixture.whenStable();
+
+      expect(controller.match((r) => r.url === SAVED && r.method === 'PUT')).toEqual([]);
+    });
+
+    it('keeps the order placed when saving the address fails', async () => {
+      const page = fixture.componentInstance;
+      page.saveAddress.setValue(true);
+      page.placeOrder();
+      controller.expectOne('http://localhost:5000/api/v1/orders')
+        .flush('44444444-4444-4444-4444-444444444444', { status: 200, statusText: 'OK' });
+      await fixture.whenStable();
+
+      controller.expectOne((r) => r.url === SAVED && r.method === 'PUT')
+        .flush(null, { status: 500, statusText: 'Error' });
+      await fixture.whenStable();
+
+      expect(navigate).toHaveBeenCalledWith(['/tabs/cart/placed', '44444444-4444-4444-4444-444444444444']);
+      expect(page.error()).toBeNull();
+    });
+
+    it('is a checkbox beside the address, off until the buyer turns it on', () => {
+      const box: HTMLInputElement = fixture.nativeElement.querySelector('#checkout-save-address');
+
+      expect(box.type).toBe('checkbox');
+      expect(box.checked).toBe(false);
+      expect(fixture.nativeElement.querySelector('label[for="checkout-save-address"]')
+        ?.textContent).toContain('Save this address');
+
+      box.click();
+
+      expect(fixture.componentInstance.saveAddress.value).toBe(true);
     });
   });
 });

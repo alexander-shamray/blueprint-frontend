@@ -1,5 +1,6 @@
 import {
-  ChangeDetectionStrategy, Component, LOCALE_ID, computed, effect, inject, signal, untracked,
+  ChangeDetectionStrategy, ChangeDetectorRef, Component, LOCALE_ID, computed, effect, inject,
+  signal, untracked,
 } from '@angular/core';
 import { HttpErrorResponse } from '@angular/common/http';
 import { FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
@@ -9,8 +10,9 @@ import {
   IonList, IonListHeader, IonNote, IonSpinner, IonTitle, IonToolbar,
 } from '@ionic/angular';
 import { OrderingApi } from '@core/api/ordering.api';
+import { SavedAddressApi } from '@core/api/saved-address.api';
 import { AuthService } from '@core/auth/auth.service';
-import { PERMISSIONS, PlaceOrderCommand } from '@core/api/types';
+import { Address, PERMISSIONS, PlaceOrderCommand } from '@core/api/types';
 import { CartStore } from '@core/cart/cart.store';
 import { CheckoutHandoff } from '@core/cart/checkout-handoff';
 import { ALREADY_COMMITTED, CommandIdentity } from '@core/commands/command-id';
@@ -100,6 +102,20 @@ import { countryOptions } from './countries';
           }
 
           <!--
+            Asked here, and not assumed: the address is personal data, so it is
+            kept only when the buyer says so, and only once the order has been
+            placed with it. A native checkbox for the reason the country is a
+            native select. The control sits outside the form group, so it is
+            neither part of what is sent nor reset with the address.
+          -->
+          <ion-item>
+            <input id="checkout-save-address" type="checkbox" [formControl]="saveAddress" />
+            <label class="save-address" for="checkout-save-address">
+              Save this address for next time
+            </label>
+          </ion-item>
+
+          <!--
             Reads the handoff directly, with optional chaining, rather than
             currency()'s non-null assertion. currency() is a template dependency
             of this view; on success and on already_committed this component
@@ -184,12 +200,15 @@ import { countryOptions } from './countries';
   styles: `
     .field-error { display: block; padding: .25rem 1rem 0; font-size: .875rem; }
     .country { flex: 0 0 auto; margin-right: 1rem; }
+    .save-address { margin-left: .75rem; }
     select { flex: 1; min-height: 2.75rem; background: transparent; color: inherit;
              border: none; font: inherit; }
   `,
 })
 export class CheckoutPage {
   private readonly ordering = inject(OrderingApi);
+  private readonly savedAddress = inject(SavedAddressApi);
+  private readonly changeDetector = inject(ChangeDetectorRef);
   private readonly auth = inject(AuthService);
 
   /**
@@ -220,6 +239,12 @@ export class CheckoutPage {
     postalCode: new FormControl('', { nonNullable: true, validators: Validators.required }),
     country: new FormControl('', { nonNullable: true, validators: Validators.required }),
   });
+
+  /**
+   * Whether to keep this address for next time. Off by default, and apart from
+   * `form` so it is not part of the order and not reset with the address.
+   */
+  readonly saveAddress = new FormControl(false, { nonNullable: true });
 
   // Private-writable, public `asReadonly()` — the convention `CartStore.lines`,
   // `CommandIdentity.current`, `CatalogRefresh.current` and `CheckoutHandoff.quote`
@@ -323,6 +348,7 @@ export class CheckoutPage {
       untracked(() => {
         this.subjectChanges++;
         this.form.reset();
+        this.saveAddress.reset();
         this.errorState.set(null);
         this.fieldErrorsState.set({});
         this.replayedAfterSignIn = false;
@@ -330,6 +356,54 @@ export class CheckoutPage {
         // buyer's command, and idempotency keys on the subject anyway.
         this.identity.onSuccess();
       });
+    });
+
+    // Offers the signed-in buyer their saved address. Declared after the
+    // effect above, so that for a different buyer the form has been started
+    // again by the time this asks.
+    // Through a computed, so a token renewal that hands over a new user object
+    // for the same buyer does not ask again.
+    const signedInSubject = computed(() => user()?.subject ?? null);
+    effect(() => {
+      const subject = signedInSubject();
+      if (subject === null) return;
+      untracked(() => this.prefillFromSaved(subject));
+    });
+  }
+
+  /**
+   * Fills the empty form from the buyer's saved address, once it arrives. It
+   * is a convenience and never a gate: a buyer with none saved (the first
+   * state), a failed read and a slow one all leave the form empty and the page
+   * usable, and nothing is shown about it.
+   *
+   * The values go in without announcing an edit, so they do not touch the
+   * command id: the id's rules are about what the buyer changed after a
+   * refusal, and this is not that. They go in only while the form is
+   * pristine, so an address the buyer is already typing is never replaced, and
+   * only for the buyer who asked: a read that lands after the session moved to
+   * somebody else is dropped, as `placeOrder()` drops a reply. Nothing is
+   * kept: the address lives in the form, as a typed one does.
+   */
+  private prefillFromSaved(subject: string): void {
+    this.savedAddress.read().subscribe({
+      next: (saved) => {
+        if (saved === null || this.form.dirty) return;
+        if ((this.auth.user()()?.subject ?? null) !== subject) return;
+        this.form.patchValue(
+          {
+            line1: saved.line1,
+            line2: saved.line2 ?? '',
+            city: saved.city,
+            postalCode: saved.postalCode,
+            country: saved.country,
+          },
+          { emitEvent: false },
+        );
+        // Without the event nothing tells this OnPush view the form changed.
+        this.changeDetector.markForCheck();
+      },
+      error: () => undefined,
     });
   }
 
@@ -398,6 +472,7 @@ export class CheckoutPage {
         this.fieldErrorsState.set({});
         this.identity.onSuccess();
         this.spendQuote();
+        this.keepAddressIfAsked(command.shippingAddress);
         void this.router.navigate(['/tabs/cart/placed', orderId]);
       },
       error: (failure: HttpErrorResponse) => {
@@ -510,6 +585,20 @@ export class CheckoutPage {
       },
       (failure: unknown) => this.errorState.set(mapError(failure)),
     );
+  }
+
+  /**
+   * Saves the address an order was just placed with, when the buyer asked. The
+   * order is already placed, so a refusal here costs the buyer only the
+   * convenience and is not shown: the next checkout starts empty, as it did
+   * before the feature. Only a 200 reaches here, not an already_committed or
+   * an id_reused, where the address on screen may not be the one that was
+   * placed.
+   */
+  private keepAddressIfAsked(address: Address): void {
+    if (!this.saveAddress.value) return;
+    this.saveAddress.reset();
+    this.savedAddress.save(address).subscribe({ error: () => undefined });
   }
 
   /**
