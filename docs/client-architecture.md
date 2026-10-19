@@ -736,12 +736,12 @@ a gateway bucket. It is not the only request they pass over: the same test
 leaves alone every request to a host other than the gateway's, and
 `angular-oauth2-oidc` sends Keycloak's discovery, key and token calls through
 this `HttpClient` to the identity provider's host. Those are left alone for
-the same reason, and the bearer must never be attached to them — the token
-call is what obtains it. The URL is never
-built here: it arrives in the BFF's answer, and the client sends
-`Content-Type` from the headers the signature covers. `Content-Length` it
-cannot set, because the browser forbids it, so the body is the file whose
-size was declared.
+their own reasons: a bearer attached there is a token leaked to another host,
+the token call is what obtains it, and a 429 from Keycloak's limiter is not a
+gateway bucket and must not disable the app's actions. The URL is never built
+here: it arrives in the BFF's answer, and the client sends `Content-Type` from
+the headers the signature covers. `Content-Length` it cannot set, because the
+browser forbids it, so the body is the file whose size was declared.
 
 The browser still needs the store to admit this page's origin, and the
 question is §15's one more time. Measured against the Compose stack on
