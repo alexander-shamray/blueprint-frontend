@@ -26,12 +26,13 @@ async function within<T>(
   what: string,
   work: Promise<T>,
   stuck: () => string = () => '',
+  ms = WAIT_MS,
 ): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const expired = new Promise<never>((_, reject) => {
     timer = setTimeout(
-      () => reject(new Error(`${what} did not settle within ${WAIT_MS} ms${stuck()}`)),
-      WAIT_MS,
+      () => reject(new Error(`${what} did not settle within ${ms} ms${stuck()}`)),
+      ms,
     );
   });
   try {
@@ -41,16 +42,43 @@ async function within<T>(
   }
 }
 
-/** `publish.page.spec.ts`'s wait, for the reason it gives (#71). */
+/**
+ * Tags whose lazily loaded component failed to load in this process (#261).
+ * Stencil logs `Constructor for "ion-x#undefined" was not found` once, does not
+ * retry, and that tag's `componentOnReady()` never resolves, in this test and
+ * every later one. In the runs that hung it was whichever Ionic component the
+ * first test happened to load first, `ion-spinner` in one and `ion-input` in
+ * the next, so it is the load that is unreliable and not any one component. A
+ * host that never became ready cannot hydrate late either, which is all this
+ * wait guards against, so a tag that missed its bound once is not waited on
+ * again.
+ */
+const neverReady = new Set<string>();
+const HOST_WAIT_MS = 2_000;
+
+/**
+ * `publish.page.spec.ts`'s wait, for the reason it gives (#71), with a bound
+ * on each host and the failure named rather than hung on (#261).
+ */
 async function hydrated(root: Element): Promise<void> {
   const hosts = [...root.querySelectorAll('*')].filter(
-    (el): el is StencilHost => el.tagName.startsWith('ION-') && 'componentOnReady' in el,
+    (el): el is StencilHost =>
+      el.tagName.startsWith('ION-') && 'componentOnReady' in el && !neverReady.has(el.tagName),
   );
-  const waiting = new Set(hosts);
-  await within(
-    'componentOnReady()',
-    Promise.all(hosts.map((host) => host.componentOnReady().then(() => waiting.delete(host)))),
-    () => `; still waiting on ${[...waiting].map((host) => host.tagName.toLowerCase()).join(', ')}`,
+  await Promise.all(
+    hosts.map(async (host) => {
+      try {
+        await within(
+          `${host.tagName.toLowerCase()}.componentOnReady()`,
+          host.componentOnReady(),
+          () => '',
+          HOST_WAIT_MS,
+        );
+      } catch (failure) {
+        neverReady.add(host.tagName);
+        console.warn(`${(failure as Error).message}; not waited on again in this run`);
+      }
+    }),
   );
 }
 
@@ -494,5 +522,369 @@ describe('OwnProductsComponent', () => {
     fresh.flush({ items: [product('a')], nextCursor: null });
     await settle();
     expect(page().error()).toBeNull();
+  });
+
+  describe('repricing (#176)', () => {
+    const priceOf = (id: string) => `http://localhost:5000/api/v1/catalog/products/${id}/price`;
+
+    async function listed(...items: OwnProduct[]): Promise<void> {
+      mine().flush({ items, nextCursor: null });
+      await settle();
+    }
+
+    function type(amount: number | null): void {
+      page().priceControl.setValue(amount);
+    }
+
+    it('offers Reprice on a live row and none on a withdrawn one', async () => {
+      await listed(product('a'), product('b', '2026-10-18T02:57:29Z'));
+
+      const rows = fixture.nativeElement.querySelectorAll('[data-testid="own-product"]');
+      expect(rows[0].querySelector('[data-testid="reprice"]')).not.toBeNull();
+      expect(rows[1].querySelector('[data-testid="reprice"]')).toBeNull();
+    });
+
+    it('opens on the product’s own price, in its own currency, and Cancel sends nothing', async () => {
+      await listed(product('a'));
+
+      page().askToReprice(page().products()[0]);
+      fixture.detectChanges();
+
+      expect(page().pricing()).toBe('a');
+      expect(page().priceControl.value).toBe(12.5);
+      const input: HTMLElement & { label?: string } =
+        fixture.nativeElement.querySelector('[data-testid="price-input"]');
+      // A property binding on the Ionic element, so a property and not an attribute.
+      expect(input.label).toBe('New price in EUR');
+
+      page().cancelReprice();
+      expect(page().pricing()).toBeNull();
+      controller.expectNone(priceOf('a'));
+    });
+
+    it('puts the amount as typed with the product’s currency, then refreshes and reads the row back', async () => {
+      await listed(product('a'));
+      const refresh = TestBed.inject(CatalogRefresh);
+      const before = refresh.current();
+
+      page().askToReprice(page().products()[0]);
+      type(54.9);
+      page().reprice(page().products()[0]);
+      const request = controller.expectOne(priceOf('a'));
+      expect(request.request.method).toBe('PUT');
+      expect(request.request.body.amount).toBe(54.9);
+      expect(request.request.body.currency).toBe('EUR');
+      expect(request.request.body.commandId).toMatch(/^[0-9a-f-]{36}$/);
+      expect(page().isRepricing()).toBe(true);
+
+      request.flush(null, { status: 204, statusText: 'No Content' });
+      await settle();
+
+      expect(refresh.current()).toBe(before + 1);
+      expect(page().pricing()).toBeNull();
+      expect(page().isRepricing()).toBe(false);
+      // The server's price is the one shown: the row is read back, never patched.
+      expect(page().products()[0].amount).toBe(12.5);
+      mine().flush({ items: [{ ...product('a'), amount: 54.9 }], nextCursor: null });
+      await settle();
+      expect(page().products()[0].amount).toBe(54.9);
+    });
+
+    it('sends a price of nothing, since nothing is a price', async () => {
+      await listed(product('a'));
+
+      page().askToReprice(page().products()[0]);
+      type(0);
+      expect(page().priceControl.valid).toBe(true);
+      page().reprice(page().products()[0]);
+
+      expect(controller.expectOne(priceOf('a')).request.body.amount).toBe(0);
+    });
+
+    it('sends nothing for a blank field, rather than a null the backend would turn into a 400', async () => {
+      await listed(product('a'));
+
+      page().askToReprice(page().products()[0]);
+      type(null);
+      page().reprice(page().products()[0]);
+
+      controller.expectNone(priceOf('a'));
+      expect(page().priceControl.invalid).toBe(true);
+    });
+
+    it('sends nothing for a withdrawn product', async () => {
+      const withdrawn = product('a', '2026-10-18T02:57:29Z');
+      await listed(withdrawn);
+
+      page().askToReprice(withdrawn);
+      type(3);
+      page().reprice(withdrawn);
+
+      controller.expectNone(priceOf('a'));
+    });
+
+    it('puts a 400’s Amount messages under the field and keeps the rest in the banner', async () => {
+      await listed(product('a'));
+
+      page().askToReprice(page().products()[0]);
+      type(-1);
+      page().reprice(page().products()[0]);
+      controller.expectOne(priceOf('a')).flush(
+        { status: 400, errors: { Amount: ['Must be at least 0.'], CommandId: ['Required.'] } },
+        { status: 400, statusText: 'Bad Request' },
+      );
+      await settle();
+      fixture.detectChanges();
+
+      expect(page().priceMessages()).toEqual(['Must be at least 0.']);
+      expect(page().actionError()?.fields).toEqual({ CommandId: ['Required.'] });
+      expect(fixture.nativeElement.querySelector('[data-field="amount"]')?.textContent)
+        .toContain('Must be at least 0.');
+      // The editor stays open, with what was typed.
+      expect(page().pricing()).toBe('a');
+      expect(page().priceControl.value).toBe(-1);
+    });
+
+    it('drops the banner’s fields when every key landed on the field', async () => {
+      await listed(product('a'));
+
+      page().askToReprice(page().products()[0]);
+      type(-1);
+      page().reprice(page().products()[0]);
+      controller.expectOne(priceOf('a')).flush(
+        { status: 400, errors: { Amount: ['Must be at least 0.'] } },
+        { status: 400, statusText: 'Bad Request' },
+      );
+      await settle();
+
+      expect(page().actionError()?.kind).toBe('validation');
+      expect(page().actionError()?.fields).toBeUndefined();
+    });
+
+    it('mints a new id after an edit that follows a validation failure, and clears the messages', async () => {
+      await listed(product('a'));
+
+      page().askToReprice(page().products()[0]);
+      type(-1);
+      page().reprice(page().products()[0]);
+      const first = controller.expectOne(priceOf('a'));
+      const firstId = first.request.body.commandId;
+      first.flush(
+        { status: 400, errors: { Amount: ['Must be at least 0.'] } },
+        { status: 400, statusText: 'Bad Request' },
+      );
+      await settle();
+
+      type(5);
+      expect(page().priceMessages()).toEqual([]);
+      page().reprice(page().products()[0]);
+      const second = controller.expectOne(priceOf('a'));
+      expect(second.request.body.commandId).not.toBe(firstId);
+      second.flush(null, { status: 204, statusText: 'No Content' });
+      await settle();
+      mine().flush({ items: [product('a')], nextCursor: null });
+      await settle();
+    });
+
+    it('retries a failed reprice under the same id, since it may have committed', async () => {
+      await listed(product('a'));
+
+      page().askToReprice(page().products()[0]);
+      type(9);
+      page().reprice(page().products()[0]);
+      const first = controller.expectOne(priceOf('a'));
+      const id = first.request.body.commandId;
+      first.flush({ title: 'Bad Gateway', status: 502 }, { status: 502, statusText: '' });
+      await settle();
+      expect(page().actionError()?.kind).toBe('retry');
+      expect(page().pricing()).toBe('a');
+
+      page().reprice(page().products()[0]);
+      const second = controller.expectOne(priceOf('a'));
+      expect(second.request.body.commandId).toBe(id);
+      second.flush(null, { status: 204, statusText: 'No Content' });
+      await settle();
+      mine().flush({ items: [product('a')], nextCursor: null });
+      await settle();
+    });
+
+    it('uses a fresh id for the next reprice once one has landed', async () => {
+      await listed(product('a'));
+
+      page().askToReprice(page().products()[0]);
+      type(9);
+      page().reprice(page().products()[0]);
+      const first = controller.expectOne(priceOf('a'));
+      const id = first.request.body.commandId;
+      first.flush(null, { status: 204, statusText: 'No Content' });
+      await settle();
+      mine().flush({ items: [product('a')], nextCursor: null });
+      await settle();
+
+      page().askToReprice(page().products()[0]);
+      type(10);
+      page().reprice(page().products()[0]);
+      const second = controller.expectOne(priceOf('a'));
+      expect(second.request.body.commandId).not.toBe(id);
+      second.flush(null, { status: 204, statusText: 'No Content' });
+      await settle();
+      mine().flush({ items: [product('a')], nextCursor: null });
+      await settle();
+    });
+
+    it('keeps a reprice’s id apart from the same product’s withdrawal', async () => {
+      await listed(product('a'));
+
+      page().withdraw(page().products()[0]);
+      const withdrawal = controller.expectOne(withdrawalOf('a'));
+      page().askToReprice(page().products()[0]);
+      type(9);
+      page().reprice(page().products()[0]);
+      const reprice = controller.expectOne(priceOf('a'));
+
+      expect(reprice.request.body.commandId).not.toBe(withdrawal.request.body.commandId);
+      withdrawal.flush({ title: 'Bad Gateway', status: 502 }, { status: 502, statusText: '' });
+      reprice.flush({ title: 'Bad Gateway', status: 502 }, { status: 502, statusText: '' });
+      await settle();
+    });
+
+    it('reads already_committed as the reprice it reports', async () => {
+      await listed(product('a'));
+      const refresh = TestBed.inject(CatalogRefresh);
+      const before = refresh.current();
+
+      page().askToReprice(page().products()[0]);
+      type(9);
+      page().reprice(page().products()[0]);
+      controller.expectOne(priceOf('a')).flush(
+        { title: 'Conflict', status: 409, code: 'command.already_committed' },
+        { status: 409, statusText: 'Conflict' },
+      );
+      await settle();
+
+      expect(page().actionError()).toBeNull();
+      expect(page().pricing()).toBeNull();
+      expect(refresh.current()).toBe(before + 1);
+      mine().flush({ items: [product('a')], nextCursor: null });
+      await settle();
+    });
+
+    it('says an edited reprice was not applied when its id was already used, and reads the list', async () => {
+      await listed(product('a'));
+
+      page().askToReprice(page().products()[0]);
+      type(9);
+      page().reprice(page().products()[0]);
+      controller.expectOne(priceOf('a')).flush(
+        { title: 'Conflict', status: 409, code: 'command.id_reused' },
+        { status: 409, statusText: 'Conflict' },
+      );
+      await settle();
+
+      expect(page().actionError()?.kind).toBe('idReused');
+      expect(page().pricing()).toBeNull();
+      mine().flush({ items: [product('a')], nextCursor: null });
+      await settle();
+    });
+
+    it.each([
+      ['a 422 product.withdrawn', 422],
+      ['a 422 product.currency_fixed', 422],
+      ['a 404 for a product this account no longer owns', 404],
+    ])('closes the editor, shows why and reads the list again on %s', async (_name, status) => {
+      await listed(product('a'));
+
+      page().askToReprice(page().products()[0]);
+      type(9);
+      page().reprice(page().products()[0]);
+      controller.expectOne(priceOf('a')).flush(
+        { title: 'Refused', status },
+        { status, statusText: '' },
+      );
+      await settle();
+
+      expect(page().actionError()).not.toBeNull();
+      expect(page().pricing()).toBeNull();
+      mine().flush({ items: [product('a')], nextCursor: null });
+      await settle();
+    });
+
+    it('signs in on a 401 and sends the same reprice once more, for the same subject', async () => {
+      await listed(product('a'));
+
+      page().askToReprice(page().products()[0]);
+      type(9);
+      page().reprice(page().products()[0]);
+      const first = controller.expectOne(priceOf('a'));
+      const id = first.request.body.commandId;
+      first.flush({ title: 'Unauthorized', status: 401 }, { status: 401, statusText: '' });
+      await settle();
+
+      expect(signIn).toHaveBeenCalledOnce();
+      const replay = controller.expectOne(priceOf('a'));
+      expect(replay.request.body.commandId).toBe(id);
+      expect(replay.request.body.amount).toBe(9);
+
+      // A second 401 is a loop, not a replay.
+      replay.flush({ title: 'Unauthorized', status: 401 }, { status: 401, statusText: '' });
+      await settle();
+      controller.expectNone(priceOf('a'));
+    });
+
+    it('replays nothing when a different subject signs in, and forgets the open editor', async () => {
+      await listed(product('a'));
+      signIn.mockImplementation(async () => {
+        user.set({
+          username: 'other', subject: 'subject-other', permissions: ['catalog:write'], expiresAt: 0,
+        });
+      });
+
+      page().askToReprice(page().products()[0]);
+      type(9);
+      page().reprice(page().products()[0]);
+      controller
+        .expectOne(priceOf('a'))
+        .flush({ title: 'Unauthorized', status: 401 }, { status: 401, statusText: '' });
+      await settle();
+
+      controller.expectNone(priceOf('a'));
+      expect(page().pricing()).toBeNull();
+      mine().flush({ items: [], nextCursor: null });
+      await settle();
+    });
+
+    it('drops a reply that lands for a subject who has gone', async () => {
+      await listed(product('a'));
+
+      page().askToReprice(page().products()[0]);
+      type(9);
+      page().reprice(page().products()[0]);
+      const request = controller.expectOne(priceOf('a'));
+      user.set({
+        username: 'other', subject: 'subject-other', permissions: ['catalog:write'], expiresAt: 0,
+      });
+      fixture.detectChanges();
+      await settle();
+      mine().flush({ items: [], nextCursor: null });
+
+      request.flush(null, { status: 204, statusText: 'No Content' });
+      await settle();
+
+      expect(page().isRepricing()).toBe(false);
+      expect(page().actionError()).toBeNull();
+    });
+
+    it('stays shut while the gateway’s window is closed', async () => {
+      await listed(product('a'));
+      TestBed.inject(RateLimitWindows).forPartition('authenticated').open({
+        kind: 'rateLimited', title: '', detail: null, retryAfterSeconds: 30,
+      });
+
+      page().askToReprice(page().products()[0]);
+      type(9);
+      page().reprice(page().products()[0]);
+
+      controller.expectNone(priceOf('a'));
+    });
   });
 });
