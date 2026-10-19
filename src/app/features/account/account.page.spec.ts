@@ -591,6 +591,39 @@ describe('AccountPage', () => {
       expect(fixture.componentInstance.savedAddress()?.city).toBe('Lusail');
     });
 
+    it('drops a save’s reply once the editor was cancelled, and leaves a reopened editor alone', async () => {
+      const { fixture, save } = await open(savedHome);
+      const reply = new Subject<Address>();
+      save.mockReturnValue(reply);
+      fixture.componentInstance.editAddress();
+      fixture.componentInstance.addressForm.setValue(typed);
+      fixture.componentInstance.saveAddress();
+
+      fixture.componentInstance.cancelEditAddress();
+      fixture.componentInstance.editAddress();
+      fixture.componentInstance.addressForm.patchValue({ line1: 'Second thoughts' });
+      reply.next({ ...typed, line2: null });
+
+      expect(fixture.componentInstance.editingAddress()).toBe(true);
+      expect(fixture.componentInstance.addressForm.getRawValue().line1).toBe('Second thoughts');
+      expect(fixture.componentInstance.savedAddress()).toEqual(savedHome);
+    });
+
+    it('does not put an address back after it was forgotten behind a cancelled save', async () => {
+      const { fixture, save } = await open(savedHome);
+      const reply = new Subject<Address>();
+      save.mockReturnValue(reply);
+      fixture.componentInstance.editAddress();
+      fixture.componentInstance.addressForm.setValue(typed);
+      fixture.componentInstance.saveAddress();
+      fixture.componentInstance.cancelEditAddress();
+
+      fixture.componentInstance.forgetAddress();
+      reply.next({ ...typed, line2: null });
+
+      expect(fixture.componentInstance.savedAddress()).toBeNull();
+    });
+
     it('stops listening for a save when the page is destroyed', async () => {
       const { fixture, save } = await open(null);
       const reply = new Subject<Address>();
