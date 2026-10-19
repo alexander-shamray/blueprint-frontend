@@ -50,4 +50,34 @@ describe('splitAddressErrors', () => {
   it('answers nothing for no errors', () => {
     expect(splitAddressErrors(undefined)).toEqual({ byField: {}, rest: {} });
   });
+
+  describe('with no prefix, as the saved address validates its members (#109)', () => {
+    it('takes each bare member key, in any case', () => {
+      const { byField, rest } = splitAddressErrors(
+        { Line1: ['Required.'], postalcode: ['Too long.'], COUNTRY: ['Not two letters.'] },
+        '',
+      );
+
+      expect(byField).toEqual({
+        line1: ['Required.'],
+        postalCode: ['Too long.'],
+        country: ['Not two letters.'],
+      });
+      expect(rest).toEqual({});
+    });
+
+    it('leaves the order-shaped keys alone, since this form does not own them', () => {
+      const { byField, rest } = splitAddressErrors({ 'ShippingAddress.Line1': ['Not ours.'] }, '');
+
+      expect(byField).toEqual({});
+      expect(rest).toEqual({ 'ShippingAddress.Line1': ['Not ours.'] });
+    });
+
+    it('and the default prefix still ignores a bare key', () => {
+      const { byField, rest } = splitAddressErrors({ Line1: ['Not an order key.'] });
+
+      expect(byField).toEqual({});
+      expect(rest).toEqual({ Line1: ['Not an order key.'] });
+    });
+  });
 });

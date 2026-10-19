@@ -21,9 +21,15 @@ export interface AddressErrors {
  * than on its last segment: a `Line1` belonging to some other member is not
  * this form's to show, and a key nothing here recognises stays in the banner
  * exactly as sent, which is where every key went before this split existed.
+ *
+ * `prefix` is how the endpoint's validator reaches the address. An order's is
+ * `ShippingAddress.`, the default; the saved address validates its own five
+ * members at the top (`SavedAddress.cs`, `RuleFor(x => x.Line1)`), so its keys
+ * are bare, and its caller passes an empty prefix.
  */
 export function splitAddressErrors(
   errors: Readonly<Record<string, readonly string[]>> | undefined,
+  prefix = 'ShippingAddress.',
 ): AddressErrors {
   const byField: Partial<Record<AddressField, readonly string[]>> = {};
   // No prototype, so a key the server sent as `__proto__` is an own key like
@@ -31,7 +37,9 @@ export function splitAddressErrors(
   const rest: Record<string, readonly string[]> = Object.create(null);
 
   for (const [key, messages] of Object.entries(errors ?? {})) {
-    const field = ADDRESS_FIELDS.find((f) => key.toLowerCase() === `shippingaddress.${f.toLowerCase()}`);
+    const field = ADDRESS_FIELDS.find(
+      (f) => key.toLowerCase() === `${prefix}${f}`.toLowerCase(),
+    );
     if (field) byField[field] = [...(byField[field] ?? []), ...messages];
     else rest[key] = messages;
   }
