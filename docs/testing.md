@@ -133,7 +133,9 @@ is `bash .claude/scripts/git-revert-pr.sh <n>` from a working branch.
 **`npm test` must exit, not watch.** The Angular unit-test builder runs once
 and exits here, and `CI=true npm test` is how that is confirmed locally. A
 watch-mode test step does not fail a build — it consumes the job's entire
-timeout, which is a far more expensive way to find out.
+timeout, which is a far more expensive way to find out. Every job in `ci.yml`
+sets a `timeout-minutes` for that reason, as headroom over its usual run
+rather than a statement of its duration; a new job takes one too.
 
 ## What the Playwright suite needs, and why it is CI's
 
