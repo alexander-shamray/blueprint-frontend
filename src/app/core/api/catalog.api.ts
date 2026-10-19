@@ -3,7 +3,8 @@ import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 import { environment } from '@core/config/environment';
 import {
-  CursorPage, OwnProduct, ProductSummary, PublishProductCommand, WithdrawProductRequest,
+  ChangePriceRequest, CursorPage, OwnProduct, ProductSummary, PublishProductCommand,
+  WithdrawProductRequest,
 } from './types';
 
 /**
@@ -120,5 +121,18 @@ export class CatalogApi {
       `${this.base}/${encodeURIComponent(productId)}/withdrawal`,
       request,
     );
+  }
+
+  /**
+   * Reprices a product the caller owns. Behind `catalog:write`, and a PUT, which
+   * the gateway's `catalog-write` route carries on the `authenticated` policy
+   * beside the publish and the withdrawal. The 404 `product.not_found` is a
+   * product this account does not own, and never a 403 (the same ADR-074
+   * reasoning as a withdrawal); the 422s are `product.withdrawn` and
+   * `product.currency_fixed`. Idempotent on `commandId`, and answered with no
+   * body.
+   */
+  changePrice(productId: string, request: ChangePriceRequest): Observable<void> {
+    return this.http.put<void>(`${this.base}/${encodeURIComponent(productId)}/price`, request);
   }
 }

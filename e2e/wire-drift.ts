@@ -56,6 +56,7 @@ export const CHECKED: Readonly<Record<string, Checked>> = {
   PublishProductCommand: { direction: 'sent', service: 'catalog', schema: 'PublishProductCommand' },
   OwnProduct: { direction: 'read', service: 'catalog', schema: 'OwnProductDto' },
   WithdrawProductRequest: { direction: 'sent', service: 'catalog', schema: 'WithdrawProductRequest' },
+  ChangePriceRequest: { direction: 'sent', service: 'catalog', schema: 'ChangePriceRequest' },
   PlaceOrderItem: { direction: 'sent', service: 'ordering', schema: 'PlaceOrderItem' },
   Address: { direction: 'sent', service: 'ordering', schema: 'AddressDto' },
   PlaceOrderCommand: { direction: 'sent', service: 'ordering', schema: 'PlaceOrderCommand' },
