@@ -44,10 +44,13 @@ function addressOf(route: A11yRoute): RegExp {
 }
 
 /**
- * Both palettes, because the dark one is `dark.system.css` — a stylesheet
- * applied by the OS preference — and a scan in the default scheme says nothing
- * about it (`src/theme/variables.css`). The whole journey runs once per scheme,
- * each placing its own order against the real stack.
+ * Both palettes, because the dark one is the `.ion-palette-dark` class, which
+ * the app puts on the root when the device is dark (`AppearanceStore`, and the
+ * script in `src/index.html` before first paint; the palette is
+ * `src/theme/variables.css`) — so a scan in the default scheme says nothing
+ * about it. The emulated `colorScheme` is what makes the app set that class.
+ * The whole journey runs once per scheme, each placing its own order against
+ * the real stack.
  */
 for (const colorScheme of ['light', 'dark'] as const) {
   test.describe(`${colorScheme} palette`, () => {

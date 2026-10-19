@@ -159,9 +159,9 @@ or `critical` axe violation. It signs in as `demo`, which holds `catalog:write`,
 and walks every route in the state a person sees it — a published product,
 reached from its row and opened cold from its address, and one that is not
 available, the cart quoted, the checkout form, the placed order once its
-status has settled — in both palettes, because the dark one is
-`dark.system.css` and only shows under the OS preference (`colorScheme` in the
-test). It asserts the address before each scan, so a guard's bounce fails the
+status has settled — in both palettes, because the dark one is the
+`.ion-palette-dark` class, which the app sets only when the device is dark
+(`colorScheme` in the test makes it so). It asserts the address before each scan, so a guard's bounce fails the
 walk instead of being scanned as the page it was bounced to.
 `e2e/a11y-routes.ts` is the list of routes the walk claims;
 `src/app/app.routes.spec.ts` fails the unit suite when that list and the
