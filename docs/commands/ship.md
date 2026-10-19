@@ -581,6 +581,12 @@ run.
    is that decision already made: pushes that close review findings update
    the PR without asking again.
 
+   **`/pr` also stamps the PR's number on the branch's commits**, straight
+   after creating it, through `git-trailer-pr.sh` (#207). It runs before the
+   first review round so that the SHA rewrite never forces a recheck; a
+   round's own fix commits carry the trailer from `/commit`, which reads the
+   number from `pr-for-branch.sh`.
+
 ### Step 5: the local review
 
 5. **The local review.** Once the PR is open, review the branch in rounds
@@ -803,6 +809,15 @@ run.
    red `main` is not a recommended option**, and a conflicted branch is a
    question about the caller's tree that this chain cannot answer. Either one
    stops here and is reported as what it is.
+
+   **The wait also names two checks (#207).** When `mergeable` reads
+   `CONFLICTING`, GitHub starts none of the `pull_request` workflows, so the
+   list can hold nothing that failed and `--fail-fast` exits 0 over a pull
+   request nothing checked. The wait therefore passes only when the list names
+   `commits` and `commit-gate` beside the rest; an absent check is a failure of
+   the wait, reported as what it is. (The backend found this shipping its pull
+   request 934, and names its own list; this repository names the two that #207
+   added, and the other jobs stay covered by `--fail-fast` while they run.)
 
    **`MERGEABLE` is GitHub's answer about a merge commit, and the step below
    asks for a rebase**, which replays each commit and can conflict where
