@@ -1305,6 +1305,16 @@ kilobytes rather than tens. A budget set to exactly current usage fails on the
 next honest line of code; one set to the sky never fails at all. Neither tells
 you anything on the day it trips.
 
+*Amended (#280).* The initial bundle has since grown from the 1.05 MB above to
+just past the 1.2 MB warning (648 bytes over when this was filed), through
+features that are eager by necessity rather than a lazy route made eager. The
+warning moved to **1.3 MB**, and the error stays at 1.5 MB. The reasoning above
+holds: the number is meant to trip on a regression of hundreds of kilobytes,
+and a warning that has sat on every build for what is, at this size, a few
+lines of code teaches readers to ignore the line. The old figure is left
+standing above as the one chosen then. Trimming the overrun instead was not
+taken: it would buy a few commits before the same warning returned.
+
 ## 14. What CI runs, and what a red smoke on the development host means
 
 `.github/workflows/ci.yml` names the jobs, and is the source of truth for
