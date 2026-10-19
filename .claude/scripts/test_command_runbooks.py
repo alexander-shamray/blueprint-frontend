@@ -22,6 +22,7 @@ ARGUMENTS = SCRIPTS.parent.parent / "docs" / "commands"
 # does; each landed size and about a tenth: a runbook past it has regrown.
 CEILINGS = {
     "review-branch.md": 11700,
+    "branch.md": 9900,
 }
 
 # `docs/commands/<name>.md, *<heading>*`, after whitespace is collapsed: the
