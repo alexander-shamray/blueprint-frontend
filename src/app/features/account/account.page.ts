@@ -1,10 +1,14 @@
-import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy, Component, computed, effect, inject, signal, untracked,
+} from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute } from '@angular/router';
 import { map } from 'rxjs';
 import {
   IonButton, IonChip, IonContent, IonHeader, IonItem, IonLabel, IonNote, IonTitle, IonToolbar,
 } from '@ionic/angular';
+import { SavedAddressApi } from '@core/api/saved-address.api';
+import { Address } from '@core/api/types';
 import { AuthService } from '@core/auth/auth.service';
 import { DisplayError, mapError } from '@core/errors/error-mapper';
 import { ErrorBannerComponent } from '@shared/error-banner.component';
@@ -57,6 +61,24 @@ import { ErrorBannerComponent } from '@shared/error-banner.component';
           </ion-label>
         </ion-item>
 
+        @if (savedAddress(); as address) {
+          <ion-item data-testid="saved-address">
+            <ion-label>
+              <h3>Saved delivery address</h3>
+              <p>{{ address.line1 }}</p>
+              @if (address.line2) {
+                <p>{{ address.line2 }}</p>
+              }
+              <p>{{ address.postalCode }} {{ address.city }}, {{ address.country }}</p>
+              <ion-note>Offered at checkout. Save a different one there to replace it.</ion-note>
+            </ion-label>
+          </ion-item>
+          <ion-button expand="block" fill="outline" data-testid="forget-address"
+            (click)="forgetAddress()">
+            Forget this address
+          </ion-button>
+        }
+
         <ion-button expand="block" (click)="signOut()">Sign out</ion-button>
       } @else {
         <ion-button expand="block" (click)="signIn()">Sign in</ion-button>
@@ -70,7 +92,18 @@ export class AccountPage {
   private readonly auth = inject(AuthService);
   private readonly route = inject(ActivatedRoute);
 
+  private readonly savedAddressApi = inject(SavedAddressApi);
+
   private readonly currentUser = this.auth.user();
+
+  /**
+   * The signed-in buyer's saved delivery address, shown for them to see and
+   * forget. Held only while they are signed in: it is personal data, so a
+   * sign-out, or a different buyer, empties it before anything else happens.
+   * Changing it is done at checkout, where it is entered.
+   */
+  private readonly savedAddressState = signal<Address | null>(null);
+  readonly savedAddress = this.savedAddressState.asReadonly();
 
   readonly username = computed(() => this.currentUser()?.username ?? null);
   readonly permissions = computed(() => this.currentUser()?.permissions ?? []);
@@ -143,6 +176,47 @@ export class AccountPage {
       ? 'Session ends on reload, no refresh token.'
       : 'Refresh token in secure storage, rotated.',
   );
+
+  constructor() {
+    // Through a computed, so a token renewal that hands over a new user
+    // object for the same buyer does not read the address again.
+    const subject = computed(() => this.currentUser()?.subject ?? null);
+    effect(() => {
+      const current = subject();
+      untracked(() => this.loadSavedAddress(current));
+    });
+  }
+
+  /**
+   * Account is a tab root and is never destroyed, so this follows the session
+   * instead of the page's life. The address is emptied before the read, and a
+   * read that lands after the session moved on is dropped. A failed read shows
+   * nothing: the address is a convenience, and an empty section is its honest
+   * fallback.
+   */
+  private loadSavedAddress(subject: string | null): void {
+    this.savedAddressState.set(null);
+    if (subject === null) return;
+
+    this.savedAddressApi.read().subscribe({
+      next: (saved) => {
+        if ((this.currentUser()?.subject ?? null) === subject) this.savedAddressState.set(saved);
+      },
+      error: () => undefined,
+    });
+  }
+
+  forgetAddress(): void {
+    this.errorState.set(null);
+    const subject = this.currentUser()?.subject ?? null;
+
+    this.savedAddressApi.remove().subscribe({
+      next: () => {
+        if ((this.currentUser()?.subject ?? null) === subject) this.savedAddressState.set(null);
+      },
+      error: (failure: unknown) => this.errorState.set(mapError(failure)),
+    });
+  }
 
   signIn(): void {
     this.errorState.set(null);

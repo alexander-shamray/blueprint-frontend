@@ -1,15 +1,30 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { ActivatedRoute, convertToParamMap, provideRouter } from '@angular/router';
 import { signal } from '@angular/core';
-import { BehaviorSubject } from 'rxjs';
+import { BehaviorSubject, Observable, of, throwError } from 'rxjs';
 import { describe, expect, it, vi } from 'vitest';
+import { SavedAddressApi } from '@core/api/saved-address.api';
+import { Address } from '@core/api/types';
 import { AuthService, CurrentUser } from '@core/auth/auth.service';
 import { AccountPage } from './account.page';
 
-function mount(user: CurrentUser | null, sessionEndsOnReload: boolean, denied?: string) {
+const savedHome: Address = {
+  line1: '9 Saved Road', line2: 'Flat 2', city: 'Leeds', postalCode: 'LS1 1AA', country: 'GB',
+};
+
+function mount(
+  user: CurrentUser | null,
+  sessionEndsOnReload: boolean,
+  denied?: string,
+  saved: Address | null = null,
+) {
   TestBed.resetTestingModule();
   const signIn = vi.fn(async () => undefined);
   const signOut = vi.fn(async () => undefined);
+  // Writable, so a test can end the session or hand it to somebody else.
+  const session = signal(user);
+  const read = vi.fn((): Observable<Address | null> => of(saved));
+  const remove = vi.fn((): Observable<void> => of(undefined));
   // A BehaviorSubject rather than of(): one test pushes a SECOND value
   // through it, which is the only way to exercise a reused component
   // receiving a different `denied` without a fresh construction.
@@ -29,19 +44,20 @@ function mount(user: CurrentUser | null, sessionEndsOnReload: boolean, denied?: 
       {
         provide: AuthService,
         useValue: {
-          user: () => signal(user),
+          user: () => session,
           sessionEndsOnReload,
           signIn,
           signOut,
           hasPermission: (n: string) => user?.permissions.includes(n) ?? false,
         },
       },
+      { provide: SavedAddressApi, useValue: { read, remove } },
     ],
   });
 
   const fixture: ComponentFixture<AccountPage> = TestBed.createComponent(AccountPage);
   fixture.detectChanges();
-  return { fixture, signIn, signOut, queryParams };
+  return { fixture, signIn, signOut, queryParams, session, read, remove };
 }
 
 const demo: CurrentUser = {
@@ -251,5 +267,118 @@ describe('AccountPage', () => {
     fixture.detectChanges();
 
     expect(fixture.nativeElement.textContent).not.toContain('needs you to be signed in');
+  });
+
+  describe('the saved address (#109)', () => {
+    const shown = (fixture: ComponentFixture<AccountPage>) =>
+      fixture.nativeElement.querySelector('[data-testid="saved-address"]') as HTMLElement | null;
+
+    it('shows it to the signed-in buyer, over the lines it has', async () => {
+      const { fixture } = mount(demo, true, undefined, savedHome);
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      const text = (shown(fixture)?.textContent ?? '').replace(/\s+/g, ' ');
+      expect(text).toContain('9 Saved Road');
+      expect(text).toContain('Flat 2');
+      expect(text).toContain('LS1 1AA Leeds, GB');
+    });
+
+    it('leaves out a second line it does not have', async () => {
+      const { fixture } = mount(demo, true, undefined, { ...savedHome, line2: null });
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      expect(shown(fixture)?.querySelectorAll('p').length).toBe(2);
+    });
+
+    it('shows nothing, and offers nothing to forget, when none is saved', async () => {
+      const { fixture } = mount(demo, true);
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      expect(shown(fixture)).toBeNull();
+      expect(fixture.nativeElement.querySelector('[data-testid="forget-address"]')).toBeNull();
+    });
+
+    it('asks for nothing while nobody is signed in', async () => {
+      const { fixture, read } = mount(null, true, undefined, savedHome);
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      expect(read).not.toHaveBeenCalled();
+      expect(shown(fixture)).toBeNull();
+    });
+
+    it('empties it the moment the session ends, so a signed-out tab holds no address', async () => {
+      const { fixture, session } = mount(demo, true, undefined, savedHome);
+      await fixture.whenStable();
+      expect(fixture.componentInstance.savedAddress()).toEqual(savedHome);
+
+      session.set(null);
+      fixture.detectChanges();
+      await fixture.whenStable();
+
+      expect(fixture.componentInstance.savedAddress()).toBeNull();
+      expect(fixture.nativeElement.textContent).not.toContain('9 Saved Road');
+    });
+
+    it('does not read it again when a renewal hands over a new object for the same buyer', async () => {
+      const { fixture, session, read } = mount(demo, true, undefined, savedHome);
+      await fixture.whenStable();
+
+      session.set({ ...demo, expiresAt: 99 });
+      fixture.detectChanges();
+      await fixture.whenStable();
+
+      expect(read).toHaveBeenCalledOnce();
+      expect(fixture.componentInstance.savedAddress()).toEqual(savedHome);
+    });
+
+    it('reads it afresh for the next buyer', async () => {
+      const { fixture, session, read } = mount(demo, true, undefined, savedHome);
+      await fixture.whenStable();
+
+      session.set({ ...demo, subject: 'someone-else' });
+      fixture.detectChanges();
+      await fixture.whenStable();
+
+      expect(read).toHaveBeenCalledTimes(2);
+    });
+
+    it('shows nothing when the read fails, rather than an error about a convenience', async () => {
+      const { fixture } = mount(demo, true);
+      TestBed.inject(SavedAddressApi).read = (() => throwError(() => new Error('down'))) as never;
+      fixture.componentInstance['loadSavedAddress']('s');
+      fixture.detectChanges();
+
+      expect(shown(fixture)).toBeNull();
+      expect(fixture.componentInstance.error()).toBeNull();
+    });
+
+    it('forgets it on the buyer’s say-so, and stops showing it', async () => {
+      const { fixture, remove } = mount(demo, true, undefined, savedHome);
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      findButton(fixture, 'Forget this address').click();
+      fixture.detectChanges();
+
+      expect(remove).toHaveBeenCalledOnce();
+      expect(shown(fixture)).toBeNull();
+    });
+
+    it('keeps showing it, with the banner, when forgetting fails', async () => {
+      const { fixture, remove } = mount(demo, true, undefined, savedHome);
+      remove.mockReturnValue(throwError(() => new Error('refused')));
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      fixture.componentInstance.forgetAddress();
+      fixture.detectChanges();
+
+      expect(fixture.componentInstance.error()).not.toBeNull();
+      expect(shown(fixture)).not.toBeNull();
+    });
   });
 });
