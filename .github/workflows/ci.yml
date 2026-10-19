@@ -12,8 +12,9 @@ on:
 jobs:
   web:
     runs-on: ubuntu-latest
-    # Bounds a step that never exits, which would otherwise hold the runner for GitHub's
-    # default limit (docs/testing.md). Headroom over the usual run, not a duration.
+    # Bounds a step that never exits, which would otherwise hold the runner
+    # for GitHub's default limit (docs/testing.md). Headroom over the usual
+    # run, not a duration.
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
@@ -83,8 +84,9 @@ jobs:
   # a document with no `metadata` fails the job rather than passing it.
   audit:
     runs-on: ubuntu-latest
-    # Bounds a step that never exits, which would otherwise hold the runner for GitHub's
-    # default limit (docs/testing.md). Headroom over the usual run, not a duration.
+    # Bounds a step that never exits, which would otherwise hold the runner
+    # for GitHub's default limit (docs/testing.md). Headroom over the usual
+    # run, not a duration.
     timeout-minutes: 10
     env:
       ALLOWED: |
@@ -228,8 +230,9 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
-    # Bounds a step that never exits, which would otherwise hold the runner for GitHub's
-    # default limit (docs/testing.md). Headroom over the usual run, not a duration.
+    # Bounds a step that never exits, which would otherwise hold the runner
+    # for GitHub's default limit (docs/testing.md). Headroom over the usual
+    # run, not a duration.
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
@@ -261,8 +264,9 @@ jobs:
     # to the project. Bumping this pin is a deliberate act with one thing to
     # re-check.
     runs-on: ubuntu-24.04
-    # Bounds a step that never exits, which would otherwise hold the runner for GitHub's
-    # default limit (docs/testing.md). Headroom over the usual run, not a duration.
+    # Bounds a step that never exits, which would otherwise hold the runner
+    # for GitHub's default limit (docs/testing.md). Headroom over the usual
+    # run, not a duration.
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
@@ -342,8 +346,9 @@ jobs:
   # rather than an oversight.
   ios-config:
     runs-on: ubuntu-latest
-    # Bounds a step that never exits, which would otherwise hold the runner for GitHub's
-    # default limit (docs/testing.md). Headroom over the usual run, not a duration.
+    # Bounds a step that never exits, which would otherwise hold the runner
+    # for GitHub's default limit (docs/testing.md). Headroom over the usual
+    # run, not a duration.
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
