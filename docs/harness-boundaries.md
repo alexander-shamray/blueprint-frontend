@@ -1053,7 +1053,10 @@ ported — every command that needs a branch's PR resolves it through
 `pr-for-branch.sh` — the test that pins the helper lists them — and
 `review-branch.md` and `ship.md` judge a PR's changed paths against the
 body's `| Class |` and `| Touch set |` rows through `pr-locality.sh`, which
-prints a verdict per path and never the rows. Every one fixes its field set,
+prints a verdict per path and never the rows. `git-trailer-pr.sh` (#207) makes
+one read of its own, `state`, `headRefName`, `baseRefName` and
+`isCrossRepository`, and its suite holds that to the one `gh` line and to no
+`reviews`, `comments` or `body`. Every one fixes its field set,
 because a caller that chooses fields can choose `reviews`. `settings.json`
 carries no `gh` allow, so no tracked rule approves a raw call: it prompts, or,
 under the user-level `auto` mode the #26 paragraph records, goes to the
