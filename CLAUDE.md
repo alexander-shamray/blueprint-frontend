@@ -239,7 +239,9 @@ rather than here. Four rules reach every session, so they stay:
   `harness` job runs `python` on all three platforms, Windows included, so
   that is the spelling to use when reproducing it. `docs/testing.md` owns the
   prerequisite; which interpreter the hooks' launcher picks is a different
-  question.
+  question. Locally, `py -3.12 .claude/scripts/run-harness.py` runs the same
+  suite a class per process, much faster on Windows; `docs/testing.md` says
+  what it changes and why CI does not use it.
 
 ### What was not ported, and is therefore missing
 
