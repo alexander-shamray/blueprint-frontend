@@ -2198,8 +2198,9 @@ checkout itself, where the hook is the branch's own as well; and
 checkout writes its own as its hooks run, but Python loads a hash-based `.pyc`
 there without comparing the source beside it, unchecked or not
 (alexander-shamray/blueprint-frontend#265). So the guard names every hash-based
-`.pyc` under the checkout's hooks, any that is a link, and any whose header it
-cannot read, and compares each with the hooks' own checkout, which holds none:
+`.pyc` under the checkout's hooks (the names folded to lower case, as a
+case-insensitive filesystem opens them), any linked directory below the hooks,
+and any file whose header it cannot read, and compares each with the hooks' own checkout, which holds none:
 a force-added one is refused on the wrapper's route and asked about on the
 helpers'. **A timestamp `.pyc` is not named**: Python compares its recorded
 mtime with the source's, a checkout sets the source's to the time it ran, and so

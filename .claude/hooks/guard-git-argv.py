@@ -5896,13 +5896,21 @@ def bytecode_names(base):
     """
     found = []
     for here, directories, files in os.walk(os.path.join(base, HELPER_HOOKS)):
+        relative = os.path.relpath(here, base).replace(os.sep, "/")
+        # **A linked directory is named, not entered**, as `helper_names` does,
+        # so a `__pycache__` that is a link reaches `copy_difference` as the
+        # link it is and the wrapper's route refuses it too (the automated
+        # security review of this change).
+        found.extend(f"{relative}/{entry}" for entry in directories
+                     if os.path.islink(os.path.join(here, entry)))
         directories[:] = [entry for entry in directories
                           if not os.path.islink(os.path.join(here, entry))]
-        if os.path.basename(here) != "__pycache__":
+        # Folded, since a case-insensitive filesystem opens `__PYCACHE__`
+        # and `X.PYC` as the names the interpreter looks for.
+        if os.path.basename(here).lower() != "__pycache__":
             continue
-        relative = os.path.relpath(here, base).replace(os.sep, "/")
         for entry in files:
-            if not entry.endswith(".pyc"):
+            if not entry.lower().endswith(".pyc"):
                 continue
             path = os.path.join(here, entry)
             header = None if os.path.islink(path) else _head(path)

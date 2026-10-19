@@ -5880,6 +5880,31 @@ class TheGitArgvGuard(unittest.TestCase):
             self.assertIn("#255", self.assertAsked(helper, cwd=scratch))
             deep.unlink()
             self.assertAdmitted(helper, cwd=scratch)
+            # A case-insensitive filesystem opens these as the names the
+            # interpreter looks for (the automated security review).
+            (copy / ".claude/hooks/__pycache__").rmdir()
+            folded = copy / ".claude/hooks/__PYCACHE__/Index-Refresh.CPYTHON-312.PYC"
+            folded.parent.mkdir(parents=True)
+            folded.write_bytes(magic + (1).to_bytes(4, "little") + bytes(8))
+            self.assertIn("#146", self.assertRefused(wrapper, cwd=scratch))
+            self.assertIn("#255", self.assertAsked(helper, cwd=scratch))
+            folded.unlink()
+            folded.parent.rmdir()
+            self.assertAdmitted(wrapper, cwd=scratch)
+            # A `__pycache__` that is a link is named, so the wrapper's route
+            # refuses it as it does any link (the same review).
+            elsewhere = copy / "x" / "cache"
+            elsewhere.mkdir(parents=True)
+            (elsewhere / "index-refresh.cpython-312.pyc").write_bytes(
+                magic + (1).to_bytes(4, "little") + bytes(8))
+            try:
+                os.symlink(elsewhere, copy / ".claude/hooks/__pycache__",
+                           target_is_directory=True)
+            except (OSError, NotImplementedError):
+                pass
+            else:
+                self.assertIn("#146", self.assertRefused(wrapper, cwd=scratch))
+                os.unlink(copy / ".claude/hooks/__pycache__")
             # The hooks' own checkout is never asked about itself.
             self.assertAdmitted(wrapper, cwd=str(trusted))
 
