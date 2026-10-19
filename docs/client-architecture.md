@@ -1293,8 +1293,9 @@ way to say otherwise.
 (radii and a grid; no spacing scale yet), a cyanotype for an app called
 Blueprint: drafting paper with ink on it in the light sheet, the blueprint
 itself in the dark one. It is one brand in two sheets, and a theme picker stays
-out of scope. No page carries a colour of its own. Account offers System, Light and Dark, kept in
-Capacitor Preferences (`AppearanceStore`), and System is the default.
+out of scope. No page carries a colour of its own. Account offers System, Light
+and Dark, kept in Capacitor Preferences (`AppearanceStore`), and System is the
+default.
 
 Three decisions a reader would otherwise "correct". The stylesheet is Ionic's
 *class-based* dark palette (`.ion-palette-dark` on the root) and not its

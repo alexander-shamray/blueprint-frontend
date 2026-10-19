@@ -161,8 +161,9 @@ reached from its row and opened cold from its address, and one that is not
 available, the cart quoted, the checkout form, the placed order once its
 status has settled — in both palettes, because the dark one is the
 `.ion-palette-dark` class, which the app sets only when the device is dark
-(`colorScheme` in the test makes it so). It asserts the address before each scan, so a guard's bounce fails the
-walk instead of being scanned as the page it was bounced to.
+(`colorScheme` in the test makes it so). It asserts the address before each
+scan, so a guard's bounce fails the walk instead of being scanned as the page
+it was bounced to.
 `e2e/a11y-routes.ts` is the list of routes the walk claims;
 `src/app/app.routes.spec.ts` fails the unit suite when that list and the
 router disagree, which is what stops the gate silently missing the next route
