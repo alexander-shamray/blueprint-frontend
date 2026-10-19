@@ -71,26 +71,44 @@ for (const colorScheme of ['light', 'dark'] as const) {
         // `settle` cannot wait out because Ionic drives some of the fade
         // itself. A violation present at rest is present on every poll and
         // fails when the window ends; one that was only the fade clears.
-        await expect
-          .poll(
-            async () => {
-              await settle(page);
-              const { violations } = await new AxeBuilder({ page }).analyze();
-              return violations
-                .filter(
-                  (violation) => violation.impact === 'serious' || violation.impact === 'critical',
-                )
-                .map((violation) => ({
-                  rule: violation.id,
-                  impact: violation.impact,
-                  help: violation.help,
-                  targets: violation.nodes.map((node) => node.target.join(' ')),
-                  why: violation.nodes.map((node) => node.failureSummary),
-                }));
-            },
-            { message: `${route} (${state}), ${colorScheme}`, timeout: 5_000 },
-          )
-          .toEqual([]);
+        //
+        // The ceiling is 15 s because one WebKit scan of the quoted cart, late
+        // in a full run against a stack holding every earlier test's orders,
+        // outlasted 5 s (#268). Playwright's own message for that, "Timeout
+        // exceeded while waiting on the predicate", means no poll returned a
+        // value at all, so `last` records how far the poll got: a red run says
+        // whether a scan finished and what it held, or never finished.
+        let last = 'no scan finished';
+        try {
+          await expect
+            .poll(
+              async () => {
+                await settle(page);
+                const { violations } = await new AxeBuilder({ page }).analyze();
+                const serious = violations
+                  .filter(
+                    (violation) =>
+                      violation.impact === 'serious' || violation.impact === 'critical',
+                  )
+                  .map((violation) => ({
+                    rule: violation.id,
+                    impact: violation.impact,
+                    help: violation.help,
+                    targets: violation.nodes.map((node) => node.target.join(' ')),
+                    why: violation.nodes.map((node) => node.failureSummary),
+                  }));
+                last = JSON.stringify(serious);
+                return serious;
+              },
+              { message: `${route} (${state}), ${colorScheme}`, timeout: 15_000 },
+            )
+            .toEqual([]);
+        } catch (error) {
+          throw new Error(
+            `${route} (${state}), ${colorScheme}: the last scan to finish held ${last}`,
+            { cause: error },
+          );
+        }
         scanned.add(route);
       }
 
