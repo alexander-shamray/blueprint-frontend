@@ -10,6 +10,18 @@ set -euo pipefail
 pr="$1"
 [[ "$pr" =~ ^[0-9]+$ ]] || { echo "pr must be a number: $pr" >&2; exit 2; }
 
+# The host's hooks never run inside this helper, for git-rebase-onto-main.sh's reason (#180): a `pre-rebase`,
+# `post-rewrite`, `commit-msg` or `pre-push` hook in the repository's hooks directory would otherwise run inside a
+# rewrite of published history. `core.hooksPath` is an empty directory made for the run, set through the environment
+# once, before any git runs, so every git started after it (the sequencer's own, and the amend in the exec) inherits
+# it. The entry is appended to any the caller already set.
+no_hooks=$(mktemp -d)
+trap 'rmdir "$no_hooks" 2>/dev/null || :' EXIT
+hook_entry="${GIT_CONFIG_COUNT:-0}"
+export "GIT_CONFIG_KEY_$hook_entry=core.hooksPath" \
+  "GIT_CONFIG_VALUE_$hook_entry=$no_hooks" \
+  "GIT_CONFIG_COUNT=$((hook_entry + 1))"
+
 branch=$(git branch --show-current)
 [ -n "$branch" ] && [ "$branch" != main ] ||
   { echo "not on a PR branch: nothing to add the trailer to" >&2; exit 3; }
@@ -62,7 +74,10 @@ fi
 # The exec skips a commit that has the trailer, so a rerun after a failed push changes nothing already done.
 if [ "$owned" -lt "$total" ]; then
   exec_cmd="git log -1 --format=%B | git interpret-trailers --parse | grep -qx '$wanted' || git commit --amend --no-edit --trailer '$wanted'"
-  if ! GIT_SEQUENCE_EDITOR=true git rebase --quiet -x "$exec_cmd" "$base_oid"; then
+  # The flags are spelled, as git-rebase-onto-main.sh spells them: each `rebase.*` key below changes WHICH commits are
+  # replayed, and the result is force-pushed, so an inherited one is a rewrite nobody asked for.
+  if ! GIT_SEQUENCE_EDITOR=true git rebase --quiet --no-rebase-merges --no-update-refs --no-autosquash \
+      --no-fork-point --no-autostash -x "$exec_cmd" "$base_oid"; then
     git rebase --abort || true
     echo "adding the trailer failed; the branch is as it was" >&2; exit 6
   fi
