@@ -348,7 +348,15 @@ export class AccountPage {
     this.editingState.set(true);
   }
 
+  /**
+   * Closes the editor. A save that is still out is no longer this editor's: its
+   * reply is dropped, so it cannot wipe what is typed if the editor is opened
+   * again, or put back an address that was forgotten after. The PUT may still
+   * reach the server, and the screen shows the old address until the next read,
+   * which Ionic makes on the next entry.
+   */
   cancelEditAddress(): void {
+    this.saveSequence++;
     this.closeEditor();
   }
 
