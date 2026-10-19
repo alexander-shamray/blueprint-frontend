@@ -23,6 +23,48 @@ jobs:
       - run: npm test
       - run: npm run build
 
+  # Rebase landing puts every commit on main, and `web` lints and builds only
+  # the head. A commit that does not build costs a `git bisect` its whole
+  # range, so each one before the head is linted and built here; a red test in
+  # one costs a single step, so tests are not run (nor Playwright, nor the
+  # native jobs). One `npm ci`, repeated only for a commit whose
+  # `package-lock.json` differs from the last one installed. A pull request of
+  # one commit has nothing to build and passes (#207).
+  commits:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - name: Every commit before the head lints and builds
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          mapfile -t shas < <(git rev-list --reverse "$BASE_SHA..$HEAD_SHA" | grep -vx "$HEAD_SHA" || true)
+          echo "${#shas[@]} commit(s) besides the head"
+          installed=""
+          for sha in "${shas[@]}"; do
+            echo "::group::$sha"
+            git checkout --quiet --detach "$sha"
+            lock=$(git rev-parse "$sha:package-lock.json")
+            if [ "$lock" != "$installed" ]; then
+              npm ci
+              installed="$lock"
+            fi
+            npm run lint
+            npm run build
+            echo "::endgroup::"
+          done
+
   # The production dependency tree, audited at `high` (#90). Its own job so a
   # new advisory fails one job with one meaning and not `web`. Every pin is
   # exact, so a finding is closed by a deliberate bump with `package-lock.json`
