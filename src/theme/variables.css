@@ -74,18 +74,20 @@
   --ion-background-color-step-250: #bcc2ce;
   --ion-background-color-step-300: #b1b7c4;
   --ion-background-color-step-350: #a6acbb;
-  --ion-background-color-step-400: #9aa2b1;
   /*
-   * 450 to 600 are all the one colour (4.9:1 on the paper) and not a gradual
-   * scale: Ionic draws secondary text, placeholders and unselected labels in
-   * these steps, and the straight scale put 600 at 4.27:1, which the axe walk
-   * refused. The same goes for text steps 400 to 550 below.
+   * 400 to 650 are all the one colour (5.4:1 on the paper, 4.9:1 on step 50,
+   * the fill behind inputs) and not a gradual scale: Ionic draws secondary
+   * text, placeholders and labels in these steps (iOS mode reads 400), and the
+   * straight scale put 600 at 4.27:1, which the axe walk refused. The same
+   * goes for text steps 350 to 600 below. The scale is flatter in the middle
+   * for it, which is the cost.
    */
-  --ion-background-color-step-450: #616c82;
-  --ion-background-color-step-500: #616c82;
-  --ion-background-color-step-550: #616c82;
-  --ion-background-color-step-600: #616c82;
-  --ion-background-color-step-650: #616c82;
+  --ion-background-color-step-400: #5b667c;
+  --ion-background-color-step-450: #5b667c;
+  --ion-background-color-step-500: #5b667c;
+  --ion-background-color-step-550: #5b667c;
+  --ion-background-color-step-600: #5b667c;
+  --ion-background-color-step-650: #5b667c;
   --ion-background-color-step-700: #566178;
   --ion-background-color-step-750: #4b566f;
   --ion-background-color-step-800: #3f4b65;
@@ -99,12 +101,12 @@
   --ion-text-color-step-200: #3f4b65;
   --ion-text-color-step-250: #4b566f;
   --ion-text-color-step-300: #566178;
-  --ion-text-color-step-350: #616c82;
-  --ion-text-color-step-400: #616c82;
-  --ion-text-color-step-450: #616c82;
-  --ion-text-color-step-500: #616c82;
-  --ion-text-color-step-550: #616c82;
-  --ion-text-color-step-600: #9aa2b1;
+  --ion-text-color-step-350: #5b667c;
+  --ion-text-color-step-400: #5b667c;
+  --ion-text-color-step-450: #5b667c;
+  --ion-text-color-step-500: #5b667c;
+  --ion-text-color-step-550: #5b667c;
+  --ion-text-color-step-600: #5b667c;
   --ion-text-color-step-650: #a6acbb;
   --ion-text-color-step-700: #b1b7c4;
   --ion-text-color-step-750: #bcc2ce;
@@ -236,6 +238,16 @@ ion-button {
 
 ion-chip {
   --border-radius: var(--bp-radius-md);
+}
+
+/*
+ * An unselected segment label. Ionic draws it as the text colour at 60%
+ * opacity, which was 4.27:1 on the paper in the light sheet (the ink is not as
+ * dark as the black Ionic assumes) and which no step variable reaches. The
+ * palette's own muted colour clears the bar on both sheets.
+ */
+ion-segment-button {
+  --color: var(--ion-color-medium);
 }
 
 ion-thumbnail {
