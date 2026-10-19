@@ -75,6 +75,23 @@ class EachSplitCommandHasBothHalves(unittest.TestCase):
         self.assertGreater(cited, 0,
                            "the citation pattern stopped matching the runbooks")
 
+    def test_every_runbook_cites_and_every_citation_parses(self):
+        # **Per runbook, because the global count above is satisfied by one
+        # file's citations** (review of the PR that added this case): a runbook
+        # could lose every `(why: …)` or write one the pattern does not match,
+        # and stay green. Each opening is a claim that a section argues the
+        # rule, so the number of openings must equal the number that parse.
+        for name in CEILINGS:
+            with self.subTest(command=name):
+                text = collapsed(COMMANDS / name)
+                openings = text.count("(why:")
+                parsed = len(CITATION.findall(text))
+                self.assertGreater(openings, 0, f"{name} cites nothing")
+                self.assertEqual(
+                    openings, parsed,
+                    f"{name} has {openings} '(why:' openings but {parsed} "
+                    "parse as citations")
+
     def test_each_runbook_stays_under_its_ceiling(self):
         for name, ceiling in CEILINGS.items():
             with self.subTest(command=name):
