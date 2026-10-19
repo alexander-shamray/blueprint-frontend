@@ -259,6 +259,17 @@ class TrailerHelper(Fixture):
         self.assertEqual(0, out.returncode, out.stderr)
         self.assertEqual(1, sh(f'test -e {marker}', ROOT=self.root).returncode, "the host's hook ran inside the helper")
 
+    def test_the_one_pull_request_read_names_a_fixed_field_set(self):
+        # #56's rule, held where this helper meets it: a caller that chooses fields can choose `reviews`, text
+        # anyone can post. The helper makes exactly one `gh` call, with its fields spelled in the file.
+        code = code_lines(TRAILER.read_text(encoding="utf-8"))
+        calls = [line for line in code if "gh pr " in line or line.startswith("gh ")]
+        self.assertEqual(['row=$(gh pr view "$pr" --json state,headRefName,baseRefName,isCrossRepository \\'], calls)
+        text = "\n".join(code)
+        for feed in ("reviews", "comments", "body"):
+            with self.subTest(feed=feed):
+                self.assertNotIn(feed, text)
+
     def test_the_helper_spells_its_rewrite_and_its_lease_itself(self):
         code = "\n".join(code_lines(TRAILER.read_text(encoding="utf-8")))
         self.assertIn('--force-with-lease="refs/heads/$branch:$remote"', code)
