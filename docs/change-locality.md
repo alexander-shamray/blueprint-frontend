@@ -243,7 +243,9 @@ the same PR. It waives nothing else. In particular:
 
 These were `CLAUDE.md`'s *Working in this repo* section, and moved here when
 that file became a locator (blueprint-frontend#170); each is argued where it
-is stated.
+is stated. Two of them, the `TODO.md` row move and the backend-issue rule for
+a `#NN`, are also kept in `CLAUDE.md`, because they reach every session before
+this file is opened; this section owns them.
 
 - **Read before you edit**: the claim you are about to change is usually
   stated more than once. `app.config.ts` and `app.routes.ts` are the
@@ -270,8 +272,9 @@ is stated.
   reopens an issue. **Move an issue's row from Remaining to In progress
   before entering a worktree directory** (`EnterWorktree`, `/branch`,
   `/ship`), deleting it from Remaining in the same edit, because from
-  inside one the file may be refused (below). Only the main checkout's copy
-  counts, never one in a worktree. `guard-edit-target.py` admits that one
+  inside one the file may be refused (below, and `harness-boundaries.md`,
+  *The edit-target guard: anchors and path resolution*). Only the main
+  checkout's copy counts, never one in a worktree. `guard-edit-target.py` admits that one
   file from a linked worktree (#45), but a session moved into
   `.claude/worktrees/` with `EnterWorktree` is refused it by Claude Code's
   own isolation, which no file here controls — so there the update is
