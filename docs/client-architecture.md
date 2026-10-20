@@ -1905,10 +1905,10 @@ support under `testing/`) or listed in the spec's `ALLOWED` with its reason,
 and an entry that no longer matches fails the build. Only inline templates are
 read, so an external `templateUrl` file is outside it. A single word and a
 sentence that starts in lower case are not caught, because an enum value or a
-label reads the same; those stay with review. The one place that looks user-facing and was left alone on purpose is
-the native sign-in strategy's thrown `Error` messages: they are diagnostics,
-and the account page shows the mapped banner and not their text, so they are
-listed.
+label reads the same; those stay with review. The one place that looks
+user-facing and was left alone on purpose is the native sign-in strategy's
+thrown `Error` messages: they are diagnostics, and the account page shows the
+mapped banner and not their text, so they are listed.
 
 **The bundle.** The initial chunks measure 1.24 MB raw and 245.57 kB
 transferred, from 1.22 MB and 239.30 kB before this work: the `$localize`
