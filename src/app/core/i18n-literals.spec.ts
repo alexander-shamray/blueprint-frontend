@@ -20,9 +20,10 @@ import { describe, expect, it } from 'vitest';
  * and a label read the same; that is a limit, kept in §17.
  *
  * What the shape cannot tell from a sentence is skipped by position instead:
- * an import specifier, a property name, a type, a decorator's `template` and
- * `styles`, and the argument of `new Error(…)`, which §17 keeps as a
- * diagnostic. A tagged `$localize` template is a marked message and is not a
+ * an import specifier, a property name, a type, the value of a property named
+ * `template` or `styles`, and the argument of `new Error(…)`, which §17 keeps
+ * as a diagnostic. Only inline templates are read; a `templateUrl` file is not.
+ * A tagged `$localize` template is a marked message and is not a
  * literal. `ALLOWED` is for what is left, and every entry says why.
  */
 const root = process.cwd();
@@ -144,11 +145,11 @@ function untaggedProse(fileName: string, source: string): string[] {
 describe('no user-facing sentence is a bare string (#314)', () => {
   it('finds a sentence in TypeScript and in a bound expression, and only there', () => {
     const sample = [
-      "import { x } from './some thing';",
+      "import { x } from './Some thing';",
       "const label = 'Order not found';",
       "const key = 'x-request-id';",
       'const marked = $localize`:@@a.b:Order not found`;',
-      "throw new Error('native sign-in failed here');",
+      "throw new Error('Sign-in failed here');",
       'const t = `Total is ${n}`;',
       "@Component({ selector: 'app-a', template: `<p [title]=\"'Pay now'\">{{ ok ? 'All good' : 'x' }}</p>` })",
     ].join('\n');
