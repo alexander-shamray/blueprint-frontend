@@ -124,6 +124,35 @@ true before anyone opens it:
 - **LF line endings.** `.gitattributes` is `* text=auto eol=lf`, and a CRLF
   that reaches the tree breaks the `.claude/scripts` shebangs mid-line.
 
+## Subagents, review rounds and plans
+
+Every turn re-sends the whole context, so an agent costs what it reads times
+the turns it takes, and a tool result stays in the parent for the rest of the
+session. `docs/token-plan.md` is the plan for that and `docs/token-usage.md`
+holds the measurements.
+
+- **Delegate with a brief.** A subagent is handed the files, diff or question
+  it needs and returns a short structured answer — findings as `file:line`,
+  not prose. `Explore` before `general-purpose` for a search; nothing is
+  delegated that one `Grep` answers; a step's reads go in one message.
+- **The review loop** is `/ship` step 5's, and a pull request reviewed outside
+  `/ship` runs it too: rounds of one `branch-reviewer` each, read-only by its
+  tool list, handed the diff under `artifacts/review/` and not the author's
+  conclusions — never `general-purpose`, and never the session reviewing its
+  own diff. A recheck reads the diff since the last round and the findings
+  still open, not the tree, and the seventh round is the ceiling.
+- **Plans.** A change that fits one pull request takes plan mode, not a plan
+  file. A plan file cites code by path and symbol rather than pasting it and
+  stays under 50 KB; research for it goes to `Explore` with a brief, and the
+  plan-writing agent is handed the spec and the symbols the plan cites and
+  writes it in one pass.
+- **Before a wait, shed the context.** A session about to wait on CI, a
+  background agent or a check-in compacts first, or hands the wait to a fresh
+  agent that holds only the pull request and returns the verdict; a wake
+  re-sends the whole context, and after the cache has expired writes all of it
+  again.
+- **One task per session**: `/clear` between tasks.
+
 ## Working in this repo
 
 The working rules — commit messages and `Closes #n`, the issue vocabulary,
