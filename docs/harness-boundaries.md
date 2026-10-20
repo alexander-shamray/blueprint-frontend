@@ -40,10 +40,39 @@ of its old home* reads correctly in isolation and only contradicts something
 two screens away. Grep for "this file" after extracting prose, not just for
 links.
 
-**No headings were introduced.** The section is one long run of bold-led
-paragraphs and it stays that way — inventing headings would mean deciding where
-the topic boundaries are, which is an edit to the argument wearing a
-navigation aid's clothes. Grep the bold lead-ins; they are the index.
+**Headings were introduced later, and the index below is why**
+(blueprint-frontend#170). The file was one long run of bold-led paragraphs, and
+the earlier version of this note refused to add headings because deciding where
+the topic boundaries are is an edit to the argument. That refusal stood while
+the file was a quarter of its size and every session was told to read it whole.
+The headings now only mark where a paragraph's subject changes; **no paragraph
+moved and none was shortened**, so a bold lead-in is still the way to find an
+argument, and a citation of this file by name still lands.
+
+**Read the section the work needs, not the file.** The sizes are bytes over
+four when the headings were added, rounded, and are not kept current.
+
+| Section | About tokens | Read it when |
+|---|---|---|
+| *The `Edit` denies and the lock on `settings.json`* | 1.5 k | Adding or lifting an `Edit` deny, or changing `settings.json` itself |
+| *What a command can write past the `Edit` denies* | 2.8 k | A command redirects or writes, or the Bash guard's redirection rules change |
+| *The external reviewers, archived* | 0.3 k | A question about Grok or Copilot review machinery |
+| *A grant is not a whitelist: allows, denies and helpers* | 1.4 k | Writing or auditing any `allowed-tools` or `disallowed-tools` line |
+| *The git argv guard and its launcher* | 1.5 k | Touching `guard-git-argv.py` or `run-guard.sh` |
+| *The guard's residuals, and the bound on what has been looked for* | 2.5 k | Claiming the guard closes something |
+| *The inventory of grants wider than their operation* | 6.8 k | Adding a grant, or asking what a granted helper can still do |
+| *Suppression, auto mode and how the guard fails* | 3.0 k | A refused push, an auto-mode denial, or a guard crash |
+| *Entries seven to ten* | 1.6 k | Pinning a command to a subagent type, the push deny-list, a build grant |
+| *The edit-target guard: anchors and path resolution* | 3.6 k | Touching `guard-edit-target.py` or a path spelling it reads |
+| *The eleventh entry and the history-rewriting helpers* | 2.1 k | `git-rebase-onto-main.sh`, `git-trailer-pr.sh`, a force push |
+| *The two sweeps* | 0.4 k | `/security-sweep` or `/bug-sweep` frontmatter |
+| *The index-refresh hook* | 6.8 k | `index-refresh.py`, the worker, the lock, the seed |
+| *The skill's route, the helpers' copies and the MCP server's start* | 2.1 k | `run-index`, `mcp-launch.mjs`, a helper run from a worktree |
+| *The index hints and the root guard* | 1.6 k | The query or search hint, the MCP root guard |
+| *The twelfth entry: `/ship`'s review dispatch* | 1.7 k | `branch-reviewer`, the review inputs, `Agent(...)` grants |
+
+The two callouts below hold for every section, and are the only text here to
+read before any other.
 
 **Both sweeps cite `CLAUDE.md` as where the consequences of their grants are
 recorded, and those citations were deliberately left alone.** `CLAUDE.md`
@@ -96,6 +125,8 @@ loses its citation — which is how `ship.md` left it.
 > it.
 
 ---
+
+## The `Edit` denies and the lock on `settings.json`
 
 **File permission rules take `Edit(...)`, never `Write(...)`.** `Edit(path)`
 covers every file-editing tool, `Write` included; a `Write(path)` rule matches
@@ -193,6 +224,8 @@ closed, and no chain step writes one.
 Changing any of them is a human's edit, made with the deny lifted. Like the
 push denies it is defence in depth — `Bash` redirection can still write a file
 — but it removes the quiet path.
+
+## What a command can write past the `Edit` denies
 
 **The `Edit` denies do not bound what a command can WRITE, and this paragraph
 is here because four commands read as though they did.** A redirection on any
@@ -361,6 +394,8 @@ denies it, and a case in `test_harness_helpers.py` asserts the deny, so the next
 hook arrives behind a control rather than behind a sentence that used to be
 true.
 
+## The external reviewers, archived
+
 **The external reviewers are archived, not deleted.** Grok's container review
 and Copilot's loop — their commands, the triager and adjudicator profiles and
 their hooks, the helpers, their suites and the sandbox image with its egress
@@ -375,6 +410,8 @@ residuals those tools raised where the grant or the guard they shaped still
 stands, in the past tense where the tool is gone. What the decision costs —
 no reader outside the model family that wrote the branch — is the twelfth
 entry's, below, and accepted there.
+
+## A grant is not a whitelist: allows, denies and helpers
 
 **A grant is not a whitelist, and this is the trap under every row below.**
 `allowed-tools` is an **auto-approval list**: the harness documents that it
@@ -453,6 +490,8 @@ concatenation is now MEASURED**, where this paragraph used to say it was not:
 the earlier probe was refused by the classifier layer — a second net worth
 noting and not evidence. It is evidence now, and it says the deny was genuinely
 defeatable rather than theoretically so.
+
+## The git argv guard and its launcher
 
 **What closed it is the second of the two things named here as owed: a rule
 over the executed argv rather than the typed string.**
@@ -546,6 +585,8 @@ The deny stays beside it as defence in depth. **A substring deny over a shell
 command string can never be more than a speed bump**, which is still the
 generalisation worth carrying past this one flag — what changed is that the
 speed bump is no longer the only thing there.
+
+## The guard's residuals, and the bound on what has been looked for
 
 **The hook's own residual, stated rather than left to be found:** `shlex`
 resolves quoting and not expansion, so a flag assembled at run time —
@@ -703,6 +744,8 @@ grant would have answered. What the two grants rest on is the helper refusing
 an argument and the hook refusing a `$`. That an allow rule without `:*` is
 read as exact is neither measured nor relied on, and a reader who finds it
 relied on has found a defect.
+
+## The inventory of grants wider than their operation
 
 **A command's frontmatter is a grant like any other, and it is the one nobody
 reads twice.** The first five rows above were all found in command frontmatter,
@@ -1103,6 +1146,8 @@ issue named two commands; the case whose subject is *every* command's
 frontmatter caught the third. That is the gate-coverage lesson paying for
 itself inside the change that added the gate.
 
+## Suppression, auto mode and how the guard fails
+
 **#150's suppression clause moved three times in one branch, each time one
 grant along from the one just closed, and it is the clearest instance of #56
 this repository has.** `gh repo view` went when the suppression helper resolved
@@ -1279,6 +1324,8 @@ it does not deserve. That shape needs a printer writing a push into a pipeline
 whose far end merely mentions a shell; it has never been typed here, and the
 alternative fails open on a wrapper nobody listed.
 
+## Entries seven to ten: agent pinning, the push deny-list, the build grant, the review-grok pair
+
 **A seventh thing is a gap in the mechanism rather than in a grant.** Pinning a
 command to one subagent type is a **deny list of every other type**, because
 the harness has no "only this type" allow — so every command that grants an
@@ -1372,6 +1419,8 @@ drift this file exists to refuse — re-anchors it on the
 resolved checkout root, and refuses the call when the two disagree — into a
 denied tree, or out of the checkout. The premise stays as defence in depth
 and its gate stays green.
+
+## The edit-target guard: anchors and path resolution
 
 **That guard holds no copy of any deny list, and refusing to write one is
 the whole of why it is safe to run on every write this repository makes.**
@@ -1579,6 +1628,8 @@ of this file instead of the shared-checkout path"*, measured on the PR that
 added this paragraph — so for `/branch`'s sessions the update is still reported
 as owed, and made once the session is back in the main checkout.
 
+## The eleventh entry and the history-rewriting helpers
+
 **The eleventh was opened deliberately rather than found**, and until
 `git-trailer-pr.sh` (below) it was the only force push in this repository.
 Branch updates are rebases now (#57), so a
@@ -1701,6 +1752,8 @@ session invoking the sweep entry point by hand, because no rule in
 What the split removes is the case that runs unattended over a tree that is
 prompt-injection input.
 
+## The two sweeps
+
 **The two sweeps are one shape asking two questions**, split by what makes a
 finding rather than by where they look. `/security-sweep` files what an
 attacker can reach; `/bug-sweep` files what is wrong on its own terms. Both
@@ -1722,6 +1775,8 @@ that is not `secsweep-` plus six characters under the canonical temp root —
 the shape check that stops a poisoned finding from naming a PR worktree
 and having it deleted. Renaming the prefix would have to move in both helpers
 and both callers at once, so it stands; what is lost is attribution.
+
+## The index-refresh hook
 
 **The index-refresh hook is the first that runs code a session could edit,
 and it arrived without the controls the guards have
@@ -2131,6 +2186,8 @@ cache is out of proportion to it. The failure mode is the old hook's own,
 a refresh that failed, and the indexer run itself is bounded by the hook's
 `RUN_TIMEOUT`. Raised by Copilot, and answered here.
 
+## The skill's route, the helpers' copies and the MCP server's start
+
 **The example under the skill does not follow.** It ships alone, so it keeps
 the self-contained `cd "${CLAUDE_PROJECT_DIR}" && run-index update` form:
 anchored and denied, but refreshing the startup checkout. A copy that named
@@ -2253,6 +2310,8 @@ within 6 s. **The key covers sessions started here only**: the failure cache
 is user-wide, so the same key in the user's own settings is what closes it
 everywhere, and the owner's carries it.
 
+## The index hints and the root guard
+
 **A prompt that asks where something is, how it works, who calls it or what
 breaks gets one line pointing at the index
 (alexander-shamray/blueprint-frontend#126).** No session here had run the
@@ -2346,6 +2405,8 @@ be written; the Python that reads the approval runs with `-I`, so an untracked
 the worktree anyway and says on stderr that the servers stay unapproved.
 `.claude/settings.json` cannot hold the approval: a scratch repository with
 the keys there still listed the server as pending.
+
+## The twelfth entry: `/ship`'s review dispatch
 
 **The twelfth is `/ship`'s review dispatch, and calling it narrow would be
 the comfortable half of the truth.** Step 5's local review grants
