@@ -1934,11 +1934,12 @@ service to deploy, version and keep in step with the first, bought to answer a
 question nobody has asked of a measurement.
 
 **What would change the answer.** A phone wanting a different read from the web
-is the only reason to split. Two candidates have been named: smaller pages, and
-no thumbnails on a cellular connection. Either is a claim about bytes and time
-on a real device, so the test is a measurement and not an opinion. It cannot be
-run before the tracking detail exists, because that is the payload worth
-measuring (#95, closed), and it cannot be run without a device (#77).
+is the only reason to split. Two candidates were named when the question was
+raised (#104): smaller pages, and no thumbnails on a cellular connection. Both
+concern the products list, the one read that carries many rows and images, and
+either is a claim about bytes and time on a real device, so the test is a
+measurement and not an opinion. The tracking detail it was to wait for (#95) has
+since landed, so the precondition is met; what is missing is a device (#77).
 
 The proposed threshold, which the owner may move: on a real phone, with the
 network throttled to a cellular profile, the products list's 75th-percentile
