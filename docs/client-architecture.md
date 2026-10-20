@@ -1913,3 +1913,42 @@ mapped banner and not their text, so they are listed.
 **The bundle.** The initial chunks measure 1.24 MB raw and 245.57 kB
 transferred, from 1.22 MB and 239.30 kB before this work: the `$localize`
 runtime and the tags, under §13's 1.3 MB warning.
+
+---
+
+## 18. One BFF serves web and native until a measured payload says otherwise
+
+**Proposed, pending the owner's confirmation (#104).** This is the position
+this client works from, written down so that it is not re-asked each time a
+native screen is slow. It is not a decision: the decision is the backend's to
+record, and the measurement that could overturn it needs a phone.
+
+**The position.** There is no mobile BFF, and none is planned. The backend's
+gateway chapter (backend §10.1) draws a `Mobile BFF` beside a `Web BFF` and
+says in the same breath that the second box is what the pattern looks like at
+scale, "the ceiling, not the inventory": what is built is one `Web.Bff` calling
+two services. The native shell in §15 is the web build in a WebView, so it
+calls the same gateway (§11) and the same BFF routes as the browser does, with
+the same claims (§2) and the same wire types. A second BFF would be a second
+service to deploy, version and keep in step with the first, bought to answer a
+question nobody has asked of a measurement.
+
+**What would change the answer.** A phone wanting a different read from the web
+is the only reason to split. Two candidates have been named: smaller pages, and
+no thumbnails on a cellular connection. Either is a claim about bytes and time
+on a real device, so the test is a measurement and not an opinion. It cannot be
+run before the tracking detail exists, because that is the payload worth
+measuring (#95, closed), and it cannot be run without a device (#77).
+
+The proposed threshold, which the owner may move: on a real phone, with the
+network throttled to a cellular profile, the products list's 75th-percentile
+time to a rendered list is above two seconds, or its gzip transfer is above 100
+kB, **and** a phone-only read would cut that figure by at least half. Both
+halves are needed. A slow list that no smaller read would speed is a problem
+for the catalogue or the network, and a BFF would fix neither. If neither
+figure is crossed, the answer is still no, and this section stands.
+
+**Who records it.** The backend owns the architecture decision records, so the
+decision belongs in its series and not in this repository's. When it is filed,
+this section cites it and drops "proposed". The diagram label in backend §10.1
+is the backend's own change to make; this repository never edits a sibling.
