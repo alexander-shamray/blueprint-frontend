@@ -1896,14 +1896,14 @@ bound expression, so `[label]="'text'"` passes it.
 `src/app/core/i18n-literals.spec.ts` (#314) reads those two places with the
 TypeScript parser and fails on a literal that has the shape of a sentence: a
 capitalised word and another word in TypeScript, any two words side by side
-inside a binding or a built string. The
-shape is the allow-list for selectors, header names, URLs, route paths and
-scopes, none of which holds a space, so nothing of that kind is listed. What
-the shape cannot tell from a message is skipped by position (an import
-specifier, a property name, a type, a decorator's `template` and `styles`,
-the argument of `new Error(…)`, test support under `testing/`) or listed in
-the spec's `ALLOWED` with its reason, and an entry that no longer matches
-fails the build. A single word and a sentence that starts in lower case are
+inside a binding or a built string. The shape is the allow-list for selectors,
+header names, URLs, route paths and scopes, none of which holds a space, so
+nothing of that kind is listed. What the shape cannot tell from a message is
+skipped by position (an import specifier, a property name, a type, the value of
+a property named `template` or `styles`, the argument of `new Error(…)`, test
+support under `testing/`) or listed in the spec's `ALLOWED` with its reason,
+and an entry that no longer matches fails the build. Only inline templates are
+read, so an external `templateUrl` file is outside it. A single word and a sentence that starts in lower case are
 not caught, because an enum value or a label reads the same; those stay with
 review. The one place that looks user-facing and was left alone on purpose is
 the native sign-in strategy's thrown `Error` messages: they are diagnostics,
