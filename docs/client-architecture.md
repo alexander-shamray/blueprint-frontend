@@ -1889,13 +1889,26 @@ shared by two places is one unit; the extractor's own tally counts each use, and
 neither is quoted here because the spec holds the set equal and a count would
 only drift.
 
-**What neither gate sees.** A string literal in TypeScript that was never
-tagged is invisible to the lint rule, which reads templates, and to the spec,
-which reads markers; and the rule does not read a bound expression, so
-`[label]="'text'"` passes it. Those are held by review today. The one place
-that looks user-facing and was left alone on purpose is the native sign-in
-strategy's thrown `Error` messages: they are diagnostics, and the account page
-shows the mapped banner and not their text.
+**What neither gate sees, and the third that does.** A string literal in
+TypeScript that was never tagged is invisible to the lint rule, which reads
+templates, and to the spec, which reads markers; and the rule does not read a
+bound expression, so `[label]="'text'"` passes it.
+`src/app/core/i18n-literals.spec.ts` (#314) reads those two places with the
+TypeScript parser and fails on a literal that has the shape of a sentence: a
+capitalised word and another word in TypeScript, any two words side by side
+inside a binding or a built string. The
+shape is the allow-list for selectors, header names, URLs, route paths and
+scopes, none of which holds a space, so nothing of that kind is listed. What
+the shape cannot tell from a message is skipped by position (an import
+specifier, a property name, a type, a decorator's `template` and `styles`,
+the argument of `new Error(…)`, test support under `testing/`) or listed in
+the spec's `ALLOWED` with its reason, and an entry that no longer matches
+fails the build. A single word and a sentence that starts in lower case are
+not caught, because an enum value or a label reads the same; those stay with
+review. The one place that looks user-facing and was left alone on purpose is
+the native sign-in strategy's thrown `Error` messages: they are diagnostics,
+and the account page shows the mapped banner and not their text, so they are
+listed.
 
 **The bundle.** The initial chunks measure 1.24 MB raw and 245.57 kB
 transferred, from 1.22 MB and 239.30 kB before this work: the `$localize`
