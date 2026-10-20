@@ -1903,9 +1903,9 @@ skipped by position (an import specifier, a property name, a type, the value of
 a property named `template` or `styles`, the argument of `new Error(…)`, test
 support under `testing/`) or listed in the spec's `ALLOWED` with its reason,
 and an entry that no longer matches fails the build. Only inline templates are
-read, so an external `templateUrl` file is outside it. A single word and a sentence that starts in lower case are
-not caught, because an enum value or a label reads the same; those stay with
-review. The one place that looks user-facing and was left alone on purpose is
+read, so an external `templateUrl` file is outside it. A single word and a
+sentence that starts in lower case are not caught, because an enum value or a
+label reads the same; those stay with review. The one place that looks user-facing and was left alone on purpose is
 the native sign-in strategy's thrown `Error` messages: they are diagnostics,
 and the account page shows the mapped banner and not their text, so they are
 listed.
