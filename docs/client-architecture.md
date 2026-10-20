@@ -1760,6 +1760,15 @@ emulator's issuer is `http://localhost:8080/realms/commerce` rather than the
 Not observed: steps 4 and 5's cart and order path, and step 3's
 sign-out-and-in race.
 
+**The page draws under the notch, and what that does is unmeasured.**
+`src/index.html` asks for `viewport-fit=cover` (#86), without which
+`env(safe-area-inset-*)` reads zero and Ionic's `--ion-safe-area-*` variables,
+which `@ionic/core`'s sheet defines from it, pad nothing.
+`src/app/core/config/viewport.spec.ts` holds the attribute. Whether the header
+and the tab bar clear a real notch, the status bar and the keyboard over the
+checkout form are all unobserved: they need a device, and the back button,
+icon and splash with them.
+
 ---
 
 ## 16. The service worker caches the shell and nothing else
