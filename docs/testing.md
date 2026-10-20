@@ -100,20 +100,39 @@ every host that installed it unpinned. The version is
 `codebase-index==2.0.0`, the release the development host already runs:
 
 ```bash
-py -3.12 -m pip install codebase-index==2.0.0     # python -m pip elsewhere
+# python -m pip elsewhere
+py -3.12 -m pip install --require-hashes \
+    -r docs/codebase-index-requirements.txt
 ```
 
-Its wheel, `codebase_index-2.0.0-py3-none-any.whl`, hashes to
+[`codebase-index-requirements.txt`](codebase-index-requirements.txt) is the
+CLI and its whole dependency closure — the six it names (`pathspec`,
+`pydantic`, `rich`, `tree-sitter`, `tree-sitter-language-pack`, `typer`) and
+what they pull in — each with the hash of every file PyPI serves for that
+version, the native wheels of every platform among them, so one file serves all
+three runners and a changed release of any package fails the install.
+`pip install codebase-index==2.0.0` names the same CLI without that file and
+leaves the dependencies floating; it is not the way to install it. The CLI's own
+wheel, `codebase_index-2.0.0-py3-none-any.whl`, hashes to
 `sha256:93d49a87957bef85bed7ee64f8c364d188cd4f48e9522161977215b41dc566ac`;
 `pip download codebase-index==2.0.0 --no-deps -d <empty dir>` followed by
-`pip hash <the wheel>` checks it against PyPI. **To move the pin**, install the
-new version, run the harness suite and a search through the MCP server, then
-change the version and the hash here in one commit; `CLAUDE.md` cites this
-section and states neither. The pin names the CLI only: its six dependencies
-(`pathspec`, `pydantic`, `rich`, `tree-sitter`, `tree-sitter-language-pack`,
-`typer`) float, because a hash for each would have to cover every platform's
-wheel of the native ones, which a requirements file with `--require-hashes`
-would carry and this paragraph does not.
+`pip hash <the wheel>` checks it against PyPI.
+
+**To move the pin**, install the new version in a scratch virtual environment,
+run the harness suite and a search through the MCP server, then regenerate the
+file there and commit it with the version and the hash above in one commit:
+
+```bash
+echo codebase-index==<new> > requirements.in
+pip install pip-tools
+pip-compile --generate-hashes --strip-extras --output-file=docs/codebase-index-requirements.txt requirements.in
+```
+
+`pip-compile` resolves for the host it runs on, so a dependency one platform
+alone needs (`colorama`, for Windows) is in the file only if that host reaches
+it: regenerate on Windows, which is the superset, and read the diff for a
+package that vanished. `CLAUDE.md` cites this section and states neither the
+version nor the file.
 
 **The commit gate needs a pull request's number and a base**, and reads git
 rather than `gh`, so a branch can run it once its pull request exists
