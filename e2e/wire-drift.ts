@@ -177,6 +177,7 @@ export function stale(types: readonly WireType[]): string[] {
 
 interface Schema {
   readonly type?: string | string[];
+  readonly enum?: string[];
   readonly $ref?: string;
   readonly oneOf?: Schema[];
   readonly anyOf?: Schema[];
