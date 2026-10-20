@@ -98,15 +98,17 @@ describe('the lint target', () => {
 
   it('type-checks everything under e2e/, and the lint script runs that check', () => {
     const tsconfig = JSON.parse(
-      readFileSync(join(root, 'tsconfig.e2e.json'), 'utf8').replace(/^\s*\/\*[\s\S]*?\*\//, ''),
+      readFileSync(join(root, 'e2e/tsconfig.json'), 'utf8').replace(/^\s*\/\*[\s\S]*?\*\//, ''),
     ) as { include: string[] };
+    // Its patterns are relative to e2e/, so judge each file by its path there.
     const e2e = files.filter((file) => file.startsWith('e2e/'));
     expect(e2e.length).toBeGreaterThan(0);
-    expect(e2e.filter((file) => !matchesAny(tsconfig.include, file))).toEqual([]);
+    const inside = e2e.map((file) => file.slice('e2e/'.length));
+    expect(inside.filter((file) => !matchesAny(tsconfig.include, `./${file}`))).toEqual([]);
 
     const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')) as {
       scripts: Record<string, string>;
     };
-    expect(pkg.scripts['lint']).toContain('tsc -p tsconfig.e2e.json');
+    expect(pkg.scripts['lint']).toContain('tsc -p e2e/tsconfig.json');
   });
 });
