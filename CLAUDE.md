@@ -135,12 +135,12 @@ holds the measurements.
   it needs and returns a short structured answer — findings as `file:line`,
   not prose. `Explore` before `general-purpose` for a search; nothing is
   delegated that one `Grep` answers; a step's reads go in one message.
-- **The review loop** is `/ship` step 5's, and a pull request reviewed outside
-  `/ship` runs it too: rounds of one `branch-reviewer` each, read-only by its
-  tool list, handed the diff under `artifacts/review/` and not the author's
-  conclusions — never `general-purpose`, and never the session reviewing its
-  own diff. A recheck reads the diff since the last round and the findings
-  still open, not the tree, and the seventh round is the ceiling.
+- **The review loop** is `/ship` step 5's, which owns what a recheck reads and
+  where the rounds end (`docs/commands/ship.md` argues them), and a pull
+  request reviewed outside `/ship` runs it too: rounds of one `branch-reviewer`
+  each, read-only by its tool list, handed the diff under `artifacts/review/`
+  and not the author's conclusions — never `general-purpose`, and never the
+  session reviewing its own diff.
 - **Plans.** A change that fits one pull request takes plan mode, not a plan
   file. A plan file cites code by path and symbol rather than pasting it and
   stays under 50 KB; research for it goes to `Explore` with a brief, and the
