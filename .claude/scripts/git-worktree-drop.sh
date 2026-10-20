@@ -75,3 +75,8 @@ dir_there=$(git -C "$path" rev-parse --path-format=absolute --git-dir)
 [ "$dir_there" != "$common_there" ] ||
   { echo "refusing to remove the main worktree: $path" >&2; exit 3; }
 git worktree remove "$resolved"
+# The slice lists sweep-slices.sh wrote beside it (blueprint-frontend#172); named
+# from the checked path, never passed, and only once git has removed the
+# worktree itself.
+slices="$resolved.slices"
+if [ -d "$slices" ] && [ ! -L "$slices" ]; then rm -rf -- "$slices"; fi
