@@ -772,8 +772,8 @@ Each round is the review done once, end to end:
    because the parent catches its error**: a wrong `confirmed` meets the
    de-duplicate gate and the parent's own reading before anything files, and a
    wrong `refuted` is the one miss, which is why it is asked to name the test
-   that rules the defect out and not merely to disagree. **This step does not open
-   `$work` itself, and that is the change (#75 item 5).** It used to,
+   that rules the defect out and not merely to disagree. **This step does not
+   open `$work` itself, and that is the change (#75 item 5).** It used to,
    deliberately, so that an unverified agent claim never became an issue; the
    property that bought is kept — two independent read-only readings, neither
    able to mutate, must agree — and what it cost is given up: the audited
