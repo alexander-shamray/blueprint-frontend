@@ -4,7 +4,12 @@
     <meta charset="utf-8" />
     <title>BlueprintFrontend</title>
     <base href="/" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!--
+      `viewport-fit=cover` is what makes `env(safe-area-inset-*)` non-zero on a
+      notched device, and Ionic's `--ion-safe-area-*` variables read it (#86).
+      Without it the page stays inside the safe area and the insets are zero.
+    -->
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <link rel="icon" type="image/x-icon" href="favicon.ico" />
     <!--
       Installable (#99). The theme colours are the palette's primary and the
