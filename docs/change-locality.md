@@ -25,7 +25,7 @@ A lower layer cites a higher one by name. It never copies the value.
    route definitions, the ESLint boundary rules. A value a document needs
    lives in one named symbol; the document names the symbol.
 3. **[`docs/client-architecture.md`](client-architecture.md)** — "The
-   client's arguments", §1–§17. One numbered section per decision, each
+   client's arguments", §1–§18. One numbered section per decision, each
    starting from a fact somebody else decided and ending at the file here
    that answers it. This is the repository's ADR trail: sections are
    superseded in place with the old claim kept, never silently rewritten.
