@@ -62,7 +62,7 @@ four when the headings were added, rounded, and are not kept current.
 | *The guard's residuals, and the bound on what has been looked for* | 2.5 k | Claiming the guard closes something |
 | *The inventory of grants wider than their operation* | 6.8 k | Adding a grant, or asking what a granted helper can still do |
 | *Suppression, auto mode and how the guard fails* | 3.0 k | A refused push, an auto-mode denial, or a guard crash |
-| *Entries seven to ten* | 1.6 k | Pinning a command to a subagent type, the push deny-list, a build grant |
+| *Entries seven to ten: agent pinning, the push deny-list, the build grant, the review-grok pair* | 1.6 k | Pinning a command to a subagent type, the push deny-list, a build grant |
 | *The edit-target guard: anchors and path resolution* | 3.6 k | Touching `guard-edit-target.py` or a path spelling it reads |
 | *The eleventh entry and the history-rewriting helpers* | 2.1 k | `git-rebase-onto-main.sh`, `git-trailer-pr.sh`, a force push |
 | *The two sweeps* | 0.4 k | `/security-sweep` or `/bug-sweep` frontmatter |
@@ -76,7 +76,8 @@ read before any other.
 
 **Both sweeps cite `CLAUDE.md` as where the consequences of their grants are
 recorded, and those citations were deliberately left alone.** `CLAUDE.md`
-keeps a *What cuts across them* section that forwards here, so a command's
+keeps an *Under `.claude/`* section (it was *What cuts across them* until
+#170) that forwards here, so a command's
 reference lands one hop from what it names — where rewriting each citation to
 point at a new path would be a chance to get it wrong, in files the harness
 denies this session an edit to anyway. **A new residual is stated here**, and
@@ -1610,8 +1611,8 @@ hook or a rule can close it: neither is told which subdirectory is the
 session's.
 
 **One file outside every anchor is admitted by name: the main checkout's
-`TODO.md` (blueprint-frontend#45).** `CLAUDE.md` tells a session to update the
-task list from a worktree under `.claude/worktrees/`, where the main checkout is
+`TODO.md` (blueprint-frontend#45).** `docs/change-locality.md` §6 tells a
+session to update the task list from a worktree under `.claude/worktrees/`, where the main checkout is
 not an anchor and the write fell to the allow-list above. The hook finds the
 main checkout from the worktree's own `.git` file, trusted only once git's
 backlink agrees, and only when that `.git` is the repository the guard itself
