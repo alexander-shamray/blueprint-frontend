@@ -11,7 +11,7 @@
     "emulator:android:run:windows": "cd android && gradlew.bat installDebug && adb shell am start -n dev.ashamray.blueprint/.MainActivity",
     "watch": "ng build --watch --configuration development",
     "test": "ng test",
-    "lint": "ng lint && tsc -p tsconfig.e2e.json",
+    "lint": "ng lint && tsc -p e2e/tsconfig.json",
     "e2e": "playwright test"
   },
   "private": true,
