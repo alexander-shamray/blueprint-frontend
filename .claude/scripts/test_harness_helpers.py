@@ -11569,6 +11569,35 @@ class TheCodeIndexCliIsInstalledAtAPinnedVersion(unittest.TestCase):
         self.assertIn("The code-index CLI is pinned",
                       self.DOCS.read_text(encoding="utf-8"))
 
+    def test_the_install_block_is_the_hashed_requirements_file(self):
+        # blueprint-frontend#309: the unpinned-install case above reads one
+        # line, so a hashed install split over two (`\`) gives it nothing to
+        # find and a revert to the unhashed form would still pass. This holds
+        # the install itself.
+        text = self.DOCS.read_text(encoding="utf-8")
+        self.assertIn("pip install --require-hashes \\\n    -r "
+                      "docs/codebase-index-requirements.txt", text)
+        requirements = (SCRIPTS.parent.parent / "docs"
+                        / "codebase-index-requirements.txt")
+        self.assertTrue(requirements.is_file(), "the requirements file is gone")
+        body = requirements.read_text(encoding="utf-8")
+        version = re.search(r"`codebase-index==(\d+\.\d+\.\d+)`", text)
+        self.assertIsNotNone(version, "testing.md names no pinned version")
+        self.assertRegex(body, rf"(?m)^codebase-index=={re.escape(version[1])} \\$")
+
+    def test_every_requirement_in_the_file_carries_a_hash(self):
+        body = (SCRIPTS.parent.parent / "docs"
+                / "codebase-index-requirements.txt").read_text(encoding="utf-8")
+        entries = re.findall(r"(?m)^([A-Za-z0-9_.-]+==\S+) \\\n((?:    --hash=\S+.*\n)+)",
+                             body)
+        pinned = re.findall(r"(?m)^[A-Za-z0-9_.-]+==\S+", body)
+        self.assertTrue(entries, "no hashed requirement was found")
+        self.assertEqual(len(entries), len(pinned),
+                         "a requirement carries no --hash line")
+        for name, hashes in entries:
+            with self.subTest(requirement=name):
+                self.assertRegex(hashes, r"sha256:[0-9a-f]{64}")
+
 
 if __name__ == "__main__":
     unittest.main()
