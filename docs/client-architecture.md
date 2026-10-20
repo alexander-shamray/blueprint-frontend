@@ -1441,6 +1441,14 @@ minute per push, and enabling it is uncommenting it. It invokes `xcodebuild
 Swift Package Manager project (`ios/App/CapApp-SPM` plus `Package.swift`) and
 there is no `App.xcworkspace` to point at.
 
+> **Superseded on 2026-10-20 as to the compile.** `ios-build` is enabled
+> (blueprint-frontend#88): an unsigned `iphonesimulator` build on a pinned
+> `macos-15` runner, with no signing, no device and no secrets. The
+> repository is public, so the macOS minutes cost nothing, which was the
+> reason it had been left off. It compiles and does not launch; a simulator
+> launch is a separate piece of work. The paragraph above is the claim as it
+> stood, kept for what `ios-config` is, which has not changed.
+
 The suite that job runs is the smoke plus an accessibility walk
 (`e2e/a11y.spec.ts`, `@axe-core/playwright`, failing on `serious` and
 `critical`), and it runs in three Playwright projects — Chromium at desktop

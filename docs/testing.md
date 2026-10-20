@@ -347,9 +347,10 @@ State this in a PR body rather than letting a green suite imply it:
   CI's `android` job asserts them in **both** directions — that the documented
   command enables them, and that a release sync does not — and it is the only
   check that does.
-- **The iOS project.** `ios-config` runs `npx cap sync ios`, which does not
-  compile Swift. It catches a missing plugin or a config that stopped parsing
-  and nothing else; the compile job exists and is commented out.
+- **The iOS project, on a device.** `ios-config` runs `npx cap sync ios`,
+  which does not compile Swift; `ios-build` does, as an unsigned simulator
+  build on a pinned macOS runner. Neither launches the app, so the project is
+  compiled and unproven on a simulator or a device.
 - **Anything behind sign-in, end to end.** The unit suite fakes the token. The
   smoke is the only place a real Keycloak round trip happens.
 
