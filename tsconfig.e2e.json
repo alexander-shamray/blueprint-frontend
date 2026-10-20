@@ -1,0 +1,14 @@
+/* The type-check for e2e/ and the Playwright config. Playwright transpiles the
+   specs it loads and never type-checks them, and ng lint reads no types, so
+   npm run lint runs tsc over this file (#253). allowImportingTsExtensions is
+   for e2e/native-stream.mts, which Node runs as it is and so imports .ts files
+   by their real names. */
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "types": ["node"]
+  },
+  "include": ["e2e/**/*.ts", "e2e/**/*.mts", "playwright.config.ts"]
+}
