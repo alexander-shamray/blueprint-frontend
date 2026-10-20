@@ -163,11 +163,12 @@ further or to withdraw it is for the next measurement to say.
 
 **Taken against `main` at `80c4301` plus this change.** Step 2 moves rules
 into `CLAUDE.md` that were in the owner's user-level memory, so it is the one
-step that makes the file larger: 10,755 bytes become 12,528, 2.7 k tokens
+step that makes the file larger: 10,755 bytes become 12,497, 2.7 k tokens
 become 3.1 k, which is every turn of every session. **The target for
 `CLAUDE.md` stays under 2 k tokens, and this step moves away from it.** What it
-buys is not measurable in size: a subagent briefed with files and a question,
-a review round that reads the diff since the last, and a wait that sheds its
-context are the three places the baseline found a long-running session
-spending most, and whether they moved is the next window's to show, not this
-section's.
+buys is not a size. Only one of its rules meets a cost the baseline measured:
+a wait's re-sent context is the `woken_equivalent` share, 52 % of all
+history. The baseline found the subagents and the in-house review are *not*
+where the spend is, so the briefing and review-round rules are there so every
+session does the same thing, and no saving is claimed for them. Whether the
+wake share moved is the next window's to show, not this section's.
