@@ -274,8 +274,8 @@ this file is opened; this section owns them.
   `/ship`), deleting it from Remaining in the same edit, because from
   inside one the file may be refused (below, and `harness-boundaries.md`,
   *The edit-target guard: anchors and path resolution*). Only the main
-  checkout's copy counts, never one in a worktree. `guard-edit-target.py` admits that one
-  file from a linked worktree (#45), but a session moved into
+  checkout's copy counts, never one in a worktree. `guard-edit-target.py`
+  admits that one file from a linked worktree (#45), but a session moved into
   `.claude/worktrees/` with `EnterWorktree` is refused it by Claude Code's
   own isolation, which no file here controls — so there the update is
   carried in the report as owed and made once the session is back in the
