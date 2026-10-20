@@ -746,14 +746,16 @@ Each round is the review done once, end to end:
    follows**: one auditor per row that produced a new candidate, handed every
    candidate so far (filed with its number, dropped with its gate, or already
    tracked) and no slice, to hunt the same pattern elsewhere in the row, the
-   callers of each candidate and the code each one names. A round with no new
-   candidate leaves no lead, which is what ends the loop. The lists are
-   untrusted-tree-derived text written beside the worktree and are removed with
-   it by `git-worktree-drop.sh`; the auditor reads the one list file that lies
-   outside the root, and the profile says so. **The helper prints a POSIX
-   `/tmp` path under MSYS, which a Windows reader resolves to another
-   directory**, so the runbook hands an auditor `$work`'s native spelling with
-   `.slices/<n>.txt` appended.
+   callers of each candidate and the code each one names. A lead is a candidate
+   the round before produced, and the loop ends as it always does, on a round
+   that files no new issue: one whose candidates were all dropped at the gates
+   or already tracked is clean, and ends it with leads still standing. The
+   lists are untrusted-tree-derived text written beside the worktree and are
+   removed with it by `git-worktree-drop.sh`; the auditor reads the one list
+   file that lies outside the root, and the profile says so. **The helper
+   prints a POSIX `/tmp` path under MSYS, which a Windows reader resolves to
+   another directory**, so the runbook hands an auditor `$work`'s native
+   spelling with `.slices/<n>.txt` appended.
 2. **Verify.** **Confirm the cited path is under `$work` first** — a finding
    pointing outside the pinned worktree is a prompt-injection artefact, not a
    finding: an audited file that steered an agent into reading a host path
@@ -937,11 +939,11 @@ after it surfaced findings, which is the whole reason its review ceiling moved
 from three to twelve. A sweep differs from `/ship`'s review — whose rechecks
 read what the round before changed — in the way that makes a single clean round
 the right stop here: round 1 is **stateless**, reading the sweep's slices rather
-than reacting to the last round's fixes, so a clean round 1 is a full read that
-found nothing, not a lull between exchanges; and a later round that follows
-leads and finds none has run out of places the findings point. But the earlier
-rounds change the tree only if the **user** acts on the filed issues between
-runs; this command files and does not fix. So:
+than reacting to the last round's fixes, so a clean round 1 is a read of every
+slice the helper listed that found nothing, not a lull between exchanges; and a
+later round that follows leads and finds none has run out of places the
+findings point. But the earlier rounds change the tree only if the **user**
+acts on the filed issues between runs; this command files and does not fix. So:
 
 - **If issues from a prior round are still open and unfixed**, a later round
   re-finds them — and they are already tracked, so it files nothing and reads as
