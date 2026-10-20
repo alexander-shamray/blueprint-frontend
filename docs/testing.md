@@ -17,7 +17,7 @@ that have actually cost time here.
 
 ```bash
 npm ci                      # from the lockfile, always — never `npm install`
-npm run lint                # ESLint over src/**/*.ts and src/**/*.html
+npm run lint                # ESLint over src/ and e2e/, then tsc over e2e/
 npm test                    # Vitest, via @angular/build:unit-test
 npm run build               # the production bundle
 npm run e2e                 # Playwright — see the prerequisites below
