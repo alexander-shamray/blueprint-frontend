@@ -36,7 +36,47 @@ module.exports = defineConfig([
   {
     files: ['**/*.html'],
     extends: [angular.configs.templateRecommended, angular.configs.templateAccessibility],
-    rules: {},
+    rules: {
+      // Every user-facing string in a template is marked for translation, so the
+      // eleventh screen cannot arrive unmarked (#103, client-architecture.md
+      // §17). `ignoreAttributes` replaces the rule's own list, so that list is
+      // repeated here with the attributes this application carries that are not
+      // prose: test hooks, an icon name, layout and input modes, a slot, a tab
+      // route, a live-region politeness, a default route and a swipe side. A
+      // new attribute that is not prose is added here with that argument; one
+      // that is prose is marked in the template. Ids are not required; a message that is shared or that
+      // translators must tell apart carries an explicit one.
+      '@angular-eslint/template/i18n': [
+        'error',
+        {
+          checkId: false,
+          checkText: true,
+          checkAttributes: true,
+          ignoreAttributes: [
+            'autocomplete', 'charset', 'class', 'color', 'colspan', 'dir', 'fill', 'for',
+            'formArrayName', 'formControlName', 'formGroupName', 'height', 'href', 'id', 'lang',
+            'list', 'name', 'ngClass', 'ngProjectAs', 'role', 'routerLink', 'routerLinkActive',
+            'src', 'stroke', 'stroke-width', 'style', 'svgIcon', 'tabindex', 'target', 'type',
+            'value', 'viewBox', 'width', 'xmlns',
+            'aria-live', 'data-field', 'data-testid', 'defaultHref', 'expand', 'icon', 'inputmode',
+            'lines', 'side', 'slot', 'tab',
+          ],
+        },
+      ],
+    },
+  },
+  {
+    // A test's host component is a fixture, not a screen: its text is whatever
+    // the case needs. Inline templates are linted as `<file>.ts/<n>_inline-...html`.
+    files: ['**/*.spec.ts/*.html'],
+    rules: { '@angular-eslint/template/i18n': 'off' },
+  },
+  {
+    // The page shell is a document: its meta, link and title elements carry
+    // values for the browser, not strings a screen shows, and a translation
+    // would be a second build of the document rather than a message in it.
+    files: ['src/index.html'],
+    rules: { '@angular-eslint/template/i18n': 'off' },
   },
   {
     files: ['src/app/features/**/*.ts'],
