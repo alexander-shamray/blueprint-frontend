@@ -106,7 +106,6 @@ class EachSplitCommandHasBothHalves(unittest.TestCase):
                               collapsed(ARGUMENTS / name))
 
 
-
 class TheBoundariesIndexMatchesItsHeadings(unittest.TestCase):
     """blueprint-frontend#304 — `docs/harness-boundaries.md` opens with an index
     that names each `## ` section in an italic table row, and nothing held the
