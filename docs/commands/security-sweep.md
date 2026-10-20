@@ -645,8 +645,9 @@ rechecks read what the round before changed — in the way that makes a single
 clean round the right stop here: round 1 is **stateless** — it reads the
 sweep's slices, not a reviewer reacting to the last round's fixes — so a clean
 round 1 is a read of every slice the helper listed, full or since the mark,
-that found nothing, not a lull between exchanges, and a later round that follows leads and finds none has run out of places the
-findings point. But the earlier rounds change the tree only if the **user**
+that found nothing, not a lull between exchanges, and a later round that
+follows leads and finds none has run out of places the findings point. But the
+earlier rounds change the tree only if the **user**
 acts on the filed issues between runs; this command files and does not fix.
 So:
 
