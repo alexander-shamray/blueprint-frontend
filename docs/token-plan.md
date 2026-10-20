@@ -20,7 +20,7 @@ figures are [`token-usage.md`](token-usage.md)'s, taken against `main` at
 ## 1. What the baseline says
 
 **A session's own turns are 73 % of what it spends**, and each re-sends
-215 k to 290 k tokens (`token-usage.md`, *Who spent it*). The subagents re-send
+215 k to 289 k tokens (`token-usage.md`, *Who spent it*). The subagents re-send
 a third of that. So the lever is what a `main` session keeps resident, in this
 order of size:
 
