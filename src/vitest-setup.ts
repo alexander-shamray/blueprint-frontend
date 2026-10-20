@@ -1,3 +1,7 @@
+// `$localize` is a global the application's entry point loads first; the unit
+// tests do not run that entry point, so they load it here (#103).
+import '@angular/localize/init';
+
 // Ionic's web components are custom elements; registering them once here keeps
 // every component test from doing it, and keeps a page test from silently
 // rendering an empty <ion-content> that asserts nothing.
