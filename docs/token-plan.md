@@ -20,7 +20,7 @@ figures are [`token-usage.md`](token-usage.md)'s, taken against `main` at
 ## 1. What the baseline says
 
 **A session's own turns are 73 % of what it spends**, and each re-sends
-173 k to 290 k tokens (`token-usage.md`, *Who spent it*). The subagents re-send
+215 k to 290 k tokens (`token-usage.md`, *Who spent it*). The subagents re-send
 a third of that. So the lever is what a `main` session keeps resident, in this
 order of size:
 
@@ -62,7 +62,7 @@ One pull request per step, each ending with its row in `token-usage.md`. They
 are filed as issues of their own; a step starts when the one it depends on
 has merged.
 
-| Step | Issue | What it does | State |
+| Step | Issue | What it does | State on 2026-10-20 |
 |---|---|---|---|
 | 1 | #168 | The report, the baseline and this plan | this pull request |
 | 2 | #169 | The review loop, the delegation brief and the planning rule leave user memory and become `CLAUDE.md`'s, so a subagent is briefed the same way each time | open, after step 1 |
