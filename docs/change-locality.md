@@ -236,7 +236,56 @@ the same PR. It waives nothing else. In particular:
 - no real credentials, in a sample or in source; the local-development
   defaults the spec names are the one stated exception;
 - the harness boundaries in [`harness-boundaries.md`](harness-boundaries.md)
-  before touching anything under `.claude/`.
+  before touching anything under `.claude/`: its index names the section a
+  change needs.
+
+### The working rules
+
+These were `CLAUDE.md`'s *Working in this repo* section, and moved here when
+that file became a locator (blueprint-frontend#170); each is argued where it
+is stated.
+
+- **Read before you edit**: the claim you are about to change is usually
+  stated more than once. `app.config.ts` and `app.routes.ts` are the
+  composition roots, and a Class A change that has to edit one has outgrown
+  its class.
+- **Commit messages** are semantic and present-tense — `docs:`,
+  `feat(<scope>):`, `fix:`, `chore:`, `refactor:`, `test:` — and the body
+  argues the change. A `Closes #n` in a commit body fires on merge whatever
+  the description says, so the description is reconciled to the commits and
+  never the reverse.
+- **The issue vocabulary is wider than the label helper**: kind is `security`,
+  `bug` or `documentation`, and the helper does not create the last. A
+  `## Severity` in the body and the label both have to say it.
+- **A reply is not a resolution.** Resolve a review thread in the same act as
+  the reply, and leave an `Ask` open on purpose.
+- **Uncommitted work in the tree belongs in the PR being worked on**, in its
+  own commit with a body that argues it. **Never revert it to clean the tree**;
+  if it does not belong here, say so and ask rather than decide by deleting.
+- **The task list is `TODO.md` at the main checkout's root: gitignored,
+  local, never committed.** It is for the user, and its layout is the
+  backend's `TODO.md` exactly: the rules note topmost, then **In progress**,
+  **Remaining** (a wave and group per row) and **Paused**. Update it the
+  moment this session opens, merges or closes a PR, or files, closes or
+  reopens an issue. **Move an issue's row from Remaining to In progress
+  before entering a worktree directory** (`EnterWorktree`, `/branch`,
+  `/ship`), deleting it from Remaining in the same edit, because from
+  inside one the file may be refused (below). Only the main checkout's copy
+  counts, never one in a worktree. `guard-edit-target.py` admits that one
+  file from a linked worktree (#45), but a session moved into
+  `.claude/worktrees/` with `EnterWorktree` is refused it by Claude Code's
+  own isolation, which no file here controls — so there the update is
+  carried in the report as owed and made once the session is back in the
+  main checkout, never into a copy nobody reads.
+  When in doubt, rebuild the rows from
+  `gh pr list --limit 1000 --json number,title,url,closingIssuesReferences`
+  and `gh issue list --limit 1000 --json number,title,url,labels`, because
+  the default of 30 truncates silently; severity is the `high`, `medium` or
+  `low` label. Those recover the rows only: the rules note, the waves, the
+  groups and Paused come from the backend's `TODO.md`.
+- **A `#NN` inside `.claude/` or `docs/harness-boundaries.md` is an issue in
+  the backend repository**, where that machinery was built. It is not an issue
+  here.
 
 ## 7. Checklist
 

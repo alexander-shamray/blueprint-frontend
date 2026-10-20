@@ -1,25 +1,26 @@
 # CLAUDE.md
 
 Guidance for Claude Code when working in this repository. This file is a
-primer: what the repo is, where things are, and how to act here. Anything that
-moves when a PR lands — what has been built, what a PR decided, a count of
-anything — is owned elsewhere and cited from here by name, never restated.
+locator: what the repo is, who owns each fact, and the rules that must be true
+before any other file is opened. Anything that moves when a PR lands — what
+has been built, what a PR decided, a count of anything — is owned elsewhere and
+cited from here by name, never restated.
 **Read the file that covers what you are about to touch, before you touch it.**
 
 | | |
 |---|---|
-| `TODO.md` (gitignored, local) | The task list, for the user, laid out as *Working in this repo* says; every task change edits it, or is reported as owed from a worktree |
-| [`docs/change-locality.md`](docs/change-locality.md) | The operating contract: the trust order, the one rule, the change classes and their touch sets |
+| `TODO.md` (gitignored, local) | The task list, for the user; [`docs/change-locality.md`](docs/change-locality.md) §6 says how it is kept |
+| [`docs/change-locality.md`](docs/change-locality.md) | The operating contract: the trust order, the one rule, the change classes and their touch sets, and §6's working rules (commits, issues, review threads, `TODO.md`) |
 | [`docs/client-architecture.md`](docs/client-architecture.md) | Why this client is shaped the way it is — §1–§15, one argument each; §12 is where the spec turned out wrong |
 | [`docs/superpowers/specs/2026-09-10-blueprint-frontend-design.md`](docs/superpowers/specs/2026-09-10-blueprint-frontend-design.md) | The design spec, §1–§11 — outranked by §12 above wherever the two disagree |
 | [`docs/superpowers/plans/2026-09-10-blueprint-frontend.md`](docs/superpowers/plans/2026-09-10-blueprint-frontend.md) | The delivery record, Tasks 0–20 — complete; cited for a task's title and order, never as current truth |
-| [`docs/harness-boundaries.md`](docs/harness-boundaries.md) | What the harness grants these commands, and refuses |
-| [`docs/commands/`](docs/commands/) | The argument behind each long command (`/ship`, `/branch`, `/bug-sweep`, `/security-sweep`, `/review-branch`): the command file is the runbook, resident while it runs, and each rule in it cites the section here that argues it. Read the one for a command before editing or disputing that command |
-| [`docs/token-plan.md`](docs/token-plan.md) | Where a session's tokens go and the steps that cut them; [`docs/token-usage.md`](docs/token-usage.md) holds the measurements and `tools/token-usage/` the report |
+| [`docs/harness-boundaries.md`](docs/harness-boundaries.md) | What the harness grants these commands, and refuses. **Read the section its index names for the change, not the file** |
+| [`docs/commands/`](docs/commands/) | The argument behind each long command (`/ship`, `/branch`, `/bug-sweep`, `/security-sweep`, `/review-branch`); the command file is the runbook. Read the one for a command before editing or disputing it |
 | [`docs/style-guide.md`](docs/style-guide.md) | The prose, TypeScript and Angular dialect, and which rules a linter enforces |
-| [`docs/testing.md`](docs/testing.md) | What a checkout needs that `package.json` and `ci.yml` cannot say: the Playwright prerequisites, the worktree install, the setup file |
+| [`docs/testing.md`](docs/testing.md) | What a checkout needs that `package.json` and `ci.yml` cannot say: the Playwright prerequisites, the worktree install, the harness suite, the code-index CLI's pin |
+| [`docs/token-plan.md`](docs/token-plan.md) | Where a session's tokens go and the steps that cut them; [`docs/token-usage.md`](docs/token-usage.md) holds the measurements and `tools/token-usage/` the report |
 | [`.claude/skills/codebase-index/`](.claude/skills/codebase-index/) | Query the local index before reading whole files |
-| [`.mcp.json`](.mcp.json) | Local index as an MCP server (`--root .`, the startup checkout, even after `/branch`), started through `node .claude/skills/codebase-index/scripts/mcp-launch.mjs`, which judges the index before it starts the `codebase-index` CLI (#138), and never through `bash`, which a stdio server reaches outside Git Bash — on Windows, WSL's launcher (#134). Install the CLI so it is on `PATH` at the version `docs/testing.md` pins (#147), with `py -3.12 -m pip install` (or `python -m pip install`); it is not a repo package. MCP sets `CBX_NO_SKILL_AUTO_UPDATE=1` so the CLI cannot rewrite the tracked skill |
+| [`.mcp.json`](.mcp.json) | The index as an MCP server on the startup checkout, started only through `node .claude/skills/codebase-index/scripts/mcp-launch.mjs` and never through `bash`. Install the CLI at the version `docs/testing.md` pins (#147); it is not a repo package |
 
 ## What this repo is
 
@@ -31,15 +32,9 @@ decision somebody else made, and `docs/client-architecture.md` cites both ends
 of each one. A value that "looks wrong" here is usually correct against a fact
 you have not read yet.
 
-The application is **standalone, zoneless and signal-based**: no NgModules, no
-`BehaviorSubject` state, and `OnPush` on every component but the bootstrapped
-root shell — `docs/style-guide.md` owns that exception and why it stands. Identity is
-`angular-oauth2-oidc` against Keycloak, with two strategies — a web one and a
-native one — behind one interface. There is no refresh token in the browser
-(§2), permissions are claims rather than roles (§3), and the client never
-computes money (§9).
-
-### The tree
+The application is **standalone, zoneless and signal-based**; identity, the
+claims model and the rule that the client never computes money are
+`docs/client-architecture.md` §2, §3 and §9.
 
 ```
 src/app/core/          api/ auth/ cart/ catalog/ commands/ config/ errors/ orders/ — shared, screen-agnostic
@@ -66,19 +61,18 @@ code became. `.remember/` is session state; never edit it.
 
 **Every fact has exactly one owner, and every other mention cites the owner.**
 [`docs/change-locality.md`](docs/change-locality.md) is how that is kept true.
-Read it before editing. It names the change classes, the touch set each may
-edit, the repo-wide mutexes, and what to do with a stale restatement met in
-passing: leave it.
+Read it before editing: the change classes, the touch set each may edit, the
+repo-wide mutexes, and what to do with a stale restatement met in passing —
+leave it.
 
 The spec and the application are one artefact with two representations. A code
 change that contradicts a spec section is not done until the section is
-amended in the same PR, or the code is changed to match — pick one, in the PR.
-Where the spec is genuinely wrong, the answer is a
-`docs/client-architecture.md` §12 entry saying what was claimed, what is true,
-and where the truth shows; sections there are superseded with the old claim
-kept, never rewritten. This file and the files it points at are inside the
-rule too, and **no gate reads any of them**: a rule stated here and argued
-there moves in both, or it drifts silently.
+amended in the same PR, or the code is changed to match. Where the spec is
+genuinely wrong, the answer is a `docs/client-architecture.md` §12 entry saying
+what was claimed, what is true, and where the truth shows; sections there are
+superseded with the old claim kept, never rewritten. This file and the files it
+points at are inside the rule too, and **no gate reads any of them**: a rule
+stated here and argued there moves in both, or it drifts silently.
 
 ## The commands
 
@@ -93,167 +87,82 @@ npm run emulator:android    # build for the emulator and sync; relaxes cleartext
 ```
 
 Inside a command or a chain, use `bash .claude/scripts/npm-checks.sh
-[all|fast|lint|test|build]` instead, which holds no free parameter.
-**It has no `e2e` mode**, because Playwright needs the backend's Compose stack
-and a downloaded browser — `docs/testing.md` owns which, and on which ports —
-and a suite that passed because nothing was listening would be worse than
-none. Three things hold first: **`npm ci`, never
-`npm install`**, because `install` may rewrite the lockfile; **a fresh
-worktree has no `node_modules`**, and `npm-checks.sh` refuses one until
-`npm ci` has run there, since its checks would otherwise resolve the main
-checkout's packages, which sit above it; and
-**lint, the unit suite and the web build cover none of the native surface** —
-the emulator relaxations live in files `cap sync` generates, and CI's
-`android` job is the only thing that asserts them, in both directions.
+[all|fast|lint|test|build]`, which holds no free parameter. **It has no `e2e`
+mode**: Playwright needs the backend's Compose stack and a browser
+(`docs/testing.md`). A fresh worktree has no `node_modules`, and `npm-checks.sh`
+refuses one until `npm ci` has run there. **Lint, the unit suite and the web
+build cover none of the native surface**; CI's `android` job is the only thing
+that asserts it, in both directions.
 
 ## Build policy
 
 Versions live in `package.json` with **exact** pins — no `^`, no `~` — and
-`package-lock.json` moves in the same commit or the change is not done.
-`.nvmrc` pins Node and CI reads it with `node-version-file`. The import
-boundaries in `eslint.config.js` are **a lint failure, not a review comment**:
-a feature never imports another feature, and `core` knows nothing about
-screens (spec §3). `src/app/core/boundaries.spec.ts` is the precise check, and
-its comment says exactly where the lint rule over- and under-fires — read it
-before concluding the rule is wrong.
-
+`package-lock.json` moves in the same commit or the change is not done. The
+import boundaries in `eslint.config.js` are **a lint failure, not a review
+comment**: a feature never imports another feature, and `core` knows nothing
+about screens (spec §3); `src/app/core/boundaries.spec.ts` is the precise check.
 One lesson stays here, because its subject is every other rule: **a gate that
 silently stops covering the newest surface is the most-repeated failure in
-these repositories**, and the only defence is a test whose subject is *what
-the gate is looking at*, not what it found. `src/vitest-setup.ts` is the local
-form of that argument: a load-bearing import with no binding, which a linter
-would offer to remove.
+these repositories**, and the only defence is a test whose subject is *what the
+gate is looking at*, not what it found.
 
 ## Style
 
-The dialect is [`docs/style-guide.md`](docs/style-guide.md), the master copy;
-**read it before "correcting" anything**, because its *Settled choices* table
-names the house forms a reviewer reads as oversights. `/style-pass` moves a
-corrected form through the corpus, the guide and the linters in one change.
-These stay here because they have to be true before anyone opens the guide:
+The dialect is [`docs/style-guide.md`](docs/style-guide.md); **read it before
+"correcting" anything**, because its *Settled choices* table names the house
+forms a reviewer reads as oversights. These stay here because they have to be
+true before anyone opens it:
 
 - **Prose wraps at 80 columns** (tables, links and code may exceed it), **code
-  at 100** — Prettier's `printWidth` — in **British spelling** with literal
-  dashes, and **identifiers keep their real spelling**: `ChangeDetectionStrategy`,
-  never "corrected" or Americanised.
-- **`inject()` at field level**, never a constructor parameter. **Standalone
-  components** with an explicit `imports` array and `OnPush`. **Signals** for
-  state, exposed through `asReadonly()`; RxJS for HTTP and genuine streams.
-- **Single quotes, semicolons, trailing commas, two-space indent** — all
-  Prettier's, so do not argue them in a review. **No `any`**, and no `!` on a
-  value the server supplied.
+  at 100**, in **British spelling** with literal dashes; **identifiers keep
+  their real spelling**: `ChangeDetectionStrategy`, never "corrected".
+- **`inject()` at field level**, **standalone `OnPush` components**, **signals**
+  for state; **no `any`**, and no `!` on a value the server supplied. Quotes,
+  semicolons and indent are Prettier's.
 - **Path aliases `@core/`, `@shared/`, `@features/`** across areas, relative
-  imports within one. A deep relative import is the spelling the boundary
-  rules cannot see.
+  imports within one.
 - **LF line endings.** `.gitattributes` is `* text=auto eol=lf`, and a CRLF
   that reaches the tree breaks the `.claude/scripts` shebangs mid-line.
 
 ## Working in this repo
 
-- **Read before you edit**: the claim you are about to change is usually
-  stated more than once. `app.config.ts` and `app.routes.ts` are the
-  composition roots, and a Class A change that has to edit one has outgrown
-  its class.
-- **Commit messages** are semantic and present-tense — `docs:`,
-  `feat(<scope>):`, `fix:`, `chore:`, `refactor:`, `test:` — and the body
-  argues the change. A `Closes #n` in a commit body fires on merge whatever
-  the description says, so the description is reconciled to the commits and
-  never the reverse.
-- **The issue vocabulary is wider than the label helper**: kind is `security`,
-  `bug` or `documentation`, and the helper does not create the last. A
-  `## Severity` in the body and the label both have to say it.
-- **A reply is not a resolution.** Resolve a review thread in the same act as
-  the reply, and leave an `Ask` open on purpose.
-- **Uncommitted work in the tree belongs in the PR being worked on**, in its
-  own commit with a body that argues it. **Never revert it to clean the tree**;
-  if it does not belong here, say so and ask rather than decide by deleting.
-- **The task list is `TODO.md` at the main checkout's root: gitignored,
-  local, never committed.** It is for the user, and its layout is the
-  backend's `TODO.md` exactly: the rules note topmost, then **In progress**,
-  **Remaining** (a wave and group per row) and **Paused**. Update it the
-  moment this session opens, merges or closes a PR, or files, closes or
-  reopens an issue. **Move an issue's row from Remaining to In progress
-  before entering a worktree directory** (`EnterWorktree`, `/branch`,
-  `/ship`), deleting it from Remaining in the same edit, because from
-  inside one the file may be refused (below). Only the main checkout's copy
-  counts, never one in a worktree. `guard-edit-target.py` admits that one
-  file from a linked worktree (#45), but a session moved into
-  `.claude/worktrees/` with `EnterWorktree` is refused it by Claude Code's
-  own isolation, which no file here controls — so there the update is
-  carried in the report as owed and made once the session is back in the
-  main checkout, never into a copy nobody reads.
-  When in doubt, rebuild the rows from
-  `gh pr list --limit 1000 --json number,title,url,closingIssuesReferences`
-  and `gh issue list --limit 1000 --json number,title,url,labels`, because
-  the default of 30 truncates silently; severity is the `high`, `medium` or
-  `low` label. Those recover the rows only: the rules note, the waves, the
-  groups and Paused come from the backend's `TODO.md`.
+The working rules — commit messages and `Closes #n`, the issue vocabulary,
+resolving a review thread, uncommitted work, and how `TODO.md` is kept — are
+`docs/change-locality.md` §6's. Two reach every session, so they stay:
+
+- **Move an issue's row in `TODO.md` from Remaining to In progress before
+  entering a worktree directory**, because from inside one the file may be
+  refused. Only the main checkout's copy counts.
 - **A `#NN` inside `.claude/` or `docs/harness-boundaries.md` is an issue in
   the backend repository**, where that machinery was built. It is not an issue
   here.
 
-## Available commands
+`/ship`, `/branch`, `/commit`, `/pr`, `/review-branch`, `/style-pass`,
+`/security-sweep` and `/bug-sweep` say what each does in their own
+frontmatter; `/ship` runs the others to a merged PR and stops for nothing that
+is a judgement.
 
-| | |
-|---|---|
-| `/ship` | Clean `main` → `/branch` → checks → `/commit` → `/pr` → the local review (one read-only `branch-reviewer` per round, until a round has nothing open; at the seventh round's ceiling what stays open is filed as step 5 maps it) → merge → teardown. **It stops for nothing that is a judgement**; step 5 says what ends the review |
-| `/branch` | A correctly named branch **in a worktree under `.claude/worktrees/`** the session moves into; in place when the tree is dirty or that directory is not writable |
-| `/commit` | Split the working tree into semantic commits with arguing bodies |
-| `/pr` | Open a PR in the house body form |
-| `/review-branch` | Review the branch against `main` for contradictions; writes `suggestions.md` |
-| `/style-pass` | Apply one corrected code form corpus-wide, then record it in the guide and the linters |
-| `/security-sweep` | Loop a defensive security audit in a throwaway worktree, filing an issue per confirmed medium-or-above finding |
-| `/bug-sweep` | The same loop aimed at defects, filed at **critical or high**, confirmed by reading because the grant runs no build |
+### Under `.claude/`
 
-### What cuts across them
-
-[`docs/harness-boundaries.md`](docs/harness-boundaries.md) is the inventory of
-what the harness grants these commands and what it refuses them — every grant
-wider than the operation it buys, and the hooks that closed the rest. **Read
-it before touching anything under `.claude/`**, and state a new residual there
-rather than here. Four rules reach every session, so they stay:
+**Read the section of `docs/harness-boundaries.md` its index names for the
+change before touching anything here**, and state a new residual there, not
+here. Four rules reach every session:
 
 - **File permission rules take `Edit(...)`, never `Write(...)`** — a
   `Write(path)` rule matches nothing and stops Claude Code from starting.
 - **`.claude/settings.json` self-locks, not instantaneously** — a change to it
   lands complete and goes last, and a restore is verified by reading the file,
   never by trying what it forbids.
-- **Every hook uses `run-guard.sh`** — the scripts `settings.json`'s
-  `hooks` name — which locates a compatible Python launcher before invoking
-  the hook. The index refresh and the three hints are not guards. The refresh
-  covers the checkout a change landed in — the edited file's, or the event's
-  `cwd` for a shell call — after an edit, after every shell call and
-  on a session start, seeding a worktree's index from the main checkout's,
-  while the MCP server stays on the startup checkout. The query hint points a
-  locate or impact prompt at the index, and the search hint refuses a
-  session's first tree search for a named symbol once, naming the lookup that
-  answers it. The MCP root guard refuses an index tool call made from another
-  checkout than the server reads, naming the `run-index` line for this one.
-  The hints' commands end `|| :` because the launcher's exit 2 would erase the
-  prompt, or block every Grep, shell and index-tool call
-  (`docs/harness-boundaries.md` says why, for all of them).
+- **Every hook uses `run-guard.sh`**; the index refresh and the three hints are
+  not guards, and their commands end `|| :` because the launcher's exit 2 would
+  erase the prompt or block every call (*The index hints and the root guard*).
 - **`python -m unittest discover -s .claude/scripts -p 'test_*.py'` is the
-  harness's own suite** — it covers the deny lists, the frontmatter grants,
-  the helper shapes and the hooks. It reads `git ls-files`, so a new tracked
-  root file or top-level tree fails it until somebody decides which side of
-  the boundary it is on. Run it after any change under `.claude/`. A Python
-  3.12 meeting `docs/testing.md`'s prerequisites will do — `py -3.12` on
-  Windows, `python` elsewhere — and CI's
-  `harness` job runs `python` on all three platforms, Windows included, so
-  that is the spelling to use when reproducing it. `docs/testing.md` owns the
-  prerequisite; which interpreter the hooks' launcher picks is a different
-  question. On Windows, `py -3.12 .claude/scripts/run-harness.py` runs the
-  same suite a class per process, much faster; `docs/testing.md` says what it
-  changes and why CI does not use it.
+  harness's own suite** and CI's `harness` job runs it on three platforms. Run
+  it after any change under `.claude/`; it reads `git ls-files`, so a new
+  tracked root file or top-level tree fails it until somebody decides which side
+  of the boundary it is on. `docs/testing.md` owns the prerequisite and the
+  faster per-class runner.
 
-### What was not ported, and is therefore missing
-
-Stated here rather than discovered: this repository's `.claude/` came from the
-backend, and three things that back it up there do not exist here.
-`.github/closure-gate/` checked a PR body's closing keywords against what the
-merge would actually do; `.github/locality-gate/` failed a PR on a path
-outside its declared touch set; and `/validate-blueprint` and `/check-links`
-audited a document tree this repository does not have. What stands instead is
-`pr-locality.sh` and `pr-closure-input.sh` — helpers somebody runs, not gates
-that run themselves. `/pr` and `docs/change-locality.md` §3 each say so where
-the gap bites.
+This repository's `.claude/` came from the backend, and the closure gate, the
+locality gate and the two document audits did not come with it:
+`docs/change-locality.md` §3 and `/pr` say where the gap bites.
