@@ -1805,15 +1805,24 @@ build, where a worker would serve the previous build to `ng serve`, and a
 native one, and `app.config.ts` is asserted to call it with exactly those two
 inputs.
 
-**A new shell replaces the old one at the next navigation.** The worker keeps
-serving the shell it installed until the page is loaded again, so a tab left
-open keeps calling the API shape it was built against after the backend has
-moved on: this client's version of drift. `ShellUpdates` takes a waiting shell
-at the next router `NavigationStart`, activates it and loads the destination
-fresh. Not at once, because a reload mid-checkout discards what was typed; not
-on a prompt, because a banner asking permission to be current is one more
-thing to ignore. It also asks for an update at start and whenever the
-connection returns.
+**A new shell replaces the old one when the user next goes to Products.** The
+worker keeps serving the shell it installed until the page is loaded again, so
+a tab left open keeps calling the API shape it was built against after the
+backend has moved on: this client's version of drift. Loading the page again
+discards everything held only in memory, and that is more than the form on
+screen: Ionic keeps each tab's pages alive, so a reload at any navigation also
+drops the checkout's quote (`CheckoutHandoff`, whose guard sends a reloaded
+app back to the cart), a publish form not yet sent, and the other tabs' pages.
+Only the cart survives a reload, by design. So `ShellUpdates` takes a waiting
+shell at the next router `NavigationStart` to the products tab and nowhere
+else, activates it and loads that address fresh; the listing there is fetched
+afresh anyway, so it is the one destination that costs nothing. It is an
+allow-list on purpose: a deny-list of "screens that hold state" would rot, and
+a page added next month that holds a handoff is protected by default. Not on a
+prompt, because a banner asking permission to be current is one more thing to
+ignore. It also asks for an update at start and whenever the connection
+returns. The cost is that a user who never opens Products keeps the old shell
+until they reload; the page they are on is still the build they loaded.
 
 **The bundle.** `@angular/service-worker` is a runtime dependency (exact pin,
 the lockfile in the same commit, as for every dependency), and §13's budget is
