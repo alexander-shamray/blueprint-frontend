@@ -1612,8 +1612,9 @@ session's.
 
 **One file outside every anchor is admitted by name: the main checkout's
 `TODO.md` (blueprint-frontend#45).** `docs/change-locality.md` §6 tells a
-session to update the task list from a worktree under `.claude/worktrees/`, where the main checkout is
-not an anchor and the write fell to the allow-list above. The hook finds the
+session to update the task list from a worktree under `.claude/worktrees/`,
+where the main checkout is not an anchor and the write fell to the allow-list
+above. The hook finds the
 main checkout from the worktree's own `.git` file, trusted only once git's
 backlink agrees, and only when that `.git` is the repository the guard itself
 belongs to: the event's `cwd` and `CLAUDE_PROJECT_DIR` are anchors too, and one
