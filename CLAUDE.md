@@ -11,7 +11,7 @@ cited from here by name, never restated.
 |---|---|
 | `TODO.md` (gitignored, local) | The task list, for the user; [`docs/change-locality.md`](docs/change-locality.md) §6 says how it is kept |
 | [`docs/change-locality.md`](docs/change-locality.md) | The operating contract: the trust order, the one rule, the change classes and their touch sets, and §6's working rules (commits, issues, review threads, `TODO.md`) |
-| [`docs/client-architecture.md`](docs/client-architecture.md) | Why this client is shaped the way it is — §1–§17, one argument each; §12 is where the spec turned out wrong |
+| [`docs/client-architecture.md`](docs/client-architecture.md) | Why this client is shaped the way it is — §1–§18, one argument each; §12 is where the spec turned out wrong |
 | [`docs/superpowers/specs/2026-09-10-blueprint-frontend-design.md`](docs/superpowers/specs/2026-09-10-blueprint-frontend-design.md) | The design spec, §1–§11 — outranked by §12 above wherever the two disagree |
 | [`docs/superpowers/plans/2026-09-10-blueprint-frontend.md`](docs/superpowers/plans/2026-09-10-blueprint-frontend.md) | The delivery record, Tasks 0–20 — complete; cited for a task's title and order, never as current truth |
 | [`docs/harness-boundaries.md`](docs/harness-boundaries.md) | What the harness grants these commands, and refuses. **Read the section its index names for the change, not the file** |
