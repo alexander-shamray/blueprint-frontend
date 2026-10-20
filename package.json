@@ -23,6 +23,7 @@
     "@angular/forms": "22.2.3",
     "@angular/platform-browser": "22.2.3",
     "@angular/router": "22.2.3",
+    "@angular/service-worker": "22.2.3",
     "@aparajita/capacitor-secure-storage": "8.0.0",
     "@capacitor/android": "8.5.1",
     "@capacitor/app": "8.1.1",

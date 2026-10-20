@@ -3,10 +3,13 @@ import {
   provideBrowserGlobalErrorListeners,
   provideZonelessChangeDetection,
   inject,
+  isDevMode,
   provideAppInitializer,
 } from '@angular/core';
 import { provideHttpClient, withInterceptors } from '@angular/common/http';
 import { provideRouter, RouteReuseStrategy } from '@angular/router';
+import { provideServiceWorker } from '@angular/service-worker';
+import { Capacitor } from '@capacitor/core';
 import { IonicRouteStrategy, provideIonicAngular } from '@ionic/angular';
 import { routes } from './app.routes';
 import { authInterceptor } from '@core/auth/auth.interceptor';
@@ -14,6 +17,8 @@ import { rateLimitInterceptor } from '@core/errors/rate-limit.interceptor';
 import { provideAuth } from '@core/auth/auth.providers';
 import { CartStore } from '@core/cart/cart.store';
 import { AppearanceStore } from '@core/theme/appearance.store';
+import { serviceWorkerEnabled } from '@core/config/service-worker';
+import { ShellUpdates } from '@core/config/shell-updates';
 import { clientLogInterceptor } from '@core/log/client-log.interceptor';
 import { provideClientLog } from '@core/log/client-log.providers';
 
@@ -76,5 +81,17 @@ export const appConfig: ApplicationConfig = {
     // built. `index.html` has already set it from localStorage on the web; on
     // native this is the first place the stored choice is read (#92).
     provideAppInitializer(() => inject(AppearanceStore).restore()),
+    // The web build is installable and keeps its shell — the code and the
+    // manifest, and nothing the platform answers — for offline (#99,
+    // docs/client-architecture.md §16). `src/ngsw-config.json` is the whole
+    // cache boundary. Registered once the app is stable, so the worker's
+    // install does not compete with the first screen, and never in a
+    // development or a native build.
+    provideServiceWorker('ngsw-worker.js', {
+      enabled: serviceWorkerEnabled(isDevMode(), Capacitor.isNativePlatform()),
+      registrationStrategy: 'registerWhenStable:30000',
+    }),
+    // A newer shell is taken at the next navigation; see ShellUpdates.
+    provideAppInitializer(() => void inject(ShellUpdates)),
   ],
 };
