@@ -7,6 +7,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <link rel="icon" type="image/x-icon" href="favicon.ico" />
     <!--
+      Installable (#99). The theme colours are the palette's primary and the
+      dark sheet's own background, so the browser's chrome follows the sheet
+      the stylesheet chooses from the same device setting.
+    -->
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="icons/icon-192.png" />
+    <meta name="theme-color" content="#1c4587" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0a1a35" media="(prefers-color-scheme: dark)" />
+    <!--
       The appearance, before first paint (#92). The stylesheet's dark sheet is
       the class below, and the app puts it there once it has started; this does
       it a moment earlier, from the stored choice and the device's own, so a
