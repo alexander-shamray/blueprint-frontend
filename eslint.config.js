@@ -44,8 +44,8 @@ module.exports = defineConfig([
       // prose: test hooks, an icon name, layout and input modes, a slot, a tab
       // route, a live-region politeness, a default route and a swipe side. A
       // new attribute that is not prose is added here with that argument; one
-      // that is prose is marked in the template. Ids are not required; a message that is shared or that
-      // translators must tell apart carries an explicit one.
+      // that is prose is marked in the template. Ids are not required by this
+      // rule: `i18n-coverage.spec.ts` requires each marker to carry one.
       '@angular-eslint/template/i18n': [
         'error',
         {
