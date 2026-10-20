@@ -84,7 +84,7 @@ there moves in both, or it drifts silently.
 
 ```bash
 npm ci                      # from the lockfile, always — never `npm install`
-npm run lint                # ESLint over src/**/*.ts and src/**/*.html
+npm run lint                # ESLint over src/ and e2e/, then tsc over e2e/
 npm test                    # Vitest; `CI=true npm test` confirms it exits rather than watching
 npm run build               # the production bundle
 npm start                   # the dev server, on 5173
