@@ -1884,7 +1884,10 @@ page shell `src/index.html` are off. `src/app/core/i18n-coverage.spec.ts` reads
 every marker in the source, requires each to have an explicit id, and holds the
 set of ids equal to the set in `src/locale/messages.xlf`, so a message added or
 removed without `npx ng extract-i18n` is a red build. The extracted file is
-committed for that reason: 206 messages at the time of writing, XLIFF 1.2.
+committed for that reason, in XLIFF 1.2. It holds one unit per id, so a message
+shared by two places is one unit; the extractor's own tally counts each use, and
+neither is quoted here because the spec holds the set equal and a count would
+only drift.
 
 **What neither gate sees.** A string literal in TypeScript that was never
 tagged is invisible to the lint rule, which reads templates, and to the spec,
