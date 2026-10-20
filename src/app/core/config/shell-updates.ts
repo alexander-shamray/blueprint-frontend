@@ -5,6 +5,9 @@ import { SwUpdate } from '@angular/service-worker';
 import { filter } from 'rxjs';
 import { OnlineStatus } from '@core/network/online-status';
 
+/** The only destination a waiting shell is taken at: the products tab, with or without a query. */
+export const SHELL_TAKEN_AT = /^\/tabs\/products\/?(\?[^#]*)?(#.*)?$/;
+
 /**
  * How a new shell replaces the one a user is running (#99,
  * `docs/client-architecture.md` §16).
@@ -12,18 +15,27 @@ import { OnlineStatus } from '@core/network/online-status';
  * The worker keeps serving the shell it installed until the page is loaded
  * again, so left alone a tab opened last week keeps calling the API shape it
  * was built against after the backend has moved on, which is this client's
- * version of drift. The strategy is to take the new shell at the next
- * navigation, not at once and not on a prompt:
+ * version of drift. The strategy is to take the new shell when the user next
+ * goes to the products tab, not at once and not on a prompt:
  *
- * - Not at once, because a reload in the middle of the checkout form discards
- *   what the user typed. A navigation is the user already leaving the screen.
+ * - Not at once, and not at just any navigation, because loading the page
+ *   again discards everything held only in memory: the checkout's quote
+ *   (`CheckoutHandoff`, whose guard sends a reloaded app back to the cart), a
+ *   publish form not yet sent, and any other page Ionic's tab stack is
+ *   keeping alive. The cart is the one thing that survives, by design. The
+ *   products tab is where the user starts browsing again, and its listing is
+ *   fetched afresh anyway, so it is the one destination that costs nothing.
  * - Not on a prompt, because a banner asking for permission to be current is
  *   one more thing to ignore, and an ignored one is the stale shell again.
  *
+ * It is an allow-list for the reason a deny-list of "screens holding state"
+ * would rot: a page added next month that holds a handoff is protected by
+ * default, and is taken the next time the user lands on products.
+ *
  * So `VERSION_READY` only records that a newer shell is waiting, and the next
- * `NavigationStart` activates it and loads the destination fresh. It also
- * asks for an update when the connection returns, since a browser that was
- * offline for a day has not heard of the release it missed.
+ * `NavigationStart` to the products tab activates it and loads that address
+ * fresh. It also asks for an update when the connection returns, since a
+ * browser that was offline for a day has not heard of the release it missed.
  *
  * Without a worker (development, native, a browser that has none)
  * `SwUpdate.isEnabled` is false and this does nothing.
@@ -47,7 +59,7 @@ export class ShellUpdates {
     const navigating = this.router.events
       .pipe(filter((event): event is NavigationStart => event instanceof NavigationStart))
       .subscribe((event) => {
-        if (!this.newerShellWaiting) return;
+        if (!this.newerShellWaiting || !SHELL_TAKEN_AT.test(event.url)) return;
         this.newerShellWaiting = false;
         void this.updates
           .activateUpdate()

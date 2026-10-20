@@ -38,7 +38,7 @@ describe('ShellUpdates', () => {
   it('does nothing without a worker', () => {
     const { versions, routerEvents, updates, assign } = setup({ enabled: false });
     versions.next({ type: 'VERSION_READY' });
-    routerEvents.next(navigateTo('/tabs/cart'));
+    routerEvents.next(navigateTo('/tabs/products'));
 
     expect(updates.checkForUpdate).not.toHaveBeenCalled();
     expect(updates.activateUpdate).not.toHaveBeenCalled();
@@ -53,27 +53,74 @@ describe('ShellUpdates', () => {
     expect(assign).not.toHaveBeenCalled();
   });
 
-  it('activates the newer shell on the next navigation and loads the destination fresh', async () => {
+  it('activates the newer shell when the user next goes to the products tab, and loads it fresh', async () => {
     const { versions, routerEvents, updates, assign } = setup({ enabled: true });
     versions.next({ type: 'VERSION_READY' });
-    routerEvents.next(navigateTo('/tabs/cart'));
+    routerEvents.next(navigateTo('/tabs/products'));
 
-    await vi.waitFor(() => expect(assign).toHaveBeenCalledWith('/tabs/cart'));
+    await vi.waitFor(() => expect(assign).toHaveBeenCalledWith('/tabs/products'));
     expect(updates.activateUpdate).toHaveBeenCalledTimes(1);
   });
 
-  it('ignores a navigation when no newer shell is waiting', () => {
-    const { routerEvents, updates, assign } = setup({ enabled: true });
-    routerEvents.next(navigateTo('/tabs/cart'));
+  it('does not take it on the way into checkout, where the quote lives only in memory', () => {
+    const { versions, routerEvents, updates, assign } = setup({ enabled: true });
+    versions.next({ type: 'VERSION_READY' });
+    routerEvents.next(navigateTo('/tabs/cart/checkout'));
 
     expect(updates.activateUpdate).not.toHaveBeenCalled();
     expect(assign).not.toHaveBeenCalled();
   });
 
-  it('takes a waiting shell once, not at every later navigation', async () => {
+  it.each([
+    '/tabs/cart',
+    '/tabs/cart/placed/abc',
+    '/tabs/orders',
+    '/tabs/publish',
+    '/tabs/account',
+    '/tabs/products/p1',
+    '/tabs/productsx',
+  ])('does not take it at %s: only the products tab root is a safe landing', (url) => {
+    const { versions, routerEvents, updates } = setup({ enabled: true });
+    versions.next({ type: 'VERSION_READY' });
+    routerEvents.next(navigateTo(url));
+
+    expect(updates.activateUpdate).not.toHaveBeenCalled();
+  });
+
+  it.each(['/tabs/products', '/tabs/products/', '/tabs/products?q=lamp', '/tabs/products#top'])(
+    'takes it at %s',
+    async (url) => {
+      const { versions, routerEvents, assign } = setup({ enabled: true });
+      versions.next({ type: 'VERSION_READY' });
+      routerEvents.next(navigateTo(url));
+
+      await vi.waitFor(() => expect(assign).toHaveBeenCalledWith(url));
+    },
+  );
+
+  it('keeps waiting through the screens that must not be reloaded, then takes it at products', async () => {
     const { versions, routerEvents, updates, assign } = setup({ enabled: true });
     versions.next({ type: 'VERSION_READY' });
+    routerEvents.next(navigateTo('/tabs/cart/checkout'));
     routerEvents.next(navigateTo('/tabs/cart'));
+    expect(updates.activateUpdate).not.toHaveBeenCalled();
+
+    routerEvents.next(navigateTo('/tabs/products'));
+    await vi.waitFor(() => expect(assign).toHaveBeenCalledWith('/tabs/products'));
+  });
+
+  it('ignores a navigation when no newer shell is waiting', () => {
+    const { routerEvents, updates, assign } = setup({ enabled: true });
+    routerEvents.next(navigateTo('/tabs/products'));
+
+    expect(updates.activateUpdate).not.toHaveBeenCalled();
+    expect(assign).not.toHaveBeenCalled();
+  });
+
+  it('takes a waiting shell once, not at every later visit to products', async () => {
+    const { versions, routerEvents, updates, assign } = setup({ enabled: true });
+    versions.next({ type: 'VERSION_READY' });
+    routerEvents.next(navigateTo('/tabs/products'));
     await vi.waitFor(() => expect(assign).toHaveBeenCalledTimes(1));
     routerEvents.next(navigateTo('/tabs/products'));
 
@@ -83,7 +130,7 @@ describe('ShellUpdates', () => {
   it('ignores a version event that is not a ready one', () => {
     const { versions, routerEvents, updates } = setup({ enabled: true });
     versions.next({ type: 'VERSION_DETECTED' });
-    routerEvents.next(navigateTo('/tabs/cart'));
+    routerEvents.next(navigateTo('/tabs/products'));
 
     expect(updates.activateUpdate).not.toHaveBeenCalled();
   });
