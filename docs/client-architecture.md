@@ -1841,3 +1841,59 @@ no group.
 where no worker registers, so nothing in CI exercises an installed worker.
 Installing the build in a browser, going offline and reloading, and a
 Lighthouse installability audit are a hand's.
+
+---
+
+## 17. Every user-facing string is marked, and the locale has one owner
+
+The pages are inline templates, so marking their strings was mechanical while
+there were ten of them and would not have stayed so (#103). This client is
+translation-ready and not translated: `@angular/localize` is a dependency, one
+locale ships, and no translation file exists.
+
+**How a message is marked.** Template text takes `i18n="@@id"` and a static
+attribute takes `i18n-<attribute>="@@id"`; a string built in TypeScript is
+tagged `` $localize`:@@id:text ${value}:name:` `` with a named placeholder for
+each interpolation. Every message carries an explicit id, never a generated
+one, because a generated id is a hash of the wording and a translator's work
+goes with it the first time a sentence is edited. A message that appears in two
+places under one id (`@@action.tryAgain`, `@@address.line1`) must be the same
+words in both, which the extractor enforces. A string built by concatenation in
+a bound expression (`[label]="'New price in ' + currency"`) became a method
+that returns one tagged message, because a translator cannot reorder two
+fragments. Server-supplied text is not marked: a `ProblemDetails` title and
+detail are shown as sent, and how the backend localises them is its question.
+A message that quotes the platform on purpose ("Cancellation accepted: the
+platform answered 204") is still a message and is marked as written.
+
+**The locale has one owner: Angular's `LOCALE_ID`.** `MoneyPipe`, `DatePipe`
+and the country names already read it, and `$localize` follows the same
+build-time locale, so there is no second setting to drift from the first.
+`angular.json` names the source locale (`en-US`, the default, now written
+down). A second locale would be the build's `localize` option, which moves the
+output into a folder per locale and so reaches Capacitor's `webDir` and the
+Playwright server; that is a decision for the day a translation exists, as is
+switching locale at runtime, which is out of scope here.
+
+**Two gates keep it true, and neither is the whole of it.**
+`@angular-eslint/template/i18n` (configured in `eslint.config.js`) fails a text
+node or a static attribute with no marker, in every inline template; the
+attributes it is told not to check are the ones this application carries that
+are not prose (a test hook, an icon name, a slot), and the test fixtures and the
+page shell `src/index.html` are off. `src/app/core/i18n-coverage.spec.ts` reads
+every marker in the source, requires each to have an explicit id, and holds the
+set of ids equal to the set in `src/locale/messages.xlf`, so a message added or
+removed without `npx ng extract-i18n` is a red build. The extracted file is
+committed for that reason: 206 messages at the time of writing, XLIFF 1.2.
+
+**What neither gate sees.** A string literal in TypeScript that was never
+tagged is invisible to the lint rule, which reads templates, and to the spec,
+which reads markers; and the rule does not read a bound expression, so
+`[label]="'text'"` passes it. Those are held by review today. The one place
+that looks user-facing and was left alone on purpose is the native sign-in
+strategy's thrown `Error` messages: they are diagnostics, and the account page
+shows the mapped banner and not their text.
+
+**The bundle.** The initial chunks measure 1.24 MB raw and 245.57 kB
+transferred, from 1.22 MB and 239.30 kB before this work: the `$localize`
+runtime and the tags, under §13's 1.3 MB warning.
