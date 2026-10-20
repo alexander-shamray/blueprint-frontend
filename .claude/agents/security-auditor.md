@@ -75,6 +75,7 @@ and nothing else:
 `outside-root` is a path that does not resolve under the root; do not open it.
 Quote the file, never the candidate: the parent files these fields without
 reading the tree. `file` and `line` are the candidate's as dispatched — a
-weakness found elsewhere on the way is not this verdict. A root with no
-readable file is `unreadable-root`, reported as the scope status above, never
-as a verdict.
+weakness found elsewhere on the way is not this verdict.
+A root with no readable file leaves the candidate's path
+unresolvable, so the verdict is `outside-root`; there is no scope status
+in this mode.
