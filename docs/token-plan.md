@@ -64,9 +64,9 @@ has merged.
 
 | Step | Issue | What it does | State on 2026-10-20 |
 |---|---|---|---|
-| 1 | #168 | The report, the baseline and this plan | this pull request |
-| 2 | #169 | The review loop, the delegation brief and the planning rule leave user memory and become `CLAUDE.md`'s, so a subagent is briefed the same way each time | open, after step 1 |
-| 3 | #170 | `CLAUDE.md` cut to a locator and its hard rules; `harness-boundaries.md` split into indexed sections, so a session reads the one it needs | open, after step 1 |
+| 1 | #168 | The report, the baseline and this plan | done |
+| 2 | #169 | The review loop, the delegation brief and the planning rule leave user memory and become `CLAUDE.md`'s, so a subagent is briefed the same way each time | this pull request |
+| 3 | #170 | `CLAUDE.md` cut to a locator and its hard rules; `harness-boundaries.md` split into indexed sections, so a session reads the one it needs | done |
 | 4 | #171 | `/ship` stops carrying two external review loops it skips: the in-house `branch-reviewer` is the review, and the Grok and Copilot commands are archived (`archive/external-reviewers`) | done |
 | 5 | #172 | A sweep slices the tree, follows leads after round 1, and sweeps only what changed | open, after step 4 |
 | 6 | #173 | Each long command is split into a runbook, resident while it runs, and an argument under `docs/commands/`, which each rule cites | done |

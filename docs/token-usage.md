@@ -158,3 +158,16 @@ that does need it can read one section.
 left is the owner table, the tree and the style rules that have to be true
 before any other file is opened. The target stands, and whether to cut those
 further or to withdraw it is for the next measurement to say.
+
+## 2026-10-20 — step 2, what the briefing rules cost
+
+**Taken against `main` at `80c4301` plus this change.** Step 2 moves rules
+into `CLAUDE.md` that were in the owner's user-level memory, so it is the one
+step that makes the file larger: 10,755 bytes become 12,528, 2.7 k tokens
+become 3.1 k, which is every turn of every session. **The target for
+`CLAUDE.md` stays under 2 k tokens, and this step moves away from it.** What it
+buys is not measurable in size: a subagent briefed with files and a question,
+a review round that reads the diff since the last, and a wait that sheds its
+context are the three places the baseline found a long-running session
+spending most, and whether they moved is the next window's to show, not this
+section's.
