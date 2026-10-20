@@ -64,14 +64,14 @@ function splitAmountErrors(fields: Readonly<Record<string, readonly string[]>> |
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <ion-list-header><h2>Your products</h2></ion-list-header>
+    <ion-list-header><h2 i18n="@@own.title">Your products</h2></ion-list-header>
 
     <app-error-banner [error]="actionError() ?? error() ?? rateLimit.refusal()"
       [retryInSeconds]="rateLimit.remaining()" />
 
     @if (error()) {
       <ion-button expand="block" fill="outline"
-        [disabled]="rateLimit.blocked()" (click)="retryLoad()">Try again</ion-button>
+        [disabled]="rateLimit.blocked()" (click)="retryLoad()" i18n="@@action.tryAgain">Try again</ion-button>
     }
 
     @if (showSkeleton()) {
@@ -79,8 +79,9 @@ function splitAmountErrors(fields: Readonly<Record<string, readonly string[]>> |
     }
 
     @if (isEmpty()) {
-      <app-empty-state heading="Nothing published yet" icon="cube-outline"
-        message="Products you publish from this account appear here." />
+      <app-empty-state heading="Nothing published yet" i18n-heading="@@products.emptyHeading"
+        icon="cube-outline" message="Products you publish from this account appear here."
+        i18n-message="@@own.emptyMessage" />
     }
 
     <ion-list>
@@ -96,9 +97,9 @@ function splitAmountErrors(fields: Readonly<Record<string, readonly string[]>> |
             <h2>{{ product.name }}</h2>
             <ion-note>{{ product.amount | money: product.currency }}</ion-note>
             @if (product.withdrawnAt; as withdrawnAt) {
-              <p class="withdrawn" data-testid="withdrawn">Withdrawn {{ withdrawnAt | date: 'medium' }}</p>
+              <p class="withdrawn" data-testid="withdrawn" i18n="@@own.withdrawn">Withdrawn {{ withdrawnAt | date: 'medium' }}</p>
             } @else {
-              <p>Published {{ product.publishedAt | date: 'medium' }}</p>
+              <p i18n="@@own.published">Published {{ product.publishedAt | date: 'medium' }}</p>
             }
           </ion-label>
 
@@ -109,38 +110,42 @@ function splitAmountErrors(fields: Readonly<Record<string, readonly string[]>> |
                 cannot change currency (product.currency_fixed), so there is no
                 picker, and the amount goes out as typed.
               -->
-              <div slot="end" class="reprice" role="group" [attr.aria-label]="'Reprice ' + product.name">
+              <div slot="end" class="reprice" role="group" [attr.aria-label]="repriceLabel(product.name)">
                 <ion-input type="number" inputmode="decimal" [formControl]="priceControl"
-                  [autofocus]="true" [label]="'New price in ' + product.currency"
+                  [autofocus]="true" [label]="newPriceLabel(product.currency)"
                   data-testid="price-input"></ion-input>
                 @for (message of priceMessages(); track $index) {
                   <ion-note class="field-error" color="danger" data-field="amount"
                     role="alert">{{ message }}</ion-note>
                 }
                 @if (isRepricing(product)) {
-                  <ion-note data-testid="repricing" role="status">Saving…</ion-note>
+                  <ion-note data-testid="repricing" role="status" i18n="@@own.saving">Saving…</ion-note>
                 }
                 <ion-button fill="solid" data-testid="confirm-reprice"
                   [disabled]="priceControl.invalid || rateLimit.blocked()"
-                  (click)="reprice(product)">Save</ion-button>
-                <ion-button fill="clear" data-testid="cancel-reprice" (click)="cancelReprice()">Cancel</ion-button>
+                  (click)="reprice(product)" i18n="@@own.save">Save</ion-button>
+                <ion-button fill="clear" data-testid="cancel-reprice" (click)="cancelReprice()"
+                  i18n="@@own.cancel">Cancel</ion-button>
               </div>
             } @else if (confirming() === product.productId) {
-              <div slot="end" class="confirm" role="group" [attr.aria-label]="'Withdraw ' + product.name">
+              <div slot="end" class="confirm" role="group" [attr.aria-label]="withdrawLabel(product.name)">
                 @if (isPending(product)) {
-                  <ion-note data-testid="withdrawing">Withdrawing…</ion-note>
+                  <ion-note data-testid="withdrawing" i18n="@@own.withdrawing">Withdrawing…</ion-note>
                 } @else {
-                  <ion-note>Withdraw for good?</ion-note>
+                  <ion-note i18n="@@own.confirm">Withdraw for good?</ion-note>
                 }
                 <ion-button fill="solid" color="danger" data-testid="confirm-withdraw"
-                  [disabled]="rateLimit.blocked()" (click)="withdraw(product)">Withdraw</ion-button>
-                <ion-button fill="clear" (click)="cancelWithdraw()">Keep</ion-button>
+                  [disabled]="rateLimit.blocked()" (click)="withdraw(product)"
+                  i18n="@@own.withdraw">Withdraw</ion-button>
+                <ion-button fill="clear" (click)="cancelWithdraw()" i18n="@@own.keep">Keep</ion-button>
               </div>
             } @else {
               <ion-button slot="end" fill="clear" data-testid="reprice"
-                (click)="askToReprice(product)">Reprice</ion-button>
+                (click)="askToReprice(product)"
+                i18n="@@own.reprice">Reprice</ion-button>
               <ion-button slot="end" fill="clear" color="danger" data-testid="withdraw"
-                (click)="askToWithdraw(product)">Withdraw</ion-button>
+                (click)="askToWithdraw(product)"
+                i18n="@@own.withdraw">Withdraw</ion-button>
             }
           }
         </ion-item>
@@ -148,7 +153,9 @@ function splitAmountErrors(fields: Readonly<Record<string, readonly string[]>> |
     </ion-list>
 
     @if (reachedEnd()) {
-      <p class="end" data-testid="end-of-own-list">That is everything this account has published.</p>
+      <p class="end" data-testid="end-of-own-list" i18n="@@own.end">
+        That is everything this account has published.
+      </p>
     }
 
     <ion-infinite-scroll [disabled]="!canLoadMore()" (ionInfinite)="loadMore($event)">
@@ -164,6 +171,21 @@ function splitAmountErrors(fields: Readonly<Record<string, readonly string[]>> |
   `,
 })
 export class OwnProductsComponent {
+  /** The reprice group's accessible name, which says which product it prices. */
+  protected repriceLabel(name: string): string {
+    return $localize`:@@own.repriceGroup:Reprice ${name}:name:`;
+  }
+
+  /** The new-price field's label, which carries the currency the product is fixed to. */
+  protected newPriceLabel(currency: string): string {
+    return $localize`:@@own.newPrice:New price in ${currency}:currency:`;
+  }
+
+  /** The withdraw group's accessible name. */
+  protected withdrawLabel(name: string): string {
+    return $localize`:@@own.withdrawGroup:Withdraw ${name}:name:`;
+  }
+
   private readonly catalog = inject(CatalogApi);
   private readonly catalogRefresh = inject(CatalogRefresh);
   private readonly auth = inject(AuthService);

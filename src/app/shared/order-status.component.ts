@@ -9,13 +9,13 @@ import { BuyerStatus } from '@core/api/types';
  * than a row to add.
  */
 const LABELS: Readonly<Record<BuyerStatus, string>> = {
-  placed: 'Placed',
-  confirmed: 'Confirmed',
-  dispatched: 'Dispatched',
-  delivered: 'Delivered',
-  cancelled: 'Cancelled',
-  out_of_stock: 'Out of stock',
-  declined: 'Payment declined',
+  placed: $localize`:@@status.placed:Placed`,
+  confirmed: $localize`:@@status.confirmed:Confirmed`,
+  dispatched: $localize`:@@status.dispatched:Dispatched`,
+  delivered: $localize`:@@status.delivered:Delivered`,
+  cancelled: $localize`:@@status.cancelled:Cancelled`,
+  out_of_stock: $localize`:@@stock.out:Out of stock`,
+  declined: $localize`:@@status.declined:Payment declined`,
 };
 
 /**

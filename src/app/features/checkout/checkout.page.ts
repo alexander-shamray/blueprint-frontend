@@ -43,7 +43,7 @@ import { countryOptions } from '@shared/address/countries';
     <ion-header>
       <ion-toolbar>
         <ion-buttons slot="start"><ion-back-button defaultHref="/tabs/cart"></ion-back-button></ion-buttons>
-        <ion-title>Checkout</ion-title>
+        <ion-title i18n="@@checkout.title">Checkout</ion-title>
       </ion-toolbar>
     </ion-header>
 
@@ -56,7 +56,7 @@ import { countryOptions } from '@shared/address/countries';
           below, with its values and command id, for the owner's return.
         -->
         <ion-item data-testid="signed-out">
-          <ion-note>Sign in to continue with this order.</ion-note>
+          <ion-note i18n="@@checkout.signedOut">Sign in to continue with this order.</ion-note>
         </ion-item>
       } @else {
         <app-error-banner [error]="bannerError() ?? rateLimit.refusal()" [retryInSeconds]="rateLimit.remaining()" />
@@ -68,19 +68,19 @@ import { countryOptions } from '@shared/address/countries';
             Each goes when its control is edited: the message was about the
             value that was sent, and that value is no longer the one on screen.
           -->
-          <ion-item><ion-input label="Line 1" formControlName="line1" required></ion-input></ion-item>
+          <ion-item><ion-input label="Line 1" i18n-label="@@address.line1" formControlName="line1" required></ion-input></ion-item>
           @for (message of fieldErrors().line1 ?? []; track $index) {
             <ion-note class="field-error" color="danger" data-field="line1">{{ message }}</ion-note>
           }
-          <ion-item><ion-input label="Line 2" formControlName="line2"></ion-input></ion-item>
+          <ion-item><ion-input label="Line 2" i18n-label="@@address.line2" formControlName="line2"></ion-input></ion-item>
           @for (message of fieldErrors().line2 ?? []; track $index) {
             <ion-note class="field-error" color="danger" data-field="line2">{{ message }}</ion-note>
           }
-          <ion-item><ion-input label="City" formControlName="city" required></ion-input></ion-item>
+          <ion-item><ion-input label="City" i18n-label="@@address.city" formControlName="city" required></ion-input></ion-item>
           @for (message of fieldErrors().city ?? []; track $index) {
             <ion-note class="field-error" color="danger" data-field="city">{{ message }}</ion-note>
           }
-          <ion-item><ion-input label="Postal code" formControlName="postalCode" required></ion-input></ion-item>
+          <ion-item><ion-input label="Postal code" i18n-label="@@address.postalCode" formControlName="postalCode" required></ion-input></ion-item>
           @for (message of fieldErrors().postalCode ?? []; track $index) {
             <ion-note class="field-error" color="danger" data-field="postalCode">{{ message }}</ion-note>
           }
@@ -90,9 +90,9 @@ import { countryOptions } from '@shared/address/countries';
             test chooses an option by value rather than by driving an overlay.
           -->
           <ion-item>
-            <label class="country" for="checkout-country">Country</label>
+            <label class="country" for="checkout-country" i18n="@@address.country">Country</label>
             <select id="checkout-country" formControlName="country" required>
-              <option value="" disabled>Choose a country</option>
+              <option value="" disabled i18n="@@address.chooseCountry">Choose a country</option>
               @for (option of countries; track option.code) {
                 <option [value]="option.code">{{ option.name }}</option>
               }
@@ -111,7 +111,7 @@ import { countryOptions } from '@shared/address/countries';
           -->
           <ion-item>
             <input id="checkout-save-address" type="checkbox" [formControl]="saveAddress" />
-            <label class="save-address" for="checkout-save-address">
+            <label class="save-address" for="checkout-save-address" i18n="@@address.save">
               Save this address for next time
             </label>
           </ion-item>
@@ -138,7 +138,7 @@ import { countryOptions } from '@shared/address/countries';
               (client-architecture.md §9).
             -->
             <ion-list data-testid="order-summary">
-              <ion-list-header><ion-label>Order summary</ion-label></ion-list-header>
+              <ion-list-header><ion-label i18n="@@checkout.summary">Order summary</ion-label></ion-list-header>
               @for (line of quote.lines; track line.productId) {
                 <ion-item>
                   <ion-label>{{ line.name }}</ion-label>
@@ -149,13 +149,13 @@ import { countryOptions } from '@shared/address/countries';
                 </ion-item>
               }
               <ion-item>
-                <ion-label><strong>Total</strong></ion-label>
+                <ion-label><strong i18n="@@detail.total">Total</strong></ion-label>
                 <ion-note slot="end"><strong>{{ quote.total | money: quote.currency }}</strong></ion-note>
               </ion-item>
             </ion-list>
 
             <ion-item>
-              <ion-note>Ordering in {{ quote.currency }}, carried from the quote.</ion-note>
+              <ion-note i18n="@@checkout.currency">Ordering in {{ quote.currency }}, carried from the quote.</ion-note>
             </ion-item>
           }
 
@@ -171,9 +171,10 @@ import { countryOptions } from '@shared/address/countries';
           <ion-button expand="block" type="submit"
             [disabled]="form.invalid || identity.isSpent() || !handoff.quote() || rateLimit.blocked()">
             @if (submitting()) {
-              <ion-spinner name="dots" aria-hidden="true"></ion-spinner> Placing order…
+              <ion-spinner name="dots" aria-hidden="true"></ion-spinner>
+              <ng-container i18n="@@checkout.placing"> Placing order…</ng-container>
             } @else {
-              Place order
+              <ng-container i18n="@@checkout.place">Place order</ng-container>
             }
           </ion-button>
         </form>
@@ -187,7 +188,7 @@ import { countryOptions } from '@shared/address/countries';
         -->
         @if (error()?.kind === 'idReused') {
           <ion-item>
-            <ion-note>
+            <ion-note i18n="@@checkout.idReused">
               This order was already placed by an earlier submission from this page, so any changes
               you made since were not applied, and nothing was sent again. Its id cannot be shown
               here, because this refusal does not carry it; History lists every order this account

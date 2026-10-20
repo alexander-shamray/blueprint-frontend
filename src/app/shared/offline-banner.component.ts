@@ -18,7 +18,7 @@ import { OnlineStatus } from '@core/network/online-status';
     @if (!status.online()) {
       <div class="offline" role="status" data-testid="offline-banner">
         <ion-icon name="cloud-offline-outline" aria-hidden="true"></ion-icon>
-        <span>You are offline. What you see was loaded earlier, and prices or stock may have changed.</span>
+        <span i18n="@@offline.banner">You are offline. What you see was loaded earlier, and prices or stock may have changed.</span>
       </div>
     }
   `,

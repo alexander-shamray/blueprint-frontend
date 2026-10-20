@@ -104,11 +104,14 @@ export const READ_PHOTO = new InjectionToken<(webPath: string) => Promise<Blob>>
 /** Every refusal the plugin names, as the sentence the seller reads. */
 const REFUSALS: Partial<Record<string, string>> = {
   [CameraErrorCode.CameraPermissionDenied]:
-    'Blueprint may not use the camera. Allow it in Settings, or choose from the library.',
+    $localize`:@@image.cameraDenied:Blueprint may not use the camera. Allow it in Settings, or choose from the library.`,
   [CameraErrorCode.GalleryPermissionDenied]:
-    'Blueprint may not open your photos. Allow it in Settings, or take a photo.',
-  [CameraErrorCode.NoCameraAvailable]: 'This device has no camera. Choose from the library.',
+    $localize`:@@image.galleryDenied:Blueprint may not open your photos. Allow it in Settings, or take a photo.`,
+  [CameraErrorCode.NoCameraAvailable]:
+    $localize`:@@image.noCamera:This device has no camera. Choose from the library.`,
 };
+
+const unreadable = () => $localize`:@@image.unreadable:The image could not be read. Try again.`;
 
 /** The seller backing out, which is a dismissal and not a refusal. */
 const CANCELLED: readonly string[] = [
@@ -138,11 +141,11 @@ export class NativeImageSource extends ImageSource {
 
   async pick(): Promise<File | null> {
     const sheet = await this.sheets.create({
-      header: 'Add an image',
+      header: $localize`:@@image.sheetHeader:Add an image`,
       buttons: [
-        { text: 'Take a photo', data: 'camera' },
-        { text: 'Choose from library', data: 'library' },
-        { text: 'Cancel', role: 'cancel' },
+        { text: $localize`:@@image.takePhoto:Take a photo`, data: 'camera' },
+        { text: $localize`:@@image.chooseLibrary:Choose from library`, data: 'library' },
+        { text: $localize`:@@own.cancel:Cancel`, role: 'cancel' },
       ],
     });
     await sheet.present();
@@ -164,7 +167,7 @@ export class NativeImageSource extends ImageSource {
       const code = errorCode(error);
       if (code !== null && CANCELLED.includes(code)) return null;
       throw new ImagePickError(
-        (code !== null && REFUSALS[code]) || 'The image could not be read. Try again.',
+        (code !== null && REFUSALS[code]) || unreadable(),
       );
     }
     if (photo?.webPath === undefined) return null;
@@ -173,7 +176,7 @@ export class NativeImageSource extends ImageSource {
     try {
       bytes = await this.readPhoto(photo.webPath);
     } catch {
-      throw new ImagePickError('The image could not be read. Try again.');
+      throw new ImagePickError(unreadable());
     }
     const name = photo.webPath.split('/').pop() || 'photo';
     return new File([bytes], name, { type: bytes.type });

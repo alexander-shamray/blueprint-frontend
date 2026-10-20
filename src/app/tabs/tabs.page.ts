@@ -26,12 +26,12 @@ import { focusPageHeading } from './focus-page-heading';
       <ion-tab-bar slot="bottom">
         <ion-tab-button tab="products">
           <ion-icon name="grid-outline" aria-hidden="true"></ion-icon>
-          <ion-label>Products</ion-label>
+          <ion-label i18n="@@tab.products">Products</ion-label>
         </ion-tab-button>
 
         <ion-tab-button tab="cart">
           <ion-icon name="cart-outline" aria-hidden="true"></ion-icon>
-          <ion-label>Cart</ion-label>
+          <ion-label i18n="@@tab.cart">Cart</ion-label>
           @if (cartCount() > 0) {
             <ion-badge>{{ cartCount() }}</ion-badge>
           }
@@ -40,20 +40,20 @@ import { focusPageHeading } from './focus-page-heading';
         @if (signedIn()) {
           <ion-tab-button tab="orders">
             <ion-icon name="receipt-outline" aria-hidden="true"></ion-icon>
-            <ion-label>History</ion-label>
+            <ion-label i18n="@@tab.history">History</ion-label>
           </ion-tab-button>
         }
 
         @if (canPublish()) {
           <ion-tab-button tab="publish">
             <ion-icon name="cloud-upload-outline" aria-hidden="true"></ion-icon>
-            <ion-label>Publish</ion-label>
+            <ion-label i18n="@@tab.publish">Publish</ion-label>
           </ion-tab-button>
         }
 
         <ion-tab-button tab="account">
           <ion-icon name="person-outline" aria-hidden="true"></ion-icon>
-          <ion-label>Account</ion-label>
+          <ion-label i18n="@@tab.account">Account</ion-label>
         </ion-tab-button>
       </ion-tab-bar>
     </ion-tabs>
