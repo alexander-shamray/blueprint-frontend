@@ -1759,3 +1759,76 @@ emulator's issuer is `http://localhost:8080/realms/commerce` rather than the
 `10.0.2.2` alias, and `adb reverse tcp:8080 tcp:8080` makes that the host's.
 Not observed: steps 4 and 5's cart and order path, and step 3's
 sign-out-and-in race.
+
+---
+
+## 16. The service worker caches the shell and nothing else
+
+The web build is installable and keeps its shell for offline (#99). The worker
+that does it is `@angular/service-worker`, configured by `src/ngsw-config.json`,
+and the argument of this section is where its cache stops, because the next
+reader will want to move that line to make offline "work better".
+
+**No API response is cached, ever.** A price and a stock figure are the
+server's facts, and a stale one is a lie with a price on it: the same argument
+as §9, that the client never computes money, applied to the cache. The config
+has no `dataGroups`, no asset group lists a `urls` entry, and no file pattern
+matches `/api/...`; `src/app/core/config/cache-boundary.spec.ts` reads the
+config as data and fails on each, and runs every pattern against the URLs that
+must never be cached so that a pattern widened later is a red build and not a
+review comment. Offline therefore means "the shell opens", not "the catalogue
+is available": the products list keeps the rows already loaded this session,
+in memory and nowhere else, says they are as last loaded, and the shell shows
+a banner (`OnlineStatus`, `OfflineBannerComponent`). A list that survived a
+restart would be an API cache by another route.
+
+**Nothing from the identity provider is cached.** The silent-refresh round
+trip loads `silent-refresh.html` in an iframe, which is a navigation request,
+and the worker answers a navigation inside its scope with `index.html`, the
+application shell, unless the URL is excluded: an iframe that receives the
+shell instead of the page that posts the code back breaks sign-in quietly.
+`navigationUrls` therefore excludes `/silent-refresh.html`, `/api/**` and
+`/.well-known/**` by name. The default exclusion of anything with a dot in its
+last segment would already cover the first, and the explicit line is there
+because a rule that holds by accident of a filename is one rename from not
+holding. The discovery document, the token endpoint and the login page are on
+the identity provider's origin, outside the worker's scope. **Not observed:**
+the round trip against a real Keycloak under an installed worker; the unit
+tests read the config and cannot show what a browser does with it.
+
+**The native builds do not register it.** Capacitor serves the bundle from
+`https://localhost` and `capacitor://localhost` (§15), and the app store's
+update is already the thing that replaces it; a worker there is a second cache
+in front of that update with its own idea of which build is current.
+`serviceWorkerEnabled(devMode, nativePlatform)` refuses both a development
+build, where a worker would serve the previous build to `ng serve`, and a
+native one, and `app.config.ts` is asserted to call it with exactly those two
+inputs.
+
+**A new shell replaces the old one at the next navigation.** The worker keeps
+serving the shell it installed until the page is loaded again, so a tab left
+open keeps calling the API shape it was built against after the backend has
+moved on: this client's version of drift. `ShellUpdates` takes a waiting shell
+at the next router `NavigationStart`, activates it and loads the destination
+fresh. Not at once, because a reload mid-checkout discards what was typed; not
+on a prompt, because a banner asking permission to be current is one more
+thing to ignore. It also asks for an update at start and whenever the
+connection returns.
+
+**The bundle.** `@angular/service-worker` is a runtime dependency (exact pin,
+the lockfile in the same commit, as for every dependency), and §13's budget is
+unchanged. The production build measures 1.22 MB raw and 239.12 kB
+transferred for the initial chunks, under the 1.3 MB warning; the worker's own
+files (`ngsw-worker.js`, `safety-worker.js`) are separate assets and not in
+that figure, and the delta against a build without the library was not
+measured. The `shell` group prefetches every script and the stylesheet (59
+URLs in the built `ngsw.json`, the lazy page chunks among them), so the first
+visit downloads the application's code once and an offline start can open any
+screen; the `static` group is the three icons, fetched when first used. The
+built `ngsw.json` has an empty `dataGroups`, and `silent-refresh.html` is in
+no group.
+
+**What was not run.** The `e2e` smoke runs against the development server,
+where no worker registers, so nothing in CI exercises an installed worker.
+Installing the build in a browser, going offline and reloading, and a
+Lighthouse installability audit are a hand's.
