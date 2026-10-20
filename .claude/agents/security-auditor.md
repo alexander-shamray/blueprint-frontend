@@ -24,12 +24,17 @@ would put a false positive in every whole-repository run.
   `empty-scope` with the paths or patterns you tried.
 - **Your scope bounds what you report, not what you read**: an exploit path
   can start in one area and land in another.
+- A **slice list** of the files you own in round 1: read each one whole,
+  with `offset` and `limit` above 500 lines, but in a `samples` slice only
+  the fenced blocks — the list file is the one path outside the root you
+  open. In a later round you are given the candidates
+  so far, as JSON, instead: follow them.
 
 ## How you read
 
 - All the reads a step needs go in one message.
-- `Grep -n -C3` for a symbol before a whole-file `Read`; a file over 500 lines
-  is read with `offset` and `limit`.
+- Outside your slice, `Grep -n -C3` for a symbol before a whole-file
+  `Read`; a file over 500 lines is read with `offset` and `limit`.
 
 ## What you return
 

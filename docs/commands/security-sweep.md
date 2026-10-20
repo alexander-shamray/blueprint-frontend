@@ -239,7 +239,9 @@ bash .claude/scripts/git-worktree-drop.sh "$posix"   # from the original directo
 A detached, read-only sweep that wrote its scratch to a separate temp path
 leaves `$work` clean, and a clean worktree removes without complaint. **If
 `git worktree remove` refuses, leave the worktree standing and report what it
-holds** — do not force it. Something unchecked in a tree the sweep was not
+holds** — do not force it. The helper also removes the slice lists
+`sweep-slices.sh` wrote beside the worktree, once git has removed the worktree
+itself. Something unchecked in a tree the sweep was not
 supposed to write to is either a rule broken (scratch written inside) or another
 session's work that landed there, and both are the caller's to look at, not this
 command's to delete. Preserving it is the same instinct as the repo's rule
@@ -430,13 +432,42 @@ Each round is the review done once, end to end:
    admitted by default" understated it: an inventory written by listing the
    types you thought of omits the ones you did not, whether or not they are new.
 
-   The natural cut is CI/tooling, the application source, and the native and
-   configuration surface, but let the scope hint narrow it. Give each
-   the same contract: **root every path under `$work`** (the pinned worktree,
-   per the rule above — an agent left to default to the caller's workspace
-   reads the wrong tree); report file, line, severity, the concrete exploit
-   scenario (who controls the input, what happens), and a fix — as raw data,
-   most severe first.
+   The rows are `sweep-slices.sh`'s (blueprint-frontend#172), and the
+   runbook's table names exactly the rows the helper can print, which a suite
+   holds. The scope hint narrows them:
+
+   | | |
+   |---|---|
+   | `source` | `src/**`, `e2e/**` and `public/**` — the application and its specs |
+   | `tooling` | `.github/**`, `.claude/**`, `.vscode/**` and `tools/**` — CI, scripts, hooks and the command and agent definitions |
+   | `native` | `android/**`, `ios/**` and **every tracked file at the repository root** |
+   | `samples` | fenced code in `docs/**`; the closed records under `docs/superpowers/` are owned and not read |
+
+   **The security sweep gains a `samples` row here**, because the helper
+   refuses a tracked path no row owns and `docs/` is tracked. The backend
+   sweep audited its samples as code and so does this one now: a credential or
+   an unsafe pattern in a fenced example is copied by a reader, which is a
+   finding in its own right. The partition is the helper's: it classifies
+   every tracked path and **exits 3 naming one no row owns**, so the sweep that
+   used to depend on a reading of the tree depends on code, and a new top-level
+   directory fails a suite before it goes unswept.
+
+   **Round 1 reads slices, and later rounds follow leads**, for the reason
+   `/bug-sweep` argues: an auditor given a row read it freely, every round read
+   the tree again, and a repeat sweep started from zero. `sweep-slices.sh` cuts
+   each row into lists of at most 240,000 bytes, a file larger than that
+   standing alone; a sample counts only its fenced lines. Round 1 is one
+   auditor per slice; a later round is one auditor per row that produced a new
+   candidate, handed every candidate so far and no slice. The lists are
+   removed with the worktree by `git-worktree-drop.sh`, and an auditor takes
+   `$work`'s native spelling with `.slices/<n>.txt` appended, because the
+   helper prints a POSIX `/tmp` path that Windows resolves elsewhere.
+
+   Give each the same contract: **root every path under `$work`** (the pinned
+   worktree, per the rule above — an agent left to default to the caller's
+   workspace reads the wrong tree); its row and its list; report file, line,
+   severity, the concrete exploit scenario (who controls the input, what
+   happens), and a fix — as raw data, most severe first.
    **Name the risks already accepted** — the specific local-dev defaults and
    documented decisions the parent knows of — so the agent does not re-report
    those; but a behaviour the agent only knows to be "deliberate" from a comment
@@ -453,10 +484,13 @@ Each round is the review done once, end to end:
    a string comparison and opens nothing.
 
    Then, for every surviving candidate, **dispatch one more
-   `security-auditor` with that candidate alone** — the root, the file, the
-   line, the claim and the scenario as the fan-out returned them — under the
-   verdict contract in `.claude/agents/security-auditor.md`, and take its
-   verdict record. **This step does not open `$work` itself, and that is the
+   `security-auditor`, on `model: "sonnet"`, with that candidate alone** — the
+   root, the file, the line, the claim and the scenario as the fan-out
+   returned them — under the verdict contract in
+   `.claude/agents/security-auditor.md`, and take its verdict record. **The
+   verifier runs on the cheaper model because the parent catches its error**:
+   a wrong `confirmed` meets the de-duplicate gate and the parent's own
+   reading before anything files. **This step does not open `$work` itself, and that is the
    change (#75 item 5).** It used to, deliberately, so that an unverified
    agent claim never became an issue; the property that bought is kept — two
    independent read-only readings, neither able to mutate, must agree — and
@@ -608,10 +642,11 @@ then find more — PR-11's Copilot round eight came back clean and every round
 after it surfaced findings, which is the whole reason its review ceiling moved
 from three to twelve. A security sweep differs from `/ship`'s review — whose
 rechecks read what the round before changed — in the way that makes a single
-clean round the right stop here: each round's fan-out is **stateless** — it
-re-reads the tree from scratch, not a reviewer reacting to the last round's
-fixes — so a clean round is a fresh full read that found nothing, not a lull
-between exchanges. But the earlier rounds change the tree only if the **user**
+clean round the right stop here: round 1 is **stateless** — it reads the
+sweep's slices, not a reviewer reacting to the last round's fixes — so a clean
+round 1 is a full read that found nothing, not a lull between exchanges, and a
+later round that follows leads and finds none has run out of places the
+findings point. But the earlier rounds change the tree only if the **user**
 acts on the filed issues between runs; this command files and does not fix.
 So:
 
@@ -623,6 +658,17 @@ So:
   stating that it ended on the ceiling rather than on convergence. Seven bounds
   a sweep that keeps turning up new areas; it is not a promise the repo is clean
   at seven.
+
+**A sweep that ends clean marks the commit it read, and a repeat sweep reads
+only what changed since** (blueprint-frontend#172). `sweep-mark.sh` records
+the pinned commit as the local `refs/sweeps/security`, and the next round 1
+lists only the files changed from it. **Only a clean end marks**: one that
+ended on the ceiling, errored or ran under a scope hint read less than the
+whole tree or left findings standing, and marking it would let the next sweep
+skip what was never swept. The ref is local, so a checkout without it sweeps in
+full; `full` ignores it; and a change to a contract is followed by a `full`
+sweep, because a narrowed round reads the changed files and not the callers a
+contract change reaches in files that did not change.
 
 **Never fail open.** A round that errored — a subagent that died, a `gh` call
 that failed, an auditor reporting `unreadable-root` or `empty-scope`, a
