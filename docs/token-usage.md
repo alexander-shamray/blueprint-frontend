@@ -136,3 +136,25 @@ single cost the table shows.
 - **Whether a cut worked.** One machine and one owner's habits make a single
   week noisy; a step's evidence is its row against these, over a window of the
   same length.
+
+## 2026-10-20 — step 3, what is resident now
+
+**Taken against `main` at `7c5839b` plus this change.** Only sizes, because a
+step's effect on `mean_context` needs a window of sessions run after it
+merges; that comparison is the next section of this file, not this one.
+Bytes over four.
+
+| | Before | After |
+|---|---|---|
+| `CLAUDE.md`, in every turn of every session | 17,316 bytes, 4.3 k tokens | 10,755 bytes, 2.7 k tokens |
+| What a session reads to touch `.claude/` | 164,060 bytes, 41 k tokens | the section its index names, 0.3 k to 6.8 k tokens |
+
+`harness-boundaries.md` gained sixteen headings and an index and lost no
+paragraph, so the whole file is about 3 k bytes larger. The saving is that
+`CLAUDE.md` no longer sends every session to read it whole, and that a session
+that does need it can read one section.
+
+**The target for `CLAUDE.md` was under 2 k tokens and it is 2.7 k.** What is
+left is the owner table, the tree and the style rules that have to be true
+before any other file is opened. The target stands, and whether to cut those
+further or to withdraw it is for the next measurement to say.
