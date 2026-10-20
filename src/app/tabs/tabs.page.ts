@@ -3,6 +3,7 @@ import { IonBadge, IonIcon, IonLabel, IonTabBar, IonTabButton, IonTabs } from '@
 import { PERMISSIONS } from '@core/api/types';
 import { AuthService } from '@core/auth/auth.service';
 import { CartStore } from '@core/cart/cart.store';
+import { OfflineBannerComponent } from '@shared/offline-banner.component';
 import { focusPageHeading } from './focus-page-heading';
 
 /**
@@ -15,10 +16,13 @@ import { focusPageHeading } from './focus-page-heading';
 @Component({
   selector: 'app-tabs',
   standalone: true,
-  imports: [IonBadge, IonIcon, IonLabel, IonTabBar, IonTabButton, IonTabs],
+  imports: [IonBadge, IonIcon, IonLabel, IonTabBar, IonTabButton, IonTabs, OfflineBannerComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <ion-tabs>
+      <!-- Above every tab's page, from the shell: the network is not one screen's fact (#99). -->
+      <app-offline-banner slot="top" />
+
       <ion-tab-bar slot="bottom">
         <ion-tab-button tab="products">
           <ion-icon name="grid-outline" aria-hidden="true"></ion-icon>

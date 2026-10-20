@@ -103,6 +103,13 @@ describe('TabsPage', () => {
     ]);
   });
 
+  it('carries the offline banner above the pages, in the top slot (#99)', async () => {
+    const banner = (await mount([])).nativeElement.querySelector('app-offline-banner');
+
+    expect(banner).not.toBeNull();
+    expect(banner?.getAttribute('slot')).toBe('top');
+  });
+
   describe('focus on entering a page (#240)', () => {
     // Dispatched the way Ionic does it: `bubbles: false`, on the page element.
     // The first version of this listened on the document in the bubble phase,

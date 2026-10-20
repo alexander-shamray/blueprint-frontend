@@ -3,6 +3,7 @@ import { addIcons } from 'ionicons';
 import {
   alertCircleOutline,
   cartOutline,
+  cloudOfflineOutline,
   cloudUploadOutline,
   fileTrayOutline,
   gridOutline,
@@ -27,6 +28,7 @@ import { App } from './app/app';
 addIcons({
   alertCircleOutline,
   cartOutline,
+  cloudOfflineOutline,
   cloudUploadOutline,
   fileTrayOutline,
   gridOutline,

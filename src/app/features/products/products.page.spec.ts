@@ -805,4 +805,56 @@ describe('ProductsPage', () => {
       expect(listing().request.params.get('q')).toHaveLength(200);
     });
   });
+
+  describe('offline (#99)', () => {
+    const note = () => fixture.nativeElement.querySelector('[data-testid="stale-list"]');
+
+    async function loaded(rows: number) {
+      controller
+        .expectOne((r) => r.url === 'http://localhost:5000/api/v1/catalog/products')
+        .flush(page(rows, null));
+      await fixture.whenStable();
+    }
+
+    async function offline() {
+      window.dispatchEvent(new Event('offline'));
+      fixture.detectChanges();
+      await fixture.whenStable();
+    }
+
+    it('says nothing while online', async () => {
+      await loaded(2);
+      fixture.detectChanges();
+
+      expect(note()).toBeNull();
+    });
+
+    it('keeps the last list on screen, marked as last loaded, once the device goes offline', async () => {
+      await loaded(2);
+      await offline();
+
+      expect(fixture.componentInstance.products()).toHaveLength(2);
+      expect(note()?.getAttribute('role')).toBe('status');
+      expect(note()?.textContent).toContain('last loaded');
+      expect(note()?.textContent).toContain('prices and stock may be out of date');
+    });
+
+    it('marks nothing stale when there is no list to be stale', async () => {
+      await offline();
+
+      expect(fixture.componentInstance.products()).toHaveLength(0);
+      expect(note()).toBeNull();
+      controller.expectOne((r) => r.url === 'http://localhost:5000/api/v1/catalog/products').flush(page(0, null));
+    });
+
+    it('drops the mark when the connection returns', async () => {
+      await loaded(2);
+      await offline();
+      window.dispatchEvent(new Event('online'));
+      fixture.detectChanges();
+      await fixture.whenStable();
+
+      expect(note()).toBeNull();
+    });
+  });
 });
