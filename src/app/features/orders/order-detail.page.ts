@@ -33,10 +33,10 @@ export interface TimelineStep {
 
 /** The forward steps, in the BFF's rank order. Keyed by name, as `OrderTimeline` is. */
 const FORWARD = [
-  { key: 'placed', label: 'Placed' },
-  { key: 'confirmed', label: 'Confirmed' },
-  { key: 'dispatched', label: 'Dispatched' },
-  { key: 'delivered', label: 'Delivered' },
+  { key: 'placed', label: $localize`:@@status.placed:Placed` },
+  { key: 'confirmed', label: $localize`:@@status.confirmed:Confirmed` },
+  { key: 'dispatched', label: $localize`:@@status.dispatched:Dispatched` },
+  { key: 'delivered', label: $localize`:@@status.delivered:Delivered` },
 ] as const;
 
 /**
@@ -66,7 +66,7 @@ export function timelineOf(order: OrderDetail): readonly TimelineStep[] {
   }
 
   if (order.refunded) {
-    steps.push({ key: 'refunded', label: 'Refunded', at: order.refundedAt, ending: true });
+    steps.push({ key: 'refunded', label: $localize`:@@timeline.refunded:Refunded`, at: order.refundedAt, ending: true });
   }
 
   return steps;
@@ -100,7 +100,7 @@ export function timelineOf(order: OrderDetail): readonly TimelineStep[] {
     <ion-header>
       <ion-toolbar>
         <ion-buttons slot="start"><ion-back-button defaultHref="/tabs/orders"></ion-back-button></ion-buttons>
-        <ion-title>Order</ion-title>
+        <ion-title i18n="@@detail.title">Order</ion-title>
       </ion-toolbar>
     </ion-header>
 
@@ -113,20 +113,20 @@ export function timelineOf(order: OrderDetail): readonly TimelineStep[] {
 
       @if (loadError()) {
         <ion-button expand="block" fill="outline" [disabled]="rateLimit.blocked()"
-          (click)="load()">Try again</ion-button>
+          (click)="load()" i18n="@@action.tryAgain">Try again</ion-button>
       }
 
       @if (order(); as o) {
         <ion-item>
           <ion-label>
-            <h2>Order</h2>
+            <h2 i18n="@@detail.order">Order</h2>
             <ion-text><code>{{ o.orderId }}</code></ion-text>
           </ion-label>
           <app-order-status slot="end" [status]="o.status" />
         </ion-item>
 
         <ion-list data-testid="timeline">
-          <ion-list-header><ion-label>Progress</ion-label></ion-list-header>
+          <ion-list-header><ion-label i18n="@@detail.progress">Progress</ion-label></ion-list-header>
           @for (step of timeline(); track step.key) {
             <ion-item [class.pending]="step.at === null" [class.ending]="step.ending">
               <ion-label>
@@ -135,7 +135,7 @@ export function timelineOf(order: OrderDetail): readonly TimelineStep[] {
                   @if (step.at; as at) {
                     {{ at | date: 'medium' }}
                   } @else {
-                    Not reached yet
+                    <ng-container i18n="@@detail.notReached">Not reached yet</ng-container>
                   }
                 </p>
               </ion-label>
@@ -146,30 +146,30 @@ export function timelineOf(order: OrderDetail): readonly TimelineStep[] {
         @if (o.shipment?.trackingNumber; as tracking) {
           <ion-item>
             <ion-label>
-              <h3>Carrier tracking number</h3>
+              <h3 i18n="@@detail.tracking">Carrier tracking number</h3>
               <ion-text><code>{{ tracking }}</code></ion-text>
             </ion-label>
           </ion-item>
         }
 
         <ion-list>
-          <ion-list-header><ion-label>Items</ion-label></ion-list-header>
+          <ion-list-header><ion-label i18n="@@detail.items">Items</ion-label></ion-list-header>
           @for (line of o.lines; track $index) {
             <ion-item>
               <ion-label>
-                <h3>{{ line.productName ?? 'Unnamed product' }}</h3>
+                <h3>{{ line.productName ?? unnamedProduct }}</h3>
                 <p>{{ line.quantity }} × {{ line.unitPrice.amount | money: line.unitPrice.currency }}</p>
               </ion-label>
               <ion-note slot="end">{{ line.lineTotal.amount | money: line.lineTotal.currency }}</ion-note>
             </ion-item>
           } @empty {
             <ion-item>
-              <ion-note>The platform has not recorded this order's items yet.</ion-note>
+              <ion-note i18n="@@detail.noItems">The platform has not recorded this order's items yet.</ion-note>
             </ion-item>
           }
           @if (o.total; as total) {
             <ion-item>
-              <ion-label><strong>Total</strong></ion-label>
+              <ion-label><strong i18n="@@detail.total">Total</strong></ion-label>
               <ion-note slot="end"><strong>{{ total.amount | money: total.currency }}</strong></ion-note>
             </ion-item>
           }
@@ -177,11 +177,11 @@ export function timelineOf(order: OrderDetail): readonly TimelineStep[] {
 
         @if (o.payment; as payment) {
           <ion-list>
-            <ion-list-header><ion-label>Payment</ion-label></ion-list-header>
+            <ion-list-header><ion-label i18n="@@detail.payment">Payment</ion-label></ion-list-header>
             @if (payment.amount; as amount) {
               <ion-item>
                 <ion-label>
-                  <h3>Authorised</h3>
+                  <h3 i18n="@@detail.authorised">Authorised</h3>
                   @if (payment.authorisedAt; as at) {
                     <p>{{ at | date: 'medium' }}</p>
                   }
@@ -191,7 +191,7 @@ export function timelineOf(order: OrderDetail): readonly TimelineStep[] {
             }
             @if (payment.refundedAmount; as refunded) {
               <ion-item>
-                <ion-label><h3>Refunded</h3></ion-label>
+                <ion-label><h3 i18n="@@detail.refunded">Refunded</h3></ion-label>
                 <ion-note slot="end">{{ refunded.amount | money: refunded.currency }}</ion-note>
               </ion-item>
             }
@@ -200,21 +200,22 @@ export function timelineOf(order: OrderDetail): readonly TimelineStep[] {
 
         @if (cancelled()) {
           <ion-item>
-            <ion-note>
+            <ion-note i18n="@@detail.cancelAccepted">
               Cancellation accepted: the platform answered 204. The progress above changes once the
               order read records it.
             </ion-note>
           </ion-item>
         } @else if (o.cancellable) {
           <ion-item>
-            <ion-note>Cancelling here is recorded as the customer's own request.</ion-note>
+            <ion-note i18n="@@detail.cancelNote">Cancelling here is recorded as the customer's own request.</ion-note>
           </ion-item>
 
           <!--
             Disabled for the length of a 429 window as well (spec §6). The
             banner above is counting the window down.
           -->
-          <ion-button expand="block" [disabled]="rateLimit.blocked()" (click)="cancel()">
+          <ion-button expand="block" [disabled]="rateLimit.blocked()" (click)="cancel()"
+            i18n="@@detail.cancel">
             Cancel order
           </ion-button>
         } @else if (cannotCancelReason(); as reason) {
@@ -222,7 +223,7 @@ export function timelineOf(order: OrderDetail): readonly TimelineStep[] {
         }
 
         <ion-item>
-          <ion-note>
+          <ion-note i18n="@@detail.asOf">
             As the platform last recorded it, {{ o.asOf | date: 'medium' }}. Pull down to check again.
           </ion-note>
         </ion-item>
@@ -296,12 +297,15 @@ export class OrderDetailPage {
    * shipping members need a sentence: an order that ended has a last step in
    * the timeline that already says so.
    */
+  /** The name a line shows when the read carries none. */
+  protected readonly unnamedProduct = $localize`:@@orders.unnamed:Unnamed product`;
+
   readonly cannotCancelReason = computed(() => {
     switch (this.orderState()?.status) {
       case 'dispatched':
-        return 'This order has been dispatched, so it can no longer be cancelled.';
+        return $localize`:@@detail.cannotCancelDispatched:This order has been dispatched, so it can no longer be cancelled.`;
       case 'delivered':
-        return 'This order has been delivered, so it can no longer be cancelled.';
+        return $localize`:@@detail.cannotCancelDelivered:This order has been delivered, so it can no longer be cancelled.`;
       default:
         return null;
     }

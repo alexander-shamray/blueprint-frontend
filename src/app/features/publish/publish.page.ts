@@ -102,7 +102,7 @@ interface ChosenImage {
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <ion-header><ion-toolbar><ion-title>Publish</ion-title></ion-toolbar></ion-header>
+    <ion-header><ion-toolbar><ion-title i18n="@@publish.title">Publish</ion-title></ion-toolbar></ion-header>
 
     <ion-content>
       @if (signedOut()) {
@@ -112,39 +112,42 @@ interface ChosenImage {
           held, for the owner's return.
         -->
         <ion-item data-testid="signed-out">
-          <ion-note>Sign in to publish a product.</ion-note>
+          <ion-note i18n="@@publish.signedOut">Sign in to publish a product.</ion-note>
         </ion-item>
       } @else {
         <app-error-banner [error]="error() ?? imageError() ?? rateLimit.refusal()"
           [retryInSeconds]="rateLimit.remaining()" />
 
         <form [formGroup]="form" (ngSubmit)="publish()">
-          <ion-item><ion-input label="Name" formControlName="name" required></ion-input></ion-item>
+          <ion-item><ion-input label="Name" i18n-label="@@publish.name" formControlName="name" required></ion-input></ion-item>
           <ion-item>
-            <ion-input label="Amount" type="number" formControlName="amount" required></ion-input>
+            <ion-input label="Amount" i18n-label="@@publish.amount" type="number" formControlName="amount"
+              required></ion-input>
           </ion-item>
-          <ion-item><ion-input label="Currency" formControlName="currency" required></ion-input></ion-item>
+          <ion-item><ion-input label="Currency" i18n-label="@@cart.currency" formControlName="currency" required></ion-input></ion-item>
 
           <ion-item>
             <ion-label>
-              Image
+              <ng-container i18n="@@publish.image">Image</ng-container>
               @if (image(); as chosen) {
                 <p data-testid="image-status">{{ chosen.name }}: {{ statusText(chosen.status) }}</p>
               } @else {
-                <p>Optional.</p>
+                <p i18n="@@publish.optional">Optional.</p>
               }
             </ion-label>
             @if (image()?.status === 'failed') {
               <ion-button slot="end" fill="clear" data-testid="retry-upload"
-                [disabled]="rateLimit.blocked()" (click)="retryUpload()">Try again</ion-button>
+                [disabled]="rateLimit.blocked()" (click)="retryUpload()"
+                i18n="@@action.tryAgain">Try again</ion-button>
             }
             <ion-button slot="end" fill="clear" data-testid="choose-image"
               [disabled]="rateLimit.blocked()" (click)="chooseImage()">
-              {{ image() ? 'Choose another' : 'Choose image' }}
+              {{ chooseLabel() }}
             </ion-button>
             @if (image()) {
               <ion-button slot="end" fill="clear" data-testid="remove-image"
-                (click)="removeImage()">Remove</ion-button>
+                (click)="removeImage()"
+                i18n="@@cart.remove">Remove</ion-button>
             }
           </ion-item>
 
@@ -175,7 +178,8 @@ interface ChosenImage {
             store, which publishing now would leave off the product.
           -->
           <ion-button expand="block" type="submit"
-            [disabled]="form.invalid || identity.isSpent() || rateLimit.blocked() || imageBusy()">
+            [disabled]="form.invalid || identity.isSpent() || rateLimit.blocked() || imageBusy()"
+            i18n="@@publish.submit">
             Publish
           </ion-button>
         </form>
@@ -183,20 +187,20 @@ interface ChosenImage {
         @if (publishedId(); as id) {
           @if (id === alreadyCommitted) {
             <ion-item>
-              <ion-note>
+              <ion-note i18n="@@publish.alreadyCommitted">
                 The platform reported that this command id had already been applied, and it no
                 longer holds the result. The product was published; its id is not recoverable
                 from here.
               </ion-note>
             </ion-item>
           } @else {
-            <ion-item><ion-note>Published as <code>{{ id }}</code>.</ion-note></ion-item>
+            <ion-item><ion-note i18n="@@publish.published">Published as <code>{{ id }}</code>.</ion-note></ion-item>
           }
         }
 
         @if (error()?.kind === 'idReused') {
           <ion-item>
-            <ion-note>
+            <ion-note i18n="@@publish.idReused">
               An earlier publish from this form already went through, so any changes you made since
               were not applied. Check Products before publishing again: publishing now creates a
               second product.
@@ -327,17 +331,24 @@ export class PublishPage {
     });
   }
 
+  /** The image button's label: choosing the first image, or replacing the one chosen. */
+  protected chooseLabel(): string {
+    return this.imageState()
+      ? $localize`:@@publish.chooseAnother:Choose another`
+      : $localize`:@@publish.chooseImage:Choose image`;
+  }
+
   /** What the image line says beside the file's name. */
   statusText(status: ImageStatus): string {
     switch (status) {
       case 'uploading':
-        return 'uploading';
+        return $localize`:@@publish.uploading:uploading`;
       case 'uploaded':
-        return 'ready';
+        return $localize`:@@publish.ready:ready`;
       case 'failed':
-        return 'did not upload. Try again, or remove it to publish without one.';
+        return $localize`:@@publish.failed:did not upload. Try again, or remove it to publish without one.`;
       case 'refused':
-        return 'not accepted. Choose another, or remove it.';
+        return $localize`:@@publish.refused:not accepted. Choose another, or remove it.`;
     }
   }
 

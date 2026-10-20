@@ -41,7 +41,7 @@ import { stockLabel, stockOf } from './stock';
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <ion-header>
-      <ion-toolbar><ion-title>Products</ion-title></ion-toolbar>
+      <ion-toolbar><ion-title i18n="@@products.title">Products</ion-title></ion-toolbar>
       <!--
         Search and sort are the server's (#106). Each change restarts the
         listing at its first page under the new query, and nothing loaded is
@@ -60,14 +60,15 @@ import { stockLabel, stockOf } from './stock';
         debounce, and "red lamp" would be searched as "redlamp".
       -->
       <ion-toolbar>
-        <ion-searchbar placeholder="Search products" aria-label="Search products"
+        <ion-searchbar placeholder="Search products" i18n-placeholder="@@products.search"
+          aria-label="Search products" i18n-aria-label="@@products.search"
           [debounce]="300" [attr.maxlength]="maxSearchLength"
           (ionInput)="onSearch($event.detail.value)" />
       </ion-toolbar>
       <ion-toolbar>
-        <ion-segment aria-label="Sort" [value]="sort()" (ionChange)="onSort($event.detail.value)">
-          <ion-segment-button value="newest"><ion-label>Newest</ion-label></ion-segment-button>
-          <ion-segment-button value="name"><ion-label>Name</ion-label></ion-segment-button>
+        <ion-segment aria-label="Sort" i18n-aria-label="@@products.sort" [value]="sort()" (ionChange)="onSort($event.detail.value)">
+          <ion-segment-button value="newest"><ion-label i18n="@@products.sortNewest">Newest</ion-label></ion-segment-button>
+          <ion-segment-button value="name"><ion-label i18n="@@products.sortName">Name</ion-label></ion-segment-button>
         </ion-segment>
       </ion-toolbar>
     </ion-header>
@@ -91,7 +92,7 @@ import { stockLabel, stockOf } from './stock';
         says the device is offline; this says what that does to this list.
       -->
       @if (stale()) {
-        <p class="stale" role="status" data-testid="stale-list">
+        <p class="stale" role="status" data-testid="stale-list" i18n="@@products.stale">
           Showing the list as last loaded, so prices and stock may be out of date.
         </p>
       }
@@ -111,7 +112,7 @@ import { stockLabel, stockOf } from './stock';
       -->
       @if (error()) {
         <ion-button expand="block" fill="outline"
-          [disabled]="rateLimit.blocked()" (click)="retryLoad()">Try again</ion-button>
+          [disabled]="rateLimit.blocked()" (click)="retryLoad()" i18n="@@action.tryAgain">Try again</ion-button>
       }
 
       @if (showSkeleton()) {
@@ -120,11 +121,13 @@ import { stockLabel, stockOf } from './stock';
 
       @if (isEmpty()) {
         @if (searched(); as q) {
-          <app-empty-state [heading]="'No results for “' + q + '”'"
-            message="Try another search, or clear it to see every product." />
+          <app-empty-state [heading]="noResultsHeading(q)"
+            message="Try another search, or clear it to see every product."
+            i18n-message="@@products.noResultsMessage" />
         } @else {
-          <app-empty-state heading="Nothing published yet"
-            message="Pull down to check again for newly published products." />
+          <app-empty-state heading="Nothing published yet" i18n-heading="@@products.emptyHeading"
+            message="Pull down to check again for newly published products."
+            i18n-message="@@products.emptyMessage" />
         }
       }
 
@@ -155,14 +158,14 @@ import { stockLabel, stockOf } from './stock';
             </a>
 
             <ion-button slot="end" fill="clear" [disabled]="isOut(product)"
-              (click)="addToCart(product)">Add</ion-button>
+              (click)="addToCart(product)" i18n="@@action.add">Add</ion-button>
           </ion-item>
         }
       </ion-list>
 
       @if (reachedEnd()) {
         <p class="end" data-testid="end-of-list">
-          {{ searched() ? 'That is every match.' : 'That is everything published so far.' }}
+          {{ endText() }}
         </p>
       }
 
@@ -300,6 +303,12 @@ export class ProductsPage {
       !this.hasMoreSignal(),
   );
   readonly reachedEnd = computed(() => !this.hasMoreSignal() && this.productsSignal().length > 0);
+  /** The line under the last row, which says whether a search was in force. */
+  protected readonly endText = computed(() =>
+    this.searchedSignal()
+      ? $localize`:@@products.endMatches:That is every match.`
+      : $localize`:@@products.endAll:That is everything published so far.`,
+  );
   /** Rows on screen while the device is offline: loaded earlier, possibly out of date (#99). */
   readonly stale = computed(() => !this.network.online() && this.productsSignal().length > 0);
 
@@ -467,6 +476,10 @@ export class ProductsPage {
   retryLoad(): void {
     this.generation++;
     this.load();
+  }
+
+  protected noResultsHeading(query: string): string {
+    return $localize`:@@products.noResultsHeading:No results for “${query}:query:”`;
   }
 
   addToCart(product: ProductSummary): void {

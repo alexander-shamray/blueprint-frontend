@@ -61,7 +61,7 @@ const PRODUCT_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
     <ion-header>
       <ion-toolbar>
         <ion-buttons slot="start"><ion-back-button defaultHref="/tabs/products"></ion-back-button></ion-buttons>
-        <ion-title>Product</ion-title>
+        <ion-title i18n="@@product.title">Product</ion-title>
       </ion-toolbar>
     </ion-header>
 
@@ -70,13 +70,16 @@ const PRODUCT_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
 
       @if (error()) {
         <ion-button expand="block" fill="outline" [disabled]="rateLimit.blocked()"
-          (click)="load()">Try again</ion-button>
+          (click)="load()" i18n="@@action.tryAgain">Try again</ion-button>
       }
 
       @if (notAvailable()) {
         <app-empty-state heading="This product is not available"
-          message="It may have been withdrawn, or the link may be wrong.">
-          <ion-button routerLink="/tabs/products" fill="outline">Browse products</ion-button>
+          i18n-heading="@@product.unavailableHeading"
+          message="It may have been withdrawn, or the link may be wrong."
+          i18n-message="@@product.unavailableMessage">
+          <ion-button routerLink="/tabs/products" fill="outline"
+            i18n="@@product.browse">Browse products</ion-button>
         </app-empty-state>
       } @else if (product(); as p) {
         @if (p.thumbnailUrl; as url) {
@@ -93,25 +96,26 @@ const PRODUCT_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
         }
 
         <div class="stepper">
-          <ion-button fill="outline" aria-label="One fewer" [disabled]="quantity() <= 1"
+          <ion-button fill="outline" aria-label="One fewer" i18n-aria-label="@@product.fewer" [disabled]="quantity() <= 1"
             (click)="step(-1)">−</ion-button>
           <span data-testid="product-quantity" aria-live="polite">{{ quantity() }}</span>
-          <ion-button fill="outline" aria-label="One more" (click)="step(1)">+</ion-button>
+          <ion-button fill="outline" aria-label="One more" i18n-aria-label="@@product.more" (click)="step(1)">+</ion-button>
         </div>
 
         @if (exceeds()) {
-          <ion-note color="warning" data-testid="product-exceeds">
+          <ion-note color="warning" data-testid="product-exceeds" i18n="@@product.exceeds">
             More than the {{ p.quantityAvailable }} listed. Inventory decides at checkout.
           </ion-note>
         }
 
-        <ion-button expand="block" [disabled]="stock().kind === 'out'" (click)="addToCart()">
+        <ion-button expand="block" [disabled]="stock().kind === 'out'" (click)="addToCart()"
+          i18n="@@product.addToCart">
           Add to cart
         </ion-button>
 
         <p role="status" class="added" data-testid="product-added">
           @if (added(); as n) {
-            Added {{ n }} to the cart.
+            <ng-container i18n="@@product.added">Added {{ n }} to the cart.</ng-container>
           }
         </p>
       } @else if (loading()) {

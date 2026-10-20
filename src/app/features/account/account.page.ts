@@ -35,7 +35,7 @@ import { ErrorBannerComponent } from '@shared/error-banner.component';
              border: none; font: inherit; }
   `,
   template: `
-    <ion-header><ion-toolbar><ion-title>Account</ion-title></ion-toolbar></ion-header>
+    <ion-header><ion-toolbar><ion-title i18n="@@account.title">Account</ion-title></ion-toolbar></ion-header>
 
     <ion-content>
       <app-error-banner [error]="error()" />
@@ -43,8 +43,8 @@ import { ErrorBannerComponent } from '@shared/error-banner.component';
       @if (denied(); as permission) {
         <ion-item>
           <ion-label>
-            <h2>Route refused</h2>
-            <ion-note>That page needs <code>{{ permission }}</code>, which this account does not hold.</ion-note>
+            <h2 i18n="@@account.refused">Route refused</h2>
+            <ion-note i18n="@@account.needsPermission">That page needs <code>{{ permission }}</code>, which this account does not hold.</ion-note>
           </ion-label>
         </ion-item>
       }
@@ -52,8 +52,8 @@ import { ErrorBannerComponent } from '@shared/error-banner.component';
       @if (signInRequired() && !username()) {
         <ion-item>
           <ion-label>
-            <h2>Route refused</h2>
-            <ion-note>That page shows one buyer's own orders, so it needs you to be signed in.</ion-note>
+            <h2 i18n="@@account.refused">Route refused</h2>
+            <ion-note i18n="@@account.needsSignIn">That page shows one buyer's own orders, so it needs you to be signed in.</ion-note>
           </ion-label>
         </ion-item>
       }
@@ -63,9 +63,9 @@ import { ErrorBannerComponent } from '@shared/error-banner.component';
 
         <ion-item>
           <ion-label>
-            <h3>Permissions</h3>
+            <h3 i18n="@@account.permissions">Permissions</h3>
             @if (permissions().length === 0) {
-              <ion-note>None. Every write in this application will answer 403.</ion-note>
+              <ion-note i18n="@@account.noPermissions">None. Every write in this application will answer 403.</ion-note>
             }
             @for (permission of permissions(); track permission) {
               <ion-chip>{{ permission }}</ion-chip>
@@ -82,27 +82,28 @@ import { ErrorBannerComponent } from '@shared/error-banner.component';
           -->
           <form [formGroup]="addressForm" (ngSubmit)="saveAddress()" data-testid="address-form">
             <ion-item>
-              <ion-input label="Line 1" formControlName="line1" required></ion-input>
+              <ion-input label="Line 1" i18n-label="@@address.line1" formControlName="line1" required></ion-input>
             </ion-item>
             @for (message of addressMessages().line1 ?? []; track $index) {
               <ion-note class="field-error" color="danger" role="alert" data-field="line1">
                 {{ message }}
               </ion-note>
             }
-            <ion-item><ion-input label="Line 2" formControlName="line2"></ion-input></ion-item>
+            <ion-item><ion-input label="Line 2" i18n-label="@@address.line2" formControlName="line2"></ion-input></ion-item>
             @for (message of addressMessages().line2 ?? []; track $index) {
               <ion-note class="field-error" color="danger" role="alert" data-field="line2">
                 {{ message }}
               </ion-note>
             }
-            <ion-item><ion-input label="City" formControlName="city" required></ion-input></ion-item>
+            <ion-item><ion-input label="City" i18n-label="@@address.city" formControlName="city" required></ion-input></ion-item>
             @for (message of addressMessages().city ?? []; track $index) {
               <ion-note class="field-error" color="danger" role="alert" data-field="city">
                 {{ message }}
               </ion-note>
             }
             <ion-item>
-              <ion-input label="Postal code" formControlName="postalCode" required></ion-input>
+              <ion-input label="Postal code" i18n-label="@@address.postalCode" formControlName="postalCode"
+                required></ion-input>
             </ion-item>
             @for (message of addressMessages().postalCode ?? []; track $index) {
               <ion-note class="field-error" color="danger" role="alert" data-field="postalCode">
@@ -110,9 +111,9 @@ import { ErrorBannerComponent } from '@shared/error-banner.component';
               </ion-note>
             }
             <ion-item>
-              <label class="country" for="account-country">Country</label>
+              <label class="country" for="account-country" i18n="@@address.country">Country</label>
               <select id="account-country" formControlName="country" required>
-                <option value="" disabled>Choose a country</option>
+                <option value="" disabled i18n="@@address.chooseCountry">Choose a country</option>
                 @for (option of countries; track option.code) {
                   <option [value]="option.code">{{ option.name }}</option>
                 }
@@ -125,56 +126,63 @@ import { ErrorBannerComponent } from '@shared/error-banner.component';
             }
             <ion-button expand="block" type="submit" data-testid="save-address"
               [disabled]="addressForm.invalid || savingAddress()">
-              @if (savingAddress()) { Saving… } @else { Save address }
+              @if (savingAddress()) {
+                <ng-container i18n="@@account.saving">Saving…</ng-container>
+              } @else {
+                <ng-container i18n="@@account.saveAddress">Save address</ng-container>
+              }
             </ion-button>
             <ion-button expand="block" fill="clear" type="button" data-testid="cancel-address"
-              (click)="cancelEditAddress()">Cancel</ion-button>
+              (click)="cancelEditAddress()" i18n="@@own.cancel">Cancel</ion-button>
           </form>
         } @else {
           @if (savedAddress(); as address) {
             <ion-item data-testid="saved-address">
               <ion-label>
-                <h3>Saved delivery address</h3>
+                <h3 i18n="@@account.savedAddress">Saved delivery address</h3>
                 <p>{{ address.line1 }}</p>
                 @if (address.line2) {
                   <p>{{ address.line2 }}</p>
                 }
                 <p>{{ address.postalCode }} {{ address.city }}, {{ address.country }}</p>
-                <ion-note>Offered at checkout, where you can also save a different one.</ion-note>
+                <ion-note i18n="@@account.offered">Offered at checkout, where you can also save a different one.</ion-note>
               </ion-label>
             </ion-item>
             <ion-button expand="block" fill="outline" data-testid="edit-address"
-              (click)="editAddress()">
+              (click)="editAddress()"
+              i18n="@@account.change">
               Change this address
             </ion-button>
             <ion-button expand="block" fill="outline" data-testid="forget-address"
-              (click)="forgetAddress()">
+              (click)="forgetAddress()"
+              i18n="@@account.forget">
               Forget this address
             </ion-button>
           } @else {
             <ion-button expand="block" fill="outline" data-testid="add-address"
-              (click)="editAddress()">
+              (click)="editAddress()"
+              i18n="@@account.add">
               Add a delivery address
             </ion-button>
           }
         }
 
-        <ion-button expand="block" (click)="signOut()">Sign out</ion-button>
+        <ion-button expand="block" (click)="signOut()" i18n="@@account.signOut">Sign out</ion-button>
       } @else {
-        <ion-button expand="block" (click)="signIn()">Sign in</ion-button>
+        <ion-button expand="block" (click)="signIn()" i18n="@@account.signIn">Sign in</ion-button>
       }
 
-      <ion-item lines="none"><ion-label><h3>Appearance</h3></ion-label></ion-item>
-      <ion-segment aria-label="Appearance" data-testid="appearance"
+      <ion-item lines="none"><ion-label><h3 i18n="@@account.appearance">Appearance</h3></ion-label></ion-item>
+      <ion-segment aria-label="Appearance" i18n-aria-label="@@account.appearance" data-testid="appearance"
         [value]="appearance()" (ionChange)="chooseAppearance($event)">
         <ion-segment-button value="system" data-testid="appearance-system">
-          <ion-label>System</ion-label>
+          <ion-label i18n="@@account.system">System</ion-label>
         </ion-segment-button>
         <ion-segment-button value="light" data-testid="appearance-light">
-          <ion-label>Light</ion-label>
+          <ion-label i18n="@@account.light">Light</ion-label>
         </ion-segment-button>
         <ion-segment-button value="dark" data-testid="appearance-dark">
-          <ion-label>Dark</ion-label>
+          <ion-label i18n="@@account.dark">Dark</ion-label>
         </ion-segment-button>
       </ion-segment>
 
@@ -297,8 +305,8 @@ export class AccountPage {
    */
   readonly tokenPosture = computed(() =>
     this.auth.sessionEndsOnReload
-      ? 'Session ends on reload, no refresh token.'
-      : 'Refresh token in secure storage, rotated.',
+      ? $localize`:@@account.postureWeb:Session ends on reload, no refresh token.`
+      : $localize`:@@account.postureNative:Refresh token in secure storage, rotated.`,
   );
 
   constructor() {

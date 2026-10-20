@@ -50,7 +50,7 @@ import { SkeletonListComponent } from '@shared/skeleton-list.component';
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <ion-header><ion-toolbar><ion-title>History</ion-title></ion-toolbar></ion-header>
+    <ion-header><ion-toolbar><ion-title i18n="@@orders.title">History</ion-title></ion-toolbar></ion-header>
 
     <ion-content>
       <ion-refresher slot="fixed" [disabled]="rateLimit.blocked()" (ionRefresh)="refresh($event)">
@@ -61,7 +61,7 @@ import { SkeletonListComponent } from '@shared/skeleton-list.component';
 
       @if (error() || unread()) {
         <ion-button expand="block" fill="outline"
-          [disabled]="rateLimit.blocked()" (click)="retryLoad()">Try again</ion-button>
+          [disabled]="rateLimit.blocked()" (click)="retryLoad()" i18n="@@action.tryAgain">Try again</ion-button>
       }
 
       @if (showSkeleton()) {
@@ -69,8 +69,9 @@ import { SkeletonListComponent } from '@shared/skeleton-list.component';
       }
 
       @if (isEmpty()) {
-        <app-empty-state heading="No orders yet" icon="receipt-outline"
-          message="Orders you place from the cart appear here." />
+        <app-empty-state heading="No orders yet" i18n-heading="@@orders.emptyHeading"
+          icon="receipt-outline" message="Orders you place from the cart appear here."
+          i18n-message="@@orders.emptyMessage" />
       }
 
       <ion-list>
@@ -83,7 +84,7 @@ import { SkeletonListComponent } from '@shared/skeleton-list.component';
                 @if (order.total; as total) {
                   {{ total.amount | money: total.currency }}
                 } @else {
-                  Not priced yet
+                  <ng-container i18n="@@orders.notPriced">Not priced yet</ng-container>
                 }
                 @if (order.timeline.placed; as placed) {
                   · {{ placed | date: 'medium' }}
@@ -96,7 +97,7 @@ import { SkeletonListComponent } from '@shared/skeleton-list.component';
       </ion-list>
 
       @if (reachedEnd()) {
-        <p class="end" data-testid="end-of-list">That is every order on this account.</p>
+        <p class="end" data-testid="end-of-list" i18n="@@orders.end">That is every order on this account.</p>
       }
 
       <ion-infinite-scroll [disabled]="!canLoadMore()" (ionInfinite)="loadMore($event)">
@@ -224,8 +225,12 @@ export class OrdersPage {
    * that rather than dropped, and an order with no priced lines yet says so.
    */
   headline(order: OrderSummary): string {
-    if (order.lines.length === 0) return 'Order details not recorded yet';
-    return order.lines.map((line) => line.productName ?? 'Unnamed product').join(', ');
+    if (order.lines.length === 0) {
+      return $localize`:@@orders.noDetails:Order details not recorded yet`;
+    }
+    return order.lines
+      .map((line) => line.productName ?? $localize`:@@orders.unnamed:Unnamed product`)
+      .join(', ');
   }
 
   private clear(): void {

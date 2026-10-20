@@ -31,10 +31,10 @@ export function stockLabel(stock: Stock): string | null {
     case 'unreported':
       return null;
     case 'in':
-      return 'In stock';
+      return $localize`:@@stock.in:In stock`;
     case 'low':
-      return `Only ${stock.left} left`;
+      return $localize`:@@stock.low:Only ${stock.left}:left: left`;
     case 'out':
-      return 'Out of stock';
+      return $localize`:@@stock.out:Out of stock`;
   }
 }

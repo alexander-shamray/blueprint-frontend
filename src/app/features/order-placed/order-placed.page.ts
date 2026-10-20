@@ -49,7 +49,7 @@ import { OrderStatusComponent } from '@shared/order-status.component';
     <ion-header>
       <ion-toolbar>
         <ion-buttons slot="start"><ion-back-button defaultHref="/tabs/cart"></ion-back-button></ion-buttons>
-        <ion-title>Order placed</ion-title>
+        <ion-title i18n="@@placed.title">Order placed</ion-title>
       </ion-toolbar>
     </ion-header>
 
@@ -65,8 +65,8 @@ import { OrderStatusComponent } from '@shared/order-status.component';
       @if (alreadyCommitted()) {
         <ion-item>
           <ion-label>
-            <h2>Already committed</h2>
-            <ion-note>
+            <h2 i18n="@@placed.committedHeading">Already committed</h2>
+            <ion-note i18n="@@placed.committedNote">
               The platform reported that this command id had already been applied, and it no longer
               holds the result. The order exists, and its id is not recoverable from this page;
               History lists every order this account has placed.
@@ -74,14 +74,15 @@ import { OrderStatusComponent } from '@shared/order-status.component';
           </ion-label>
         </ion-item>
 
-        <ion-button expand="block" fill="outline" routerLink="/tabs/orders">Open History</ion-button>
+        <ion-button expand="block" fill="outline" routerLink="/tabs/orders"
+          i18n="@@placed.openHistory">Open History</ion-button>
       } @else if (foreign()) {
         <!--
           The id, its status and its tracking link belong to the buyer who
           placed it, and they are not the one signed in now.
         -->
         <ion-item data-testid="foreign">
-          <ion-note>
+          <ion-note i18n="@@placed.foreign">
             This order was placed under another sign-in, so it is not shown here. Sign in as the
             account that placed it to follow it.
           </ion-note>
@@ -89,7 +90,7 @@ import { OrderStatusComponent } from '@shared/order-status.component';
       } @else if (orderId() !== '') {
         <ion-item>
           <ion-label>
-            <h2>Order</h2>
+            <h2 i18n="@@placed.order">Order</h2>
             <ion-text><code>{{ orderId() }}</code></ion-text>
           </ion-label>
           @if (status(); as current) {
@@ -101,7 +102,8 @@ import { OrderStatusComponent } from '@shared/order-status.component';
           <ion-note data-testid="status-note">{{ statusNote() }}</ion-note>
         </ion-item>
 
-        <ion-button expand="block" fill="outline" [routerLink]="['/tabs/orders', orderId()]">
+        <ion-button expand="block" fill="outline" [routerLink]="['/tabs/orders', orderId()]"
+          i18n="@@placed.track">
           Track this order
         </ion-button>
       }
@@ -165,14 +167,20 @@ export class OrderPlacedPage {
 
   readonly statusNote = computed(() => {
     const status = this.statusState();
-    if (status !== null && isTerminal(status)) return 'This order has reached its last status.';
-    if (this.errorState() !== null) return 'The status is not being followed any more.';
-    if (this.transientState()) return 'The live status could not be reached just now; trying again shortly.';
-    if (status === null && this.notRecordedState()) {
-      return 'The platform has not recorded this order yet. Trying again shortly.';
+    if (status !== null && isTerminal(status)) {
+      return $localize`:@@placed.noteTerminal:This order has reached its last status.`;
     }
-    if (status === null) return 'Reading the order status…';
-    return 'Following changes while this page is open.';
+    if (this.errorState() !== null) {
+      return $localize`:@@placed.noteStopped:The status is not being followed any more.`;
+    }
+    if (this.transientState()) {
+      return $localize`:@@placed.noteTransient:The live status could not be reached just now; trying again shortly.`;
+    }
+    if (status === null && this.notRecordedState()) {
+      return $localize`:@@placed.noteNotRecorded:The platform has not recorded this order yet. Trying again shortly.`;
+    }
+    if (status === null) return $localize`:@@placed.noteReading:Reading the order status…`;
+    return $localize`:@@placed.noteFollowing:Following changes while this page is open.`;
   });
 
   /**

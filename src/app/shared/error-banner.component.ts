@@ -11,19 +11,18 @@ const GENERIC: Readonly<Record<ErrorKind, string | null>> = {
   validation: null,
   banner: null,
   rule: null,
-  signIn: 'Sign in to continue.',
-  forbidden: 'Your account does not hold the permission this action needs.',
-  alreadyCommitted: 'This request was already applied. It has not been sent again.',
-  inProgress: 'An identical request is still in flight. Try again in a moment.',
-  concurrencyConflict: 'Someone else changed this while you were working. Reload and try again.',
+  signIn: $localize`:@@error.signIn:Sign in to continue.`,
+  forbidden: $localize`:@@error.forbidden:Your account does not hold the permission this action needs.`,
+  alreadyCommitted: $localize`:@@error.alreadyCommitted:This request was already applied. It has not been sent again.`,
+  inProgress: $localize`:@@error.inProgress:An identical request is still in flight. Try again in a moment.`,
+  concurrencyConflict: $localize`:@@error.concurrencyConflict:Someone else changed this while you were working. Reload and try again.`,
   // ADR-057 stores only a successful command's result, so the earlier
   // submission is known to have been applied — and this one, which differs
   // from it, is known not to have been.
-  idReused:
-    'An earlier submission from this form already went through, so this changed one was not applied.',
-  rateLimited: 'Too many requests.',
-  unavailable: 'The service is temporarily unavailable.',
-  retry: 'Something went wrong.',
+  idReused: $localize`:@@error.idReused:An earlier submission from this form already went through, so this changed one was not applied.`,
+  rateLimited: $localize`:@@error.rateLimited:Too many requests.`,
+  unavailable: $localize`:@@error.unavailable:The service is temporarily unavailable.`,
+  retry: $localize`:@@error.retry:Something went wrong.`,
 };
 
 @Component({
@@ -44,7 +43,7 @@ const GENERIC: Readonly<Record<ErrorKind, string | null>> = {
           }
 
           @if (e.permission) {
-            <p>Needed: <code>{{ e.permission }}</code></p>
+            <p i18n="@@error.permissionNeeded">Needed: <code>{{ e.permission }}</code></p>
           }
 
           @if (e.fields) {
@@ -73,7 +72,7 @@ const GENERIC: Readonly<Record<ErrorKind, string | null>> = {
                 remains.
               -->
               @if (e.retryAfterIsFallback) {
-                <ion-note>
+                <ion-note i18n="@@error.retryEstimate">
                   The platform sent no readable Retry-After, so that is this app's own estimate.
                 </ion-note>
               }
@@ -81,7 +80,7 @@ const GENERIC: Readonly<Record<ErrorKind, string | null>> = {
           }
 
           @if (e.correlationId) {
-            <ion-note>Correlation id: <code>{{ e.correlationId }}</code></ion-note>
+            <ion-note i18n="@@error.correlationId">Correlation id: <code>{{ e.correlationId }}</code></ion-note>
           }
         </div>
       </div>
@@ -119,7 +118,9 @@ export class ErrorBannerComponent {
    */
   protected readonly retryLabel = computed(() => {
     const seconds = this.retryInSeconds() ?? this.error()?.retryAfterSeconds ?? 0;
-    return seconds > 0 ? `Retry in ${seconds}s.` : 'You can try again now.';
+    return seconds > 0
+      ? $localize`:@@error.retryIn:Retry in ${seconds}:seconds:s.`
+      : $localize`:@@error.retryNow:You can try again now.`;
   });
 
   /**
@@ -128,9 +129,10 @@ export class ErrorBannerComponent {
    * `null` is a legal value here — not just a template guard upstream — and
    * must not be assumed away with a non-null assertion.
    */
+  private readonly fallback = $localize`:@@error.fallback:Something went wrong.`;
   protected readonly heading = computed(() => {
     const e = this.error();
-    return e ? e.title || GENERIC[e.kind] || 'Something went wrong.' : 'Something went wrong.';
+    return e ? e.title || GENERIC[e.kind] || this.fallback : this.fallback;
   });
 
   protected readonly fieldEntries = computed(() => Object.entries(this.error()?.fields ?? {}));

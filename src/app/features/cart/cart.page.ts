@@ -28,15 +28,18 @@ import { MoneyPipe } from '@shared/money.pipe';
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <ion-header><ion-toolbar><ion-title>Cart</ion-title></ion-toolbar></ion-header>
+    <ion-header><ion-toolbar><ion-title i18n="@@cart.title">Cart</ion-title></ion-toolbar></ion-header>
 
     <ion-content>
       <app-error-banner [error]="error() ?? rateLimit.refusal()" [retryInSeconds]="rateLimit.remaining()" />
 
       @if (store.isEmpty()) {
-        <app-empty-state heading="Your cart is empty" icon="cart-outline"
-          message="Add something from Products and it will wait here, even across restarts.">
-          <ion-button routerLink="/tabs/products" fill="outline">Browse products</ion-button>
+        <app-empty-state heading="Your cart is empty" i18n-heading="@@cart.emptyHeading"
+          icon="cart-outline"
+          message="Add something from Products and it will wait here, even across restarts."
+          i18n-message="@@cart.emptyMessage">
+          <ion-button routerLink="/tabs/products" fill="outline"
+            i18n="@@product.browse">Browse products</ion-button>
         </app-empty-state>
       } @else {
         <ion-list>
@@ -54,7 +57,7 @@ import { MoneyPipe } from '@shared/money.pipe';
               <ion-item>
                 <ion-label>
                   <h2>{{ line.name }}</h2>
-                  <ion-note>
+                  <ion-note i18n="@@cart.listingPrice">
                     Listing price {{ line.amount | money: line.currency }} — the quote is the price that counts
                   </ion-note>
                   @if (quotedLines()[line.productId]; as quoted) {
@@ -64,7 +67,7 @@ import { MoneyPipe } from '@shared/money.pipe';
                     </ion-note>
                   }
                   @if (isUnpriced(line.productId)) {
-                    <ion-note color="warning">Not priced in {{ currency() }}</ion-note>
+                    <ion-note color="warning" i18n="@@cart.notPriced">Not priced in {{ currency() }}</ion-note>
                   }
                   @if (availabilityWarning(line); as warning) {
                     <ion-note color="warning" data-testid="availability-warning">{{ warning }}</ion-note>
@@ -109,18 +112,19 @@ import { MoneyPipe } from '@shared/money.pipe';
                 <ion-button slot="end" fill="clear"
                   (click)="setQuantity(line.productId, line.quantity + 1)">+</ion-button>
                 <ion-button slot="end" fill="clear" color="danger" class="remove-button"
-                  (click)="remove(line.productId)">Remove</ion-button>
+                  (click)="remove(line.productId)" i18n="@@cart.remove">Remove</ion-button>
               </ion-item>
 
               <ion-item-options side="end">
-                <ion-item-option color="danger" (click)="remove(line.productId)">Remove</ion-item-option>
+                <ion-item-option color="danger" (click)="remove(line.productId)"
+                  i18n="@@cart.remove">Remove</ion-item-option>
               </ion-item-options>
             </ion-item-sliding>
           }
         </ion-list>
 
         <ion-item>
-          <ion-select label="Currency" [value]="currency()"
+          <ion-select label="Currency" i18n-label="@@cart.currency" [value]="currency()"
             (ionChange)="setCurrency($any($event).detail.value)">
             @for (code of currencies; track code) {
               <ion-select-option [value]="code">{{ code }}</ion-select-option>
@@ -135,17 +139,17 @@ import { MoneyPipe } from '@shared/money.pipe';
           for this whole branch.
         -->
         <ion-button expand="block" [disabled]="rateLimit.blocked()"
-          (click)="getQuote()">Get quote</ion-button>
+          (click)="getQuote()" i18n="@@cart.getQuote">Get quote</ion-button>
 
         @if (quote(); as q) {
           <ion-item>
             <ion-label>
-              <strong>Total: {{ q.total | money: q.currency }}</strong>
+              <strong i18n="@@cart.total">Total: {{ q.total | money: q.currency }}</strong>
             </ion-label>
           </ion-item>
         }
 
-        <ion-button expand="block" [disabled]="!canCheckout()" (click)="checkout()">Checkout</ion-button>
+        <ion-button expand="block" [disabled]="!canCheckout()" (click)="checkout()" i18n="@@cart.checkout">Checkout</ion-button>
       }
     </ion-content>
   `,
@@ -317,8 +321,8 @@ export class CartPage {
     if (available === null || available === undefined || line.quantity <= available) return null;
 
     return available <= 0
-      ? 'Listed as out of stock. The order may be refused.'
-      : `Only ${available} listed as available. The order may be refused for the rest.`;
+      ? $localize`:@@cart.warnOut:Listed as out of stock. The order may be refused.`
+      : $localize`:@@cart.warnFew:Only ${available}:available: listed as available. The order may be refused for the rest.`;
   }
 
   setCurrency(currency: string): void {
