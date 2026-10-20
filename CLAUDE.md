@@ -163,6 +163,8 @@ here. Four rules reach every session:
   of the boundary it is on. `docs/testing.md` owns the prerequisite and the
   faster per-class runner.
 
+### What was not ported
+
 This repository's `.claude/` came from the backend, and the closure gate, the
 locality gate and the two document audits did not come with it:
 `docs/change-locality.md` §3 and `/pr` say where the gap bites.
