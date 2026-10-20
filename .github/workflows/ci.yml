@@ -341,9 +341,7 @@ jobs:
   # assets and writes Package.swift and capacitor.config.json. It does not
   # compile Swift, so it catches a plugin that is missing from the iOS project
   # or a config that no longer parses, and nothing about whether the app
-  # builds. The compile lives in the disabled job below; enabling it is one
-  # line and costs a macOS runner minute per push, which is why it is off
-  # rather than an oversight.
+  # builds. The compile is ios-build, below.
   ios-config:
     runs-on: ubuntu-latest
     # Bounds a step that never exits, which would otherwise hold the runner
@@ -360,15 +358,31 @@ jobs:
       - run: npm run build
       - run: npx cap sync ios
 
-  # ios-build:
-  #   runs-on: macos-latest
-  #   steps:
-  #     - uses: actions/checkout@v4
-  #     - uses: actions/setup-node@v4
-  #       with: { node-version-file: .nvmrc, cache: npm }
-  #     - run: npm ci && npm run build && npx cap sync ios
-  #     # -project, not -workspace: Capacitor 8 generates a Swift Package
-  #     # Manager project (ios/App/CapApp-SPM plus Package.swift) and there is
-  #     # no App.xcworkspace to point at. A -workspace invocation fails with
-  #     # "does not exist" rather than with anything about Swift.
-  #     - run: xcodebuild -project ios/App/App.xcodeproj -scheme App -sdk iphonesimulator build
+  # An unsigned simulator build: it compiles the Swift and nothing more. No
+  # signing, no device and no secrets, and it does not launch the app, which
+  # would be a separate piece of work. The repository is public, so the macOS
+  # minutes are free.
+  ios-build:
+    # Pinned, not macos-latest: this job claims a compile against an Xcode
+    # and a simulator SDK, and a moving label can change both with no change
+    # to the project. Bumping the pin is a deliberate act with one thing to
+    # re-check: that the build still succeeds.
+    runs-on: macos-15
+    # Bounds a step that never exits, which would otherwise hold the runner
+    # for GitHub's default limit (docs/testing.md). Headroom over the usual
+    # run, not a duration.
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npx cap sync ios
+      # -project, not -workspace: Capacitor 8 generates a Swift Package
+      # Manager project (ios/App/CapApp-SPM plus Package.swift) and there is
+      # no App.xcworkspace to point at. A -workspace invocation fails with
+      # "does not exist" rather than with anything about Swift.
+      - run: xcodebuild -project ios/App/App.xcodeproj -scheme App -sdk iphonesimulator CODE_SIGNING_ALLOWED=NO build
