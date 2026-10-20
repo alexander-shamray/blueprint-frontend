@@ -11,7 +11,9 @@ average (fresh input, cache writes and cache reads together), the context a
 turn re-sends. `input_equivalent` prices the input side as uncached input
 (writes at 1.25× or 2×, reads at 0.1×), so it is the one number that compares
 two rows. `woken_equivalent` is the part of it spent after a wake, before the
-next typed prompt.
+next typed prompt. **A total's `contexts` is a count of distinct contexts**,
+so it is not the sum of the rows above it: a prompt and the subagents it
+started are one context in the total and one in each of their rows.
 
 ## 2026-10-19 — the baseline, the owner's machine
 
@@ -97,6 +99,8 @@ this is one named run's cost and not a per-pull-request one.
 | `(no command)`, `main` | 10 | 437 | 368,243 | 17.6 M |
 | `skill:ship`, `main` | 2 | 108 | 154,400 | 2.0 M |
 | `(no command)`, `branch-reviewer` | 17 | 90 | 46,230 | 1.2 M |
+| `skill:ship`, `branch-reviewer` | 3 | 12 | 27,760 | 0.1 M |
+| `skill:pr`, `main` | 1 | 6 | 182,874 | 0.1 M |
 | Total | 30 | 653 | 280,534 | 21.1 M |
 
 **`mean_context` of 368 k on a session's own turns** is what a long session
