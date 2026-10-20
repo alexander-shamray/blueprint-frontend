@@ -62,6 +62,13 @@ __pycache__/
 # /commit and the code index do not read a second copy of the tree.
 .claude/worktrees/
 
+# Claude Code writes these when a session schedules work (a wakeup or a cron
+# task). They were hidden only by a per-clone .git/info/exclude, which the
+# root-ignore coverage test rightly refuses: the code index reads the files
+# and git alone would not hide them (#276).
+.claude/scheduled_tasks.lock
+.claude/scheduled_tasks.json
+
 # Session state, already ignored by a nested `.gitignore` holding `*` — but
 # git reads those at any depth and the code index reads only the root files
 # its config names, so without these two lines it indexed both trees whole,
