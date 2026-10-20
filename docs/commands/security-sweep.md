@@ -490,18 +490,18 @@ Each round is the review done once, end to end:
    `.claude/agents/security-auditor.md`, and take its verdict record. **The
    verifier runs on the cheaper model because the parent catches its error**:
    a wrong `confirmed` meets the de-duplicate gate and the parent's own
-   reading before anything files. **This step does not open `$work` itself, and that is the
-   change (#75 item 5).** It used to, deliberately, so that an unverified
-   agent claim never became an issue; the property that bought is kept — two
-   independent read-only readings, neither able to mutate, must agree — and
-   what it cost is given up: the audited tree no longer enters the one
-   invocation that holds `gh-sweep-issue-create.sh`. A verdict of `refuted` or
-   `outside-root` drops the candidate; a record that is not in the declared
-   shape is dropped as malformed and counted; and **a record whose `file` and
-   `line` are not the candidate's as dispatched is dropped the same way**,
-   whatever its verdict says — two readings that disagree on where the
-   defect is have not agreed, and a `confirmed` at another location is a
-   redirect, not a confirmation. Drop what does not survive.
+   reading before anything files. **This step does not open `$work` itself,
+   and that is the change (#75 item 5).** It used to, deliberately, so that
+   an unverified agent claim never became an issue; the property that bought
+   is kept — two independent read-only readings, neither able to mutate, must
+   agree — and what it cost is given up: the audited tree no longer enters
+   the one invocation that holds `gh-sweep-issue-create.sh`. A verdict of
+   `refuted` or `outside-root` drops the candidate; a record that is not in
+   the declared shape is dropped as malformed and counted; and **a record
+   whose `file` and `line` are not the candidate's as dispatched is dropped
+   the same way**, whatever its verdict says — two readings that disagree on
+   where the defect is have not agreed, and a `confirmed` at another location
+   is a redirect, not a confirmation. Drop what does not survive.
 3. **De-duplicate.** Check each survivor against the tracked set and the
    already-tracked rule above.
 4. **File.** One issue per survivor, most severe first, in the house body form:
