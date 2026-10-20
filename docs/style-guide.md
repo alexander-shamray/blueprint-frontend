@@ -18,7 +18,7 @@ Three files and a command, and they do not overlap. The question is never
 | | |
 |---|---|
 | `.prettierrc` | Layout Prettier owns outright: `printWidth: 100`, `singleQuote: true`, semicolons, trailing commas, and every wrapping decision in `.ts` and `.html` |
-| `eslint.config.js` | Rules about the *program* rather than its layout: the import boundaries, the `app` selector prefixes, the Angular template accessibility set |
+| `eslint.config.js` | Rules about the *program* rather than its layout: the import boundaries, the `app` selector prefixes, the Angular template accessibility set, and that every template string is marked for translation |
 | `.editorconfig` | What an editor applies before either runs: UTF-8, two-space indent, final newline, trimmed trailing whitespace, and `quote_type = single` for `.ts` |
 | this file | Everything none of the three can express — and it is most of what follows |
 
@@ -105,6 +105,11 @@ written down rather than left to be rediscovered.
 - **Selectors are `app-` kebab-case for components and `app` camelCase for
   directives.** `eslint.config.js` enforces both; a component without the
   prefix fails lint rather than review.
+- **A user-facing string is marked for translation, with an explicit id.**
+  Template text takes `i18n="@@area.name"`, a static attribute takes
+  `i18n-<attribute>`, and a string built in TypeScript is a `$localize` tag;
+  `client-architecture.md` §17 argues why and what the two gates do not see.
+  Run `npx ng extract-i18n` after adding or removing one.
 - **A feature never imports another feature, and `core` knows nothing about
   screens.** This is spec §3, enforced coarsely by `no-restricted-imports` and
   precisely by `src/app/core/boundaries.spec.ts` — read that file's comment
