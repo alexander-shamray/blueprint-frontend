@@ -1778,6 +1778,22 @@ the shape check that stops a poisoned finding from naming a PR worktree
 and having it deleted. Renaming the prefix would have to move in both helpers
 and both callers at once, so it stands; what is lost is attribution.
 
+**Both sweeps now write two things besides their issues and their worktree**
+(blueprint-frontend#172, ported from the backend). `sweep-slices.sh` writes its
+slice lists to the worktree's path plus `.slices`, a name it derives from the
+same checked shape rather than takes, and `git-worktree-drop.sh` removes that
+directory once git has removed the worktree. `sweep-mark.sh` moves
+`refs/sweeps/bug` or `refs/sweeps/security` to a commit, and only to an
+existing one by its full SHA. The ref is local and a missing one means a full
+sweep, so the write can make a later sweep read less only by pointing at a
+commit that really was swept clean; a poisoned tree cannot reach it, because
+the parent runs it once, on a clean end, with `$pinned`. **Both helpers are
+granted by prefix**, a free tail each, and both close it the way
+`git-worktree-drop.sh` does: a closed kind, a path or a SHA of one fixed shape,
+and a refusal before anything is written. The slicing helper is written for
+bash 3.2, which macOS ships, and a case in `test_sweep_slices.py` fails the
+build on a bash 4 construct.
+
 ## The index-refresh hook
 
 **The index-refresh hook is the first that runs code a session could edit,
