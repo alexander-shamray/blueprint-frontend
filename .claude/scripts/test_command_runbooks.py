@@ -106,5 +106,42 @@ class EachSplitCommandHasBothHalves(unittest.TestCase):
                               collapsed(ARGUMENTS / name))
 
 
+
+class TheBoundariesIndexMatchesItsHeadings(unittest.TestCase):
+    """blueprint-frontend#304 — `docs/harness-boundaries.md` opens with an index
+    that names each `## ` section in an italic table row, and nothing held the
+    two together. A heading added, renamed or removed left the index pointing
+    at a section that was not there, or silent about one that was.
+
+    The sizes in the second column are approximate and are not asserted.
+    """
+
+    DOC = SCRIPTS.parent.parent / "docs" / "harness-boundaries.md"
+    ROW = re.compile(r"^\| \*(?P<name>.+)\* \|")
+
+    def parts(self):
+        lines = self.DOC.read_text(encoding="utf-8").splitlines()
+        headings = [line[3:] for line in lines if line.startswith("## ")]
+        first = next((i for i, line in enumerate(lines)
+                      if line.startswith("## ")), len(lines))
+        rows = []
+        for line in lines[:first]:
+            match = self.ROW.match(line)
+            if match:
+                rows.append(match["name"])
+        return headings, rows
+
+    def test_the_file_has_headings_and_an_index_to_hold_them_to(self):
+        headings, rows = self.parts()
+        self.assertTrue(headings, "no `## ` heading was found to judge")
+        self.assertTrue(rows, "no italic index row was found before the first heading")
+
+    def test_every_heading_is_an_index_row_in_order_and_every_row_a_heading(self):
+        headings, rows = self.parts()
+        self.assertEqual(
+            headings, rows,
+            "the index above the first `## ` heading and the headings differ")
+
+
 if __name__ == "__main__":
     unittest.main()
