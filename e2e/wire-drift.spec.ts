@@ -78,7 +78,9 @@ test.describe('the comparison', () => {
   });
 
   test('a removed or renamed field fails', () => {
-    const { id: _id, ...rest } = base.properties;
+    const rest = Object.fromEntries(
+      Object.entries(base.properties).filter(([key]) => key !== 'id'),
+    );
     const problems = compareShape(
       wire,
       read,
