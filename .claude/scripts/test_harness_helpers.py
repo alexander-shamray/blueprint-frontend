@@ -11596,7 +11596,9 @@ class TheCodeIndexCliIsInstalledAtAPinnedVersion(unittest.TestCase):
                          "a requirement carries no --hash line")
         for name, hashes in entries:
             with self.subTest(requirement=name):
-                self.assertRegex(hashes, r"sha256:[0-9a-f]{64}")
+                for line in hashes.splitlines():
+                    self.assertRegex(
+                        line, r"^    --hash=sha256:[0-9a-f]{64}( \\)?$")
 
 
 if __name__ == "__main__":
