@@ -17,6 +17,7 @@ import { CatalogAvailability } from '@core/catalog/catalog-availability';
 import { CatalogRefresh } from '@core/catalog/catalog-refresh';
 import { DisplayError, mapError } from '@core/errors/error-mapper';
 import { RateLimitWindows } from '@core/errors/rate-limit';
+import { OnlineStatus } from '@core/network/online-status';
 import { EmptyStateComponent } from '@shared/empty-state.component';
 import { ErrorBannerComponent } from '@shared/error-banner.component';
 import { MoneyPipe } from '@shared/money.pipe';
@@ -82,6 +83,18 @@ import { stockLabel, stockOf } from './stock';
       </ion-refresher>
 
       <app-error-banner [error]="error() ?? rateLimit.refusal()" [retryInSeconds]="rateLimit.remaining()" />
+
+      <!--
+        The rows are the last page set this session loaded, kept in memory and
+        nowhere else (#99): offline they stay on screen, and say so, because a
+        price here is the server's fact as of that load. The shell's banner
+        says the device is offline; this says what that does to this list.
+      -->
+      @if (stale()) {
+        <p class="stale" role="status" data-testid="stale-list">
+          Showing the list as last loaded, so prices and stock may be out of date.
+        </p>
+      }
 
       <!--
         The way back from a failed load — of ANY page, not just the first.
@@ -164,6 +177,7 @@ import { stockLabel, stockOf } from './stock';
     .stock { margin: .25rem 0 0; font-size: .875rem; color: var(--ion-color-medium); }
     .stock.out { color: var(--ion-color-danger); }
     .end { text-align: center; color: var(--ion-color-medium); padding: 1rem; }
+    .stale { margin: 0; padding: .5rem 1rem; font-size: .875rem; color: var(--ion-color-medium); }
   `,
 })
 export class ProductsPage {
@@ -171,6 +185,7 @@ export class ProductsPage {
   private readonly cart = inject(CartStore);
   private readonly catalogRefresh = inject(CatalogRefresh);
   private readonly availability = inject(CatalogAvailability);
+  private readonly network = inject(OnlineStatus);
   private cursor: string | null = null;
   /**
    * The query the listing on screen was restarted under, which every later
@@ -285,6 +300,8 @@ export class ProductsPage {
       !this.hasMoreSignal(),
   );
   readonly reachedEnd = computed(() => !this.hasMoreSignal() && this.productsSignal().length > 0);
+  /** Rows on screen while the device is offline: loaded earlier, possibly out of date (#99). */
+  readonly stale = computed(() => !this.network.online() && this.productsSignal().length > 0);
 
   /**
    * Spec §6's 429 row — and the one page whose bucket is NOT the one every
