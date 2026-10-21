@@ -77,6 +77,7 @@ class TheRootFollowsTheActiveWorktree(unittest.TestCase):
 
     def setUp(self):
         self.hook = load()
+        self.generous_budget()
         self.base = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, self.base, ignore_errors=True)
         self.main = os.path.join(self.base, "repo")
@@ -93,6 +94,34 @@ class TheRootFollowsTheActiveWorktree(unittest.TestCase):
         self.sweep = os.path.join(self.base, "secsweep-abc123")
         git("worktree", "add", "-q", "--detach", self.sweep, cwd=self.main)
         self.common = os.path.join(self.main, ".git")
+
+    def generous_budget(self):
+        """Give the hook this case's git calls a budget a loaded host cannot spend.
+
+        Production starts one three-second `GIT_BUDGET` for the process, at its
+        first call (`deadline`), because one event must finish inside the five
+        seconds `settings.json` gives the hook. A case here makes many events
+        against real git in one loaded process, and ten copies of this class at
+        once spent the budget mid-case: a positive control then read as a
+        refusal and failed (blueprint-frontend#307). A case that sets
+        `_DEADLINE` itself, to spend or restore a budget, is honoured, and
+        `test_the_budget_is_started_once_from_git_budget` holds the real one.
+        """
+        def generous():
+            if self.hook._DEADLINE is None:
+                self.hook._DEADLINE = time.monotonic() + 120
+            return self.hook._DEADLINE
+        self.hook.deadline = generous
+
+    def test_the_budget_is_started_once_from_git_budget(self):
+        # The real function, on a module the override never touched.
+        hook = load()
+        self.assertIsNone(hook._DEADLINE)
+        before = time.monotonic()
+        first = hook.deadline()
+        self.assertGreaterEqual(first, before + hook.GIT_BUDGET)
+        self.assertLessEqual(first, time.monotonic() + hook.GIT_BUDGET)
+        self.assertEqual(first, hook.deadline())
 
     def test_an_edit_in_a_sibling_worktree_refreshes_that_worktree(self):
         root = self.hook.target_root(self.sibling, self.main)
