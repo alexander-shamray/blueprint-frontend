@@ -58,6 +58,7 @@ four when the headings were added, rounded, and are not kept current.
 | *What a command can write past the `Edit` denies* | 2.8 k | A command redirects or writes, or the Bash guard's redirection rules change |
 | *The external reviewers, archived* | 0.3 k | A question about Grok or Copilot review machinery |
 | *A grant is not a whitelist: allows, denies and helpers* | 1.4 k | Writing or auditing any `allowed-tools` or `disallowed-tools` line |
+| *The guards' threat model* | 0.2 k | Deciding whether a guard finding is filed |
 | *The git argv guard and its launcher* | 1.5 k | Touching `guard-git-argv.py` or `run-guard.sh` |
 | *The guard's residuals, and the bound on what has been looked for* | 2.5 k | Claiming the guard closes something |
 | *The inventory of grants wider than their operation* | 6.8 k | Adding a grant, or asking what a granted helper can still do |
@@ -491,6 +492,16 @@ concatenation is now MEASURED**, where this paragraph used to say it was not:
 the earlier probe was refused by the classifier layer — a second net worth
 noting and not evidence. It is evidence now, and it says the deny was genuinely
 defeatable rather than theoretically so.
+
+## The guards' threat model
+
+**The guards catch honest mistakes, not a session that sets out to defeat
+them.** Which guard findings are filed is
+`alexander-shamray/blueprint-backend`'s `docs/harness-boundaries.md`,
+*The guards' threat model*, and it holds here unchanged: a spelling an agent
+types in ordinary work, a guard failing open on good-faith input, or a false
+refusal is a finding; a spelling built only to hide a command from the hook is recorded
+as out of scope, never filed.
 
 ## The git argv guard and its launcher
 

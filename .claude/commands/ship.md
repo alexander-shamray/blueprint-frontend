@@ -337,11 +337,15 @@ no PR, the commonest state step 1 produces; it keeps its job in step 6.
      and adds none.
    - **A round whose only findings are refused under `docs/style-guide.md`'s
      comment rule ends it too.**
-   - **The seventh round is the ceiling.** Its findings are verified as in 2,
-     and each that holds and stays open is filed, one issue each, before step 6
-     merges — a `bug` as `high`, a `medium` or a `low` as itself, and a `nit`
-     not at all — with the title, a blank line and the body on stdin, the body
-     ending in the hand-filed trailer line `gh-issue-filing.sh` checks for:
+   - **The seventh round is the ceiling.** Its findings are verified as in 2.
+     One that holds and whose fix stays inside the touch set, at about twenty
+     lines or fewer, is fixed and committed as in 2, with no further round.
+     Each that stays open is filed before step 6 merges: a `bug` as `high` and
+     a `medium` as itself, one issue per cause (one cause with one fix at
+     several sites is one issue naming them all); every `low` together in one
+     issue for the PR, a checklist item each; a `nit` not at all. Each goes
+     with the title, a blank line and the body on stdin, the body ending in
+     the hand-filed trailer line `gh-issue-filing.sh` checks for:
 
      ```bash
      bash .claude/scripts/gh-issue-create.sh <bug|security> <high|medium|low>

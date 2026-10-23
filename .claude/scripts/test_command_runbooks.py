@@ -23,8 +23,8 @@ ARGUMENTS = SCRIPTS.parent.parent / "docs" / "commands"
 CEILINGS = {
     "review-branch.md": 11700,
     "branch.md": 9900,
-    "security-sweep.md": 14600,
-    "bug-sweep.md": 20400,
+    "security-sweep.md": 15100,
+    "bug-sweep.md": 20700,
     "ship.md": 36700,
 }
 
