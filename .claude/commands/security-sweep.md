@@ -71,6 +71,13 @@ or above.** Three gates, each dropping candidates the round must not file:
   step below is how it is confirmed.
 - **Medium or above.** Low and info findings go in the round summary, not the
   tracker. The threshold is the user's to move.
+- **One cause, one issue; fifteen a run.** Sites that share one cause and
+  one fix are one issue naming every site. Past fifteen filings in a run,
+  the rest are ranked in the summary for the next run.
+- **Inside the guards' threat model.** A spelling built only to hide a
+  command from a guard hook is out of scope (blueprint-backend's
+  `docs/harness-boundaries.md`, *The guards' threat model*): record it in
+  the summary, never file it.
 - **Not already tracked.** Enumerate the **whole** issue set through
   `gh-issue-list.sh`, which spells `--state all --limit 1000` itself, and match
   each finding against it. An open issue **opened by the repository owner**

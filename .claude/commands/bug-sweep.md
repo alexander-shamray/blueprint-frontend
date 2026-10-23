@@ -135,6 +135,9 @@ or high.** Three gates, each dropping candidates the round must not file:
   past the test corpus per the section above. A plausible logic bug that
   dissolves on a second read is this exercise's characteristic failure.
 - **Critical or high.** Everything below the bar is recorded, not filed.
+- **One cause, one issue; fifteen a run.** Sites that share one cause and
+  one fix are one issue naming every site. Past fifteen filings in a run,
+  the rest are ranked in the summary for the next run.
 - **Not already tracked.** Enumerate the **whole** issue set through
   `gh-issue-list.sh`, which spells `--state all --limit 1000` itself, and match
   each finding against it **regardless of label**. An open issue **opened by
