@@ -18,6 +18,7 @@ import { shopTools } from './shop-tools';
 /**
  * Where the tab keeps its conversation's id (AI assistant design §5.5): for
  * the tab, so a reload redraws the conversation and a new tab starts its own.
+ * It is kept with the subject it belongs to, and read back only for that one.
  */
 export const CONVERSATION_KEY = 'blueprint.assistant.conversation';
 
@@ -31,24 +32,39 @@ export const NOTICE_KEY = 'assistant-notice';
 /** What the shop says it is when it opens a conversation. */
 export const CLIENT = { name: 'blueprint-frontend', version: '1' } as const;
 
-/** A storage that refuses (a private window, blocked site data) keeps no id; nothing fails. */
-const TAB_IDS: IdStore = {
-  get: () => {
-    try {
-      return sessionStorage.getItem(CONVERSATION_KEY);
-    } catch {
-      return null;
-    }
-  },
-  set: (id) => {
-    try {
-      if (id === null) sessionStorage.removeItem(CONVERSATION_KEY);
-      else sessionStorage.setItem(CONVERSATION_KEY, id);
-    } catch {
-      // Without storage a reload starts a new conversation, which is all it costs.
-    }
-  },
-};
+/**
+ * The tab's id for `subject`. Another customer's id is never offered, though
+ * the BFF would answer it 404 (`AssistantEndpoints.cs` keys every read by the
+ * caller): it is that customer's, and the request would be wasted. A storage
+ * that refuses (a private window, blocked site data) keeps no id; nothing fails.
+ */
+function tabIds(subject: () => string | null): IdStore {
+  return {
+    get: () => {
+      const own = subject();
+      try {
+        const stored = JSON.parse(sessionStorage.getItem(CONVERSATION_KEY) ?? 'null') as {
+          subject?: unknown;
+          id?: unknown;
+        } | null;
+        return own !== null && stored?.subject === own && typeof stored.id === 'string'
+          ? stored.id
+          : null;
+      } catch {
+        return null;
+      }
+    },
+    set: (id) => {
+      const own = subject();
+      try {
+        if (id === null || own === null) sessionStorage.removeItem(CONVERSATION_KEY);
+        else sessionStorage.setItem(CONVERSATION_KEY, JSON.stringify({ subject: own, id }));
+      } catch {
+        // Without storage a reload starts a new conversation, which is all it costs.
+      }
+    },
+  };
+}
 
 /**
  * The customer's assistant (issue #326, `docs/client-architecture.md` §19):
@@ -80,7 +96,7 @@ export class AssistantStore {
     this.client,
     this.tools,
     () => this.opening(),
-    TAB_IDS,
+    tabIds(() => this.lastSubject ?? null),
     (state) => this.conversationState.set(state),
   );
 

@@ -159,7 +159,10 @@ describe('AssistantStore', () => {
       locale: 'en-GB',
       hostOptions: null,
     });
-    expect(sessionStorage.getItem(CONVERSATION_KEY)).toBe('c1');
+    expect(JSON.parse(sessionStorage.getItem(CONVERSATION_KEY) ?? 'null')).toEqual({
+      subject: 's1',
+      id: 'c1',
+    });
   });
 
   it('lists Publish in the catalogue for a customer who may publish', async () => {
@@ -175,7 +178,7 @@ describe('AssistantStore', () => {
   });
 
   it("redraws the tab's conversation when the signed-in customer returns", async () => {
-    sessionStorage.setItem(CONVERSATION_KEY, 'c9');
+    sessionStorage.setItem(CONVERSATION_KEY, JSON.stringify({ subject: 's1', id: 'c9' }));
     const { store, host, user } = setup({ user: null });
     host.on('GET', /\/conversations\/c9$/, () =>
       json({
@@ -193,6 +196,17 @@ describe('AssistantStore', () => {
 
     expect(store.state().id).toBe('c9');
     expect(store.state().items).toEqual([{ kind: 'operator', text: 'hello' }]);
+  });
+
+  it("never offers the host another customer's conversation id, or one stored before", async () => {
+    for (const stored of [JSON.stringify({ subject: 'someone-else', id: 'c9' }), 'c9', '{']) {
+      sessionStorage.setItem(CONVERSATION_KEY, stored);
+      const { store, host } = setup();
+      await settle();
+
+      expect(host.requests.some((r) => r.url.includes('/conversations/'))).toBe(false);
+      expect(store.state().id).toBeNull();
+    }
   });
 
   it('drops the conversation and the assistant on sign-out, asking the host nothing', async () => {
