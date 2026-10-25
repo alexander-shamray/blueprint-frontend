@@ -238,11 +238,13 @@ the same PR. It waives nothing else. In particular:
   and the owner merges it. **Rebase a Dependabot branch with
   `@dependabot rebase`, not locally**: a local rebase or amend keeps
   Dependabot as the author but makes you the committer, so the gate runs, and
-  so it does for a commit anyone else pushes and a merge commit from *Update
-  branch*; the pull request then needs the trailers like any other.
-  `@dependabot recreate` drops such commits. A commit that only claims both
-  addresses is a deliberate bypass, which branch protection and the owner's
-  review bound, not this check (blueprint-admin#400);
+  so it does for a commit anyone else pushes, which then needs the trailer
+  like any other. A merge commit from *Update branch* is refused whatever it
+  carries, so it is dropped with `@dependabot recreate`, which drops the other
+  kind too. A commit that only claims both addresses is a deliberate bypass,
+  which branch protection and the owner's review bound, not this check
+  (blueprint-admin#400). With no trailer, a Dependabot commit on `main` is
+  invisible to `git-revert-pr.sh`, so it is reverted by its sha;
 - when a change closes an issue, `Closes #n` as a bare line, not only inside
   a table cell;
 - a kind label and a severity label on every issue;
