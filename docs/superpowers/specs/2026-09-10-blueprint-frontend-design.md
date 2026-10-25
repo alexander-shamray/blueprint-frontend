@@ -218,7 +218,8 @@ application asks which platform it is on.
 Ionic tabs: **Products**, **Cart**, **Account**, with **History**, which
 appears only while signed in, and **Publish**, which appears only when
 `catalog:write` is held. Checkout and Order placed are pushed onto the Cart
-tab's stack; an order's tracking detail is pushed onto History's.
+tab's stack; an order's tracking detail is pushed onto History's. The
+assistant (§5.8) is a sheet over every tab, not a tab of its own.
 
 ### 5.1 Products
 
@@ -366,6 +367,23 @@ reply dropped if it belongs to an order or a buyer the page has since left,
 and one replay after a sign-in on a 401, sent only when the same buyer is
 signed in afterwards. After a 204 the page reads the order again and says the
 progress follows once the read records it.
+
+### 5.8 Assistant
+
+> **Added on 2026-10-25 (#326).** The argument, and what the client shares
+> with `blueprint-admin`'s console, are `docs/client-architecture.md` §19.
+
+A signed-in customer whose BFF has the assistant on sees one more control over
+every tab: a button that opens the assistant in a sheet. It is not a tab and
+not a route. While the BFF's status read says the assistant is off, or nobody
+is signed in, nothing of it renders. The sheet holds one conversation per
+browser tab, names the provider the questions go to and waits for the
+customer to acknowledge that before the first message, shows each reply as it
+streams and each tool call in words, says a refusal plainly, and offers Stop
+while a turn runs and Start over otherwise. The assistant reads only what the
+BFF lets it read for that customer, and the tools it may call in the client
+open a product, an order, the cart or one of the tabs — they change the view
+and nothing else.
 
 ## 6. Error handling
 
