@@ -3,6 +3,9 @@ import { addIcons } from 'ionicons';
 import {
   alertCircleOutline,
   cartOutline,
+  chatbubblesOutline,
+  checkmarkOutline,
+  closeOutline,
   cloudOfflineOutline,
   cloudUploadOutline,
   fileTrayOutline,
@@ -22,12 +25,16 @@ import { App } from './app/app';
  * ones in tabs.page.ts (grid/cart/receipt/cloud-upload/person-outline) and
  * alert-circle-outline in shared/error-banner.component.ts, and
  * file-tray-outline, shared/empty-state.component.ts's default, which the
- * History list overrides with receipt-outline. Every screen
+ * History list overrides with receipt-outline; and the assistant's
+ * chatbubbles, checkmark and close-outline (features/assistant/). Every screen
  * task after this one that adds an `<ion-icon>` must add its icon here too.
  */
 addIcons({
   alertCircleOutline,
   cartOutline,
+  chatbubblesOutline,
+  checkmarkOutline,
+  closeOutline,
   cloudOfflineOutline,
   cloudUploadOutline,
   fileTrayOutline,

@@ -3,6 +3,7 @@ import { IonBadge, IonIcon, IonLabel, IonTabBar, IonTabButton, IonTabs } from '@
 import { PERMISSIONS } from '@core/api/types';
 import { AuthService } from '@core/auth/auth.service';
 import { CartStore } from '@core/cart/cart.store';
+import { AssistantEntryComponent } from '@features/assistant/assistant-entry.component';
 import { OfflineBannerComponent } from '@shared/offline-banner.component';
 import { focusPageHeading } from './focus-page-heading';
 
@@ -11,12 +12,16 @@ import { focusPageHeading } from './focus-page-heading';
  * signed in, and Publish, which appears only when catalog:write is held. The
  * tab HIDES; the guard on the route refuses; the backend decides. All three,
  * because a hidden button and a refused call are two different facts (spec
- * §4.3).
+ * §4.3). The assistant's entry point sits over every tab while the BFF has it
+ * on and a customer is signed in (spec §5.8).
  */
 @Component({
   selector: 'app-tabs',
   standalone: true,
-  imports: [IonBadge, IonIcon, IonLabel, IonTabBar, IonTabButton, IonTabs, OfflineBannerComponent],
+  imports: [
+    AssistantEntryComponent, IonBadge, IonIcon, IonLabel, IonTabBar, IonTabButton, IonTabs,
+    OfflineBannerComponent,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <ion-tabs>
@@ -57,6 +62,10 @@ import { focusPageHeading } from './focus-page-heading';
         </ion-tab-button>
       </ion-tab-bar>
     </ion-tabs>
+
+    <!-- Over every tab, from the shell, and nothing at all while the BFF says
+         the assistant is off or nobody is signed in (#326). -->
+    <app-assistant-entry />
   `,
 })
 export class TabsPage {
