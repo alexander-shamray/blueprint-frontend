@@ -82,6 +82,11 @@ jobs:
   #
   # `npm audit` failing to answer (a registry outage) is not a clean tree, so
   # a document with no `metadata` fails the job rather than passing it.
+  #
+  # The whole tree, the build toolchain every `npm ci` installs included, is
+  # audited too, at `critical` only (#325): a compromised build tool fails the
+  # job, and a toolchain advisory below that, which often has no fixed release
+  # yet, does not. Dependabot raises those as bumps once upstream ships one.
   audit:
     runs-on: ubuntu-latest
     # Bounds a step that never exits, which would otherwise hold the runner
@@ -120,6 +125,8 @@ jobs:
             printf '%s\n' "$found" | grep -q "^$id"$'\t' || echo "::warning::$id is allowed but no longer reported - delete its row"
           done <<< "$ALLOWED"
           exit "$failed"
+      - name: Audit the whole tree at critical
+        run: npm audit --audit-level=critical
 
   e2e:
     runs-on: ubuntu-latest

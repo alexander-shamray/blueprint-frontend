@@ -1372,6 +1372,11 @@ commit. An advisory with no fixed version, or one whose path this client does
 not have, is allowed by id in the job's `ALLOWED` list with an expiry and a
 reason; an expired row fails the job again, which is the difference between an
 allow-list and a disabled job. The rows live in the job and nowhere else.
+A second step audits the whole tree, the build toolchain every `npm ci`
+installs included, at `critical` only (#325): a compromised build tool fails
+the job, while a toolchain advisory below that, which often waits on an
+upstream release, is left to Dependabot's weekly bumps rather than an
+allow-list row.
 
 The `commits` job runs on pull requests only and lints and builds every commit
 before the head (one `npm ci`, repeated when a commit's `package-lock.json`
