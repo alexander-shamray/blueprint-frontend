@@ -1967,3 +1967,117 @@ figure is crossed, the answer is still no, and this section stands.
 decision belongs in its series and not in this repository's. When it is filed,
 this section cites it and drops "proposed". The diagram label in backend §10.1
 is the backend's own change to make; this repository never edits a sibling.
+
+---
+
+## 19. The assistant is a mirror of the console's client, over `HttpClient`
+
+**Where it comes from.** Issue #326 asked for a customer-facing assistant: a
+chat that answers about the customer's own orders and products and moves
+around the shop. Its design is `blueprint-admin`'s
+`docs/superpowers/specs/2026-10-22-ai-assistant-design.md` (§5, §6.1, §6.4 and
+§13 are the parts this client implements), and its host is the backend's BFF,
+which serves the protocol at `/v1/assistant` for a signed-in customer
+(`Web.Bff/Assistant/AssistantEndpoints.cs`, ADR-151,
+blueprint-backend#1347), reached here through the gateway's `/bff` like every
+other BFF read (§11). Whether a provider is configured, and what customer data
+may reach it, are the backend's decisions; this client implements none of
+them.
+
+**What is shared, and how.** The design's §13 splits the browser client in
+two. The protocol's types, the client that speaks it and the client-tool
+registry are shared in shape and copied, not packaged:
+`src/app/core/assistant/protocol.ts`, `assistant-client.ts` and
+`client-tools.ts` are `blueprint-admin`'s files of the same names, each citing
+where it came from, with `readonly` on the wire fields as this client's types
+carry it and one addition, `AssistantConversation.abandon()`, below. The
+owner of the protocol is the backend's `Common.Assistant/Protocol/`, whose
+golden JSON files pin every body and event. `src/app/core/assistant/golden/`
+is a copy of them, and two checks keep the three in step. `protocol.spec.ts`
+holds the types to the copy and fails on a copied file it does not read.
+`e2e/assistant-drift.spec.ts` holds the copy to the backend's own files,
+file for file. It needs no stack, only the backend's tree, so it runs in the
+`e2e` job, which already checks the backend out (§14); no workflow changed
+for it. Under CI a missing tree is a failure, not a skip; locally it reads the
+nearest `blueprint-backend` above the checkout. What each client registers,
+its catalogue, its panel and its words are its own, and nothing of those is
+shared.
+
+**Why `HttpClient`, and what stands in for EventSource.** The console's copy
+calls `fetch` and opens an `EventSource`, because its host has no login. The
+BFF's whole group requires a bearer, an EventSource cannot send one, and the
+token does not go in a query string — the reason §12 gives for the order
+stream. So the shared client takes both calls as parameters, and
+`assistant-transport.ts` supplies them over `HttpClient`, which keeps the
+auth, rate-limit and log interceptors on every request. `fetch`'s shape
+resolves an answer of any status as a `Response` and rejects only a request
+that reached nobody, as `fetch` does. `HttpEventSource` reads the download
+progress text with `sse.ts`'s framing, hands on each named event with its id,
+and reconnects with `Last-Event-ID`: after the BFF ends a stream on its
+lifetime it waits the stream's own `retry:` hint, and after a failure a retry
+can mend — no answer, a 429, a 5xx — it waits from one second, doubling to
+fifteen. It gives up, as a browser's EventSource does on an answer that is not
+a stream, on a 404 (the host no longer holds the conversation) and on a 401 or
+403 (it no longer admits the caller), and the shared client then reads the
+conversation once to decide whether to follow on or say it has ended. The
+framing duplicates `core/api/order-events.ts`'s rather than moving it,
+because that file reads one event name and parses its data in place, and a
+second core area in this change would have been a refactor riding on a
+feature.
+
+**Off is the BFF's to say, and only a signed-in customer can ask.** The
+design's off switch (§9.1) is a status read that answers `enabled: false`,
+and with it off the UI shows no trace of the assistant. On the BFF even the
+status route requires a principal, so the read is made when a customer signs
+in, and again when a different one does. Until a read says `enabled`, nothing
+renders: no button, no sheet. A visitor who is not signed in therefore never
+sees the assistant, which is also the only case it could serve, since every
+read it makes is the signed-in customer's own.
+
+**What the shop shows.** `features/assistant/` is the slice: the store, the
+sheet and its entry point, the catalogue, the UI tools and the words. The
+shell places the entry point over every tab (`tabs.page.ts`), a button above
+the tab bar that opens a sheet with stops at half and whole height. The
+conversation is visible while the sheet is open; closed and idle, it holds no
+stream and no timer, and a turn still running keeps its stream so a UI tool
+it calls is answered (design §5.1). Stop cancels a running turn on the host.
+A refusal and every other unusual end are said in words, never left as an
+empty reply. The protocol's codes become words in `assistant-words.ts`,
+marked like every other message (§17).
+
+**The notice.** Before the first message the sheet names the provider the
+questions go to, and the box stays disabled until the customer acknowledges
+it (design §10). The acknowledgement is kept in Preferences per device, as
+the provider's name, so a different provider asks again.
+
+**The conversation and the session.** The conversation's id is kept in
+`sessionStorage` for the tab (design §5.5), so a reload redraws it from the
+host and a new tab starts its own; a storage that refuses costs only the
+redraw. A sign-out drops the conversation here without asking the host, which
+no longer admits the caller it belonged to: that is `abandon()`, the one
+method the console's copy does not need, because the console has no sign-out.
+Each turn carries the route the customer is on as its context.
+
+**The UI tools.** `open_product` and `open_order` take the id the BFF's read
+tools return and refuse anything that is not a UUID, so a steered model
+cannot build a path out of `..`. `open_cart` opens the cart and fills nothing.
+`open_page` opens Products, History, Account, or Publish for a customer who
+holds `catalog:write`. All four change only the view (design §6.3), and after
+one changes the page the sheet steps down to half height, so the customer
+sees what it opened. Their titles, descriptions and results are read by the
+model and not the customer, so they stay English (design §5.4);
+`i18n-literals.spec.ts` lists each by file and text with that reason.
+
+**The catalogue.** Each page the assistant may explain is sent with its id,
+its label, where it lives and its `help` (design §6.1). The label reuses the
+page title's message id, so the two cannot differ, and `help` is a message of
+its own, sent in the build's locale. Publish is listed only for a customer
+who may publish. A spec holds every `where` to a route in `app.routes.ts`.
+
+**What is left out, and what nothing tests.** The reserved
+`confirmation_required` event is ignored, as the design asks until actions
+are allowed, and no tool here changes anything on the platform. The Compose
+stack the `e2e` job starts runs the BFF with the assistant off, its default,
+so the smoke never sees the button. The panel's behaviour is covered by its
+unit specs against a scripted host, and the round trip through a real
+provider has not been run by anything in CI.
