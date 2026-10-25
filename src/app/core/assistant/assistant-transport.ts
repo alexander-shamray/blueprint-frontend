@@ -111,11 +111,11 @@ function toResponse(status: number, body: string | null): Response {
  * reads: named events with ids, reconnection with `Last-Event-ID`, and
  * `CLOSED` once it gives up.
  *
- * It gives up as a browser's does on an answer that is not a stream — a 404
- * for a conversation the host no longer holds, a 401 or 403 for a caller it
- * no longer admits — and reconnects on anything a retry can mend: no answer
- * at all, a 429 the gateway or the BFF's limiter returned, a 5xx, or a stream
- * the server ended on its lifetime.
+ * It reconnects only on what a retry can mend: no answer at all, a 429 the
+ * gateway or the BFF's limiter returned, a 5xx, or a stream the server ended
+ * on its lifetime. Every other answer is not a stream, and it gives up on
+ * those as a browser's does — a 404 for a conversation the host no longer
+ * holds, a 401 or 403 for a caller it no longer admits, and any other 4xx.
  */
 export class HttpEventSource implements EventSourceLike {
   readyState = CONNECTING;
@@ -171,8 +171,8 @@ export class HttpEventSource implements EventSourceLike {
         },
         error: (error: unknown) => {
           const status = error instanceof HttpErrorResponse ? error.status : 0;
-          if (status === 401 || status === 403 || status === 404) this.giveUp();
-          else this.reconnect(true);
+          if (status === 0 || status === 429 || status >= 500) this.reconnect(true);
+          else this.giveUp();
         },
         complete: () => this.reconnect(false),
       });
