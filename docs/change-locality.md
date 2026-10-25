@@ -231,17 +231,22 @@ the same PR. It waives nothing else. In particular:
   `commits`, and `commit-gate.yml` none: both judge a pull request's own
   commits, their trailers and that each one builds. A replay onto a newer
   `main` can leave an intermediate commit that no longer builds, which costs
-  `git bisect` a step and never turns `main` red, so that gap is accepted.
+  `git bisect` that commit's whole range (`ci.yml`'s comment on `commits`)
+  but is not a red `main`, because `web` builds the head. The gap is
+  accepted: building each commit on the push could only fault history the
+  ruleset forbids rewriting, so it would report what nobody can fix, and
+  `git bisect skip` steps over the commit it would have named.
   When a job fails on a push to `main`, `ci.yml`'s `main-red` job opens an
   issue titled `CI is red on main`, or comments on the open one, so a red run
   nobody watched still reaches the repository's watchers and every
   `gh issue list`; it is closed by hand once `main` is green;
 - every commit carries `PR: #<n>`, and every intermediate commit lints and
-  builds. A pull request lands by rebase, so the trailer is the only record of
-  which pull request a commit on `main` came from: `/pr` adds it once the
-  number exists, `/commit` writes it after, and the commit gate refuses a
-  range without it. The `commits` job lints and builds each commit but the
-  head, which `web` covers, so `git bisect` meets only commits that build.
+  builds as its pull request carried it. A pull request lands by rebase, so
+  the trailer is the only record of which pull request a commit on `main`
+  came from: `/pr` adds it once the number exists, `/commit` writes it after,
+  and the commit gate refuses a range without it. The `commits` job lints and
+  builds each commit but the head, which `web` covers, so `git bisect` meets
+  only commits that build, short of a replay that changed one (above).
   Reverting a pull request is `git-revert-pr.sh <n>`;
 - a Dependabot pull request (`.github/dependabot.yml`) carries no `PR:`
   trailer, so `commit-gate.yml` stands down when `dependabot[bot]` opened it
@@ -303,12 +308,12 @@ this file is opened; this section owns them.
   rebased by Dependabot (above). Each clone sets
   `git config rerere.enabled true` once, which its worktrees share, so a
   conflict resolved in one replay is not resolved again in the next.
-- **A pull request lands by rebase**, the one method the ruleset allows.
-  GitHub's auto-merge waits only for the checks the ruleset requires, and
-  with none required it merges at once, red or not. So a pull request
-  merged by hand gets auto-merge when its review is done only while the
-  ruleset requires checks, and `/ship` never uses it: its step 6 waits for
-  every check itself and merges directly.
+- **Auto-merge only while the ruleset requires checks.** The landing is the
+  rebase the trailer rule above names. GitHub's auto-merge waits only for the
+  checks the ruleset requires, and with none required it merges at once, red
+  or not. So a pull request merged by hand gets auto-merge when its review is
+  done only while the ruleset requires checks, and `/ship` never uses it: its
+  step 6 waits for every check itself and merges directly.
 - **Uncommitted work in the tree belongs in the PR being worked on**, in its
   own commit with a body that argues it. **Never revert it to clean the tree**;
   if it does not belong here, say so and ask rather than decide by deleting.
