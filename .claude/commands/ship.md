@@ -43,7 +43,7 @@ to the main checkout and removes the worktree, however the review ended.
 | A `branch-reviewer` round did not run — the agent missing, a reply that is not the JSON its profile declares, or one whose `read` is empty or whose `skipped` names anything but `locality` | The round did not happen, so no verdict may be minted from it: a review that read nothing is indistinguishable from a branch with nothing wrong in it, and only one of those is worth merging on |
 | `main` is ahead of `origin/main` at step 0 | Local commits on `main` need a decision this chain has no way to take |
 | CI is not green at step 6 | A merge onto a red `main` is not a judgement call |
-| The PR is not mergeable | Conflicts are the caller's tree, not this chain's |
+| The PR is not mergeable | Conflicts are the caller's tree, not this chain's; the caller updates the branch as `docs/change-locality.md` §6 says |
 
 The helper and reviewer rows are about *this* run; the other four are about
 the repository's state and have no recommended option. Rows are **named rather
@@ -413,7 +413,8 @@ no PR, the commonest state step 1 produces; it keeps its job in step 6.
      started no workflows for lists nothing failing and `--fail-fast` exits 0.
      A list missing either fails the wait, whatever the exit.
 
-   **What resolves a stale branch is a rebase:**
+   **What resolves a refused landing is a rebase**; a branch that is only
+   behind `main` lands as it is (`docs/change-locality.md` §6):
 
    ```bash
    bash .claude/scripts/git-rebase-onto-main.sh <branch> start

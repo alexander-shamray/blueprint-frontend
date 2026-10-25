@@ -840,6 +840,10 @@ request into several. The bar for `medium` and above is unchanged.
    than reaching for another method.
 
    **What resolves it is a branch update, and a branch update is a rebase.**
+   A refused landing is the trigger, and being behind `main` is not one: the
+   ruleset lands a branch that is behind as it is, and rebasing every open
+   pull request after each merge is the cost `docs/change-locality.md` §6
+   refuses to pay.
 
    ```bash
    bash .claude/scripts/git-rebase-onto-main.sh <branch> start
