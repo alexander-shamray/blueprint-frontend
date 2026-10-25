@@ -212,7 +212,10 @@ export class AssistantConversation {
   private readonly answered = new Set<string>();
   /** The client calls being run, one after another. */
   private running: Promise<unknown> = Promise.resolve();
-  /** Counts messages sent, so a read begun before the latest one never overwrites it. */
+  /**
+   * Bumped by each send, start-over and abandon, so a read or a send begun
+   * before the latest bump writes nothing back.
+   */
   private sends = 0;
 
   constructor(
