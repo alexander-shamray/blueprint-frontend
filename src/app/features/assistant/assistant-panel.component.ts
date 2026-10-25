@@ -117,7 +117,11 @@ type ToolItem = Extract<ConversationItem, { kind: 'tool' }>;
       <ion-toolbar>
         <ion-title i18n="@@assistant.title">Assistant</ion-title>
         <ion-buttons slot="end">
-          <ion-button (click)="startOver()" [disabled]="empty()" i18n="@@assistant.startOver"
+          <ion-button
+            (click)="startOver()"
+            [disabled]="empty() || running()"
+            data-testid="assistant-start-over"
+            i18n="@@assistant.startOver"
             >Start over</ion-button
           >
           <ion-button

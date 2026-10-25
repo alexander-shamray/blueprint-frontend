@@ -110,7 +110,7 @@ describe('AssistantPanelComponent', () => {
     expect(running.store.send).not.toHaveBeenCalled();
   });
 
-  it('offers Stop while a turn runs, and Stop cancels it', async () => {
+  it('offers Stop while a turn runs, and not Start over (spec §5.8); Stop cancels it', async () => {
     const { store, root } = await mount({
       id: 'c1',
       running: true,
@@ -118,6 +118,9 @@ describe('AssistantPanelComponent', () => {
     });
 
     expect(root.querySelector('[data-testid="assistant-send"]')).toBeNull();
+    expect(
+      root.querySelector('[data-testid="assistant-start-over"]')?.hasAttribute('disabled'),
+    ).toBe(true);
     (root.querySelector('[data-testid="assistant-stop"]') as HTMLElement).click();
     expect(store.cancel).toHaveBeenCalled();
   });
