@@ -1989,8 +1989,12 @@ two. The protocol's types, the client that speaks it and the client-tool
 registry are shared in shape and copied, not packaged:
 `src/app/core/assistant/protocol.ts`, `assistant-client.ts` and
 `client-tools.ts` are `blueprint-admin`'s files of the same names, each citing
-where it came from, with `readonly` on the wire fields as this client's types
-carry it and one addition, `AssistantConversation.abandon()`, below. The
+where it came from. This copy's own changes are `readonly` on the wire fields,
+as this client's types carry it; the transport seams below (the exported
+`Fetch` and `STREAM_CLOSED`, and no default `fetch` or base path); the
+`ConversationProblem` type the panel words; and
+`AssistantConversation.abandon()`, below, with the guard that keeps a send
+from writing over a conversation dropped while it was in flight. The
 owner of the protocol is the backend's `Common.Assistant/Protocol/`, whose
 golden JSON files pin every body and event. `src/app/core/assistant/golden/`
 is a copy of them, and two checks keep the three in step. `protocol.spec.ts`
