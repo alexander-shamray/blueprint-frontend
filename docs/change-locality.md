@@ -222,7 +222,20 @@ the same PR. It waives nothing else. In particular:
   identifiers keep their real spelling, 80-column prose, 100-column code;
 - `client-architecture.md` sections superseded with the old claim kept, never
   rewritten;
-- `main` stays green;
+- `main` stays green, and **a red `main` is reverted first and fixed
+  forward second**: `git-revert-pr.sh <n>` on the pull request that turned
+  it red, merged once its own checks pass, then the fix in a pull request
+  of its own. A pull request is not tested against the newest `main` before
+  it lands (below), so two that pass apart can fail together, and a push to
+  `main` is where that shows. `ci.yml` runs every job on that push but
+  `commits`, and `commit-gate.yml` none: both judge a pull request's own
+  commits, their trailers and that each one builds. A replay onto a newer
+  `main` can leave an intermediate commit that no longer builds, which costs
+  `git bisect` a step and never turns `main` red, so that gap is accepted.
+  When a job fails on a push to `main`, `ci.yml`'s `main-red` job opens an
+  issue titled `CI is red on main`, or comments on the open one, so a red run
+  nobody watched still reaches the repository's watchers and every
+  `gh issue list`; it is closed by hand once `main` is green;
 - every commit carries `PR: #<n>`, and every intermediate commit lints and
   builds. A pull request lands by rebase, so the trailer is the only record of
   which pull request a commit on `main` came from: `/pr` adds it once the
@@ -276,6 +289,26 @@ this file is opened; this section owns them.
   `## Severity` in the body and the label both have to say it.
 - **A reply is not a resolution.** Resolve a review thread in the same act as
   the reply, and leave an `Ask` open on purpose.
+- **A branch is updated only when GitHub reports a conflict, never because
+  another pull request landed.** Several agents keep pull requests open at
+  once, and the ruleset does not require a branch to be up to date before it
+  merges, so a branch behind `main` lands as it is; rebasing every open one
+  after each merge buys nothing but the next rebase. A conflict is
+  `mergeable` reading `CONFLICTING`, or the rebase landing refused. The
+  update is a rebase onto `origin/main`, resolved in the replayed commits and
+  published under a lease: `git-rebase-onto-main.sh <branch> start` from a
+  session, where the raw force push is refused, and `git fetch origin main`,
+  `git rebase origin/main`, `git push --force-with-lease` from anywhere else.
+  **Never force-push a branch somebody else owns**; a Dependabot branch is
+  rebased by Dependabot (above). Each clone sets
+  `git config rerere.enabled true` once, which its worktrees share, so a
+  conflict resolved in one replay is not resolved again in the next.
+- **A pull request lands by rebase**, the one method the ruleset allows.
+  GitHub's auto-merge waits only for the checks the ruleset requires, and
+  with none required it merges at once, red or not. So a pull request
+  merged by hand gets auto-merge when its review is done only while the
+  ruleset requires checks, and `/ship` never uses it: its step 6 waits for
+  every check itself and merges directly.
 - **Uncommitted work in the tree belongs in the PR being worked on**, in its
   own commit with a body that argues it. **Never revert it to clean the tree**;
   if it does not belong here, say so and ask rather than decide by deleting.
