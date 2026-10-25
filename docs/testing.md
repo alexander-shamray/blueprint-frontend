@@ -156,6 +156,12 @@ timeout, which is a far more expensive way to find out. Every job in `ci.yml`
 sets a `timeout-minutes` for that reason, as headroom over its usual run
 rather than a statement of its duration; a new job takes one too.
 
+**`npm test` needs git and a git working tree.**
+`src/app/core/lint-coverage.spec.ts` takes the files it judges from
+`git ls-files`, so a git-ignored tool directory cannot fail a local run
+(#330). An exported tree with no `.git` fails that file rather than passing
+it on an empty list.
+
 ## What the Playwright suite needs, and why it is CI's
 
 `npm run e2e` is the one suite that cannot run from a bare checkout. It needs:
