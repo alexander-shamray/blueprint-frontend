@@ -2021,9 +2021,10 @@ and reconnects with `Last-Event-ID`: after the BFF ends a stream on its
 lifetime it waits the stream's own `retry:` hint, and after a failure a retry
 can mend — no answer, a 429, a 5xx — it waits from one second, doubling to
 fifteen. It gives up, as a browser's EventSource does on an answer that is not
-a stream, on a 404 (the host no longer holds the conversation) and on a 401 or
-403 (it no longer admits the caller), and the shared client then reads the
-conversation once to decide whether to follow on or say it has ended. The
+a stream, on a 404 (the host no longer holds the conversation), on a 401 or
+403 (it no longer admits the caller) and on any other 4xx, and the shared
+client then reads the conversation once to decide whether to follow on or say
+it has ended. The
 framing duplicates `core/api/order-events.ts`'s rather than moving it,
 because that file reads one event name and parses its data in place, and a
 second core area in this change would have been a refactor riding on a
