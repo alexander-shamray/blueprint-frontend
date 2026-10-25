@@ -1,5 +1,6 @@
-import { readdirSync, readFileSync, statSync } from 'node:fs';
-import { join, relative, sep } from 'node:path';
+import { execFileSync } from 'node:child_process';
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { ESLint } from 'eslint';
 import { describe, expect, it } from 'vitest';
 
@@ -37,13 +38,25 @@ const NOT_SOURCE = new Set([
 /** TypeScript the lint target deliberately does not read. Empty is the goal; a row needs a reason. */
 const UNLINTED = new Map<string, string>([]);
 
-function walk(dir: string): string[] {
-  return readdirSync(dir).flatMap((entry) => {
-    if (NOT_SOURCE.has(entry)) return [];
-    const full = join(dir, entry);
-    if (statSync(full).isDirectory()) return walk(full);
-    return /\.(ts|mts|cts)$/.test(entry) ? [relative(root, full).split(sep).join('/')] : [];
-  });
+/**
+ * #330: the files a commit could carry, tracked or untracked, and nothing git ignores. A disk walk
+ * also read the session state tools write into ignored trees such as `.remember/`, which CI never
+ * sees, and failed every local run that held one; an untracked file nobody ignored still counts.
+ */
+function walk(): string[] {
+  const listed = execFileSync(
+    'git',
+    ['ls-files', '-z', '--cached', '--others', '--exclude-standard'],
+    {
+      cwd: root,
+      encoding: 'utf8',
+    },
+  );
+  return listed
+    .split('\0')
+    .filter((file) => /\.(ts|mts|cts)$/.test(file))
+    .filter((file) => !file.split('/').some((segment) => NOT_SOURCE.has(segment)))
+    .filter((file) => existsSync(join(root, file)));
 }
 
 /** The glob shapes `lintFilePatterns` and the tsconfig use: `**`, `*`, and literal text. */
@@ -71,7 +84,7 @@ function lintPatterns(): string[] {
 }
 
 describe('the lint target', () => {
-  const files = walk(root);
+  const files = walk();
 
   it('finds the trees it is meant to judge', () => {
     // A walk that found nothing would pass every test below.
