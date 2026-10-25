@@ -12,12 +12,11 @@ import {
   IonButton,
   IonButtons,
   IonContent,
-  IonFooter,
   IonHeader,
   IonIcon,
+  IonInput,
   IonNote,
   IonSpinner,
-  IonTextarea,
   IonTitle,
   IonToolbar,
 } from '@ionic/angular';
@@ -47,12 +46,11 @@ type ToolItem = Extract<ConversationItem, { kind: 'tool' }>;
     IonButton,
     IonButtons,
     IonContent,
-    IonFooter,
     IonHeader,
     IonIcon,
+    IonInput,
     IonNote,
     IonSpinner,
-    IonTextarea,
     IonTitle,
     IonToolbar,
   ],
@@ -110,7 +108,7 @@ type ToolItem = Extract<ConversationItem, { kind: 'tool' }>;
       gap: 0.5rem;
       padding: 0 0.5rem;
     }
-    .composer ion-textarea {
+    .composer ion-input {
       flex: 1;
     }
   `,
@@ -196,42 +194,41 @@ type ToolItem = Extract<ConversationItem, { kind: 'tool' }>;
       }
     </ion-content>
 
-    <ion-footer>
-      <ion-toolbar>
-        <div class="composer">
-          <ion-textarea
-            [value]="draft()"
-            (ionInput)="draft.set($event.detail.value ?? '')"
-            (keydown.enter)="onEnter($event)"
-            [autoGrow]="true"
-            [rows]="1"
-            [maxlength]="maxLength"
-            [disabled]="noticePending()"
-            aria-label="Message"
-            i18n-aria-label="@@assistant.message"
-            placeholder="Ask the assistant"
-            i18n-placeholder="@@assistant.placeholder"
-          ></ion-textarea>
-          @if (running()) {
-            <ion-button
-              (click)="cancel()"
-              color="medium"
-              data-testid="assistant-stop"
-              i18n="@@assistant.stop"
-              >Stop</ion-button
-            >
-          } @else {
-            <ion-button
-              (click)="send()"
-              [disabled]="!canSend()"
-              data-testid="assistant-send"
-              i18n="@@assistant.send"
-              >Send</ion-button
-            >
-          }
-        </div>
-      </ion-toolbar>
-    </ion-footer>
+    <!-- A toolbar and an ion-input rather than ion-footer and ion-textarea:
+         every Ionic component this client uses lands in the initial bundle,
+         and those two were new to it (#326, client-architecture.md §19). -->
+    <ion-toolbar>
+      <div class="composer">
+        <ion-input
+          [value]="draft()"
+          (ionInput)="draft.set($event.detail.value ?? '')"
+          (keydown.enter)="onEnter($event)"
+          [maxlength]="maxLength"
+          [disabled]="noticePending()"
+          aria-label="Message"
+          i18n-aria-label="@@assistant.message"
+          placeholder="Ask the assistant"
+          i18n-placeholder="@@assistant.placeholder"
+        ></ion-input>
+        @if (running()) {
+          <ion-button
+            (click)="cancel()"
+            color="medium"
+            data-testid="assistant-stop"
+            i18n="@@assistant.stop"
+            >Stop</ion-button
+          >
+        } @else {
+          <ion-button
+            (click)="send()"
+            [disabled]="!canSend()"
+            data-testid="assistant-send"
+            i18n="@@assistant.send"
+            >Send</ion-button
+          >
+        }
+      </div>
+    </ion-toolbar>
   `,
 })
 export class AssistantPanelComponent {
@@ -279,8 +276,7 @@ export class AssistantPanelComponent {
   }
 
   protected onEnter(event: Event): void {
-    // Enter sends and Shift+Enter breaks the line, as a chat box does.
-    if ((event as KeyboardEvent).shiftKey) return;
+    // Enter sends, as a chat box does; the box is one line, so there is no break to keep.
     event.preventDefault();
     this.send();
   }

@@ -246,84 +246,84 @@
         <source>Ask the assistant</source>
         <context-group purpose="location">
           <context context-type="sourcefile">src/app/features/assistant/assistant-entry.component.ts</context>
-          <context context-type="linenumber">48,49</context>
+          <context context-type="linenumber">57,58</context>
         </context-group>
       </trans-unit>
       <trans-unit id="assistant.title" datatype="html">
         <source>Assistant</source>
         <context-group purpose="location">
           <context context-type="sourcefile">src/app/features/assistant/assistant-panel.component.ts</context>
-          <context context-type="linenumber">120,121</context>
+          <context context-type="linenumber">118,119</context>
         </context-group>
       </trans-unit>
       <trans-unit id="assistant.startOver" datatype="html">
         <source>Start over</source>
         <context-group purpose="location">
           <context context-type="sourcefile">src/app/features/assistant/assistant-panel.component.ts</context>
-          <context context-type="linenumber">123,125</context>
+          <context context-type="linenumber">121,123</context>
         </context-group>
       </trans-unit>
       <trans-unit id="assistant.close" datatype="html">
         <source>Close the assistant</source>
         <context-group purpose="location">
           <context context-type="sourcefile">src/app/features/assistant/assistant-panel.component.ts</context>
-          <context context-type="linenumber">127,128</context>
+          <context context-type="linenumber">125,126</context>
         </context-group>
       </trans-unit>
       <trans-unit id="assistant.notice" datatype="html">
         <source> Your questions, and the orders and products the assistant reads to answer them, are sent to <x id="INTERPOLATION" equiv-text="{{ provider() }}"/>. </source>
         <context-group purpose="location">
           <context context-type="sourcefile">src/app/features/assistant/assistant-panel.component.ts</context>
-          <context context-type="linenumber">140,143</context>
+          <context context-type="linenumber">138,141</context>
         </context-group>
       </trans-unit>
       <trans-unit id="assistant.noticeOk" datatype="html">
         <source>I understand</source>
         <context-group purpose="location">
           <context context-type="sourcefile">src/app/features/assistant/assistant-panel.component.ts</context>
-          <context context-type="linenumber">147,149</context>
+          <context context-type="linenumber">145,147</context>
         </context-group>
       </trans-unit>
       <trans-unit id="assistant.empty" datatype="html">
         <source>Ask about your orders, a product or how the shop works.</source>
         <context-group purpose="location">
           <context context-type="sourcefile">src/app/features/assistant/assistant-panel.component.ts</context>
-          <context context-type="linenumber">152,156</context>
+          <context context-type="linenumber">150,154</context>
         </context-group>
       </trans-unit>
       <trans-unit id="assistant.log" datatype="html">
         <source>Conversation</source>
         <context-group purpose="location">
           <context context-type="sourcefile">src/app/features/assistant/assistant-panel.component.ts</context>
-          <context context-type="linenumber">161,163</context>
+          <context context-type="linenumber">159,161</context>
         </context-group>
       </trans-unit>
       <trans-unit id="assistant.message" datatype="html">
         <source>Message</source>
         <context-group purpose="location">
           <context context-type="sourcefile">src/app/features/assistant/assistant-panel.component.ts</context>
-          <context context-type="linenumber">211</context>
+          <context context-type="linenumber">209</context>
         </context-group>
       </trans-unit>
       <trans-unit id="assistant.placeholder" datatype="html">
         <source>Ask the assistant</source>
         <context-group purpose="location">
           <context context-type="sourcefile">src/app/features/assistant/assistant-panel.component.ts</context>
-          <context context-type="linenumber">212,213</context>
+          <context context-type="linenumber">210,211</context>
         </context-group>
       </trans-unit>
       <trans-unit id="assistant.stop" datatype="html">
         <source>Stop</source>
         <context-group purpose="location">
           <context context-type="sourcefile">src/app/features/assistant/assistant-panel.component.ts</context>
-          <context context-type="linenumber">221,223</context>
+          <context context-type="linenumber">219,221</context>
         </context-group>
       </trans-unit>
       <trans-unit id="assistant.send" datatype="html">
         <source>Send</source>
         <context-group purpose="location">
           <context context-type="sourcefile">src/app/features/assistant/assistant-panel.component.ts</context>
-          <context context-type="linenumber">229,231</context>
+          <context context-type="linenumber">227,229</context>
         </context-group>
       </trans-unit>
       <trans-unit id="assistant.tool.listOrders" datatype="html">

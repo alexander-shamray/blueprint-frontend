@@ -2045,6 +2045,16 @@ A refusal and every other unusual end are said in words, never left as an
 empty reply. The protocol's codes become words in `assistant-words.ts`,
 marked like every other message (§17).
 
+**The bundle.** The slice is lazy with the shell, but the Ionic components
+it uses are not: whichever of them this client uses anywhere lands in the
+shared initial chunk. `ion-modal` and `ion-spinner` were there already;
+`ion-textarea` and `ion-fab` were not, and with them the initial total rose
+from 1.24 MB to 1.32 MB raw, past §13's warning. So the box is an
+`ion-input`, one line with Enter to send, and the entry point a round
+`ion-button`, both already paid for, and the initial chunks measure 1.24 MB
+raw and 247.20 kB transferred, from 245.62 kB before this work. A multi-line
+box is the change that would cost those kilobytes back.
+
 **The notice.** Before the first message the sheet names the provider the
 questions go to, and the box stays disabled until the customer acknowledges
 it (design §10). The acknowledgement is kept in Preferences per device, as
