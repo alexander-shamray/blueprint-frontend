@@ -161,12 +161,25 @@ describe('AssistantTransport', () => {
       controller.expectNone(url);
     });
 
-    it('gives up on a 401 as well: the caller is no longer admitted', () => {
+    it('gives up on every other answer that is not a stream, a 401 and a 400 among them', () => {
+      for (const status of [400, 401, 403, 405, 410, 413]) {
+        const { source } = open();
+
+        controller.expectOne(url).flush('', { status, statusText: 'No' });
+
+        expect(source.readyState, String(status)).toBe(STREAM_CLOSED);
+      }
+    });
+
+    it('reconnects after a 429, which a retry can mend', () => {
+      vi.useFakeTimers();
       const { source } = open();
 
-      controller.expectOne(url).flush('', { status: 401, statusText: 'Unauthorized' });
+      controller.expectOne(url).flush('', { status: 429, statusText: 'Too Many Requests' });
+      vi.advanceTimersByTime(ASSISTANT_STREAM.initialMs);
 
-      expect(source.readyState).toBe(STREAM_CLOSED);
+      controller.expectOne(url);
+      source.close();
     });
 
     it('reconnects after a failure a retry can mend, waiting longer each time', () => {
