@@ -230,6 +230,19 @@ the same PR. It waives nothing else. In particular:
   range without it. The `commits` job lints and builds each commit but the
   head, which `web` covers, so `git bisect` meets only commits that build.
   Reverting a pull request is `git-revert-pr.sh <n>`;
+- a Dependabot pull request (`.github/dependabot.yml`) carries no `PR:`
+  trailer, so `commit-gate.yml` stands down when `dependabot[bot]` opened it
+  **and made every commit in it**: Dependabot's address as author and
+  GitHub's (`noreply@github.com`) as committer, as its own commits and
+  rebases carry. The other jobs in `ci.yml` run on it as on any pull request,
+  and the owner merges it. **Rebase a Dependabot branch with
+  `@dependabot rebase`, not locally**: a local rebase or amend keeps
+  Dependabot as the author but makes you the committer, so the gate runs, and
+  so it does for a commit anyone else pushes and a merge commit from *Update
+  branch*; the pull request then needs the trailers like any other.
+  `@dependabot recreate` drops such commits. A commit that only claims both
+  addresses is a deliberate bypass, which branch protection and the owner's
+  review bound, not this check (blueprint-admin#400);
 - when a change closes an issue, `Closes #n` as a bare line, not only inside
   a table cell;
 - a kind label and a severity label on every issue;

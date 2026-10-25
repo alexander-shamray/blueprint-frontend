@@ -46,5 +46,10 @@ needs the required status check listed as an owner-only setting in #207; this
 repository has no closure gate or locality gate to share the argument with,
 because those were not ported (`CLAUDE.md`, *What was not ported*).
 
+**A pull request Dependabot opened, and whose every commit Dependabot made,
+is not judged**: it carries no trailer, and
+[`docs/change-locality.md`](../../docs/change-locality.md) section 6 owns
+the rule and the workflow's step its test.
+
 [`ci.yml`](../workflows/ci.yml)'s `commits` job is the other half: it lints
 and builds every commit before the head, which `web` already covers.
