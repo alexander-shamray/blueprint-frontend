@@ -1,0 +1,98 @@
+import { EventSourceLike, STREAM_CLOSED } from '../assistant-client';
+
+/**
+ * Test support for the assistant, copied from `blueprint-admin`'s
+ * `src/Admin.Web/src/app/assistant/assistant-testing.ts`.
+ */
+
+/** An EventSource the spec drives: it records its URL and fires named events with ids. */
+export class FakeStream implements EventSourceLike {
+  readonly listeners = new Map<string, ((e: MessageEvent) => void)[]>();
+  readyState = 1;
+  closed = false;
+
+  constructor(readonly url: string) {}
+
+  addEventListener(type: string, listener: (e: MessageEvent) => void): void {
+    this.listeners.set(type, [...(this.listeners.get(type) ?? []), listener]);
+  }
+
+  close(): void {
+    this.closed = true;
+    this.readyState = STREAM_CLOSED;
+  }
+
+  emit(type: string, data: unknown, id: number): void {
+    for (const listener of this.listeners.get(type) ?? []) {
+      listener(new MessageEvent(type, { data: JSON.stringify(data), lastEventId: String(id) }));
+    }
+  }
+
+  /** What the browser does once it gives up: CLOSED, then a plain error. */
+  lose(): void {
+    this.readyState = STREAM_CLOSED;
+    for (const listener of this.listeners.get('error') ?? []) {
+      listener(new Event('error') as MessageEvent);
+    }
+  }
+}
+
+/** A host that answers each request by method and path, and keeps every request it was sent. */
+export class FakeHost {
+  readonly requests: { method: string; url: string; body: unknown; signal?: AbortSignal }[] = [];
+  readonly streams: FakeStream[] = [];
+  private readonly routes: {
+    method: string;
+    url: RegExp;
+    answer: (body: unknown) => Response;
+  }[] = [];
+
+  on(method: string, url: RegExp, answer: (body: unknown) => Response): this {
+    this.routes.unshift({ method, url, answer });
+    return this;
+  }
+
+  readonly fetch = (input: string, init?: RequestInit): Promise<Response> => {
+    const method = init?.method ?? 'GET';
+    const body = typeof init?.body === 'string' ? JSON.parse(init.body) : undefined;
+    // Only a request that carries a deadline or a cancel has a signal, so a
+    // spec that compares a whole request is unchanged.
+    this.requests.push({
+      method,
+      url: input,
+      body,
+      ...(init?.signal ? { signal: init.signal } : {}),
+    });
+    const route = this.routes.find((r) => r.method === method && r.url.test(input));
+    try {
+      return Promise.resolve(route ? route.answer(body) : new Response(null, { status: 404 }));
+    } catch (e) {
+      return Promise.reject(e);
+    }
+  };
+
+  readonly openStream = (url: string): FakeStream => {
+    const stream = new FakeStream(url);
+    this.streams.push(stream);
+    return stream;
+  };
+
+  get stream(): FakeStream {
+    const last = this.streams.filter((s) => !s.closed).at(-1);
+    if (!last) throw new Error('No stream is open.');
+    return last;
+  }
+}
+
+export function json(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { 'Content-Type': 'application/json' },
+  });
+}
+
+/** Lets every pending promise settle. */
+export async function settle(): Promise<void> {
+  for (let i = 0; i < 10; i++) await Promise.resolve();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+}

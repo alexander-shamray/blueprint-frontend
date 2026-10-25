@@ -8,6 +8,10 @@
           <context context-type="sourcefile">src/app/features/account/account.page.ts</context>
           <context context-type="linenumber">38</context>
         </context-group>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/features/assistant/shop-catalogue.ts</context>
+          <context context-type="linenumber">56</context>
+        </context-group>
       </trans-unit>
       <trans-unit id="account.refused" datatype="html">
         <source>Route refused</source>
@@ -238,11 +242,368 @@
           <context context-type="linenumber">309</context>
         </context-group>
       </trans-unit>
+      <trans-unit id="assistant.open" datatype="html">
+        <source>Ask the assistant</source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/features/assistant/assistant-entry.component.ts</context>
+          <context context-type="linenumber">48,49</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="assistant.title" datatype="html">
+        <source>Assistant</source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/features/assistant/assistant-panel.component.ts</context>
+          <context context-type="linenumber">120,121</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="assistant.startOver" datatype="html">
+        <source>Start over</source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/features/assistant/assistant-panel.component.ts</context>
+          <context context-type="linenumber">123,125</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="assistant.close" datatype="html">
+        <source>Close the assistant</source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/features/assistant/assistant-panel.component.ts</context>
+          <context context-type="linenumber">127,128</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="assistant.notice" datatype="html">
+        <source> Your questions, and the orders and products the assistant reads to answer them, are sent to <x id="INTERPOLATION" equiv-text="{{ provider() }}"/>. </source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/features/assistant/assistant-panel.component.ts</context>
+          <context context-type="linenumber">140,143</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="assistant.noticeOk" datatype="html">
+        <source>I understand</source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/features/assistant/assistant-panel.component.ts</context>
+          <context context-type="linenumber">147,149</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="assistant.empty" datatype="html">
+        <source>Ask about your orders, a product or how the shop works.</source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/features/assistant/assistant-panel.component.ts</context>
+          <context context-type="linenumber">152,156</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="assistant.log" datatype="html">
+        <source>Conversation</source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/features/assistant/assistant-panel.component.ts</context>
+          <context context-type="linenumber">161,163</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="assistant.message" datatype="html">
+        <source>Message</source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/features/assistant/assistant-panel.component.ts</context>
+          <context context-type="linenumber">211</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="assistant.placeholder" datatype="html">
+        <source>Ask the assistant</source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/features/assistant/assistant-panel.component.ts</context>
+          <context context-type="linenumber">212,213</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="assistant.stop" datatype="html">
+        <source>Stop</source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/features/assistant/assistant-panel.component.ts</context>
+          <context context-type="linenumber">221,223</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="assistant.send" datatype="html">
+        <source>Send</source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/features/assistant/assistant-panel.component.ts</context>
+          <context context-type="linenumber">229,231</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="assistant.tool.listOrders" datatype="html">
+        <source>Reading your orders</source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/features/assistant/assistant-words.ts</context>
+          <context context-type="linenumber">21</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="assistant.tool.getOrder" datatype="html">
+        <source>Reading an order</source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/features/assistant/assistant-words.ts</context>
+          <context context-type="linenumber">23</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="assistant.tool.getProduct" datatype="html">
+        <source>Looking up a product</source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/features/assistant/assistant-words.ts</context>
+          <context context-type="linenumber">25</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="assistant.tool.openProduct" datatype="html">
+        <source>Opening a product</source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/features/assistant/assistant-words.ts</context>
+          <context context-type="linenumber">27</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="assistant.tool.openOrder" datatype="html">
+        <source>Opening an order</source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/features/assistant/assistant-words.ts</context>
+          <context context-type="linenumber">29</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="assistant.tool.openCart" datatype="html">
+        <source>Opening your cart</source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/features/assistant/assistant-words.ts</context>
+          <context context-type="linenumber">31</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="assistant.tool.other" datatype="html">
+        <source>Working on it</source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/features/assistant/assistant-words.ts</context>
+          <context context-type="linenumber">35</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="assistant.tool.openProducts" datatype="html">
+        <source>Opening the products</source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/features/assistant/assistant-words.ts</context>
+          <context context-type="linenumber">42</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="assistant.tool.openOrders" datatype="html">
+        <source>Opening your order history</source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/features/assistant/assistant-words.ts</context>
+          <context context-type="linenumber">44</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="assistant.tool.openAccount" datatype="html">
+        <source>Opening your account</source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/features/assistant/assistant-words.ts</context>
+          <context context-type="linenumber">46</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="assistant.tool.openPublish" datatype="html">
+        <source>Opening Publish</source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/features/assistant/assistant-words.ts</context>
+          <context context-type="linenumber">48</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="assistant.tool.openPage" datatype="html">
+        <source>Opening a page</source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/features/assistant/assistant-words.ts</context>
+          <context context-type="linenumber">50</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="assistant.end.maxSteps" datatype="html">
+        <source>The assistant stopped: this question needed more steps than it may take.</source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/features/assistant/assistant-words.ts</context>
+          <context context-type="linenumber">64</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="assistant.end.budget" datatype="html">
+        <source>This conversation is too long to go on. Start over to ask something else.</source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/features/assistant/assistant-words.ts</context>
+          <context context-type="linenumber">66</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="assistant.end.cancelled" datatype="html">
+        <source>Stopped.</source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/features/assistant/assistant-words.ts</context>
+          <context context-type="linenumber">68</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="assistant.end.refused" datatype="html">
+        <source>The assistant declined to answer that.</source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/features/assistant/assistant-words.ts</context>
+          <context context-type="linenumber">70</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="assistant.end.error" datatype="html">
+        <source>The assistant ran into a problem and stopped.</source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/features/assistant/assistant-words.ts</context>
+          <context context-type="linenumber">72</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="assistant.problem.turnRunning" datatype="html">
+        <source>The assistant is still answering. Wait for it, or stop it.</source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/features/assistant/assistant-words.ts</context>
+          <context context-type="linenumber">80</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="assistant.problem.failed" datatype="html">
+        <source>Your message was not sent.</source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/features/assistant/assistant-words.ts</context>
+          <context context-type="linenumber">82</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="assistant.problem.provider" datatype="html">
+        <source>The assistant&apos;s provider failed.</source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/features/assistant/assistant-words.ts</context>
+          <context context-type="linenumber">84</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="assistant.problem.gone" datatype="html">
+        <source>This conversation has ended. Your next message starts a new one.</source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/features/assistant/assistant-words.ts</context>
+          <context context-type="linenumber">86</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="products.title" datatype="html">
+        <source>Products</source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/features/assistant/shop-catalogue.ts</context>
+          <context context-type="linenumber">20</context>
+        </context-group>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/features/products/products.page.ts</context>
+          <context context-type="linenumber">44,45</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="assistant.page.products" datatype="html">
+        <source>The shop&apos;s catalogue, newest first or by name, with a search box. Each row shows a product&apos;s price and how many are in stock, and adds it to the cart. Open a product for its own page.</source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/features/assistant/shop-catalogue.ts</context>
+          <context context-type="linenumber">22</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="product.title" datatype="html">
+        <source>Product</source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/features/assistant/shop-catalogue.ts</context>
+          <context context-type="linenumber">26</context>
+        </context-group>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/features/products/product.page.ts</context>
+          <context context-type="linenumber">64,65</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="assistant.page.product" datatype="html">
+        <source>One product&apos;s page: its image, name, price and stock, with a quantity to add to the cart. It works signed out, so a link to it can be shared.</source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/features/assistant/shop-catalogue.ts</context>
+          <context context-type="linenumber">28</context>
+        </context-group>
+      </trans-unit>
       <trans-unit id="cart.title" datatype="html">
         <source>Cart</source>
         <context-group purpose="location">
+          <context context-type="sourcefile">src/app/features/assistant/shop-catalogue.ts</context>
+          <context context-type="linenumber">32</context>
+        </context-group>
+        <context-group purpose="location">
           <context context-type="sourcefile">src/app/features/cart/cart.page.ts</context>
           <context context-type="linenumber">31</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="assistant.page.cart" datatype="html">
+        <source>What the customer is about to buy, kept on this device. Quantities can be changed or removed here, and the total is the platform&apos;s quote, never the shop&apos;s own sum. Checkout starts from here.</source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/features/assistant/shop-catalogue.ts</context>
+          <context context-type="linenumber">34</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="checkout.title" datatype="html">
+        <source>Checkout</source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/features/assistant/shop-catalogue.ts</context>
+          <context context-type="linenumber">38</context>
+        </context-group>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/features/checkout/checkout.page.ts</context>
+          <context context-type="linenumber">46,47</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="assistant.page.checkout" datatype="html">
+        <source>Where the customer gives a delivery address and places the order for the cart&apos;s quoted total. It opens only from the cart, once the cart has a quote.</source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/features/assistant/shop-catalogue.ts</context>
+          <context context-type="linenumber">40</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="orders.title" datatype="html">
+        <source>History</source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/features/assistant/shop-catalogue.ts</context>
+          <context context-type="linenumber">44</context>
+        </context-group>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/features/orders/orders.page.ts</context>
+          <context context-type="linenumber">53</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="assistant.page.orders" datatype="html">
+        <source>The signed-in customer&apos;s own orders, newest first, each with its status and total. Open one for its timeline, payment and shipment.</source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/features/assistant/shop-catalogue.ts</context>
+          <context context-type="linenumber">46</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="detail.title" datatype="html">
+        <source>Order</source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/features/assistant/shop-catalogue.ts</context>
+          <context context-type="linenumber">50</context>
+        </context-group>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/features/orders/order-detail.page.ts</context>
+          <context context-type="linenumber">103,104</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="assistant.page.order" datatype="html">
+        <source>One of the customer&apos;s orders as it stands: its lines, total, payment, shipment and tracking number, updated live while it moves. An order the platform still allows to be cancelled can be cancelled here.</source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/features/assistant/shop-catalogue.ts</context>
+          <context context-type="linenumber">52</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="assistant.page.account" datatype="html">
+        <source>Sign in and out, the saved delivery address, and the shop&apos;s appearance: light, dark or the device&apos;s own. Signing in is what opens the order history.</source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/features/assistant/shop-catalogue.ts</context>
+          <context context-type="linenumber">58</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="publish.title" datatype="html">
+        <source>Publish</source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/features/assistant/shop-catalogue.ts</context>
+          <context context-type="linenumber">65</context>
+        </context-group>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/features/publish/publish.page.ts</context>
+          <context context-type="linenumber">105</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="assistant.page.publish" datatype="html">
+        <source>Where a seller lists a new product with its name, price and image, and sees the products they have listed. Only an account allowed to publish sees it.</source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/features/assistant/shop-catalogue.ts</context>
+          <context context-type="linenumber">67</context>
         </context-group>
       </trans-unit>
       <trans-unit id="cart.emptyHeading" datatype="html">
@@ -343,13 +704,6 @@
         <context-group purpose="location">
           <context context-type="sourcefile">src/app/features/cart/cart.page.ts</context>
           <context context-type="linenumber">325</context>
-        </context-group>
-      </trans-unit>
-      <trans-unit id="checkout.title" datatype="html">
-        <source>Checkout</source>
-        <context-group purpose="location">
-          <context context-type="sourcefile">src/app/features/checkout/checkout.page.ts</context>
-          <context context-type="linenumber">46,47</context>
         </context-group>
       </trans-unit>
       <trans-unit id="checkout.signedOut" datatype="html">
@@ -554,13 +908,6 @@
           <context context-type="linenumber">69</context>
         </context-group>
       </trans-unit>
-      <trans-unit id="detail.title" datatype="html">
-        <source>Order</source>
-        <context-group purpose="location">
-          <context context-type="sourcefile">src/app/features/orders/order-detail.page.ts</context>
-          <context context-type="linenumber">103,104</context>
-        </context-group>
-      </trans-unit>
       <trans-unit id="action.tryAgain" datatype="html">
         <source>Try again</source>
         <context-group purpose="location">
@@ -704,13 +1051,6 @@
           <context context-type="linenumber">308</context>
         </context-group>
       </trans-unit>
-      <trans-unit id="orders.title" datatype="html">
-        <source>History</source>
-        <context-group purpose="location">
-          <context context-type="sourcefile">src/app/features/orders/orders.page.ts</context>
-          <context context-type="linenumber">53</context>
-        </context-group>
-      </trans-unit>
       <trans-unit id="orders.emptyHeading" datatype="html">
         <source>No orders yet</source>
         <context-group purpose="location">
@@ -744,13 +1084,6 @@
         <context-group purpose="location">
           <context context-type="sourcefile">src/app/features/orders/orders.page.ts</context>
           <context context-type="linenumber">229</context>
-        </context-group>
-      </trans-unit>
-      <trans-unit id="product.title" datatype="html">
-        <source>Product</source>
-        <context-group purpose="location">
-          <context context-type="sourcefile">src/app/features/products/product.page.ts</context>
-          <context context-type="linenumber">64,65</context>
         </context-group>
       </trans-unit>
       <trans-unit id="product.unavailableHeading" datatype="html">
@@ -800,13 +1133,6 @@
         <context-group purpose="location">
           <context context-type="sourcefile">src/app/features/products/product.page.ts</context>
           <context context-type="linenumber">118,119</context>
-        </context-group>
-      </trans-unit>
-      <trans-unit id="products.title" datatype="html">
-        <source>Products</source>
-        <context-group purpose="location">
-          <context context-type="sourcefile">src/app/features/products/products.page.ts</context>
-          <context context-type="linenumber">44,45</context>
         </context-group>
       </trans-unit>
       <trans-unit id="products.search" datatype="html">
@@ -1084,13 +1410,6 @@
           <context context-type="linenumber">186</context>
         </context-group>
       </trans-unit>
-      <trans-unit id="publish.title" datatype="html">
-        <source>Publish</source>
-        <context-group purpose="location">
-          <context context-type="sourcefile">src/app/features/publish/publish.page.ts</context>
-          <context context-type="linenumber">105</context>
-        </context-group>
-      </trans-unit>
       <trans-unit id="publish.signedOut" datatype="html">
         <source>Sign in to publish a product.</source>
         <context-group purpose="location">
@@ -1326,35 +1645,35 @@
         <source>Products</source>
         <context-group purpose="location">
           <context context-type="sourcefile">src/app/tabs/tabs.page.ts</context>
-          <context context-type="linenumber">29,30</context>
+          <context context-type="linenumber">34,35</context>
         </context-group>
       </trans-unit>
       <trans-unit id="tab.cart" datatype="html">
         <source>Cart</source>
         <context-group purpose="location">
           <context context-type="sourcefile">src/app/tabs/tabs.page.ts</context>
-          <context context-type="linenumber">34,35</context>
+          <context context-type="linenumber">39,40</context>
         </context-group>
       </trans-unit>
       <trans-unit id="tab.history" datatype="html">
         <source>History</source>
         <context-group purpose="location">
           <context context-type="sourcefile">src/app/tabs/tabs.page.ts</context>
-          <context context-type="linenumber">43,44</context>
+          <context context-type="linenumber">48,49</context>
         </context-group>
       </trans-unit>
       <trans-unit id="tab.publish" datatype="html">
         <source>Publish</source>
         <context-group purpose="location">
           <context context-type="sourcefile">src/app/tabs/tabs.page.ts</context>
-          <context context-type="linenumber">50,51</context>
+          <context context-type="linenumber">55,56</context>
         </context-group>
       </trans-unit>
       <trans-unit id="tab.account" datatype="html">
         <source>Account</source>
         <context-group purpose="location">
           <context context-type="sourcefile">src/app/tabs/tabs.page.ts</context>
-          <context context-type="linenumber">56,57</context>
+          <context context-type="linenumber">61,62</context>
         </context-group>
       </trans-unit>
     </body>

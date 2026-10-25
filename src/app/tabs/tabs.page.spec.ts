@@ -4,6 +4,7 @@ import { signal } from '@angular/core';
 import { afterEach, describe, expect, it } from 'vitest';
 import { AuthService } from '@core/auth/auth.service';
 import { CartPersistence } from '@core/cart/cart.persistence';
+import { AssistantStore } from '@features/assistant/assistant.store';
 import { hydrated, ionicHosts } from '@shared/testing/hydrated';
 import { TabsPage } from './tabs.page';
 
@@ -36,6 +37,7 @@ import { TabsPage } from './tabs.page';
 async function mount(
   permissions: readonly string[],
   signedIn = false,
+  assistant = false,
 ): Promise<ComponentFixture<TabsPage>> {
   TestBed.resetTestingModule();
   const user = signedIn
@@ -59,6 +61,16 @@ async function mount(
       // here writes, but a spec that reads the machine's storage is one
       // leftover key away from depending on the order the suite ran in.
       { provide: CartPersistence, useValue: { read: async () => [], write: async () => undefined } },
+      // The store reads the BFF; the shell's question is only whether the
+      // entry point renders, which is the store's `available`.
+      {
+        provide: AssistantStore,
+        useValue: {
+          available: signal(assistant),
+          navigated: signal(0),
+          setVisible: () => undefined,
+        },
+      },
     ],
   });
 
@@ -101,6 +113,14 @@ describe('TabsPage', () => {
       'orders',
       'account',
     ]);
+  });
+
+  it('offers the assistant only while the store says it is available (#326)', async () => {
+    const off = (await mount([], true)).nativeElement as HTMLElement;
+    expect(off.querySelector('[data-testid="assistant-open"]')).toBeNull();
+
+    const on = (await mount([], true, true)).nativeElement as HTMLElement;
+    expect(on.querySelector('app-assistant-entry [data-testid="assistant-open"]')).not.toBeNull();
   });
 
   it('carries the offline banner above the pages, in the top slot (#99)', async () => {

@@ -35,6 +35,12 @@ const WORDS = /[A-Za-z]{2,}[ \t]+[A-Za-z]{2,}/;
 
 const DIAGNOSTIC = 'a diagnostic the account page maps to its own banner (§17), never shown';
 
+const MODEL_TEXT =
+  "read by the assistant's model, never shown: tool text stays English (AI assistant design " +
+  '§5.4, client-architecture.md §19), and the panel words each call from its name';
+
+const SHOP_TOOLS = 'src/app/features/assistant/shop-tools.ts';
+
 /** A literal that is prose on purpose; each has the file, the exact text and the reason. */
 const ALLOWED: readonly { file: string; text: string; why: string }[] = [
   {
@@ -61,6 +67,35 @@ const ALLOWED: readonly { file: string; text: string; why: string }[] = [
     file: 'src/app/core/auth/native-auth.strategy.ts',
     text: 'Sign-in was dismissed before it completed.',
     why: DIAGNOSTIC,
+  },
+  {
+    file: 'src/app/core/assistant/client-tools.ts',
+    text: 'This client has no tool named ${}.',
+    why: MODEL_TEXT,
+  },
+  { file: SHOP_TOOLS, text: '${} must be a UUID', why: MODEL_TEXT },
+  { file: SHOP_TOOLS, text: 'page must be one of ${}', why: MODEL_TEXT },
+  { file: SHOP_TOOLS, text: 'Open an order', why: MODEL_TEXT },
+  { file: SHOP_TOOLS, text: 'Open the cart', why: MODEL_TEXT },
+  {
+    file: SHOP_TOOLS,
+    text: "Shows one product's page in the shop, by the product's id as an order line or ",
+    why: MODEL_TEXT,
+  },
+  {
+    file: SHOP_TOOLS,
+    text: "Shows one of the signed-in customer's orders, by its id as list_orders returns it: ",
+    why: MODEL_TEXT,
+  },
+  {
+    file: SHOP_TOOLS,
+    text: "Shows the customer's cart, where they review it and go on to checkout. Changes only ",
+    why: MODEL_TEXT,
+  },
+  {
+    file: SHOP_TOOLS,
+    text: "Shows one of the shop's pages by its catalogue id: products, orders (the order ",
+    why: MODEL_TEXT,
   },
 ];
 
