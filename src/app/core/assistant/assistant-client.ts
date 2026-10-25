@@ -262,20 +262,27 @@ export class AssistantConversation {
     hostOptions: Readonly<Record<string, unknown>> | null = null,
   ): Promise<void> {
     if (this.state.running || text.trim() === '') return;
-    this.sends++;
+    const sent = ++this.sends;
+    // A start-over or an abandon since this began owns the conversation now:
+    // nothing this send learns afterwards may be written back over it.
+    const current = () => this.sends === sent;
     const items: ConversationItem[] = [...this.state.items, { kind: 'operator', text }];
     this.update({ ...this.state, items, running: true, problem: null });
     try {
-      let id = this.state.id ?? (await this.openNew());
+      let id = this.state.id ?? (await this.openNew(sent));
+      if (id === null) return;
       this.settleStream();
       let outcome = await this.client.send(id, { text, context, locale, hostOptions });
+      if (!current()) return;
       if (outcome === 'gone') {
         // The host was restarted, or forgot the conversation: the same words
         // go to a new one.
         this.stopStream();
-        id = await this.openNew();
+        id = await this.openNew(sent);
+        if (id === null) return;
         this.settleStream();
         outcome = await this.client.send(id, { text, context, locale, hostOptions });
+        if (!current()) return;
       }
       if (outcome === 'running') {
         this.update({
@@ -285,6 +292,7 @@ export class AssistantConversation {
         });
       }
     } catch (e) {
+      if (!current()) return;
       this.update({
         ...this.state,
         running: false,
@@ -304,21 +312,28 @@ export class AssistantConversation {
     this.stopStream();
     this.ids.set(null);
     this.answered.clear();
+    this.sends++;
     this.update(EMPTY_CONVERSATION);
     if (id) await this.client.forget(id).catch(() => undefined);
   }
 
-  /** Drops the conversation here only: the caller it belonged to is no longer signed in. */
+  /**
+   * Drops the conversation here only: the caller it belonged to is no longer
+   * signed in, and nothing showing it is left on screen.
+   */
   abandon(): void {
     this.stopStream();
     this.ids.set(null);
     this.answered.clear();
     this.sends++;
+    this.visible = false;
     this.update(EMPTY_CONVERSATION);
   }
 
-  private async openNew(): Promise<string> {
+  /** The new conversation's id, or null when the send that asked for it is no longer current. */
+  private async openNew(sent: number): Promise<string | null> {
     const id = await this.client.open(this.opening());
+    if (this.sends !== sent) return null;
     this.ids.set(id);
     this.update({ ...this.state, id, lastEventId: 0 });
     return id;

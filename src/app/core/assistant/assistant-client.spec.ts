@@ -3,6 +3,7 @@ import {
   AssistantClient,
   AssistantConversation,
   ConversationState,
+  EMPTY_CONVERSATION,
   IdStore,
 } from './assistant-client';
 import { ClientToolRegistry, viewTool } from './client-tools';
@@ -599,6 +600,50 @@ describe('AssistantConversation', () => {
     expect(conversation.current.items).toEqual([]);
     expect(opened).toEqual([]);
     expect(host.requests.length).toBe(asked);
+  });
+
+  it('abandoning hides the conversation, so the next one holds no stream once idle', async () => {
+    const { host, conversation } = setup();
+    conversation.setVisible(true);
+
+    // The sheet goes with the sign-out and says nothing; abandon is the last word.
+    conversation.abandon();
+    await conversation.send('next customer', null, 'en-US');
+    host.stream.emit('turn_ended', ENDED, 1);
+    await settle();
+
+    expect(host.streams.every((s) => s.closed)).toBe(true);
+  });
+
+  it('a send whose open lands after an abandon writes nothing back and sends no turn', async () => {
+    const host = new FakeHost()
+      .on('POST', /\/conversations$/, () => json({ id: 'c1' }))
+      .on('POST', /\/turns$/, () => new Response(null, { status: 202 }));
+    let release = (): void => undefined;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const slowOpen = async (input: string, init?: RequestInit) => {
+      if (input.endsWith('/conversations')) await gate;
+      return host.fetch(input, init);
+    };
+    const ids = memoryIds();
+    const conversation = new AssistantConversation(
+      new AssistantClient(BASE, slowOpen, host.openStream),
+      new ClientToolRegistry(),
+      () => OPENING,
+      ids,
+      () => undefined,
+    );
+
+    const sending = conversation.send('one', null, 'en-US');
+    conversation.abandon();
+    release();
+    await sending;
+    await settle();
+
+    expect(ids.id).toBeNull();
+    expect(conversation.current).toEqual(EMPTY_CONVERSATION);
+    expect(host.requests.some((r) => r.url.endsWith('/turns'))).toBe(false);
+    expect(host.streams).toEqual([]);
   });
 });
 
