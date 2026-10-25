@@ -35,7 +35,7 @@ function texts(root: HTMLElement, testId: string): string[] {
 }
 
 function type(fixture: ComponentFixture<AssistantPanelComponent>, value: string): void {
-  const box = fixture.nativeElement.querySelector('ion-textarea') as HTMLElement;
+  const box = fixture.nativeElement.querySelector('ion-input') as HTMLElement;
   box.dispatchEvent(new CustomEvent('ionInput', { detail: { value } }));
   fixture.detectChanges();
 }
@@ -45,7 +45,7 @@ describe('AssistantPanelComponent', () => {
     const { fixture, store, root } = await mount({}, true);
 
     expect(texts(root, 'assistant-notice')[0]).toContain('anthropic');
-    expect(root.querySelector('ion-textarea')?.hasAttribute('disabled')).toBe(true);
+    expect(root.querySelector('ion-input')?.hasAttribute('disabled')).toBe(true);
 
     (root.querySelector('[data-testid="assistant-notice-ok"]') as HTMLElement).click();
     fixture.detectChanges();
@@ -94,16 +94,20 @@ describe('AssistantPanelComponent', () => {
     expect(store.send).toHaveBeenCalledWith('is it in stock?');
   });
 
-  it('sends on Enter and breaks the line on Shift+Enter', async () => {
+  it('sends on Enter, and not while a turn runs', async () => {
     const { fixture, store, root } = await mount();
-    const box = root.querySelector('ion-textarea') as HTMLElement;
+    const box = root.querySelector('ion-input') as HTMLElement;
 
     type(fixture, 'first');
-    box.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', shiftKey: true }));
-    expect(store.send).not.toHaveBeenCalled();
-
     box.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
     expect(store.send).toHaveBeenCalledWith('first');
+
+    const running = await mount({ id: 'c1', running: true, items: [] });
+    type(running.fixture, 'second');
+    (running.root.querySelector('ion-input') as HTMLElement).dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Enter' }),
+    );
+    expect(running.store.send).not.toHaveBeenCalled();
   });
 
   it('offers Stop while a turn runs, and Stop cancels it', async () => {

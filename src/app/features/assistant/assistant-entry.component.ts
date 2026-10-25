@@ -7,7 +7,7 @@ import {
   untracked,
   viewChild,
 } from '@angular/core';
-import { IonFab, IonFabButton, IonIcon, IonModal } from '@ionic/angular';
+import { IonButton, IonIcon, IonModal } from '@ionic/angular';
 import { AssistantStore } from './assistant.store';
 import { AssistantPanelComponent } from './assistant-panel.component';
 
@@ -30,27 +30,35 @@ export const SHEET = { breakpoints: [0, 0.5, 1], whole: 1, half: 0.5 } as const;
 @Component({
   selector: 'app-assistant-entry',
   standalone: true,
-  imports: [IonFab, IonFabButton, IonIcon, IonModal, AssistantPanelComponent],
+  imports: [IonButton, IonIcon, IonModal, AssistantPanelComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
+  // A round ion-button and not ion-fab: every Ionic component this client
+  // uses lands in the initial bundle, and ion-fab was new to it (§19).
   styles: `
-    ion-fab {
+    .open {
       position: fixed;
       right: 1rem;
       bottom: calc(4.5rem + var(--ion-safe-area-bottom, 0px));
+      z-index: 10;
+      --border-radius: 50%;
+      --padding-start: 0.875rem;
+      --padding-end: 0.875rem;
+      width: 3.25rem;
+      height: 3.25rem;
+      margin: 0;
     }
   `,
   template: `
     @if (available()) {
-      <ion-fab>
-        <ion-fab-button
-          (click)="open.set(true)"
-          data-testid="assistant-open"
-          aria-label="Ask the assistant"
-          i18n-aria-label="@@assistant.open"
-        >
-          <ion-icon name="chatbubbles-outline" aria-hidden="true"></ion-icon>
-        </ion-fab-button>
-      </ion-fab>
+      <ion-button
+        class="open"
+        (click)="open.set(true)"
+        data-testid="assistant-open"
+        aria-label="Ask the assistant"
+        i18n-aria-label="@@assistant.open"
+      >
+        <ion-icon slot="icon-only" name="chatbubbles-outline" aria-hidden="true"></ion-icon>
+      </ion-button>
 
       <ion-modal
         [isOpen]="open()"

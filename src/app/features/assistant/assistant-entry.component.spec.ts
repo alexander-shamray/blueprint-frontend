@@ -29,11 +29,13 @@ async function mount(available: boolean) {
   return { fixture, store, root: fixture.nativeElement as HTMLElement };
 }
 
+const OPEN = '[data-testid="assistant-open"]';
+
 describe('AssistantEntryComponent', () => {
   it('renders nothing while the assistant is unavailable (design §9.1)', async () => {
     const { root } = await mount(false);
 
-    expect(root.querySelector('ion-fab')).toBeNull();
+    expect(root.querySelector(OPEN)).toBeNull();
     expect(root.querySelector('ion-modal')).toBeNull();
   });
 
@@ -63,11 +65,12 @@ describe('AssistantEntryComponent', () => {
   // Ionic then takes it for a controller's modal with no delegate.
   it('takes the button and the sheet away when the assistant becomes unavailable', async () => {
     const { fixture, store, root } = await mount(true);
-    expect(root.querySelector('ion-fab')).not.toBeNull();
+    expect(root.querySelector(OPEN)).not.toBeNull();
 
     store.available.set(false);
     fixture.detectChanges();
 
-    expect(root.querySelector('ion-fab')).toBeNull();
+    expect(root.querySelector(OPEN)).toBeNull();
+    expect(root.querySelector('ion-modal')).toBeNull();
   });
 });
