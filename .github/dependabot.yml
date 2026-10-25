@@ -4,8 +4,9 @@
 # its own. docs/change-locality.md section 6 says why the commit gate stands
 # down for a Dependabot pull request.
 version: 2
-# Each entry's commit-message gives its commits a chore(deps) subject, the form
-# the commit gate holds every other commit to.
+# Each entry's commit-message gives its commits a chore(deps) subject, or
+# chore(deps-dev) for a devDependency: the form the commit gate holds every
+# other commit to.
 updates:
   - package-ecosystem: npm
     directory: /
