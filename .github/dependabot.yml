@@ -1,0 +1,57 @@
+# Weekly version updates for npm, the committed Android project's Gradle
+# build and the Actions. Security updates are a repository setting, and every
+# group below applies to version updates only, so a security update opens on
+# its own. docs/change-locality.md section 6 says why the commit gate stands
+# down for a Dependabot pull request.
+version: 2
+# Each entry's commit-message gives its commits a chore(deps) subject, the form
+# the commit gate holds every other commit to.
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: chore
+      include: scope
+    groups:
+      # Each framework's packages are released together and must agree, so
+      # each moves in one pull request.
+      angular:
+        applies-to: version-updates
+        patterns: ['@angular/*', '@angular-devkit/*']
+      capacitor:
+        applies-to: version-updates
+        patterns: ['@capacitor/*']
+      ionic:
+        applies-to: version-updates
+        patterns: ['@ionic/*']
+      # The coverage provider is pinned exactly like Vitest because the two
+      # must agree (docs/client-architecture.md section 14).
+      vitest:
+        applies-to: version-updates
+        patterns: ['vitest', '@vitest/*']
+
+  # `cap sync` rewrites capacitor.settings.gradle and app/capacitor.build.gradle;
+  # the pins Dependabot reads, in build.gradle, app/build.gradle and
+  # variables.gradle, are the ones a developer edits.
+  - package-ecosystem: gradle
+    directory: /android
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: chore
+      include: scope
+    ignore:
+      # A major of the Android Gradle plugin moves with the range Capacitor
+      # supports: a deliberate edit, not a bump.
+      - dependency-name: 'com.android.tools.build:gradle'
+        update-types: [version-update:semver-major]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: chore
+      include: scope
