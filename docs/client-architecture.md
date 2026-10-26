@@ -654,7 +654,8 @@ route still opens it. There are still exactly two windows; the token says
 which refusals are not the gateway's, and adds no third. The residual is the
 three cases above in which the gateway's own 429 arrives with no readable
 header: on an assistant request it is taken for the BFF's and opens no window,
-and the next request outside the assistant opens the fallback one instead.
+and the next refused request to the `authenticated` bucket from outside the
+assistant opens the fallback one instead.
 
 Three rules govern closing a window, and all three come from one observation:
 the limiter either admits a request or rejects it with a 429, so anything else

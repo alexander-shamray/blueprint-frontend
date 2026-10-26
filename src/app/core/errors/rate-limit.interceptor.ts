@@ -24,7 +24,7 @@ import { RateLimitWindows } from './rate-limit';
  * client with no readable header (an intermediary that strips it, CORS off, a
  * gateway older than `27b54a7`). On a marked request that refusal is taken
  * for the service's and opens no window, where an unmarked one would open
- * the fallback minute; the next unmarked request to the bucket opens it.
+ * the fallback minute; the next unmarked request the bucket refuses opens it.
  */
 export const SERVICE_LIMITER = new HttpContextToken<boolean>(() => false);
 
