@@ -2052,6 +2052,13 @@ The framing duplicates `core/api/order-events.ts`'s rather than moving it,
 because that file reads one event name and parses its data in place, and
 moving it would have been a refactor of the order stream riding on a feature.
 
+> **Superseded on 2026-10-26 (#350).** The refactor landed on its own:
+> `core/api/sse.ts` holds the one framing, `readSseFrames`, and both the
+> assistant's transport and `order-events.ts` call it. The order stream keeps
+> its own share — one event name, its data parsed in place — over the frames
+> the reader hands on, and `order-events.spec.ts` did not change. The
+> paragraph above is the claim as it stood.
+
 **Off is the BFF's to say, and only a signed-in customer can ask.** The
 design's off switch (§9.1) is a status read that answers `enabled: false`,
 and with it off the UI shows no trace of the assistant. On the BFF even the
