@@ -218,6 +218,8 @@ export class AssistantConversation {
    * before the latest bump writes nothing back.
    */
   private sends = 0;
+  /** Bumped by each read `lost()` begins, so only the latest one answers. */
+  private reads = 0;
 
   constructor(
     private readonly client: AssistantClient,
@@ -460,6 +462,11 @@ export class AssistantConversation {
     this.stopStream();
     const id = this.state.id;
     const sent = this.sends;
+    // A sheet closed and reopened while this read waits starts another: only
+    // the latest may write its answer back, or a late failure would stand
+    // over a stream the newer read has already reopened.
+    const read = ++this.reads;
+    const latest = () => sent === this.sends && id === this.state.id && read === this.reads;
     // Only a 404 says the host has forgotten it, and read() answers that with
     // null; a read that throws (a 5xx, no network, a token being renewed) says
     // nothing of the kind, so the id is kept and the problem is a retryable one.
@@ -467,7 +474,7 @@ export class AssistantConversation {
     try {
       view = id ? await this.client.read(id) : null;
     } catch (e) {
-      if (sent !== this.sends || id !== this.state.id) return;
+      if (!latest()) return;
       this.update({
         ...this.state,
         running: false,
@@ -475,9 +482,9 @@ export class AssistantConversation {
       });
       return;
     }
-    // A send, a new conversation or a start-over since the read began makes
-    // its answer someone else's.
-    if (sent !== this.sends || id !== this.state.id) return;
+    // A send, a new conversation, a start-over or a newer read since this one
+    // began makes its answer someone else's.
+    if (!latest()) return;
     if (view) {
       this.update({
         ...this.state,
