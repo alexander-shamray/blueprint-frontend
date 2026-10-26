@@ -255,6 +255,14 @@ export class AssistantConversation {
 
   setVisible(visible: boolean): void {
     this.visible = visible;
+    // Reopened after the host could not be reached: read again, which clears
+    // the problem on an answer, ends the conversation on a 404 and keeps the
+    // problem on another failure, rather than follow a stream that may stay
+    // silent and leave the alert standing.
+    if (visible && this.state.problem?.code === 'unreachable' && !this.close) {
+      void this.lost();
+      return;
+    }
     this.settleStream();
   }
 
@@ -476,6 +484,8 @@ export class AssistantConversation {
         items: view.items,
         running: view.running,
         lastEventId: view.lastEventId,
+        // The host answered, so it can be reached again.
+        problem: this.state.problem?.code === 'unreachable' ? null : this.state.problem,
       });
       this.settleStream();
       for (const call of view.pendingCalls) this.run(call);
