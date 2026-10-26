@@ -1,5 +1,8 @@
 import {
-  HttpContextToken, HttpErrorResponse, HttpInterceptorFn, HttpResponse,
+  HttpContextToken,
+  HttpErrorResponse,
+  HttpInterceptorFn,
+  HttpResponse,
 } from '@angular/common/http';
 import { inject } from '@angular/core';
 import { tap } from 'rxjs';
@@ -16,6 +19,12 @@ import { RateLimitWindows } from './rate-limit';
  * §10), so on such a request a 429 without it is the service's, not a bucket
  * this client keeps a window for, and it opens none. It reached the service,
  * so the gateway admitted it, and it closes the window as an answer does.
+ *
+ * The residual: §10 names the cases where the gateway's own 429 reaches this
+ * client with no readable header (an intermediary that strips it, CORS off, a
+ * gateway older than `27b54a7`). On a marked request that refusal is taken
+ * for the service's and opens no window, where an unmarked one would open
+ * the fallback minute; the next unmarked request to the bucket opens it.
  */
 export const SERVICE_LIMITER = new HttpContextToken<boolean>(() => false);
 
