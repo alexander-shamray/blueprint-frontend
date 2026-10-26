@@ -436,8 +436,22 @@ describe('AssistantConversation', () => {
     expect(conversation.current.problem?.code).toBe('unreachable');
     // Nothing reopens on its own: the customer's next opening of the sheet does.
     expect(host.streams.every((s) => s.closed)).toBe(true);
+
+    // Still down: reopening reads again, and the problem stands.
     conversation.setVisible(true);
-    expect(host.stream.url).toBe(`${BASE}/conversations/c1/events?after=0`);
+    await settle();
+    expect(conversation.current.problem?.code).toBe('unreachable');
+    expect(host.streams.every((s) => s.closed)).toBe(true);
+
+    // Back: the read answers, the problem clears, and the stream follows on.
+    host.on('GET', /\/conversations\/c1$/, () =>
+      json({ id: 'c1', items: [], running: false, lastEventId: 4, pendingCalls: [] }),
+    );
+    conversation.setVisible(false);
+    conversation.setVisible(true);
+    await settle();
+    expect(conversation.current.problem).toBeNull();
+    expect(host.stream.url).toBe(`${BASE}/conversations/c1/events?after=4`);
   });
 
   it('after a reload redraws from the read and follows on from its lastEventId', async () => {
