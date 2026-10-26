@@ -13,7 +13,7 @@ describe("the panel's words for the protocol's codes (design §5.4)", () => {
   });
 
   it('words every problem code', () => {
-    for (const code of ['turn-running', 'failed', 'provider', 'gone'] as const) {
+    for (const code of ['turn-running', 'failed', 'provider', 'gone', 'unreachable'] as const) {
       expect(problemLabel({ code, detail: null }).trim()).toBeTruthy();
     }
   });
