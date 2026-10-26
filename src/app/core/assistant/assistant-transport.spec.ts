@@ -2,6 +2,7 @@ import { HttpClient, HttpEventType, provideHttpClient } from '@angular/common/ht
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { SERVICE_LIMITER } from '@core/errors/rate-limit.interceptor';
 import { STREAM_CLOSED } from './assistant-client';
 import { ASSISTANT_STREAM, AssistantTransport, HttpEventSource } from './assistant-transport';
 
@@ -38,6 +39,7 @@ describe('AssistantTransport', () => {
       expect(request.request.method).toBe('POST');
       expect(request.request.headers.get('Content-Type')).toBe('application/json');
       expect(request.request.body).toBe('{"a":1}');
+      expect(request.request.context.get(SERVICE_LIMITER)).toBe(true);
       request.flush('{"id":"c1"}');
 
       const response = await answer;
@@ -171,14 +173,27 @@ describe('AssistantTransport', () => {
       }
     });
 
-    it('reconnects after a 429, which a retry can mend', () => {
+    it('reconnects after a 429 only once its Retry-After has passed, never into it', () => {
       vi.useFakeTimers();
       const { source } = open();
 
-      controller.expectOne(url).flush('', { status: 429, statusText: 'Too Many Requests' });
-      vi.advanceTimersByTime(ASSISTANT_STREAM.initialMs);
+      controller.expectOne(url).flush('', {
+        status: 429,
+        statusText: 'Too Many Requests',
+        headers: { 'Retry-After': '5' },
+      });
+      vi.advanceTimersByTime(4_999);
+      controller.expectNone(url);
+      vi.advanceTimersByTime(1);
 
       controller.expectOne(url);
+      source.close();
+    });
+
+    it("says on every request that the BFF limits on its own (the interceptor's SERVICE_LIMITER)", () => {
+      const { source } = open();
+
+      expect(controller.expectOne(url).request.context.get(SERVICE_LIMITER)).toBe(true);
       source.close();
     });
 

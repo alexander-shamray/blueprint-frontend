@@ -1,5 +1,6 @@
 import {
   HttpClient,
+  HttpContext,
   HttpErrorResponse,
   HttpEvent,
   HttpEventType,
@@ -8,6 +9,8 @@ import {
 import { Injectable, inject } from '@angular/core';
 import { Subscription } from 'rxjs';
 import { environment } from '@core/config/environment';
+import { mapError } from '@core/errors/error-mapper';
+import { SERVICE_LIMITER } from '@core/errors/rate-limit.interceptor';
 import { AssistantClient, EventSourceLike, Fetch, STREAM_CLOSED } from './assistant-client';
 import { readSseFrames } from './sse';
 
@@ -26,6 +29,14 @@ export const ASSISTANT_STREAM = {
 /** EventSource's CONNECTING and OPEN. */
 const CONNECTING = 0;
 const OPEN = 1;
+
+/**
+ * Every assistant request says the BFF behind it limits on its own, so a
+ * refusal of its making shuts no window of the gateway's (`SERVICE_LIMITER`).
+ */
+function assistantContext(): HttpContext {
+  return new HttpContext().set(SERVICE_LIMITER, true);
+}
 
 /**
  * The assistant's two calls of the outside world, over `HttpClient`
@@ -64,6 +75,7 @@ export class AssistantTransport {
         .request(init?.method ?? 'GET', input, {
           body: typeof init?.body === 'string' ? init.body : null,
           headers: new HttpHeaders(headersOf(init)),
+          context: assistantContext(),
           observe: 'response',
           responseType: 'text',
         })
@@ -153,7 +165,13 @@ export class HttpEventSource implements EventSourceLike {
 
     let consumed = 0;
     this.subscription = this.http
-      .get(this.url, { headers, observe: 'events', reportProgress: true, responseType: 'text' })
+      .get(this.url, {
+        headers,
+        context: assistantContext(),
+        observe: 'events',
+        reportProgress: true,
+        responseType: 'text',
+      })
       .subscribe({
         next: (event: HttpEvent<string>) => {
           if (event.type === HttpEventType.ResponseHeader) this.readyState = OPEN;
@@ -171,7 +189,13 @@ export class HttpEventSource implements EventSourceLike {
         },
         error: (error: unknown) => {
           const status = error instanceof HttpErrorResponse ? error.status : 0;
-          if (status === 0 || status === 429 || status >= 500) this.reconnect(true);
+          // A 429 is waited out for as long as it says, never retried into:
+          // `mapError` reads its Retry-After, and its fallback when it has none.
+          const waitMs =
+            status === 429 && error instanceof HttpErrorResponse
+              ? (mapError(error).retryAfterSeconds ?? 0) * 1_000
+              : 0;
+          if (status === 0 || status === 429 || status >= 500) this.reconnect(true, waitMs);
           else this.giveUp();
         },
         complete: () => this.reconnect(false),
@@ -186,7 +210,7 @@ export class HttpEventSource implements EventSourceLike {
     for (const listener of this.listeners.get(name) ?? []) listener(event);
   }
 
-  private reconnect(failed: boolean): void {
+  private reconnect(failed: boolean, atLeastMs = 0): void {
     if (this.readyState === STREAM_CLOSED) return;
     this.readyState = CONNECTING;
     this.subscription = null;
@@ -198,7 +222,8 @@ export class HttpEventSource implements EventSourceLike {
       // A dropped connection fires EventSource's own `error`, with no data.
       this.fireError();
     }
-    this.timer = setTimeout(() => this.connect(), failed ? this.failureMs : this.retryMs);
+    const delay = failed ? Math.max(this.failureMs, atLeastMs) : this.retryMs;
+    this.timer = setTimeout(() => this.connect(), delay);
   }
 
   private giveUp(): void {

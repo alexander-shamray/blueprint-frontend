@@ -1,11 +1,13 @@
-import { HttpClient, provideHttpClient, withInterceptors } from '@angular/common/http';
+import {
+  HttpClient, HttpContext, provideHttpClient, withInterceptors,
+} from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { environment } from '@core/config/environment';
 import { RATE_LIMIT_FALLBACK_SECONDS } from './error-mapper';
 import { RateLimitWindows } from './rate-limit';
-import { rateLimitInterceptor } from './rate-limit.interceptor';
+import { SERVICE_LIMITER, rateLimitInterceptor } from './rate-limit.interceptor';
 
 const BASE = environment.gatewayBaseUrl.replace(/\/+$/, '');
 
@@ -20,6 +22,7 @@ const LISTING = `${BASE}/api/v1/catalog/products`;
 const PUBLISH = `${BASE}/api/v1/catalog/products`;
 const QUOTE = `${BASE}/bff/v1/checkout/quote`;
 const ORDERS = `${BASE}/api/v1/orders`;
+const ASSISTANT = `${BASE}/bff/v1/assistant/conversations`;
 
 describe('rateLimitInterceptor', () => {
   let http: HttpClient;
@@ -146,6 +149,35 @@ describe('rateLimitInterceptor', () => {
     refuse((r) => r.url === LISTING, {});
 
     expect(windows.catalogue.remaining()).toBe(RATE_LIMIT_FALLBACK_SECONDS);
+  });
+
+  it("opens no window for a service limiter's 429, which carries no Retry-After", () => {
+    // The BFF's assistant limiter answers 429 with no header; the gateway's
+    // never does. A request marked SERVICE_LIMITER reached the service, so
+    // the gateway admitted it, and Cart, Checkout and History stay usable.
+    const context = new HttpContext().set(SERVICE_LIMITER, true);
+    http.post(ASSISTANT, {}, { context }).subscribe({ error: () => undefined });
+
+    refuse((r) => r.url === ASSISTANT, {});
+
+    expect(windows.authenticated.blocked()).toBe(false);
+  });
+
+  it("still opens the window for the gateway's 429 on such a request, by its Retry-After", () => {
+    const context = new HttpContext().set(SERVICE_LIMITER, true);
+    http.post(ASSISTANT, {}, { context }).subscribe({ error: () => undefined });
+
+    refuse((r) => r.url === ASSISTANT);
+
+    expect(windows.authenticated.remaining()).toBe(30);
+  });
+
+  it('opens the fallback window for an unmarked 429 with no Retry-After, as before', () => {
+    http.post(ASSISTANT, {}).subscribe({ error: () => undefined });
+
+    refuse((r) => r.url === ASSISTANT, {});
+
+    expect(windows.authenticated.remaining()).toBe(RATE_LIMIT_FALLBACK_SECONDS);
   });
 
   it('closes the window when a later request in the same partition succeeds', () => {

@@ -1,9 +1,23 @@
-import { HttpErrorResponse, HttpInterceptorFn, HttpResponse } from '@angular/common/http';
+import {
+  HttpContextToken, HttpErrorResponse, HttpInterceptorFn, HttpResponse,
+} from '@angular/common/http';
 import { inject } from '@angular/core';
 import { tap } from 'rxjs';
 import { isGatewayUrl, isPublicCatalogueRead } from '@core/config/gateway-url';
 import { mapError } from './error-mapper';
 import { RateLimitWindows } from './rate-limit';
+
+/**
+ * Set on a request whose service behind the gateway runs a limiter of its own,
+ * which answers 429 with no `Retry-After`: the BFF's `assistant-start` policy
+ * and its "Too many conversations" refusal
+ * (`Web.Bff/Assistant/DependencyInjection.cs`, `AssistantEndpoints.cs`). The
+ * gateway's own 429 always carries the header (`docs/client-architecture.md`
+ * §10), so on such a request a 429 without it is the service's, not a bucket
+ * this client keeps a window for, and it opens none. It reached the service,
+ * so the gateway admitted it, and it closes the window as an answer does.
+ */
+export const SERVICE_LIMITER = new HttpContextToken<boolean>(() => false);
 
 /**
  * Opens and closes the rate-limit windows from what the gateway actually
@@ -51,6 +65,15 @@ export const rateLimitInterceptor: HttpInterceptorFn = (request, next) => {
         // closing an open window on no evidence releases the action early
         // and straight into another refusal.
         if (error.status === 0) return;
+
+        if (
+          error.status === 429 &&
+          request.context.get(SERVICE_LIMITER) &&
+          !error.headers.has('Retry-After')
+        ) {
+          window.close(epoch);
+          return;
+        }
 
         // `mapError` owns the Retry-After parsing — the header can be absent,
         // empty, whitespace-only or an HTTP-date, and the fallback for all of
