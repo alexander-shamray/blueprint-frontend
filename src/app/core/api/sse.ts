@@ -18,9 +18,9 @@ const FRAME_END = /\r\n\r\n|\n\n|\r\r/;
  * a frame with no `data:` line (the `retry:` preamble), dispatches nothing,
  * as the HTML standard's event stream says.
  *
- * The same framing as `core/api/order-events.ts`'s, which reads one event
- * name and parses its data in place; this one hands every named frame on,
- * because the assistant's protocol has six.
+ * Every frame is handed on, named, because each reader keeps a different
+ * share: `order-events.ts` one event name, the assistant's transport its
+ * protocol's six.
  */
 export function readSseFrames(
   text: string,

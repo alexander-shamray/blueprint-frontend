@@ -8,11 +8,11 @@ import {
 } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Subscription } from 'rxjs';
+import { readSseFrames } from '@core/api/sse';
 import { environment } from '@core/config/environment';
 import { mapError } from '@core/errors/error-mapper';
 import { SERVICE_LIMITER } from '@core/errors/rate-limit.interceptor';
 import { AssistantClient, EventSourceLike, Fetch, STREAM_CLOSED } from './assistant-client';
-import { readSseFrames } from './sse';
 
 /**
  * How the event stream reconnects. The BFF ends a stream inside its operation
