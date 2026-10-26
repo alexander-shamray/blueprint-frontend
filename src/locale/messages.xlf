@@ -473,6 +473,13 @@
           <context context-type="linenumber">86</context>
         </context-group>
       </trans-unit>
+      <trans-unit id="assistant.problem.unreachable" datatype="html">
+        <source>The assistant cannot be reached just now. Close it and open it again to try once more.</source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/features/assistant/assistant-words.ts</context>
+          <context context-type="linenumber">88</context>
+        </context-group>
+      </trans-unit>
       <trans-unit id="products.title" datatype="html">
         <source>Products</source>
         <context-group purpose="location">

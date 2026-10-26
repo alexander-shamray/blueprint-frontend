@@ -422,6 +422,24 @@ describe('AssistantConversation', () => {
     expect(conversation.current.problem).toEqual({ code: 'gone', detail: null });
   });
 
+  it('when the stream is given up and the read fails, keeps the id and says to retry', async () => {
+    const { host, conversation, ids } = setup();
+    await conversation.send('cart?', null, 'en-US');
+    host.on('GET', /\/conversations\/c1$/, () => json({ title: 'Bad Gateway' }, 502));
+
+    host.stream.lose();
+    await settle();
+
+    expect(ids.id).toBe('c1');
+    expect(conversation.current.id).toBe('c1');
+    expect(conversation.current.running).toBe(false);
+    expect(conversation.current.problem?.code).toBe('unreachable');
+    // Nothing reopens on its own: the customer's next opening of the sheet does.
+    expect(host.streams.every((s) => s.closed)).toBe(true);
+    conversation.setVisible(true);
+    expect(host.stream.url).toBe(`${BASE}/conversations/c1/events?after=0`);
+  });
+
   it('after a reload redraws from the read and follows on from its lastEventId', async () => {
     const { host, conversation } = setup(memoryIds('c1'));
     host.on('GET', /\/conversations\/c1$/, () =>

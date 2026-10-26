@@ -109,9 +109,10 @@ export class AssistantClient {
 
   /**
    * Follows the conversation's events after `afterId`. The source reconnects
-   * on its own with Last-Event-ID; `onLost` runs only once it has given up
-   * (the host answered 404 for a conversation it no longer holds). Returns
-   * the close.
+   * on its own with Last-Event-ID; `onLost` runs only once it has given up,
+   * on an answer that is not a stream (`HttpEventSource` names which: a 404
+   * for a conversation the host no longer holds, a 401 or 403, any other
+   * 4xx). Returns the close.
    */
   follow(
     id: string,
@@ -168,7 +169,7 @@ async function problem(response: Response): Promise<AssistantProblem> {
 
 /** Why the last action failed, as a code the client words, with the host's detail if any. */
 export interface ConversationProblem {
-  readonly code: 'turn-running' | 'failed' | 'provider' | 'gone';
+  readonly code: 'turn-running' | 'failed' | 'provider' | 'gone' | 'unreachable';
   readonly detail: string | null;
 }
 
@@ -451,7 +452,21 @@ export class AssistantConversation {
     this.stopStream();
     const id = this.state.id;
     const sent = this.sends;
-    const view = id ? await this.client.read(id).catch(() => null) : null;
+    // Only a 404 says the host has forgotten it, and read() answers that with
+    // null; a read that throws (a 5xx, no network, a token being renewed) says
+    // nothing of the kind, so the id is kept and the problem is a retryable one.
+    let view: ConversationView | null;
+    try {
+      view = id ? await this.client.read(id) : null;
+    } catch (e) {
+      if (sent !== this.sends || id !== this.state.id) return;
+      this.update({
+        ...this.state,
+        running: false,
+        problem: { code: 'unreachable', detail: e instanceof Error ? e.message : String(e) },
+      });
+      return;
+    }
     // A send, a new conversation or a start-over since the read began makes
     // its answer someone else's.
     if (sent !== this.sends || id !== this.state.id) return;

@@ -84,5 +84,7 @@ export function problemLabel(problem: ConversationProblem): string {
       return $localize`:@@assistant.problem.provider:The assistant's provider failed.`;
     case 'gone':
       return $localize`:@@assistant.problem.gone:This conversation has ended. Your next message starts a new one.`;
+    case 'unreachable':
+      return $localize`:@@assistant.problem.unreachable:The assistant cannot be reached just now. Close it and open it again to try once more.`;
   }
 }
