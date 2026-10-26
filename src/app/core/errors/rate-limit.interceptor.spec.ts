@@ -1,6 +1,4 @@
-import {
-  HttpClient, HttpContext, provideHttpClient, withInterceptors,
-} from '@angular/common/http';
+import { HttpClient, HttpContext, provideHttpClient, withInterceptors } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -121,7 +119,9 @@ describe('rateLimitInterceptor', () => {
   });
 
   it('keeps a one-product read under the catalogue window', () => {
-    http.get(`${LISTING}/0199b0c4-6f2e-7a31-8c5d-2e4f6a7b8c9d`).subscribe({ error: () => undefined });
+    http
+      .get(`${LISTING}/0199b0c4-6f2e-7a31-8c5d-2e4f6a7b8c9d`)
+      .subscribe({ error: () => undefined });
 
     refuse(`${LISTING}/0199b0c4-6f2e-7a31-8c5d-2e4f6a7b8c9d`);
 
