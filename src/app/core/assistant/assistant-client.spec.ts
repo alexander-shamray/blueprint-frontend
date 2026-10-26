@@ -454,6 +454,48 @@ describe('AssistantConversation', () => {
     expect(host.stream.url).toBe(`${BASE}/conversations/c1/events?after=4`);
   });
 
+  it('a read overtaken by a newer one writes nothing back, even when it fails last', async () => {
+    // Read A hangs then fails; read B, begun by reopening the sheet, answers.
+    const host = new FakeHost();
+    let failA = (): void => undefined;
+    let reads = 0;
+    const fetch = (input: string, init?: RequestInit): Promise<Response> => {
+      if ((init?.method ?? 'GET') === 'GET' && input.endsWith('/conversations/c1')) {
+        reads++;
+        if (reads === 1) return Promise.resolve(json({ title: 'Bad Gateway' }, 502));
+        if (reads === 2)
+          return new Promise((_, reject) => (failA = () => reject(new Error('down'))));
+        return Promise.resolve(
+          json({ id: 'c1', items: [], running: false, lastEventId: 4, pendingCalls: [] }),
+        );
+      }
+      return host.fetch(input, init);
+    };
+    host.on('POST', /\/conversations$/, () => json({ id: 'c1' }));
+    host.on('POST', /\/turns$/, () => new Response(null, { status: 202 }));
+    const conversation = new AssistantConversation(
+      new AssistantClient(BASE, fetch, host.openStream),
+      new ClientToolRegistry(),
+      () => OPENING,
+      memoryIds(),
+      () => undefined,
+    );
+    await conversation.send('cart?', null, 'en-US');
+    host.stream.lose();
+    await settle();
+    expect(conversation.current.problem?.code).toBe('unreachable');
+
+    conversation.setVisible(true); // read A, which hangs
+    conversation.setVisible(false);
+    conversation.setVisible(true); // read B, which answers and follows on
+    await settle();
+    failA();
+    await settle();
+
+    expect(conversation.current.problem).toBeNull();
+    expect(host.stream.closed).toBe(false);
+  });
+
   it('after a reload redraws from the read and follows on from its lastEventId', async () => {
     const { host, conversation } = setup(memoryIds('c1'));
     host.on('GET', /\/conversations\/c1$/, () =>
