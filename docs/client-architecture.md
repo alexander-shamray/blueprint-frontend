@@ -651,7 +651,10 @@ and the assistant's every request does: on such a request a 429 without
 `Retry-After` is the service's, since the gateway's always carries one, and it
 closes the window as any admitted request does. The gateway's 429 on the same
 route still opens it. There are still exactly two windows; the token says
-which refusals are not the gateway's, and adds no third.
+which refusals are not the gateway's, and adds no third. The residual is the
+three cases above in which the gateway's own 429 arrives with no readable
+header: on an assistant request it is taken for the BFF's and opens no window,
+and the next request outside the assistant opens the fallback one instead.
 
 Three rules govern closing a window, and all three come from one observation:
 the limiter either admits a request or rejects it with a 429, so anything else
@@ -2037,11 +2040,13 @@ hint, and after a failure a retry can mend — no answer, a 429, a 5xx — it
 waits from one second, doubling to fifteen. A 429 is waited out for at least
 its own `Retry-After`, as `mapError` reads it, because retrying into a 429 is
 how a limit becomes a loop (§10). It gives up, as a browser's EventSource does
-on an answer that is not a stream, on a 404 (the host no longer holds the conversation), on a 401 or 403
-(it no longer admits the caller) and on any other 4xx, and the shared client
-then reads the conversation once to decide whether to follow on or say it has
-ended. Only that read's 404 ends it; a read that fails keeps the conversation
-and says the assistant cannot be reached, and reopening the sheet tries again.
+on an answer that is not a stream, on a 404 (the host no longer holds the
+conversation), on a 401 or 403 (it no longer admits the caller) and on any
+other 4xx, and the shared client then reads the conversation once to decide
+whether to follow on or say it has ended. Only that read's 404 ends it; a read
+that fails keeps the conversation and says the assistant cannot be reached,
+and reopening the sheet reads again, which clears the problem once the host
+answers.
 The framing duplicates `core/api/order-events.ts`'s rather than moving it,
 because that file reads one event name and parses its data in place, and
 moving it would have been a refactor of the order stream riding on a feature.
