@@ -640,6 +640,19 @@ and the method, the interceptor reads nothing another interceptor must have
 written first — so its position in the chain does not matter, which is one
 fewer invariant than the header-based version needed.
 
+*Amended (#326).* One service behind the gateway now limits on its own: the
+BFF's assistant answers 429 from its `assistant-start` policy and from its
+conversation capacity, with no `Retry-After`
+(`Web.Bff/Assistant/DependencyInjection.cs`). Filed as the gateway's, either
+would open the `authenticated` window for the fallback minute and take Cart,
+Checkout and History down for a limit that does not govern them. So a request
+can carry `SERVICE_LIMITER` (an `HttpContextToken` beside the interceptor),
+and the assistant's every request does: on such a request a 429 without
+`Retry-After` is the service's, since the gateway's always carries one, and it
+closes the window as any admitted request does. The gateway's 429 on the same
+route still opens it. There are still exactly two windows; the token says
+which refusals are not the gateway's, and adds no third.
+
 Three rules govern closing a window, and all three come from one observation:
 the limiter either admits a request or rejects it with a 429, so anything else
 coming back means this request was admitted. A response of any status closes
@@ -2013,22 +2026,25 @@ BFF's whole group requires a bearer, an EventSource cannot send one, and the
 token does not go in a query string — the reason §12 gives for the order
 stream. So the shared client takes both calls as parameters, and
 `assistant-transport.ts` supplies them over `HttpClient`, which keeps the
-auth, rate-limit and log interceptors on every request. `fetch`'s shape
-resolves an answer of any status as a `Response` and rejects only a request
-that reached nobody, as `fetch` does. `HttpEventSource` reads the download
-progress text with `sse.ts`'s framing, hands on each named event with its id,
-and reconnects with `Last-Event-ID`: after the BFF ends a stream on its
-lifetime it waits the stream's own `retry:` hint, and after a failure a retry
-can mend — no answer, a 429, a 5xx — it waits from one second, doubling to
-fifteen. It gives up, as a browser's EventSource does on an answer that is not
-a stream, on a 404 (the host no longer holds the conversation), on a 401 or
-403 (it no longer admits the caller) and on any other 4xx, and the shared
-client then reads the conversation once to decide whether to follow on or say
-it has ended. The
-framing duplicates `core/api/order-events.ts`'s rather than moving it,
-because that file reads one event name and parses its data in place, and a
-second core area in this change would have been a refactor riding on a
-feature.
+auth, rate-limit and log interceptors on every request. Each request carries
+`SERVICE_LIMITER`, so the BFF's own 429s open no window of the gateway's
+(§10's amendment). `fetch`'s shape resolves an answer of any status as a
+`Response` and rejects only a request that reached nobody, as `fetch` does.
+`HttpEventSource` reads the download progress text with `sse.ts`'s framing,
+hands on each named event with its id, and reconnects with `Last-Event-ID`:
+after the BFF ends a stream on its lifetime it waits the stream's own `retry:`
+hint, and after a failure a retry can mend — no answer, a 429, a 5xx — it
+waits from one second, doubling to fifteen. A 429 is waited out for at least
+its own `Retry-After`, as `mapError` reads it, because retrying into a 429 is
+how a limit becomes a loop (§10). It gives up, as a browser's EventSource does
+on an answer that is not a stream, on a 404 (the host no longer holds the conversation), on a 401 or 403
+(it no longer admits the caller) and on any other 4xx, and the shared client
+then reads the conversation once to decide whether to follow on or say it has
+ended. Only that read's 404 ends it; a read that fails keeps the conversation
+and says the assistant cannot be reached, and reopening the sheet tries again.
+The framing duplicates `core/api/order-events.ts`'s rather than moving it,
+because that file reads one event name and parses its data in place, and
+moving it would have been a refactor of the order stream riding on a feature.
 
 **Off is the BFF's to say, and only a signed-in customer can ask.** The
 design's off switch (§9.1) is a status read that answers `enabled: false`,
@@ -2081,7 +2097,8 @@ holds `catalog:write`. All four change only the view (design §6.3), and after
 one changes the page the sheet steps down to half height, so the customer
 sees what it opened. Their titles, descriptions and results are read by the
 model and not the customer, so they stay English (design §5.4);
-`i18n-literals.spec.ts` lists each by file and text with that reason.
+`i18n-literals.spec.ts` lists, with that reason, each of them whose shape it
+reads as prose; the rest it does not catch, and need no entry.
 
 **The catalogue.** Each page the assistant may explain is sent with its id,
 its label, where it lives and its `help` (design §6.1). The label reuses the
