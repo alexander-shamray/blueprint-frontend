@@ -84,10 +84,12 @@ jobs:
   # a document with no `metadata` fails the job rather than passing it.
   #
   # The whole tree, the build toolchain every `npm ci` installs included, is
-  # audited too, at `critical` only (#325): a compromised build tool fails the
-  # job, and a toolchain advisory below that, which often has no fixed release
-  # yet, does not, and a critical one is allowed by the same `ALLOWED` rows.
-  # Dependabot raises those as bumps once upstream ships one.
+  # audited at every severity, and `npm ci` itself must print no
+  # `npm warn deprecated`: a clean install is the bar, because a finding left
+  # to Dependabot waits on a parent that pins it exactly (vite under
+  # @angular/build, uuid under xcode) and Dependabot cannot move that. Such a
+  # finding is closed by an `overrides` entry in package.json, and one with no
+  # fixed release by an `ALLOWED` row (docs/client-architecture.md section 14).
   audit:
     runs-on: ubuntu-latest
     # Bounds a step that never exits, which would otherwise hold the runner
@@ -102,8 +104,15 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: npm
-      - run: npm ci
-      - name: Audit production dependencies, and the whole tree at critical
+      - name: Install, refusing a deprecated package
+        run: |
+          set -o pipefail
+          npm ci 2>&1 | tee npm-ci.log
+          if grep 'npm warn deprecated' npm-ci.log; then
+            echo "::error::npm ci installed a deprecated package - override it in package.json"
+            exit 1
+          fi
+      - name: Audit production dependencies at high, and the whole tree at any severity
         run: |
           npm audit --omit=dev --json > audit.json || true
           npm audit --json > full.json || true
@@ -113,7 +122,7 @@ jobs:
           today=$(date -u +%F)
           found=$({
             jq -r '[.vulnerabilities[].via[] | objects | select(.severity == "high" or .severity == "critical") | (.url | split("/") | last) + "\t" + .title] | unique[]' audit.json
-            jq -r '[.vulnerabilities[].via[] | objects | select(.severity == "critical") | (.url | split("/") | last) + "\t" + .title] | unique[]' full.json
+            jq -r '[.vulnerabilities[].via[] | objects | (.url | split("/") | last) + "\t" + .title] | unique[]' full.json
           } | sort -u)
           failed=0
           while IFS=$'\t' read -r id title; do
