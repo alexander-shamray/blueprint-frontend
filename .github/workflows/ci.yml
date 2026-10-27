@@ -86,10 +86,11 @@ jobs:
   # The whole tree, the build toolchain every `npm ci` installs included, is
   # audited at every severity, and `npm ci` itself must print no
   # `npm warn deprecated`: a clean install is the bar, because a finding left
-  # to Dependabot waits on a parent that pins it exactly (vite under
-  # @angular/build, uuid under xcode) and Dependabot cannot move that. Such a
-  # finding is closed by an `overrides` entry in package.json, and one with no
-  # fixed release by an `ALLOWED` row (docs/client-architecture.md section 14).
+  # to Dependabot waits on a parent whose own range excludes the fix (vite
+  # under @angular/build, uuid under xcode), which Dependabot cannot move. Such
+  # a finding is closed by an `overrides` entry in package.json, and one with
+  # no fixed release by an `ALLOWED` row (docs/client-architecture.md section
+  # 14).
   audit:
     runs-on: ubuntu-latest
     # Bounds a step that never exits, which would otherwise hold the runner
