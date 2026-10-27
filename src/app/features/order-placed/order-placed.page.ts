@@ -346,11 +346,15 @@ export class OrderPlacedPage {
   private connect(): void {
     if (!this.canConnect()) return;
 
-    // No request into a window the gateway has closed. Waiting out what is
-    // left of it, or the current interval if that is longer, keeps the page
-    // from spending the buyer's own budget on a refusal it already knows.
+    // No request into a window the gateway has closed: waiting out what is
+    // left of it keeps the page from spending the buyer's own budget on a
+    // refusal it already knows. Only the remainder, because a connect is
+    // either an entry or the end of the page's own interval, which has been
+    // served. The window's last tick and this timer can fall due together,
+    // and a timer that runs first still reads one second left: it rechecks
+    // a second later rather than adding a whole interval.
     if (this.rateLimit.blocked()) {
-      this.schedule(Math.max(this.rateLimit.remaining() * 1000, this.delayMs));
+      this.schedule(this.rateLimit.remaining() * 1000);
       return;
     }
 

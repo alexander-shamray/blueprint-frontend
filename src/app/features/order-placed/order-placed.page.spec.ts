@@ -374,6 +374,33 @@ describe('OrderPlacedPage', () => {
     mounted.fixture.destroy();
   });
 
+  it('waits out only what is left of a window, not another reconnect interval on top', () => {
+    const mounted = mount(GUID_A);
+    controller = mounted.controller;
+    // Delivered, so the 3-second reopening is due, and the one after is 6.
+    end(openWith(controller, detail(GUID_A, 'placed')));
+
+    vi.advanceTimersByTime(500);
+    TestBed.inject(RateLimitWindows).forPartition('authenticated').open({
+      kind: 'rateLimited',
+      title: 'Too many requests',
+      detail: null,
+      retryAfterSeconds: 5,
+    });
+
+    // Held at 3 s with 3 s of the window left; it shuts at 5.5 s.
+    vi.advanceTimersByTime(5_400);
+    expect(streams(controller)).toEqual([]);
+
+    // The page has already waited its own interval, so the window's remainder
+    // is all that is owed, and a second 6 s on top would reopen it at 9 s.
+    vi.advanceTimersByTime(100);
+    const after = streams(controller);
+    expect(after.length).toBe(1);
+    emit(after[0], detail(GUID_A, 'placed'));
+    mounted.fixture.destroy();
+  });
+
   it('stops and says so on a 401, which no later attempt could change', () => {
     const mounted = mount(GUID_A);
     controller = mounted.controller;
