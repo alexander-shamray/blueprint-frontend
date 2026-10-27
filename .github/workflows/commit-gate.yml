@@ -19,7 +19,7 @@ jobs:
   commit-gate:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           # The range is base..head and the enforcing copy is read from the
           # base commit, so history is needed.
