@@ -1402,13 +1402,15 @@ reason; an expired row fails the job again, which is the difference between an
 allow-list and a disabled job. The rows live in the job and nowhere else.
 The same step audits the whole tree, the build toolchain every `npm ci`
 installs included, at every severity, and its findings pass through the same
-`ALLOWED` rows. **`npm ci` must finish clean**: no advisory at any level and no
-`npm warn deprecated`, which the job's install step fails on. #325 first set the
-whole tree at `critical` only and left the rest to Dependabot's weekly bumps;
-that left a high `vite` advisory and a deprecated, advisory-carrying `uuid`
-in every install, because each sat under a parent that pins it exactly —
-`vite` under `@angular/build`, `uuid` under `xcode` under `@capacitor/cli` —
-and a bump Dependabot cannot make is a finding nobody closes. **Such a finding is closed by an `overrides` entry in `package.json`**,
+`ALLOWED` rows. **`npm ci` must finish clean**: no advisory outside an
+`ALLOWED` row, at any level, and no `npm warn deprecated`, which the job's
+install step fails on. #325 first set the whole tree at `critical` only and left
+the rest to Dependabot's weekly bumps; that left a high `vite` advisory and a
+deprecated, advisory-carrying `uuid` in every install, because each sat under a
+parent whose own range excludes the fixed version — an exact pin for `vite`
+under `@angular/build`, a caret range on an older major for `uuid` under
+`xcode` under `@capacitor/cli` — and a bump Dependabot cannot make is a finding
+nobody closes. **Such a finding is closed by an `overrides` entry in `package.json`**,
 pinned exactly like everything else and moving with the lockfile; each entry is
 removed once its parent's own range admits the fixed version, which `npm ls
 <package>` shows. An advisory with no fixed release at all still takes an
