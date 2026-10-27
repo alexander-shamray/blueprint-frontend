@@ -388,12 +388,14 @@ describe('OrderPlacedPage', () => {
       retryAfterSeconds: 5,
     });
 
-    // Held at 3 s with 3 s of the window left; it shuts at 5.5 s.
+    // Held at 3 s. The window shuts at 5.5 s, but `remaining()` counts whole
+    // seconds rounded up, so the 2.5 s left reads 3 and the hold runs to 6 s.
     vi.advanceTimersByTime(5_400);
     expect(streams(controller)).toEqual([]);
 
     // The page has already waited its own interval, so the window's remainder
-    // is all that is owed, and a second 6 s on top would reopen it at 9 s.
+    // is all that is owed: it reopens at 6 s, where a second 6 s interval on
+    // top would have reopened it at 9 s.
     vi.advanceTimersByTime(100);
     const after = streams(controller);
     expect(after.length).toBe(1);
