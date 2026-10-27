@@ -1410,10 +1410,10 @@ deprecated, advisory-carrying `uuid` in every install, because each sat under a
 parent whose own range excludes the fixed version — an exact pin for `vite`
 under `@angular/build`, a caret range on an older major for `uuid` under
 `xcode` under `@capacitor/cli` — and a bump Dependabot cannot make is a finding
-nobody closes. **Such a finding is closed by an `overrides` entry in `package.json`**,
-pinned exactly like everything else and moving with the lockfile; each entry is
-removed once its parent's own range admits the fixed version, which `npm ls
-<package>` shows. An advisory with no fixed release at all still takes an
+nobody closes. **Such a finding is closed by an `overrides` entry in
+`package.json`**, pinned exactly like everything else and moving with the
+lockfile; each entry is removed once its parent's own range admits the fixed
+version, which `npm ls <package>` shows. An advisory with no fixed release at all still takes an
 `ALLOWED` row with an expiry.
 
 The `commits` job runs on pull requests only and lints and builds every commit
