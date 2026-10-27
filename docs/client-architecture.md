@@ -657,6 +657,17 @@ header: on an assistant request it is taken for the BFF's and opens no window,
 and the next refused request to the `authenticated` bucket from outside the
 assistant opens the fallback one instead.
 
+*Amended (#350).* That residual is closed. The BFF now marks its own
+refusals: each is a problem body whose `code` is `assistant.rate_limited` or
+`assistant.conversations_full`, still with no `Retry-After`, and the
+gateway's 429 carries no `code` (blueprint-backend PR #1487, its §10.5's 429
+row). So on a `SERVICE_LIMITER` request the token's exemption now keys on a
+`code` being present, read from the parsed body or from the text the
+assistant's `responseType: 'text'` requests leave it as, and no longer on the
+header being missing. A gateway 429 whose header did not survive carries no
+`code` either, and opens the fallback window on an assistant request as on
+any other.
+
 Three rules govern closing a window, and all three come from one observation:
 the limiter either admits a request or rejects it with a 429, so anything else
 coming back means this request was admitted. A response of any status closes
