@@ -2137,3 +2137,11 @@ stack the `e2e` job starts runs the BFF with the assistant off, its default,
 so the smoke never sees the button. The panel's behaviour is covered by its
 unit specs against a scripted host, and the round trip through a real
 provider has not been run by anything in CI.
+
+*Amended (#350).* The stack now turns it on: blueprint-backend PR #1487 gave
+`Assistant:Provider` a keyless `scripted` value, Development only, and the
+Compose stack starts the BFF with it, so the status read answers `enabled`
+and every turn streams one fixed reply. `e2e/assistant.spec.ts` signs in,
+acknowledges the notice, which names `scripted`, sends a message and reads
+that reply, through the gateway with the bearer. A real provider's round trip
+is still run by nothing in CI.
