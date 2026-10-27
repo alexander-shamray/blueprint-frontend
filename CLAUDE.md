@@ -97,7 +97,11 @@ that asserts it, in both directions.
 ## Build policy
 
 Versions live in `package.json` with **exact** pins — no `^`, no `~` — and
-`package-lock.json` moves in the same commit or the change is not done. The
+`package-lock.json` moves in the same commit or the change is not done.
+**`npm ci` finishes clean** — no advisory at any severity, no `npm warn
+deprecated` — and a finding under a parent's exact pin is closed with an
+`overrides` entry; `docs/client-architecture.md` §14 argues it and CI's `audit`
+job fails on either. The
 import boundaries in `eslint.config.js` are **a lint failure, not a review
 comment**: a feature never imports another feature, and `core` knows nothing
 about screens (spec §3); `src/app/core/boundaries.spec.ts` is the precise check.
