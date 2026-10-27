@@ -11,22 +11,40 @@ import { mapError } from './error-mapper';
 import { RateLimitWindows } from './rate-limit';
 
 /**
- * Set on a request whose service behind the gateway runs a limiter of its own,
- * which answers 429 with no `Retry-After`: the BFF's `assistant-start` policy
- * and its "Too many conversations" refusal
- * (`Web.Bff/Assistant/DependencyInjection.cs`, `AssistantEndpoints.cs`). The
- * gateway's own 429 always carries the header (`docs/client-architecture.md`
- * §10), so on such a request a 429 without it is the service's, not a bucket
- * this client keeps a window for, and it opens none. It reached the service,
- * so the gateway admitted it, and it closes the window as an answer does.
+ * Set on a request whose service behind the gateway runs a limiter of its own:
+ * the BFF's `assistant-start` policy and its conversation capacity
+ * (`Web.Bff/Assistant/DependencyInjection.cs`, `AssistantEndpoints.cs`). Each
+ * of those refusals is a problem body with a `code` (`assistant.rate_limited`,
+ * `assistant.conversations_full`) and the gateway's 429 never carries one
+ * (backend §10.5), so on such a request a 429 with a code is the service's,
+ * not a bucket this client keeps a window for, and it opens none. It reached
+ * the service, so the gateway admitted it, and it closes the window as an
+ * answer does.
  *
- * The residual: §10 names the cases where the gateway's own 429 reaches this
- * client with no readable header (an intermediary that strips it, CORS off, a
- * gateway older than `27b54a7`). On a marked request that refusal is taken
- * for the service's and opens no window, where an unmarked one would open
- * the fallback minute; the next unmarked request the bucket refuses opens it.
+ * Keyed on the code and not on a missing `Retry-After` (#350): the gateway's
+ * own 429 can arrive with no readable header too (`docs/client-architecture.md`
+ * §10), and taken for the service's it opened no window at all.
  */
 export const SERVICE_LIMITER = new HttpContextToken<boolean>(() => false);
+
+/**
+ * The `code` of a problem body, whichever form `HttpClient` left it in: parsed
+ * for a JSON request, text for one asking `responseType: 'text'`, as every
+ * assistant request does. Anything that is not a non-empty string is none.
+ */
+function problemCode(body: unknown): string | null {
+  let parsed = body;
+  if (typeof body === 'string') {
+    try {
+      parsed = JSON.parse(body);
+    } catch {
+      return null;
+    }
+  }
+  if (typeof parsed !== 'object' || parsed === null) return null;
+  const code: unknown = (parsed as { code?: unknown }).code;
+  return typeof code === 'string' && code !== '' ? code : null;
+}
 
 /**
  * Opens and closes the rate-limit windows from what the gateway actually
@@ -78,7 +96,7 @@ export const rateLimitInterceptor: HttpInterceptorFn = (request, next) => {
         if (
           error.status === 429 &&
           request.context.get(SERVICE_LIMITER) &&
-          !error.headers.has('Retry-After')
+          problemCode(error.error) !== null
         ) {
           window.close(epoch);
           return;

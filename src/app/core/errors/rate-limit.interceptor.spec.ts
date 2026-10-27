@@ -49,11 +49,15 @@ describe('rateLimitInterceptor', () => {
   const refuse = (
     match: Parameters<HttpTestingController['expectOne']>[0],
     headers: Record<string, string> = { 'Retry-After': '30' },
+    body: object | string | null = null,
   ) => {
     controller
       .expectOne(match)
-      .flush(null, { status: 429, statusText: 'Too Many Requests', headers });
+      .flush(body, { status: 429, statusText: 'Too Many Requests', headers });
   };
+
+  /** The BFF's limiter refusal (`AssistantEndpoints.RateLimitedCode`): a code, no header. */
+  const BFF_REFUSAL = { status: 429, title: 'Too many requests', code: 'assistant.rate_limited' };
 
   it('files a refused catalogue listing under the catalogue window', () => {
     // `GET /api/v1/catalog/**` is the ONE route the gateway gives its
@@ -151,16 +155,62 @@ describe('rateLimitInterceptor', () => {
     expect(windows.catalogue.remaining()).toBe(RATE_LIMIT_FALLBACK_SECONDS);
   });
 
-  it("opens no window for a service limiter's 429, which carries no Retry-After", () => {
-    // The BFF's assistant limiter answers 429 with no header; the gateway's
-    // never does. A request marked SERVICE_LIMITER reached the service, so
-    // the gateway admitted it, and Cart, Checkout and History stay usable.
+  it("opens no window for a service limiter's 429, which carries a code", () => {
+    // The BFF's assistant limiter answers 429 with a problem `code`; the
+    // gateway's never carries one. A request marked SERVICE_LIMITER reached
+    // the service, so the gateway admitted it, and Cart, Checkout and History
+    // stay usable.
     const context = new HttpContext().set(SERVICE_LIMITER, true);
     http.post(ASSISTANT, {}, { context }).subscribe({ error: () => undefined });
 
-    refuse((r) => r.url === ASSISTANT, {});
+    refuse((r) => r.url === ASSISTANT, {}, BFF_REFUSAL);
 
     expect(windows.authenticated.blocked()).toBe(false);
+  });
+
+  it('reads the code from a text body too, as the assistant asks for one', () => {
+    const context = new HttpContext().set(SERVICE_LIMITER, true);
+    http
+      .post(ASSISTANT, {}, { context, responseType: 'text' })
+      .subscribe({ error: () => undefined });
+
+    refuse(
+      (r) => r.url === ASSISTANT,
+      {},
+      JSON.stringify({ ...BFF_REFUSAL, code: 'assistant.conversations_full' }),
+    );
+
+    expect(windows.authenticated.blocked()).toBe(false);
+  });
+
+  it("opens the fallback window for the gateway's 429 with neither code nor Retry-After (#350)", () => {
+    // §10's stripped header: an intermediary, CORS off, an older gateway. With
+    // no code it is the gateway's, marked request or not.
+    const context = new HttpContext().set(SERVICE_LIMITER, true);
+    http
+      .post(ASSISTANT, {}, { context, responseType: 'text' })
+      .subscribe({ error: () => undefined });
+
+    refuse((r) => r.url === ASSISTANT, {}, 'Too Many Requests');
+
+    expect(windows.authenticated.remaining()).toBe(RATE_LIMIT_FALLBACK_SECONDS);
+  });
+
+  it('takes a code that is not a non-empty string for none', () => {
+    const context = new HttpContext().set(SERVICE_LIMITER, true);
+    http.post(ASSISTANT, {}, { context }).subscribe({ error: () => undefined });
+
+    refuse((r) => r.url === ASSISTANT, {}, { ...BFF_REFUSAL, code: '' });
+
+    expect(windows.authenticated.remaining()).toBe(RATE_LIMIT_FALLBACK_SECONDS);
+  });
+
+  it('still opens the window for a coded 429 on an unmarked request', () => {
+    http.post(ASSISTANT, {}).subscribe({ error: () => undefined });
+
+    refuse((r) => r.url === ASSISTANT, {}, BFF_REFUSAL);
+
+    expect(windows.authenticated.remaining()).toBe(RATE_LIMIT_FALLBACK_SECONDS);
   });
 
   it("still opens the window for the gateway's 429 on such a request, by its Retry-After", () => {
