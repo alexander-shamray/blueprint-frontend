@@ -1413,8 +1413,8 @@ under `@angular/build`, a caret range on an older major for `uuid` under
 nobody closes. **Such a finding is closed by an `overrides` entry in
 `package.json`**, pinned exactly like everything else and moving with the
 lockfile; each entry is removed once its parent's own range admits the fixed
-version, which `npm ls <package>` shows. An advisory with no fixed release at all still takes an
-`ALLOWED` row with an expiry.
+version, which `npm ls <package>` shows. An advisory with no fixed release at
+all still takes an `ALLOWED` row with an expiry.
 
 The `commits` job runs on pull requests only and lints and builds every commit
 before the head (one `npm ci`, repeated when a commit's `package-lock.json`
