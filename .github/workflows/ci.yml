@@ -17,7 +17,7 @@ jobs:
     # run, not a duration.
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
@@ -39,7 +39,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - uses: actions/setup-node@v7
@@ -97,7 +97,7 @@ jobs:
     env:
       ALLOWED: |
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
@@ -152,11 +152,11 @@ jobs:
     # Needs Docker and the backend checkout. Not continue-on-error: a smoke
     # that is allowed to fail is a smoke nobody reads.
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # The backend is a separate public repository. If it is ever made
       # private this step needs a token with read access to it; the failure
       # mode is a checkout 404, which reads like a wrong repository name.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           repository: alexander-shamray/blueprint-backend
           path: blueprint-backend
@@ -247,7 +247,7 @@ jobs:
     # run, not a duration.
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
@@ -281,7 +281,7 @@ jobs:
     # run, not a duration.
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
@@ -361,7 +361,7 @@ jobs:
     # run, not a duration.
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
@@ -385,7 +385,7 @@ jobs:
     # run, not a duration.
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
