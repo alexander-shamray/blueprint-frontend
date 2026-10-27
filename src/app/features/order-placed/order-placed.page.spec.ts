@@ -388,8 +388,8 @@ describe('OrderPlacedPage', () => {
       retryAfterSeconds: 5,
     });
 
-    // Held at 3 s. The window shuts at 5.5 s, but `remaining()` counts whole
-    // seconds rounded up, so the 2.5 s left reads 3 and the hold runs to 6 s.
+    // Held at 3 s. The window shuts at 5.5 s, but `remaining()` is what its
+    // last tick stored, at 2.5 s with 3 s left, so the hold runs to 6 s.
     vi.advanceTimersByTime(5_400);
     expect(streams(controller)).toEqual([]);
 
