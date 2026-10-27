@@ -1405,11 +1405,10 @@ installs included, at every severity, and its findings pass through the same
 `ALLOWED` rows. **`npm ci` must finish clean**: no advisory at any level and no
 `npm warn deprecated`, which the job's install step fails on. #325 first set the
 whole tree at `critical` only and left the rest to Dependabot's weekly bumps;
-that left a high `vite` advisory and a deprecated, advisory-carrying `uuid@7`
+that left a high `vite` advisory and a deprecated, advisory-carrying `uuid`
 in every install, because each sat under a parent that pins it exactly —
-`vite` 8.3.0 under `@angular/build` 22.2.4, `uuid` under `xcode` 3 under
-`@capacitor/cli` — and a bump Dependabot cannot make is a finding nobody
-closes. **Such a finding is closed by an `overrides` entry in `package.json`**,
+`vite` under `@angular/build`, `uuid` under `xcode` under `@capacitor/cli` —
+and a bump Dependabot cannot make is a finding nobody closes. **Such a finding is closed by an `overrides` entry in `package.json`**,
 pinned exactly like everything else and moving with the lockfile; each entry is
 removed once its parent's own range admits the fixed version, which `npm ls
 <package>` shows. An advisory with no fixed release at all still takes an
