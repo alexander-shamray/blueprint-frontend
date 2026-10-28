@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Fork the detached, pinned worktree a sweep audits in — /security-sweep or
-# /bug-sweep — and nothing else: `git worktree add --detach <path> <commit>`.
+# /bug-sweep — `git worktree add --detach <path> <commit>`, once the worktrees
+# interrupted sweeps of this repository left are dropped and the registrations
+# whose directory has gone are pruned, every sweep's or not.
 #
 # A `Bash(git worktree add:*)` grant would also buy `-B`, which resets an
 # existing branch — the operation .claude/settings.json denies as
@@ -58,6 +60,22 @@ git rev-parse --verify --quiet "$commit^{commit}" >/dev/null ||
 links=$(git ls-tree -r "$commit" | awk '$1 == "120000" { print $4 }' | head -5)
 [ -z "$links" ] ||
   { echo "$commit carries tracked symbolic links, and a sweep's reads follow them out of the worktree it is bounded to (#18): $(printf '%s ' $links)" >&2; exit 5; }
+
+# A sweep stopped before its teardown leaves its worktree registered, and no
+# later run's name meets it again. A day old marks one no sweep still runs in;
+# every candidate goes through git-worktree-drop.sh, whose shape checks and
+# git's refusal of a tree holding anything modified or untracked are the guard,
+# never this list. Registrations whose directory has gone are pruned after.
+# Below every refusal of the argument, so a refused call changes no worktree.
+registered=$(git worktree list --porcelain)
+while IFS= read -r line; do
+  case "$line" in "worktree "*) old=${line#worktree } ;; *) continue ;; esac
+  case "${old##*/}" in secsweep-??????) : ;; *) continue ;; esac
+  [ -n "$(find "$old" -maxdepth 0 -mmin +1440 2>/dev/null)" ] || continue
+  bash "$(dirname "${BASH_SOURCE[0]}")/git-worktree-drop.sh" "$old" >&2 ||
+    echo "left a stale sweep worktree standing: $old" >&2
+done <<<"$registered"
+git worktree prune >&2
 
 tmproot=$(cd "${TMPDIR:-/tmp}" 2>/dev/null && pwd -P) ||
   { echo "cannot resolve the temp root" >&2; exit 4; }
