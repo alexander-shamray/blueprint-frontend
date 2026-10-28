@@ -30,10 +30,12 @@
 # It still does NOT mean a sweep created this path, and the two helpers differ
 # on why — a distinction a revision of this comment briefly erased.
 # `git-worktree-detach.sh` now creates the directory it hands to git, so for
-# THAT helper the question does not arise: there is no caller-supplied path to
-# doubt, and the `Bash(mktemp:*)` grant that made an arbitrary template
-# reachable is gone from both sweeps. **This helper is the other case and is
-# unchanged in that respect.** The teardown passes it `$posix`, and any
+# the path it forks the question does not arise: there is no caller-supplied
+# path to doubt, and the `Bash(mktemp:*)` grant that made an arbitrary template
+# reachable is gone from both sweeps. The day-old sweep-shaped worktrees it
+# drops before forking come through here, so they are this helper's case.
+# **This helper is the other case and is unchanged in that respect.** The
+# teardown passes it `$posix`, and any
 # registered worktree of the right shape satisfies the checks below — including
 # one an abandoned earlier sweep left behind, which is not hypothetical: a stray
 # `secsweep-` checkout from a previous session was sitting in the temp root
