@@ -74,27 +74,31 @@ def git(repo, args):
 
 
 class Sweep:
-    """A detached sweep worktree of `repo`, dropped with its slices afterwards."""
+    """A detached sweep worktree of `repo`, dropped with its slices afterwards;
+    under `root` as its temp root when one is given."""
 
-    def __init__(self, case, repo):
+    def __init__(self, case, repo, root=None):
         self.repo = repo
+        self.env = {"TMPDIR": root} if root else {}
         sha = git(repo, "rev-parse HEAD")
         made = run_bash(
-            'cd "$R" && bash "$DETACH" "$SHA" 2>/dev/null', R=repo, DETACH=str(DETACH), SHA=sha
+            'cd "$R" && bash "$DETACH" "$SHA" 2>/dev/null',
+            R=repo, DETACH=str(DETACH), SHA=sha, **self.env,
         )
         case.assertEqual(0, made.returncode, made.stderr)
         self.path = made.stdout.strip()
         case.addCleanup(
             lambda: run_bash(
                 'cd "$R" && bash "$DROP" "$W" >/dev/null 2>&1; rm -rf "$W.slices"',
-                R=repo, DROP=str(DROP), W=self.path,
+                R=repo, DROP=str(DROP), W=self.path, **self.env,
             )
         )
 
-    def slices(self, kind, *extra):
+    def slices(self, kind, *extra, **env):
         return run_bash(
             'cd "$R" && bash "$SLICES" "$KIND" "$W" $EXTRA',
             R=self.repo, SLICES=str(SLICES), KIND=kind, W=self.path, EXTRA=" ".join(extra),
+            **self.env, **env,
         )
 
 
@@ -166,11 +170,19 @@ SMALL_TREE = {
 
 
 class ASmallRepository(unittest.TestCase):
-    """A small repository of its own, so a commit and a ref never touch this one."""
+    """A small repository of its own, so a commit and a ref never touch this one;
+    its sweeps under a temp root beside it, so a run stopped before its cleanups
+    leaves one directory behind, not a worktree git can no longer reach."""
 
     def setUp(self):
-        self.repo = tempfile.mkdtemp(prefix="sweepslices-")
-        self.addCleanup(shutil.rmtree, self.repo, ignore_errors=True)
+        # Not rmtree with ignore_errors: git's objects are read-only, which
+        # Windows refuses to delete, and the flag hides each one that stays.
+        holder = tempfile.TemporaryDirectory(prefix="sweepslices-")
+        self.addCleanup(holder.cleanup)
+        self.top = holder.name
+        self.repo, self.root = str(Path(self.top, "repo")), str(Path(self.top, "root"))
+        os.mkdir(self.repo)
+        os.mkdir(self.root)
         made = run_bash('cd "$R" && git init -q --initial-branch=main .', R=self.repo)
         self.assertEqual(0, made.returncode, made.stderr)
         for relative, text in SMALL_TREE.items():
@@ -181,9 +193,10 @@ class ASmallRepository(unittest.TestCase):
         git(self.repo, 'commit -q -m "the small tree"')
 
     def commit(self, relative, text):
+        # Bytes, so a sample holds exactly the line ends and characters it names.
         target = Path(self.repo, relative)
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(text)
+        target.write_bytes(text.encode("utf-8"))
         git(self.repo, f'add -- "{relative}"')
         git(self.repo, f'commit -q -m "add {relative}"')
         return git(self.repo, "rev-parse HEAD")
@@ -194,7 +207,7 @@ class ASmallRepository(unittest.TestCase):
         )
 
     def test_each_row_a_sweep_owns_gets_its_files(self):
-        sweep = Sweep(self, self.repo)
+        sweep = Sweep(self, self.repo, self.root)
         expected = {
             "bug": {
                 "core": ["src/app/core/a.ts"],
@@ -224,7 +237,7 @@ class ASmallRepository(unittest.TestCase):
 
     def test_a_top_level_directory_no_row_owns_refuses_the_run(self):
         self.commit("newtree/x.txt", "x\n")
-        sweep = Sweep(self, self.repo)
+        sweep = Sweep(self, self.repo, self.root)
         for kind in ("bug", "security"):
             with self.subTest(kind=kind):
                 result = sweep.slices(kind)
@@ -234,7 +247,7 @@ class ASmallRepository(unittest.TestCase):
 
     def test_a_refused_run_leaves_no_slices_behind(self):
         self.commit("newtree/x.txt", "x\n")
-        sweep = Sweep(self, self.repo)
+        sweep = Sweep(self, self.repo, self.root)
         self.assertEqual(3, sweep.slices("bug").returncode)
         gone = run_bash('[ ! -e "$W.slices" ] && echo gone', W=sweep.path)
         self.assertEqual("gone", gone.stdout.strip(), gone.stderr)
@@ -243,7 +256,7 @@ class ASmallRepository(unittest.TestCase):
         base = git(self.repo, "rev-parse HEAD")
         self.assertEqual(0, self.mark("bug", base).returncode)
         self.commit("tools/added.py", "print(1)\n")
-        result = Sweep(self, self.repo).slices("bug")
+        result = Sweep(self, self.repo, self.root).slices("bug")
         self.assertEqual(0, result.returncode, result.stderr)
         head, slices = parse(result.stdout)
         self.assertEqual(f"since {base}", head["mode"])
@@ -258,7 +271,7 @@ class ASmallRepository(unittest.TestCase):
         self.commit("docs/fenced.md", "# t\n" + body)
         self.commit("docs/nested.md", nested)
         self.commit("docs/plain.md", "no code here\n")
-        result = Sweep(self, self.repo).slices("bug")
+        result = Sweep(self, self.repo, self.root).slices("bug")
         self.assertEqual(0, result.returncode, result.stderr)
         head, slices = parse(result.stdout)
         self.assertEqual(["docs/fenced.md", "docs/nested.md"], sorted(listed(slices)))
@@ -266,8 +279,36 @@ class ASmallRepository(unittest.TestCase):
         # The fenced line alone; the nested fence's body is its three inner lines.
         self.assertEqual(len("const x = 1;\n") + len("```\ninner\n```\n"), sum(s[2] for s in slices))
 
+    def test_a_sample_counts_bytes_and_one_without_a_last_newline_ends_where_it_should(self):
+        # Read as one stream, so a blob's end is a byte count: a miscount there
+        # runs one sample into the next, a character count undercounts é, and
+        # an awk that drops a CR undercounts every CRLF line.
+        self.assertEqual(0, self.mark("bug", git(self.repo, "rev-parse HEAD")).returncode)
+        self.commit("docs/a.md", "```\né\n```")
+        self.commit("docs/b.md", "```\r\nab\r\n```\r\n")
+        self.commit("docs/c.md", "```\ncd\n```\n")
+        result = Sweep(self, self.repo, self.root).slices("bug")
+        self.assertEqual(0, result.returncode, result.stderr)
+        head, slices = parse(result.stdout)
+        self.assertEqual(["docs/a.md", "docs/b.md", "docs/c.md"], sorted(listed(slices)))
+        self.assertEqual(len("é\n".encode("utf-8")) + len("ab\r\n") + len("cd\n"),
+                         sum(s[2] for s in slices))
+
+    def test_every_sample_is_read_through_one_cat_file(self):
+        # A pipeline per sample is a fork per file, most of a run under MSYS;
+        # the count is the subject, since a timing passes on a fast host.
+        self.assertEqual(0, self.mark("bug", git(self.repo, "rev-parse HEAD")).returncode)
+        for k in range(5):
+            self.commit(f"docs/s{k}.md", "```sh\nx\n```\n")
+        trace = str(Path(self.top, "trace"))
+        result = Sweep(self, self.repo, self.root).slices("bug", GIT_TRACE=trace)
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual(5, len(listed(parse(result.stdout)[1])))
+        calls = re.findall(r"trace: built-in: git cat-file", Path(trace).read_text(encoding="utf-8"))
+        self.assertEqual(1, len(calls))
+
     def test_the_closed_records_are_counted_and_not_read(self):
-        result = Sweep(self, self.repo).slices("security")
+        result = Sweep(self, self.repo, self.root).slices("security")
         self.assertEqual(0, result.returncode, result.stderr)
         head, slices = parse(result.stdout)
         self.assertEqual(1, head["counts"]["record"])
@@ -278,7 +319,7 @@ class ASmallRepository(unittest.TestCase):
         for name in ("one", "two", "three"):
             self.commit(f"tools/{name}.py", chunk)
         self.commit("tools/huge.py", "y" * (BUDGET + 60000) + "\n")
-        result = Sweep(self, self.repo).slices("bug")
+        result = Sweep(self, self.repo, self.root).slices("bug")
         self.assertEqual(0, result.returncode, result.stderr)
         _, slices = parse(result.stdout)
         tooling = [s for s in slices if s[0] == "tooling"]
@@ -292,7 +333,7 @@ class ASmallRepository(unittest.TestCase):
     def test_full_and_a_non_ancestor_ref_both_read_everything(self):
         self.commit("tools/added.py", "print(1)\n")
         tip = git(self.repo, "rev-parse HEAD")
-        sweep = Sweep(self, self.repo)
+        sweep = Sweep(self, self.repo, self.root)
         self.assertEqual(0, self.mark("bug", tip).returncode)
         result = sweep.slices("bug", "full")
         self.assertEqual("full", parse(result.stdout)[0]["mode"])
@@ -315,11 +356,11 @@ class ASmallRepository(unittest.TestCase):
         self.assertEqual(sha, git(self.repo, "rev-parse refs/sweeps/security"))
 
     def test_the_slices_go_with_the_worktree(self):
-        sweep = Sweep(self, self.repo)
+        sweep = Sweep(self, self.repo, self.root)
         self.assertEqual(0, sweep.slices("security").returncode)
         dropped = run_bash(
             'cd "$R" && bash "$DROP" "$W" && [ ! -e "$W.slices" ] && echo gone',
-            R=self.repo, DROP=str(DROP), W=sweep.path,
+            R=self.repo, DROP=str(DROP), W=sweep.path, TMPDIR=self.root,
         )
         self.assertEqual("gone", dropped.stdout.strip(), dropped.stderr)
 

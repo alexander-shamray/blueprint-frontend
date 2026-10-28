@@ -41,18 +41,32 @@ if [ "$mode" != full ] && last=$(g rev-parse --verify --quiet "refs/sweeps/$kind
   if g merge-base --is-ancestor "$last" "$pinned"; then since="$last"; fi
 fi
 
-# The bytes inside fences, the only part of a sample the sweeps audit. A fence
-# closes only on its own character, at least as long, with nothing after it.
+# The bytes inside fences, the only part of a sample the sweeps audit, one line
+# per blob of a `git cat-file --batch` stream. A fence closes only on its own
+# character, at least as long, with nothing after it but the line's end, a CR
+# included. A blob ends at a byte count, so LC_ALL=C, because gawk's length
+# counts characters in a UTF-8 locale, and BINMODE=3, because gawk under MSYS
+# strips the CR of a CRLF line; any other awk takes BINMODE as a variable it
+# never reads.
 fenced_bytes() {
-  awk '
-    match($0, /^[ \t]*(```+|~~~+)/) {
-      mark = substr($0, RSTART, RLENGTH); sub(/^[ \t]*/, "", mark)
-      ch = substr(mark, 1, 1); n = length(mark); rest = substr($0, RSTART + RLENGTH)
-      if (!open) { open = 1; och = ch; on = n; next }
-      if (ch == och && n >= on && rest ~ /^[ \t]*$/) { open = 0; next }
+  LC_ALL=C awk -v BINMODE=3 '
+    state == 2 { if ($0 != "") bad = 1; state = 0; next }
+    state == 0 {
+      if (NF != 3 || $2 != "blob") { bad = 1; exit }
+      left = $3; open = 0; total = 0; state = 1; next
     }
-    open { total += length($0) + 1 }
-    END { print total + 0 }'
+    {
+      left -= length($0) + 1; fence = 0
+      if (match($0, /^[ \t]*(```+|~~~+)/)) {
+        mark = substr($0, RSTART, RLENGTH); sub(/^[ \t]*/, "", mark)
+        ch = substr(mark, 1, 1); n = length(mark); rest = substr($0, RSTART + RLENGTH)
+        if (!open) { open = 1; och = ch; on = n; fence = 1 }
+        else if (ch == och && n >= on && rest ~ /^[ \t\r]*$/) { open = 0; fence = 1 }
+      }
+      if (open && !fence) total += length($0) + 1
+      if (left <= 0) { print total + 0; state = left == 0 ? 2 : 0 }
+    }
+    END { if (bad || state) { print "unreadable cat-file stream" > "/dev/stderr"; exit 1 } }'
 }
 
 # A NUL-separated list as one name a line. A name holding a line break cannot
@@ -135,16 +149,22 @@ IFS=$'\t' read -r _ tracked unowned unchanged empty binary record <<<"$totals"
 [ "$unowned" -eq 0 ] || { echo "$unowned tracked path(s) no row owns" >&2; exit 3; }
 
 # A sample counts only its fenced lines; one with none is counted, not listed.
+# Every sample goes through one cat-file and one awk, in tree order, rather than
+# a pipeline per file, which under MSYS is a fork per file and most of a run;
+# the answers are counted, so a short stream fails rather than mislists.
+awk -F'\t' '$1 == "L" && $2 != "samples" { print $2 "\t" $3 "\t" $4 }' \
+  "$out/plan.raw" > "$out/plan.rows"
+awk -F'\t' '$1 == "L" && $2 == "samples" { print $4 }' "$out/plan.raw" > "$out/samples.txt"
 fenceless=0
-: > "$out/plan.rows"
-while IFS=$'\t' read -r tag row size file; do
-  [ "$tag" = L ] || continue
-  if [ "$row" = samples ]; then
-    size=$(g cat-file blob "$pinned:$file" | fenced_bytes)
-    [ "$size" -gt 0 ] || { fenceless=$((fenceless + 1)); continue; }
-  fi
-  printf '%s\t%s\t%s\n' "$row" "$size" "$file" >> "$out/plan.rows"
-done < "$out/plan.raw"
+if [ -s "$out/samples.txt" ]; then
+  awk -v pinned="$pinned" '{ print pinned ":" $0 }' "$out/samples.txt" |
+    g cat-file --batch | fenced_bytes > "$out/samples.fenced"
+  want=$(($(wc -l < "$out/samples.txt"))) got=$(($(wc -l < "$out/samples.fenced")))
+  [ "$got" -eq "$want" ] || { echo "fences read for $got of $want samples" >&2; exit 3; }
+  fenceless=$(awk '$1 == 0 { n++ } END { print n + 0 }' "$out/samples.fenced")
+  paste "$out/samples.fenced" "$out/samples.txt" |
+    awk -F'\t' '$1 > 0 { print "samples\t" $1 "\t" $2 }' >> "$out/plan.rows"
+fi
 listed=$(($(wc -l < "$out/plan.rows")))
 if [ -z "$since" ] && [ "$listed" -eq 0 ]; then
   echo "a full run that lists nothing has read nothing" >&2; exit 3
@@ -172,5 +192,5 @@ done < "$out/plan.sorted"
 flush
 # Only the numbered lists stay beside the worktree.
 rm -f "$out"/*.z "$out"/*.raw "$out"/tree.txt "$out"/text.txt "$out"/changed.txt \
-  "$out"/plan.rows "$out"/plan.sorted
+  "$out"/plan.rows "$out"/plan.sorted "$out"/samples.txt "$out"/samples.fenced
 trap - EXIT
