@@ -8,7 +8,9 @@ access.** Its owners are
 vocabulary* bullet for the kind, and
 [`gh-issue-filing.sh`](../../.claude/scripts/gh-issue-filing.sh)'s closed
 `case` for the severity, the library `gh-issue-create.sh` files through; the
-area choices are the form's own.
+area choices are the form's own, one per area label the repository has.
+There is no `test` label here, so a finding in a suite takes the area whose
+label description names the suite's tree.
 
 Ported from `blueprint-backend`'s gate of the same name
 (alexander-shamray/blueprint-backend#1568). The reader and the judge are the
