@@ -28,8 +28,8 @@ it is cited here rather than copied.
 **Every issue number in this file names the frontend repository and says so.**
 `CLAUDE.md` reads a bare `#NN` under `.claude/` as an issue in the *backend*,
 where this machinery was built, so an unqualified `#53` here points a reader
-at the wrong tracker. `blueprint-frontend#45` is the spelling already used in
-`guard-edit-target.py` and `test_edit_target_guard.py`.
+at the wrong tracker. The qualified form, `blueprint-frontend#<n>`, is the
+spelling already used in `guard-edit-target.py` and `test_edit_target_guard.py`.
 
 ## Git answers the questions about git
 
