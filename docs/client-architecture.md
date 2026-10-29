@@ -1426,6 +1426,12 @@ request to a `PR: #<n>` trailer and `/commit`'s subject form, since a rebase
 landing leaves no merge commit to name the pull request;
 `.github/commit-gate/README.md` owns its rules (#207).
 
+The `issue-form` job holds the issue form under `.github/ISSUE_TEMPLATE/` to
+the kinds `docs/change-locality.md` §6 names, the severities
+`gh-issue-filing.sh` files under, and the repository's labels, which it reads
+with a token that may read issues and nothing more (#359).
+`.github/issue-form-gate/README.md` owns what it reads and claims.
+
 The `e2e` job checks out this repository and the backend, starts the backend's
 Compose stack with `--wait`, polls the gateway's `/health/ready` for five
 minutes, and runs the Playwright smoke against it. It is deliberately not
