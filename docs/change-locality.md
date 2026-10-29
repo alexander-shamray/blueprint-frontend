@@ -294,8 +294,8 @@ this file is opened; this section owns them.
   issue form under `.github/ISSUE_TEMPLATE/` offers this vocabulary, and
   `.github/issue-form-gate/` holds it there. A severity in the body and the
   label both have to say it: the helper's `## Severity`, or the form's
-  dropdown, whose answer the triager copies onto the label because a form
-  attaches none. The form offers `documentation` as an area too, so a
+  dropdown, whose answer the triager copies onto the label because an answer
+  cannot attach one. The form offers `documentation` as an area too, so a
   finding in a document can pick both; either answer names the one label.
 - **A reply is not a resolution.** Resolve a review thread in the same act as
   the reply, and leave an `Ask` open on purpose.
