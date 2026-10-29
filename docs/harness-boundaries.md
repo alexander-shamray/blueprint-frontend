@@ -1793,9 +1793,10 @@ and both callers at once, so it stands; what is lost is attribution.
 from the backend). Before it forks, `git-worktree-detach.sh` hands each
 sweep-shaped worktree this repository has registered, and that is over a day
 old, to `git-worktree-drop.sh`, then runs `git worktree prune`, which forgets
-every registration of the repository whose directory has gone, a sweep's or a
-PR's, and deletes no file. The candidates come from git's own list, never from
-the tree or an argument, so a poisoned finding cannot add one; the drop
+every unlocked registration of the repository whose directory has gone, a
+sweep's or a PR's, deleting its metadata under `.git/worktrees/` and no
+working-tree file. The candidates come from git's own list, never from the
+tree or an argument, so a poisoned finding cannot add one; the drop
 helper's shape checks and git's refusal of a tree holding anything modified or
 untracked still decide, so a worktree a refused teardown left for inspection
 stays. The day stands in for "no sweep still runs there", which no helper can
