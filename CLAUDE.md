@@ -9,8 +9,8 @@ cited from here by name, never restated.
 
 | | |
 |---|---|
-| `TODO.md` (gitignored, local) | The task list, for the user; [`docs/change-locality.md`](docs/change-locality.md) §6 says how it is kept |
-| [`docs/change-locality.md`](docs/change-locality.md) | The operating contract: the trust order, the one rule, the change classes and their touch sets, and §6's working rules (commits, issues, review threads, branch updates, a red `main`, `TODO.md`) |
+| `.todo/blueprint-frontend.md` in the main checkout's parent directory (local) | The task list, for the user; [`docs/change-locality.md`](docs/change-locality.md) §6 says where it lives and how it is kept |
+| [`docs/change-locality.md`](docs/change-locality.md) | The operating contract: the trust order, the one rule, the change classes and their touch sets, and §6's working rules (commits, issues, review threads, branch updates, a red `main`, the task list) |
 | [`docs/client-architecture.md`](docs/client-architecture.md) | Why this client is shaped the way it is — one numbered argument each; §12 is where the spec turned out wrong |
 | [`docs/superpowers/specs/2026-09-10-blueprint-frontend-design.md`](docs/superpowers/specs/2026-09-10-blueprint-frontend-design.md) | The design spec, §1–§11 — outranked by §12 above wherever the two disagree |
 | [`docs/superpowers/plans/2026-09-10-blueprint-frontend.md`](docs/superpowers/plans/2026-09-10-blueprint-frontend.md) | The delivery record, Tasks 0–20 — complete; cited for a task's title and order, never as current truth |
@@ -162,12 +162,13 @@ holds the measurements.
 
 The working rules — commit messages and `Closes #n`, the issue vocabulary,
 resolving a review thread, when a branch is updated and how a pull request
-lands, a red `main`, uncommitted work, and how `TODO.md` is kept — are
+lands, a red `main`, uncommitted work, and where the task list lives — are
 `docs/change-locality.md` §6's. Two reach every session, so they stay:
 
-- **Move an issue's row in `TODO.md` from Remaining to In progress before
-  entering a worktree directory**, because from inside one the file may be
-  refused. Only the main checkout's copy counts.
+- **The task list is `.todo/blueprint-frontend.md` in the main checkout's
+  parent directory**, outside every checkout so that a session in a worktree
+  can write it. Write it by that path from wherever the session stands, never
+  through a `TODO.md` link at the root.
 - **A `#NN` inside `.claude/` or `docs/harness-boundaries.md` is an issue in
   the backend repository**, where that machinery was built. It is not an issue
   here.

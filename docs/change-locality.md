@@ -276,9 +276,9 @@ the same PR. It waives nothing else. In particular:
 
 These were `CLAUDE.md`'s *Working in this repo* section, and moved here when
 that file became a locator (blueprint-frontend#170); each is argued where it
-is stated. Two of them, the `TODO.md` row move and the backend-issue rule for
-a `#NN`, are also kept in `CLAUDE.md`, because they reach every session before
-this file is opened; this section owns them.
+is stated. Two of them, where the task list lives and the backend-issue rule
+for a `#NN`, are also kept in `CLAUDE.md`, because they reach every session
+before this file is opened; this section owns them.
 
 - **Read before you edit**: the claim you are about to change is usually
   stated more than once. `app.config.ts` and `app.routes.ts` are the
@@ -322,28 +322,35 @@ this file is opened; this section owns them.
 - **Uncommitted work in the tree belongs in the PR being worked on**, in its
   own commit with a body that argues it. **Never revert it to clean the tree**;
   if it does not belong here, say so and ask rather than decide by deleting.
-- **The task list is `TODO.md` at the main checkout's root: gitignored,
-  local, never committed.** It is for the user, and its layout is the
-  backend's `TODO.md` exactly: the rules note topmost, then **In progress**,
-  **Remaining** (a wave and group per row) and **Paused**. Update it the
-  moment this session opens, merges or closes a PR, or files, closes or
-  reopens an issue. **Move an issue's row from Remaining to In progress
-  before entering a worktree directory** (`EnterWorktree`, `/branch`,
-  `/ship`), deleting it from Remaining in the same edit, because from
-  inside one the file may be refused (below, and `harness-boundaries.md`,
-  *The edit-target guard: anchors and path resolution*). Only the main
-  checkout's copy counts, never one in a worktree. `guard-edit-target.py`
-  admits that one file from a linked worktree (#45), but a session moved into
-  `.claude/worktrees/` with `EnterWorktree` is refused it by Claude Code's
-  own isolation, which no file here controls — so there the update is
-  carried in the report as owed and made once the session is back in the
-  main checkout, never into a copy nobody reads.
-  When in doubt, rebuild the rows from
+- **The task list is `.todo/blueprint-frontend.md` in the main checkout's
+  parent directory: outside every checkout, local, never committed.** It is
+  for the user, and its layout is the backend's task list,
+  `.todo/blueprint-backend.md` beside it, exactly: the rules note topmost,
+  then **In progress**, **Remaining** (a wave and group per row) and
+  **Paused**. Update it the moment this session starts a branch, opens,
+  merges or closes a PR, or files, closes or reopens an issue, from
+  wherever the session stands; an issue's row moves from Remaining to In
+  progress, and leaves Remaining in the same edit, when its branch is made.
+  It lives outside the checkout because Claude Code's isolation refuses a
+  session moved into `.claude/worktrees/` with `EnterWorktree` every path
+  in the main checkout outside that worktree — *"Edit the worktree copy of
+  this file instead of the shared-checkout path"* — and admits one that no
+  checkout contains (blueprint-frontend#362). `guard-edit-target.py`
+  admits that one file outside every checkout and nothing beside it
+  (`harness-boundaries.md`, *The edit-target guard: anchors and path
+  resolution*). The permission check still sees a path outside the
+  project: under `acceptEdits` the write prompts unless the user's own
+  settings list the directory under `additionalDirectories`, and auto mode
+  wrote it unprompted when blueprint-backend#1590 measured the rule. The
+  main checkout's root may hold `TODO.md`, gitignored, as a link to the
+  file for the user's editor; a session writes the file by its own path and
+  never through the link, which the same guard refuses because the target
+  resolves out of the checkout. When in doubt, rebuild the rows from
   `gh pr list --limit 1000 --json number,title,url,closingIssuesReferences`
   and `gh issue list --limit 1000 --json number,title,url,labels`, because
   the default of 30 truncates silently; severity is the `high`, `medium` or
   `low` label. Those recover the rows only: the rules note, the waves, the
-  groups and Paused come from the backend's `TODO.md`.
+  groups and Paused come from the backend's task list.
 - **A `#NN` inside `.claude/` or `docs/harness-boundaries.md` is an issue in
   the backend repository**, where that machinery was built. It is not an issue
   here.
