@@ -63,9 +63,4 @@ dropdown with no id or no options, or the same dropdown twice.
 
 Its suite, then the gate, in the `issue-form` job of
 [`ci.yml`](../workflows/ci.yml), which reads the labels with the job's token.
-Locally:
-
-```bash
-py -3.12 -m unittest discover -s .github/issue-form-gate
-gh label list --limit 1000 --json name | py -3.12 .github/issue-form-gate/issue_form_gate.py
-```
+[`docs/testing.md`](../../docs/testing.md) has the local invocation.
