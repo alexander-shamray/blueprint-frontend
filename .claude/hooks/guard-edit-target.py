@@ -557,13 +557,15 @@ def verified_gitdir(root):
 
 
 # **The one file outside every anchor that this guard admits by name.**
-# `CLAUDE.md` keeps the user's task list at the MAIN checkout's root, gitignored,
-# and tells a session to update it the moment a PR or an issue changes — which,
-# since `/branch` moves every session into a forked worktree, is almost always
-# from one. The main checkout is not an anchor there, so the write fell to
-# `outside_offence` and was refused, and the rule and the guard disagreed
-# (blueprint-frontend#45).
-TASK_LIST = "TODO.md"
+# `docs/change-locality.md` §6 keeps the user's task list beside the main
+# checkout rather than in it, and tells every session to write it from wherever
+# it stands. It sat at the main checkout's root until Claude Code's own
+# isolation, which refuses a session in a forked worktree every main-checkout
+# path outside that worktree, made it unwritable from one
+# (blueprint-frontend#45, blueprint-frontend#362). No checkout contains it now,
+# so the write fell to `outside_offence` and was refused, and the rule and the
+# guard disagreed again.
+TASK_LIST = (".todo", "blueprint-frontend.md")
 
 
 def common_git_dir(root):
@@ -592,62 +594,42 @@ def common_git_dir(root):
     return common
 
 
-def main_checkout_of(root):
-    """The main checkout `root` is a linked worktree of, or `None`.
-
-    The mirror of `linked_worktree`, read the same way and trusted the same
-    way. `None` for a main checkout, which is its own.
-    """
-    if verified_gitdir(root) is None:
-        return None
-    common = common_git_dir(root)
-    return None if common is None else os.path.dirname(common)
-
-
 def guard_checkout():
     """The checkout this guard file belongs to."""
     return os.path.dirname(os.path.dirname(os.path.dirname(
         os.path.abspath(__file__))))
 
 
-def main_checkout_task_list(lexical, resolved, checkouts):
-    """The main checkout whose `TODO.md` this target is, or `None`.
+def task_list_target(lexical, resolved):
+    """The task list this target is, or `None`.
 
-    **One file, not the checkout.** Admitting the main checkout whole would
-    hand a session in a worktree every file on `main`'s working tree, which no
-    permission rule here names from where the session stands. The task list is
-    gitignored, so a write to it changes nothing any commit, review or build
-    reads — that is the whole argument for admitting it, and it holds for no
-    other path. The spelling and the resolution must both be that file, so a
-    `TODO.md` that is itself a link is judged by where it lands and refused.
+    **One file, beside the repository this guard belongs to.** Its place is
+    read from the guard's own checkout — that checkout's `.git`, through
+    `commondir` when it is a linked worktree — and from no anchor: the
+    event's `cwd` and `CLAUDE_PROJECT_DIR` can stand in another repository's
+    worktree, and an extra anchor may only narrow. Admitting the parent
+    directory whole would hand a session every sibling checkout. The task
+    list is in no checkout, so a write to it changes nothing any commit,
+    review or build reads — that is the whole argument for admitting it, and
+    it holds for no other path.
 
-    **The spelled parent is compared resolved**, because `main_checkout_of`
-    can only offer the resolved main checkout: `commondir` is read through
-    `realpath`, and on macOS the same checkout is spelled `/var/...` and
-    resolves to `/private/var/...`.
-
-    **Only this guard's own repository, and the first form asked any anchor.**
-    `checkouts` holds the event's `cwd` and `CLAUDE_PROJECT_DIR` beside the
-    guard's own tree, so a session standing in a linked worktree of some
-    other repository had THAT repository's `TODO.md` admitted — an extra
-    anchor widening the guard, which `anchors` rests its trust on never
-    happening. The main checkout must share the guard checkout's `.git`.
-    Raised by Copilot.
+    **The spelling and the resolution must both be that file, and the spelled
+    parent is compared resolved**, because `common_git_dir` can only offer a
+    resolved main checkout: on macOS the same directory is spelled `/var/...`
+    and resolves to `/private/var/...`. So a list that is itself a link, or a
+    `.todo` that is one, is judged by where it lands and refused.
     """
     owner = common_git_dir(guard_checkout())
     if owner is None:
         return None
-    for spelled_root, _, _ in checkouts:
-        main = main_checkout_of(spelled_root)
-        if main is None:
-            continue
-        traits = traits_of(main)
-        if not same(os.path.join(main, ".git"), owner, traits):
-            continue
-        if (same(os.path.basename(lexical), TASK_LIST, traits)
-                and same(os.path.realpath(os.path.dirname(lexical)), main, traits)
-                and same(resolved, os.path.join(main, TASK_LIST), traits)):
-            return main
+    parent = os.path.dirname(os.path.dirname(owner))
+    task_list = os.path.join(parent, *TASK_LIST)
+    traits = traits_of(parent)
+    if (same(os.path.basename(lexical), TASK_LIST[-1], traits)
+            and same(os.path.realpath(os.path.dirname(lexical)),
+                     os.path.dirname(task_list), traits)
+            and same(resolved, task_list, traits)):
+        return task_list
     return None
 
 
@@ -951,10 +933,10 @@ def offence(event):
         # file. `outside_offence` names the two roots the exception was written
         # for and refuses the rest.
         #
-        # The main checkout's task list is asked first, because it is the one
-        # path outside every anchor that `CLAUDE.md` tells a worktree session
-        # to write (blueprint-frontend#45).
-        if main_checkout_task_list(lexical, resolved, checkouts) is not None:
+        # The task list is asked first, because it is the one path outside
+        # every anchor that `docs/change-locality.md` §6 tells a session to
+        # write (blueprint-frontend#362).
+        if task_list_target(lexical, resolved) is not None:
             return None
         return outside_offence(spelled, lexical, resolved)
 

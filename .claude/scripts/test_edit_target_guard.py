@@ -974,82 +974,95 @@ class WhatThisGuardIsNotTheSubjectOf(GuardCase):
             with self.subTest(parts=parts):
                 self.assertRefused(os.path.join(worktree, *parts))
 
-    def test_the_main_checkouts_task_list_is_admitted_from_a_worktree(self):
-        """`CLAUDE.md` keeps `TODO.md` at the main checkout's root and has a
-        session update it from wherever it stands, which after `/branch` is a
-        forked worktree. The main checkout is not an anchor there, so the
-        write fell to the out-of-tree allow-list and was refused
-        (blueprint-frontend#45).
+    def test_the_task_list_beside_the_main_checkout_is_admitted(self):
+        """`docs/change-locality.md` §6 keeps the task list at
+        `.todo/blueprint-frontend.md` in the main checkout's parent directory,
+        because Claude Code's isolation refuses a worktree session the main
+        checkout's own `TODO.md` (blueprint-frontend#362). No checkout holds
+        it, so the write fell to the out-of-tree allow-list and was refused.
 
         Asked of the predicate and of `offence` with the allow-list stubbed to
         refuse, because this fixture sits under the temp root, where the
         allow-list would admit the file as scratch regardless. The guard's own
-        checkout is stubbed to the fixture's worktree, because the admission
-        is bound to the guard's repository and this suite's checkout is not
-        the fixture's.
+        checkout is stubbed to the fixture's, because the admission is bound
+        to the guard's repository and this suite's checkout is not the
+        fixture's.
         """
-        worktree = self.linked_worktree_of(self.root, "linked")
-        task_list = os.path.join(self.root, "TODO.md")
+        parent = os.path.join(self.outside, "parent")
+        main = os.path.join(parent, "main")
+        for tree in (".git", "docs"):
+            os.makedirs(os.path.join(main, tree), exist_ok=True)
+        worktree = self.linked_worktree_of(main, "linked")
+        todo = os.path.join(parent, ".todo")
+        task_list = os.path.join(todo, "blueprint-frontend.md")
 
         module = self.guard_module()
-        checkouts = [(worktree, os.path.realpath(worktree),
-                      module.traits_of(worktree))]
 
-        def admits(target, among=checkouts):
+        def admits(target):
             lexical = os.path.normpath(os.path.abspath(target))
-            return module.main_checkout_task_list(
-                lexical, os.path.realpath(target), among) is not None
+            return module.task_list_target(
+                lexical, os.path.realpath(target)) is not None
+
+        def unlink(path):
+            # A directory link, or a junction standing in for a file one, is
+            # removed as a directory on Windows; everywhere else a link is a
+            # file, whatever it points at.
+            if os.name == "nt" and os.path.isdir(path):
+                os.rmdir(path)
+            else:
+                os.remove(path)
 
         # **Bound to the guard's own repository.** Unstubbed, the guard
-        # belongs to this suite's checkout, which is not the fixture's.
+        # belongs to this suite's checkout, whose parent is not the fixture's.
         self.assertFalse(admits(task_list))
+
+        # **The same file whichever checkout of the repository the guard
+        # stands in**: the place is the repository's, not the checkout's.
+        for standing in (main, worktree):
+            with self.subTest(standing=standing), mock.patch.object(
+                    module, "guard_checkout", return_value=standing):
+                self.assertTrue(admits(task_list))
         owner = mock.patch.object(module, "guard_checkout", return_value=worktree)
         owner.start()
         self.addCleanup(owner.stop)
 
         # **No `commondir`, no main checkout**: the admin directory is what
         # names the repository, and a guess from its location is not asked.
-        commondir = os.path.join(self.root, ".git", "worktrees", "linked",
+        commondir = os.path.join(main, ".git", "worktrees", "linked",
                                  "commondir")
         os.remove(commondir)
         self.assertFalse(admits(task_list))
         self.write(commondir, "../..\n")
         self.assertTrue(admits(task_list))
+        os.makedirs(todo, exist_ok=True)
         self.write(task_list, "- none\n")
         self.assertTrue(admits(task_list))
 
-        # **One file, not the checkout.**
-        for parts in (("docs", "chapter.md"), ("docs", "TODO.md"),
-                      (".claude", "scripts", "helper.sh"), ("TODO.md.bak",)):
-            with self.subTest(parts=parts):
-                self.assertFalse(admits(os.path.join(self.root, *parts)))
-        # Nor the worktree's own copy, which nobody reads.
-        self.assertFalse(admits(os.path.join(worktree, "TODO.md")))
-
-        # **Another repository's task list is not this guard's to admit**,
-        # even when an anchor stands in one of its genuine worktrees — `cwd`
-        # and `CLAUDE_PROJECT_DIR` are anchors too, and an extra anchor may
-        # only narrow. Raised by Copilot.
-        other = os.path.join(self.outside, "other-repo")
-        os.makedirs(os.path.join(other, ".git"), exist_ok=True)
-        stranger = self.linked_worktree_of(other, "stranger")
-        both = checkouts + [(stranger, os.path.realpath(stranger),
-                             module.traits_of(stranger))]
-        self.assertFalse(admits(os.path.join(other, "TODO.md"), both))
-        self.assertTrue(admits(task_list, both))
+        # **One file, not the directory, and not the place it left.**
+        for target in (
+                os.path.join(todo, "blueprint-backend.md"),
+                os.path.join(todo, "blueprint-frontend.md.bak"),
+                os.path.join(parent, "blueprint-frontend.md"),
+                os.path.join(main, "TODO.md"),
+                os.path.join(main, ".todo", "blueprint-frontend.md"),
+                os.path.join(worktree, "TODO.md"),
+                os.path.join(worktree, ".todo", "blueprint-frontend.md")):
+            with self.subTest(target=target):
+                self.assertFalse(admits(target))
 
         # **A backlink that disagrees is not a worktree of this repository.**
-        admin = os.path.join(self.root, ".git", "worktrees", "linked")
+        admin = os.path.join(main, ".git", "worktrees", "linked")
         self.write(os.path.join(admin, "gitdir"),
                    os.path.join(self.outside, "elsewhere", ".git") + "\n")
         self.assertFalse(admits(task_list))
         self.write(os.path.join(admin, "gitdir"),
                    os.path.join(worktree, ".git") + "\n")
+        self.assertTrue(admits(task_list))
 
-        # **A `TODO.md` that is a link is judged by where it lands.**
+        # **A list that is a link is judged by where it lands.**
         os.remove(task_list)
         for linker in linkers():
-            with self.subTest(linker=linker):
+            with self.subTest(linker=linker, link="file"):
                 if linker == "symlink":
                     os.symlink(os.path.join(self.outside, "loot.txt"), task_list)
                 else:
@@ -1057,13 +1070,57 @@ class WhatThisGuardIsNotTheSubjectOf(GuardCase):
                 try:
                     self.assertFalse(admits(task_list))
                 finally:
-                    if os.path.isdir(task_list):
-                        os.rmdir(task_list)
-                    else:
-                        os.remove(task_list)
+                    unlink(task_list)
+
+        # **And so is a `.todo` that is one**, which the leaf's own resolution
+        # cannot see: the file beneath it is a real file wherever it lands.
+        os.rmdir(todo)
+        elsewhere = os.path.join(self.outside, "elsewhere-todo")
+        os.makedirs(elsewhere, exist_ok=True)
+        self.write(os.path.join(elsewhere, "blueprint-frontend.md"), "- none\n")
+        for linker in linkers():
+            with self.subTest(linker=linker, link="directory"):
+                if linker == "symlink":
+                    os.symlink(elsewhere, todo, target_is_directory=True)
+                else:
+                    JUNCTIONS(elsewhere, todo)
+                try:
+                    self.assertFalse(admits(task_list))
+                finally:
+                    unlink(todo)
+        os.makedirs(todo, exist_ok=True)
+        self.write(task_list, "- none\n")
+
+        # **A `TODO.md` at the main checkout's root that links to the list is
+        # refused one rule earlier**, as a target inside a checkout that
+        # resolves out of it, so the user's editor link is never a way in.
+        link = os.path.join(main, "TODO.md")
+        for linker in linkers():
+            with self.subTest(linker=linker, link="TODO.md"):
+                if linker == "symlink":
+                    os.symlink(task_list, link)
+                    through = link
+                else:
+                    JUNCTIONS(todo, link)
+                    through = os.path.join(link, "blueprint-frontend.md")
+                try:
+                    with mock.patch.dict(os.environ,
+                                         {"CLAUDE_PROJECT_DIR": main}):
+                        reason = module.offence({
+                            "cwd": main, "tool_name": "Write",
+                            "tool_input": {"file_path": through}})
+                    self.assertIsNotNone(reason)
+                    self.assertIn("outside the checkout", reason)
+                finally:
+                    unlink(link)
 
         # **And the wiring**: `offence` reaches the predicate before the
-        # allow-list, and only for that one file.
+        # allow-list, and only for that one file. An anchor standing in
+        # another repository's worktree names nothing beside that repository.
+        other_parent = os.path.join(self.outside, "other-parent")
+        other = os.path.join(other_parent, "other")
+        os.makedirs(os.path.join(other, ".git"), exist_ok=True)
+        stranger = self.linked_worktree_of(other, "stranger")
         refused = "refused by the allow-list"
         with mock.patch.object(module, "outside_offence", return_value=refused), \
                 mock.patch.dict(os.environ, {"CLAUDE_PROJECT_DIR": worktree}):
@@ -1072,10 +1129,14 @@ class WhatThisGuardIsNotTheSubjectOf(GuardCase):
                     "cwd": cwd, "tool_name": "Write",
                     "tool_input": {"file_path": target}})
             self.assertIsNone(verdict(task_list))
+            self.assertIsNone(verdict(task_list, cwd=stranger))
             self.assertEqual(
-                refused, verdict(os.path.join(self.root, "docs", "chapter.md")))
+                refused, verdict(os.path.join(todo, "blueprint-backend.md")))
             self.assertEqual(
-                refused, verdict(os.path.join(other, "TODO.md"), cwd=stranger))
+                refused, verdict(os.path.join(main, "docs", "chapter.md")))
+            self.assertEqual(refused, verdict(
+                os.path.join(other_parent, ".todo", "blueprint-frontend.md"),
+                cwd=stranger))
 
     def linked_worktree_of(self, repository, name):
         """A linked worktree of `repository`, in the shape git leaves on disk.
