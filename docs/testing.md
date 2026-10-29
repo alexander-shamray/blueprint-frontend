@@ -149,6 +149,16 @@ Its own suite runs in the workflow that enforces it (`python -m unittest` in
 `test_git_pr_trailer_helpers.py` in the harness suite. Reverting a pull request
 is `bash .claude/scripts/git-revert-pr.sh <n>` from a working branch.
 
+**The issue-form gate needs the repository's labels**, which a `gh` session
+reads and pipes in:
+
+```bash
+py -3.12 -m unittest discover -s .github/issue-form-gate
+gh label list --limit 1000 --json name | py -3.12 .github/issue-form-gate/issue_form_gate.py
+```
+
+What it reads and claims is [its README](../.github/issue-form-gate/README.md)'s.
+
 **`npm test` must exit, not watch.** The Angular unit-test builder runs once
 and exits here, and `CI=true npm test` is how that is confirmed locally. A
 watch-mode test step does not fail a build — it consumes the job's entire

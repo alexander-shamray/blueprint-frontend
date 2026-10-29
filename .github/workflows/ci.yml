@@ -272,6 +272,35 @@ jobs:
         run: git rev-parse --is-inside-work-tree
       - run: python -m unittest discover -s .claude/scripts -p 'test_*.py' -v
 
+  # The issue form under .github/ISSUE_TEMPLATE against the vocabularies it
+  # mirrors and the labels its answers name; .github/issue-form-gate/README.md
+  # owns the claim. The labels are the one input read over the network, so
+  # the token asks to read issues and nothing more.
+  issue-form:
+    runs-on: ubuntu-latest
+    # Bounds a step that never exits, which would otherwise hold the runner
+    # for GitHub's default limit (docs/testing.md). Headroom over the usual
+    # run, not a duration.
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - name: Test the issue-form gate
+        working-directory: .github/issue-form-gate
+        run: python -m unittest
+      - name: Every issue-form choice is its owner's word and a label here
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -o pipefail
+          gh label list --repo "$GITHUB_REPOSITORY" --limit 1000 --json name |
+            python .github/issue-form-gate/issue_form_gate.py
+
   # Spec §8 step 3. The Android project is committed, not generated here, so
   # this job compiles the same manifest a developer edits — a job that ran
   # `cap add android` first would rebuild the project from the template every
@@ -417,7 +446,7 @@ jobs:
   # on it for each further red run. It is closed by hand once main is green.
   # `commits` is not in `needs` because it never runs on a push.
   main-red:
-    needs: [web, audit, e2e, harness, android, ios-config, ios-build]
+    needs: [web, audit, e2e, harness, issue-form, android, ios-config, ios-build]
     if: failure() && github.event_name == 'push'
     runs-on: ubuntu-latest
     # Bounds a step that never exits, which would otherwise hold the runner
