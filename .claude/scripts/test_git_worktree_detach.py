@@ -64,8 +64,14 @@ class StaleSweepWorktrees(unittest.TestCase):
         )
         self.assertEqual(0, made.returncode, made.stderr)
         top = made.stdout.strip()
-        self.addCleanup(lambda: run_bash('rm -rf "$TOP"', TOP=top))
+        self.addCleanup(self.remove, top)
         self.top, self.repo, self.root = top, f"{top}/repo", f"{top}/root"
+
+    def remove(self, top):
+        # Checked rather than discarded: a cleanup that hides its refusal is
+        # how a fixture's repository stays behind unseen.
+        gone = run_bash('rm -rf "$TOP"', TOP=top)
+        self.assertEqual(0, gone.returncode, gone.stderr)
 
     def detach(self):
         return run_bash(
@@ -102,14 +108,18 @@ class StaleSweepWorktrees(unittest.TestCase):
         self.assertIn(new.rsplit("/", 1)[-1], names)
         self.assertEqual("gone", run_bash('[ -e "$P" ] || echo gone', P=old).stdout.strip())
 
-    def test_a_day_old_worktree_of_another_shape_stays(self):
+    def test_a_day_old_worktree_of_another_shape_is_never_a_candidate(self):
         # The candidates are sweep-shaped by name; a PR worktree is as old as
-        # its pull request, and the age alone must never reach it.
+        # its pull request, and the age alone must never reach it. The drop
+        # helper would refuse this path too, so the subject is that it is
+        # never handed over: a handed one is named on stderr as left standing.
         other = f"{self.top}/feature"
         added = run_bash('cd "$R" && git worktree add -q --detach "$P" HEAD', R=self.repo, P=other)
         self.assertEqual(0, added.returncode, added.stderr)
         self.age(other)
-        self.made()
+        result = self.detach()
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertNotIn("left a stale sweep worktree standing", result.stderr)
         self.assertIn("feature", self.names())
 
     def test_a_stale_worktree_holding_a_file_is_left_standing_and_named(self):
