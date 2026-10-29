@@ -70,8 +70,9 @@ def run_class(name):
     # no `secsweep-*` directory behind, and a sweep case running beside it
     # made one. Python reads TMP and TEMP, Git Bash's `mktemp` reads TMPDIR.
     # Its cleanup clears the read-only objects git writes, as the cases' own
-    # do (#358), and ignores what is still held: a file a stray process keeps
-    # open is the case's failure to report, not a reason to lose the run.
+    # do (blueprint-frontend#358), and ignores what is still held: a file a
+    # stray process keeps open is the case's failure to report, not a reason
+    # to lose the run.
     holder = tempfile.TemporaryDirectory(prefix="harness-", ignore_cleanup_errors=True)
     scratch = Path(holder.name)
     env = dict(os.environ)

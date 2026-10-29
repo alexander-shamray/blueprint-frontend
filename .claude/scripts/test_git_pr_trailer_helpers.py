@@ -87,7 +87,8 @@ def sh(script, **env):
 class Fixture(unittest.TestCase):
     def setUp(self):
         # The root is made here, not by `mktemp -d` in BUILD: on Windows the `/tmp` bash names is not the
-        # directory Python resolves, and TemporaryDirectory clears the read-only objects git writes (#358).
+        # directory Python resolves, and TemporaryDirectory clears the read-only objects git writes
+        # (blueprint-frontend#358).
         holder = tempfile.TemporaryDirectory()
         self.addCleanup(holder.cleanup)
         built = run_bash(BUILD, ROOT=Path(holder.name).as_posix(),

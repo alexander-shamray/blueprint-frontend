@@ -212,7 +212,7 @@ def _root_only_repo(root):
         return _ROOT_ONLY_REPOS[text]
     # TemporaryDirectory, not rmtree with ignore_errors: git writes its
     # objects read-only, Windows refuses to delete them, and the flag hid
-    # every one that stayed (#358).
+    # every one that stayed (blueprint-frontend#358).
     holder = tempfile.TemporaryDirectory()
     atexit.register(holder.cleanup)
     scratch = Path(holder.name)
