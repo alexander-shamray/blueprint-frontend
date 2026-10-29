@@ -275,7 +275,7 @@ jobs:
   # The issue form under .github/ISSUE_TEMPLATE against the vocabularies it
   # mirrors and the labels its answers name; .github/issue-form-gate/README.md
   # owns the claim. The labels are the one input read over the network, so
-  # the token asks to read issues and nothing more.
+  # the token reads the checkout and the issues, and nothing more.
   issue-form:
     runs-on: ubuntu-latest
     # Bounds a step that never exits, which would otherwise hold the runner

@@ -1429,7 +1429,8 @@ landing leaves no merge commit to name the pull request;
 The `issue-form` job holds the issue form under `.github/ISSUE_TEMPLATE/` to
 the kinds `docs/change-locality.md` §6 names, the severities
 `gh-issue-filing.sh` files under, and the repository's labels, which it reads
-with a token that may read issues and nothing more (#359).
+with a token that may read the checkout and the issues and nothing more
+(#359).
 `.github/issue-form-gate/README.md` owns what it reads and claims.
 
 The `e2e` job checks out this repository and the backend, starts the backend's
