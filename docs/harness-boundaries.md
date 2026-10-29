@@ -1621,25 +1621,30 @@ that replaced it, and it is accepted, because no mechanism available to a
 hook or a rule can close it: neither is told which subdirectory is the
 session's.
 
-**One file outside every anchor is admitted by name: the main checkout's
-`TODO.md` (blueprint-frontend#45).** `docs/change-locality.md` §6 tells a
-session to update the task list from a worktree under `.claude/worktrees/`,
-where the main checkout is not an anchor and the write fell to the allow-list
-above. The hook finds the
-main checkout from the worktree's own `.git` file, trusted only once git's
-backlink agrees, and only when that `.git` is the repository the guard itself
-belongs to: the event's `cwd` and `CLAUDE_PROJECT_DIR` are anchors too, and one
-standing in another repository's worktree would otherwise name that repository's
-task list. It admits that one path when its spelling and its resolution are both
-it — a `TODO.md` that is a link is refused. The file is gitignored, so nothing
-any commit, review or build reads can change through it; the residual is that a
-session in a worktree can rewrite the user's task list, which is the write the
-rule asks for. **The guard is not the only layer, and it is the only one this
-repository owns**: a session moved into the worktree with `EnterWorktree` is
-refused the same write by Claude Code's own isolation — *"Edit the worktree copy
-of this file instead of the shared-checkout path"*, measured on the PR that
-added this paragraph — so for `/branch`'s sessions the update is still reported
-as owed, and made once the session is back in the main checkout.
+**One file outside every anchor is admitted by name: the task list,
+`.todo/blueprint-frontend.md` in the main checkout's parent directory
+(blueprint-frontend#362).** `docs/change-locality.md` §6 puts it there and
+tells every session to write it from wherever it stands. It replaced the main
+checkout's `TODO.md`, which this guard admitted from a linked worktree
+(blueprint-frontend#45) and which Claude Code's own isolation refused anyway to
+a session moved into the worktree with `EnterWorktree` — *"Edit the worktree
+copy of this file instead of the shared-checkout path"* — because the
+isolation refuses every main-checkout path outside the worktree and admits one
+no checkout contains. **The guard owns the other layer**: a path outside every
+anchor fell to the allow-list above and was refused, so moving the file alone
+would have swapped one refusal for another, measured on blueprint-frontend#362
+before the guard changed. The hook names the file from the repository the guard
+itself belongs to — its own checkout's `.git`, through `commondir` for a linked
+worktree — so neither the event's `cwd` nor `CLAUDE_PROJECT_DIR` can name
+another repository's list, and no anchor enters the answer. It admits that one
+path when its spelling and its resolution are both it, the spelled parent
+compared resolved: a list that is a link, or a `.todo` that is one, is judged
+by where it lands and refused. A `TODO.md` at the main checkout's root that
+links to the list is refused one rule earlier, as a target inside a checkout
+that resolves out of it. The file is in no checkout, so nothing any commit,
+review or build reads can change through it; the residual is that any session
+of this repository can rewrite the user's task list, which is the write the
+rule asks for.
 
 ## The eleventh entry and the history-rewriting helpers
 
