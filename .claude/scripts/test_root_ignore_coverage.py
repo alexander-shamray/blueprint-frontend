@@ -121,7 +121,6 @@ named it.
 """
 
 import atexit
-import shutil
 import subprocess
 import tempfile
 import unittest
@@ -211,8 +210,12 @@ def _root_only_repo(root):
     text = source.read_text(encoding="utf-8") if source.is_file() else ""
     if text in _ROOT_ONLY_REPOS:
         return _ROOT_ONLY_REPOS[text]
-    scratch = Path(tempfile.mkdtemp())
-    atexit.register(shutil.rmtree, str(scratch), ignore_errors=True)
+    # TemporaryDirectory, not rmtree with ignore_errors: git writes its
+    # objects read-only, Windows refuses to delete them, and the flag hid
+    # every one that stayed (#358).
+    holder = tempfile.TemporaryDirectory()
+    atexit.register(holder.cleanup)
+    scratch = Path(holder.name)
     subprocess.run(["git", "init", "-q"], cwd=str(scratch), check=True,
                    capture_output=True)
     Path(scratch, ROOT_IGNORE).write_text(text, encoding="utf-8",
@@ -438,8 +441,9 @@ class GitIsReallyBeingAsked(unittest.TestCase):
     """
 
     def setUp(self):
-        self.root = Path(tempfile.mkdtemp())
-        self.addCleanup(shutil.rmtree, str(self.root), ignore_errors=True)
+        holder = tempfile.TemporaryDirectory()
+        self.addCleanup(holder.cleanup)
+        self.root = Path(holder.name)
         subprocess.run(["git", "init", "-q"], cwd=str(self.root), check=True,
                        capture_output=True)
 
@@ -534,8 +538,9 @@ class TheGateSeesEveryWayGitCanHideADirectory(unittest.TestCase):
     """
 
     def setUp(self):
-        self.root = Path(tempfile.mkdtemp())
-        self.addCleanup(shutil.rmtree, str(self.root), ignore_errors=True)
+        holder = tempfile.TemporaryDirectory()
+        self.addCleanup(holder.cleanup)
+        self.root = Path(holder.name)
         subprocess.run(["git", "init", "-q"], cwd=str(self.root), check=True,
                        capture_output=True)
 
@@ -551,8 +556,9 @@ class TheGateSeesEveryWayGitCanHideADirectory(unittest.TestCase):
         # can see either.
         for spelling in ("*", "/*", "**", "/**", "?*", "*?", "?**"):
             with self.subTest(spelling=spelling):
-                root = Path(tempfile.mkdtemp())
-                self.addCleanup(shutil.rmtree, str(root), ignore_errors=True)
+                holder = tempfile.TemporaryDirectory()
+                self.addCleanup(holder.cleanup)
+                root = Path(holder.name)
                 subprocess.run(["git", "init", "-q"], cwd=str(root),
                                check=True, capture_output=True)
                 state = root / "state"

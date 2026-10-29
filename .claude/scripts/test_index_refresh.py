@@ -65,6 +65,26 @@ def write_index(root, text="main"):
     return path
 
 
+def clear(holder):
+    """Remove a fixture holding a git repository.
+
+    `TemporaryDirectory.cleanup` clears the read-only bit git puts on its
+    objects, which Windows otherwise refuses to delete and `ignore_errors`
+    hid (#358). The hook's detached worker can still be standing in the
+    tree when a case ends, which Windows refuses too, so the removal is
+    retried for the minute `TheDetachedWorkerReallyRuns` waits on a worker,
+    and then fails the case.
+    """
+    deadline = time.monotonic() + 60
+    while True:
+        try:
+            return holder.cleanup()
+        except OSError:
+            if time.monotonic() > deadline:
+                raise
+            time.sleep(0.1)
+
+
 def read_index(path):
     conn = sqlite3.connect(path)
     try:
@@ -78,8 +98,9 @@ class TheRootFollowsTheActiveWorktree(unittest.TestCase):
     def setUp(self):
         self.hook = load()
         self.generous_budget()
-        self.base = tempfile.mkdtemp()
-        self.addCleanup(shutil.rmtree, self.base, ignore_errors=True)
+        holder = tempfile.TemporaryDirectory()
+        self.addCleanup(clear, holder)
+        self.base = holder.name
         self.main = os.path.join(self.base, "repo")
         os.mkdir(self.main)
         git("init", "-q", cwd=self.main)
@@ -947,8 +968,9 @@ class OneWorkerPerRootAndNoEditDropped(unittest.TestCase):
 
     def setUp(self):
         self.hook = load()
-        self.root = tempfile.mkdtemp()
-        self.addCleanup(shutil.rmtree, self.root, ignore_errors=True)
+        holder = tempfile.TemporaryDirectory()
+        self.addCleanup(clear, holder)
+        self.root = holder.name
         # A real repository, because the state now lives in its git
         # directory: no repository, no refresh at all.
         git("init", "-q", cwd=self.root)
@@ -1367,8 +1389,9 @@ class TheIndexIsCompactedAfterARefresh(unittest.TestCase):
 
     def setUp(self):
         self.hook = load()
-        self.root = tempfile.mkdtemp()
-        self.addCleanup(shutil.rmtree, self.root, ignore_errors=True)
+        holder = tempfile.TemporaryDirectory()
+        self.addCleanup(clear, holder)
+        self.root = holder.name
         # A real repository, because the worker's lock lives in its git
         # directory.
         git("init", "-q", cwd=self.root)
@@ -2012,8 +2035,9 @@ class TheDetachedWorkerReallyRuns(unittest.TestCase):
     def test_an_event_reaches_the_wrapper_through_the_detached_worker(self):
         if shutil.which("bash") is None:
             self.fail("bash is required: the hook refreshes nothing without it")
-        base = tempfile.mkdtemp()
-        self.addCleanup(shutil.rmtree, base, ignore_errors=True)
+        holder = tempfile.TemporaryDirectory()
+        self.addCleanup(clear, holder)
+        base = holder.name
         owner = os.path.join(base, "owner")
         os.mkdir(owner)
         git("init", "-q", cwd=owner)
