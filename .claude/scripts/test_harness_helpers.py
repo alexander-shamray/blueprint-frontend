@@ -1994,8 +1994,9 @@ class NoCommandHoldsAPrefixGrantThatAdmitsAForbiddenFlag(unittest.TestCase):
         # `/branch` forks them: naming the other run's path, or this run's
         # path with a branch it does not hold, is refused and leaves the
         # directory standing; the matching pair is removed.
-        base = Path(tempfile.mkdtemp(prefix="wt-remove-"))
-        self.addCleanup(shutil.rmtree, str(base), ignore_errors=True)
+        holder = tempfile.TemporaryDirectory(prefix="wt-remove-")
+        self.addCleanup(holder.cleanup)
+        base = Path(holder.name)
         repo = base / "repo"
         repo.mkdir()
         forked = repo / ".claude" / "worktrees"
@@ -2066,8 +2067,12 @@ class NoCommandHoldsAPrefixGrantThatAdmitsAForbiddenFlag(unittest.TestCase):
                 return "\\\\?\\" + str(Path(path).resolve())
             return str(path)
 
-        base = Path(tempfile.mkdtemp(prefix="wt-long-"))
-        self.addCleanup(shutil.rmtree, long_path(base), ignore_errors=True)
+        # Made under the long-path spelling, so its cleanup reaches past 260
+        # characters, and used under the plain one, which git is handed.
+        holder = tempfile.TemporaryDirectory(
+            prefix="wt-long-", dir=long_path(tempfile.gettempdir()))
+        self.addCleanup(holder.cleanup)
+        base = Path(holder.name.removeprefix("\\\\?\\"))
         repo = base / "repo"
         repo.mkdir()
         forked = repo / ".claude" / "worktrees"
@@ -2168,8 +2173,9 @@ class NoCommandHoldsAPrefixGrantThatAdmitsAForbiddenFlag(unittest.TestCase):
         # And a title that is not one line, which `gh` would otherwise take as
         # body text with nothing in the report to show what was sent — driven
         # in a scratch checkout, where the helper refuses before any `gh`.
-        repo = Path(tempfile.mkdtemp(prefix="pr-create-"))
-        self.addCleanup(shutil.rmtree, str(repo), ignore_errors=True)
+        holder = tempfile.TemporaryDirectory(prefix="pr-create-")
+        self.addCleanup(holder.cleanup)
+        repo = Path(holder.name)
         subprocess.run(["git", "init", "-q", "-b", "feat/x", str(repo)],
                        check=True, capture_output=True)
         (repo / "pr-body.md").write_text("body\n", encoding="utf-8")
@@ -2238,8 +2244,9 @@ class TheFourPortedResiduals(unittest.TestCase):
         # change that stopped matching would keep every string it asserts.
         # Raised by Copilot. Driven against a real commit instead — the index
         # records mode 120000 without any OS symlink privilege.
-        repo = Path(tempfile.mkdtemp(prefix="detach-link-"))
-        self.addCleanup(shutil.rmtree, str(repo), ignore_errors=True)
+        holder = tempfile.TemporaryDirectory(prefix="detach-link-")
+        self.addCleanup(holder.cleanup)
+        repo = Path(holder.name)
 
         def git(*args, **kw):
             return subprocess.run(
@@ -2357,8 +2364,9 @@ class AFeedHelperReturnsTheWholeAnswer(unittest.TestCase):
         # `MERGED` row is the only row, and `/ship` step 0 read new work on the
         # reused branch as delivered. Raised by Copilot. Driven in a real
         # repository: the merged PR's head is an ancestor of the local tip.
-        repo = Path(tempfile.mkdtemp(prefix="prlist-repo-"))
-        self.addCleanup(shutil.rmtree, str(repo), ignore_errors=True)
+        holder = tempfile.TemporaryDirectory(prefix="prlist-repo-")
+        self.addCleanup(holder.cleanup)
+        repo = Path(holder.name)
 
         def git(*args):
             return subprocess.run(
@@ -2421,8 +2429,9 @@ class AFeedHelperReturnsTheWholeAnswer(unittest.TestCase):
         # whose own shas were left behind by the replay — does not. The helper
         # is therefore unchanged by that issue, and this case is what
         # establishes it rather than assuming it.
-        repo = Path(tempfile.mkdtemp(prefix="prlist-rebase-"))
-        self.addCleanup(shutil.rmtree, str(repo), ignore_errors=True)
+        holder = tempfile.TemporaryDirectory(prefix="prlist-rebase-")
+        self.addCleanup(holder.cleanup)
+        repo = Path(holder.name)
 
         def git(*args):
             return subprocess.run(
@@ -2485,8 +2494,9 @@ class AFeedHelperReturnsTheWholeAnswer(unittest.TestCase):
         # That path recreates the commits with its own committer data and
         # new shas, so it never leaves the tip on `mergeCommit`; the
         # fixture drives `merge --ff-only`. Raised by Copilot.
-        repo = Path(tempfile.mkdtemp(prefix="prlist-noop-"))
-        self.addCleanup(shutil.rmtree, str(repo), ignore_errors=True)
+        holder = tempfile.TemporaryDirectory(prefix="prlist-noop-")
+        self.addCleanup(holder.cleanup)
+        repo = Path(holder.name)
 
         def git(*args):
             return subprocess.run(
@@ -2960,8 +2970,9 @@ class CommandsEnforceTheEditingBoundariesTheyState(unittest.TestCase):
         # packages from the main checkout's node_modules when it has none of
         # its own, so without this refusal every mode would pass against main.
         # The refusal stops before the mode is read, so npm never runs.
-        base = Path(tempfile.mkdtemp(prefix="npm-checks-"))
-        self.addCleanup(shutil.rmtree, str(base), ignore_errors=True)
+        holder = tempfile.TemporaryDirectory(prefix="npm-checks-")
+        self.addCleanup(holder.cleanup)
+        base = Path(holder.name)
         subprocess.run(["git", "init", "-q", str(base)], check=True)
         lock = base / "package-lock.json"
         lock.write_text("{}\n", encoding="utf-8")
@@ -11244,8 +11255,9 @@ class LandingByRebaseMovedTheReadsThatAssumedAMergeCommit(unittest.TestCase):
         The identity read has no such shape, because every commit moves the
         tip whatever its content.
         """
-        repo = Path(tempfile.mkdtemp(prefix="post-merge-work-"))
-        self.addCleanup(shutil.rmtree, str(repo), ignore_errors=True)
+        holder = tempfile.TemporaryDirectory(prefix="post-merge-work-")
+        self.addCleanup(holder.cleanup)
+        repo = Path(holder.name)
 
         def git(*args):
             return subprocess.run(
@@ -11348,8 +11360,9 @@ class LandingByRebaseMovedTheReadsThatAssumedAMergeCommit(unittest.TestCase):
         self.assertNotEqual(merged_head, tip)
 
     def test_a_rebase_merged_branch_is_finished_under_the_new_read_only(self):
-        repo = Path(tempfile.mkdtemp(prefix="rebase-finished-"))
-        self.addCleanup(shutil.rmtree, str(repo), ignore_errors=True)
+        holder = tempfile.TemporaryDirectory(prefix="rebase-finished-")
+        self.addCleanup(holder.cleanup)
+        repo = Path(holder.name)
 
         def git(*args):
             return subprocess.run(

@@ -18,7 +18,6 @@ Usage, from the checkout root: py -3.12 .claude/scripts/run-harness.py [-j N]
 import argparse
 import os
 import re
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -70,7 +69,11 @@ def run_class(name):
     # shared one: `TheFourPortedResiduals` asserts that a refused sweep left
     # no `secsweep-*` directory behind, and a sweep case running beside it
     # made one. Python reads TMP and TEMP, Git Bash's `mktemp` reads TMPDIR.
-    scratch = Path(tempfile.mkdtemp(prefix="harness-"))
+    # Its cleanup clears the read-only objects git writes, as the cases' own
+    # do (#358), and ignores what is still held: a file a stray process keeps
+    # open is the case's failure to report, not a reason to lose the run.
+    holder = tempfile.TemporaryDirectory(prefix="harness-", ignore_cleanup_errors=True)
+    scratch = Path(holder.name)
     env = dict(os.environ)
     for key in ("TMP", "TEMP", "TMPDIR"):
         env[key] = scratch.as_posix()
@@ -80,7 +83,7 @@ def run_class(name):
              "-p", f"{module}.py", "-k", f"{module}.{cls}.*"],
             cwd=str(ROOT), capture_output=True, text=True, env=env)
     finally:
-        shutil.rmtree(scratch, ignore_errors=True)
+        holder.cleanup()
     ran = re.search(r"^Ran (\d+) tests?", done.stderr, re.MULTILINE)
     return name, done, int(ran.group(1)) if ran else 0, time.monotonic() - started
 
