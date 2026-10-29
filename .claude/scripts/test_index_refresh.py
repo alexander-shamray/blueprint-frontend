@@ -70,10 +70,10 @@ def clear(holder):
 
     `TemporaryDirectory.cleanup` clears the read-only bit git puts on its
     objects, which Windows otherwise refuses to delete and `ignore_errors`
-    hid (#358). The hook's detached worker can still be standing in the
-    tree when a case ends, which Windows refuses too, so the removal is
-    retried for the minute `TheDetachedWorkerReallyRuns` waits on a worker,
-    and then fails the case.
+    hid (blueprint-frontend#358). The hook's detached worker can still be
+    standing in the tree when a case ends, which Windows refuses too, so the
+    removal is retried for the minute `TheDetachedWorkerReallyRuns` waits on
+    a worker, and then fails the case.
     """
     deadline = time.monotonic() + 60
     while True:
