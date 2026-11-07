@@ -204,5 +204,5 @@ here. Four rules reach every session:
 This repository's `.claude/` came from the backend, and the closure gate's
 workflow, the locality gate and the two document audits did not come with it:
 `docs/change-locality.md` §3 and `/pr` say where the gap bites.
-`.github/closure-gate/` holds the gate ahead of that workflow, which takes its
-enforcing copy from the base commit; until the workflow lands nothing runs it.
+`.github/closure-gate/` holds the gate ahead of that workflow, and its README,
+*How it runs*, says why it has to.
