@@ -1,0 +1,58 @@
+{
+  "repo": "alexander-shamray/blueprint-frontend",
+  "task_list": ".todo/blueprint-frontend.md",
+  "settings": {
+    "env": {},
+    "allow": [
+      "Bash(bash .claude/scripts/npm-checks.sh:*)"
+    ],
+    "deny": [
+      "Edit(AGENTS.md)",
+      "Edit(./AGENTS.md)",
+      "Edit(.github/**)",
+      "Edit(./.github/**)",
+      "Edit(package.json)",
+      "Edit(./package.json)",
+      "Edit(**/package.json)",
+      "Edit(.npmrc)",
+      "Edit(./.npmrc)",
+      "Edit(**/.npmrc)",
+      "Edit(angular.json)",
+      "Edit(./angular.json)",
+      "Edit(tsconfig.json)",
+      "Edit(./tsconfig.json)",
+      "Edit(tsconfig.app.json)",
+      "Edit(./tsconfig.app.json)",
+      "Edit(tsconfig.spec.json)",
+      "Edit(./tsconfig.spec.json)",
+      "Edit(**/tsconfig*.json)",
+      "Edit(**/*.config.cjs)",
+      "Edit(**/*.config.mjs)",
+      "Edit(**/vitest.config.ts)",
+      "Edit(**/vite.config.ts)",
+      "Edit(**/playwright.config.ts)",
+      "Edit(**/capacitor.config.ts)",
+      "Edit(**/*.config.mts)",
+      "Edit(node_modules/**)",
+      "Edit(./node_modules/**)",
+      "Bash(git *--no-index*)",
+      "Bash(gh pr merge:*)",
+      "Bash(git worktree remove:*)"
+    ],
+    "hooks": {}
+  },
+  "local": [
+    ".claude/commands/review-branch.md",
+    ".claude/scripts/local_commands.py",
+    ".claude/scripts/npm-checks.sh",
+    ".claude/scripts/test_mcp_launch.py",
+    ".claude/scripts/test_npm_checks.py",
+    ".claude/scripts/test_root_ignore_coverage.py",
+    ".claude/scripts/test_*_frontend.py",
+    ".claude/skills/codebase-index/scripts/mcp-launch.mjs",
+    "docs/commands/review-branch.md"
+  ],
+  "exclude": [
+    ".github/output-gate/**"
+  ]
+}

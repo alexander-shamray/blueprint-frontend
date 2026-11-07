@@ -1,0 +1,18 @@
+# The rows /bug-sweep and /security-sweep cut this checkout into, read by
+# .claude/scripts/sweep-slices.sh. Tab-separated: kind (bug, security or * for
+# both), a POSIX extended regular expression over the whole path, anchored here,
+# the row, and what the row holds. The first matching line wins; row - owns
+# nothing, so a path it matches refuses the run. The order is the old row_of's:
+# a .spec.ts is a suite before src/app/core/ is core.
+*	^[^/]+$	native	every tracked file at the repository root: the toolchain and Capacitor configuration
+*	^(\.github|\.claude|\.harness|\.vscode|tools)/	tooling	the harness and its sync record, CI, the gates, editor settings and tools/
+*	^(android|ios)/	native	the committed Android and iOS projects
+*	^docs/	samples	fenced code in docs/, audited as code but excerpt-aware; the closed records are owned and not read
+security	^(src|e2e|public)/	source	the application, its end-to-end suites and its public assets
+security	^.*/.*$	-	a directory no line above names: the run refuses until one owns it
+bug	^e2e/	suites	the Playwright suites
+bug	^src/.*\.spec\.ts$	suites	every unit spec beside the file it covers
+bug	^src/app/core/	core	the shared mechanisms under src/app/core/
+bug	^src/	screens	features, shared components and the rest of src/
+bug	^public/	screens	the public assets the screens load
+bug	^.*/.*$	-	a directory no line above names: the run refuses until one owns it
