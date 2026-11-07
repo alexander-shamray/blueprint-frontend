@@ -201,6 +201,8 @@ here. Four rules reach every session:
 
 ### What was not ported
 
-This repository's `.claude/` came from the backend, and the closure gate, the
-locality gate and the two document audits did not come with it:
+This repository's `.claude/` came from the backend, and the closure gate's
+workflow, the locality gate and the two document audits did not come with it:
 `docs/change-locality.md` §3 and `/pr` say where the gap bites.
+`.github/closure-gate/` holds the gate ahead of that workflow, which takes its
+enforcing copy from the base commit; until the workflow lands nothing runs it.
