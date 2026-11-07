@@ -56,6 +56,9 @@ __pycache__/
 # Index SQLite is machine-local. The skill, .mcp.json and .codeindexignore
 # are shared so Claude in this clone uses the same map.
 .claude/cache/codebase-index/
+# The skill installer's version stamp: an artefact nothing reads, and a file
+# the harness sync does not manage, so tracked it would be drift.
+.claude/skills/codebase-index/.skill_version
 
 # /branch's worktrees. They sit inside the checkout because EnterWorktree
 # moves a session there without a confirmation; ignored here so git status,

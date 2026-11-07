@@ -1427,8 +1427,7 @@ landing leaves no merge commit to name the pull request;
 `.github/commit-gate/README.md` owns its rules (#207).
 
 The `issue-form` job holds the issue form under `.github/ISSUE_TEMPLATE/` to
-the kinds `docs/change-locality.md` §6 names, the severities
-`gh-issue-filing.sh` files under, and the repository's labels, which it reads
+the vocabularies it mirrors and to the repository's labels, which it reads
 with a token that may read the checkout and the issues and nothing more
 (#359).
 `.github/issue-form-gate/README.md` owns what it reads and claims.

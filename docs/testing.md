@@ -78,19 +78,17 @@ CI's three-OS matrix went red on macOS with `declare: -A: invalid option`.
 Nothing had ever run these helpers there. If you add a bash-4 construct —
 `declare -A`, `mapfile`, `${var,,}` — the macOS runner is what will tell you.
 
-**On a Windows host, run the harness suite a class per process**
-(alexander-shamray/blueprint-frontend#259):
-`py -3.12 .claude/scripts/run-harness.py`. Most of a local run is `git` and
-Git Bash processes starting, so the classes run side by side — measured at
-`bc2d627` on a 24-thread host, 1,236 s serially and 312 s this way. It gives
-each class its own temporary directory, because a class asserts what the
-shared one holds; runs the classes its `ALONE` set names, whose subject is a
-time limit, alone after the rest, because a host busy with every other class
-misses those limits for no fault of the code; and fails unless it ran every
-test discovery found. **CI keeps `python -m unittest discover`** because it is
-the gate — one spelling on all three runners, Windows included, and nothing
-between it and the suite — so this is a local convenience and not a second
-gate: a case that passes here and fails there is still red.
+**On a Windows host the whole harness suite is slow, so run the module a
+change touches**: `py -3.12 -m unittest discover -s .claude/scripts -p
+'<module>.py'`. Most of a local run is `git` and Git Bash processes starting
+(alexander-shamray/blueprint-frontend#259), and the suite the harness sync
+delivers is larger than the one that issue measured (2,089 s on one Windows
+host at harness `9a774e5`, blueprint-harness#162). The per-class runner #259 added was this
+repository's alone and went with the first sync (`docs/harness-local.md`
+names what stayed). **CI's `harness` job runs `python -m unittest discover`**
+because it is the gate — one spelling on all three runners, Windows included,
+and nothing between it and the suite — so a module that passes here and a
+suite that fails there is still red.
 
 **The code-index CLI is pinned, here** (alexander-shamray/blueprint-frontend#147).
 It is the one tool outside the lockfile that runs unprompted: the MCP server

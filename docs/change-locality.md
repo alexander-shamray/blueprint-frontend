@@ -91,22 +91,25 @@ genuinely needs two classes names both — `C+E` for a rule that brings a
 package, `A+D` for a feature change whose native config moved — and its touch
 set is the union.
 
+**The tree set each class may reach is
+[`.github/locality-gate/classes.yml`](../.github/locality-gate/classes.yml)'s**,
+held once in the grammar the backend's locality gate reads; the table below
+states each class's rule in words and cites that file for the paths.
 **There is no locality gate in CI here, and that is a gap rather than a
-decision.** The repository these commands came from carries
-`.github/locality-gate/`, which reads the classes from one file and fails a PR
-on a path outside either set. Nothing here does. What stands instead is
-`bash .claude/scripts/pr-locality.sh <n>`, which `/review-branch` and `/ship`
-run against an open PR and which prints one `inside`/`outside` verdict per
-changed path — a check somebody runs, not one
-that runs itself. Porting the gate is a follow-up worth having. Until then the
-table below is the owner of what each class may reach.
+decision.** The backend carries `.github/locality-gate/`, which reads that
+file and fails a PR on a path outside either set. Nothing here does. What
+stands instead is `bash .claude/scripts/pr-locality.sh <n>`, which
+`/review-branch` and `/ship` run against an open PR and which prints one
+`inside`/`outside` verdict per changed path from the class map — a check
+somebody runs, not one that runs itself. Porting the gate is a follow-up worth
+having.
 
 | Class | Examples | May touch | Never touches |
 |---|---|---|---|
 | **A — local** | fix a page's rendering, tighten a spec, add a form field the wire type already has, correct a label | one feature slice, `src/app/features/<name>/**`, and its `.spec.ts` files; the one `e2e/` step if the flow's visible steps changed | any other feature — the ESLint boundary refuses the import, and a change that wants one is not this class; `src/app/core/**`; any document; `CLAUDE.md`; the harness |
 | **B — shared mechanism** | change the error mapper, the rate-limit window, the auth interceptor, the cart store's persistence, a `shared/` component | one area under `src/app/core/<area>/**` or `src/app/shared/**`, and its specs; the *one* feature spec that proves the wiring; `src/app/core/boundaries.spec.ts` when the import rules themselves moved; the one `client-architecture.md` paragraph that states the rule | every section that *mentions* the mechanism; two core areas in one PR; the spec; the plan |
 | **C — a rule moved** | a guard must refuse where it admitted; a 409 gains a third meaning; the client may now compute something it could not | code and specs; one new or superseded `client-architecture.md` section; the single spec section that section amends; Class E's set beside it, as `C+E`, when the rule brings a package | every historical paragraph describing the old rule — the new section is the correction and the spec points at it; the plan; `CLAUDE.md` |
-| **D — docs or harness** | a new `/command`, a style pass, a CI job, a native manifest change, this contract | only the documents, `.claude/**`, `.github/**`, `android/**`, `ios/**` or `e2e/**` tree the issue names, `CLAUDE.md`, and the repository's own configuration files at the root — or, when no issue was filed, the paths the touch-set row declares | inventories "while we are here"; application code |
+| **D — docs or harness** | a new `/command`, a style pass, a CI job, a native manifest change, this contract | only the documents, `.claude/**`, `.harness/**`, `.github/**`, `android/**`, `ios/**` or `e2e/**` tree the issue names, `CLAUDE.md`, and the repository's own configuration files at the root — or, when no issue was filed, the paths the touch-set row declares | inventories "while we are here"; application code |
 | **E — dependency graph** | add a package, raise a pin, add a path alias | `package.json` and `package-lock.json` together, always — the pin exact; `angular.json` and `tsconfig.json` when a path alias or a budget moved; the spec's §11 and the plan's *Versions* table, where the version is the decision | the sections that use the package |
 
 Notes that decide the edge cases:
