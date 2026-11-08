@@ -1,13 +1,8 @@
 #!/usr/bin/env bash
 # Cut a sweep's worktree into slices of at most BUDGET bytes, one list per slice
-# beside the worktree, and print a summary; /bug-sweep and /security-sweep.
-# The row partition is the sweeps' and lives here, so a tracked path no row owns
-# refuses the run rather than going unswept.
-#
-# Ported from blueprint-backend's helper of the same name (blueprint-frontend
-# #172), with this tree's rows and for bash 3.2, which is what macOS ships as
-# /bin/bash and where `mapfile` and associative arrays do not exist: the
-# classification is one awk pass over three newline lists.
+# beside it, by the rows of this checkout's .harness/sweep-rows.tsv; a tracked
+# path no row owns refuses the run. Bash 3.2, /bin/bash on macOS, has no
+# `mapfile` and no associative array, so the rows are one awk pass over lists.
 set -euo pipefail
 usage="usage: sweep-slices.sh <bug|security> <worktree> [full]"
 [ "$#" -ge 2 ] && [ "$#" -le 3 ] || { echo "$usage" >&2; exit 2; }
@@ -32,6 +27,27 @@ esac
 out="$resolved.slices"
 [ ! -e "$out" ] || { echo "slices already cut: $out" >&2; exit 3; }
 
+# The rows are this checkout's, as the helper is, and trusted as it is: a line
+# moving a script into samples, where a file with no fence is not read, changes
+# what a sweep reads, and is reviewed as a change to the helper would be.
+rows="$(dirname "${BASH_SOURCE[0]}")/../../.harness/sweep-rows.tsv"
+[ -r "$rows" ] || { echo "the row file cannot be read: .harness/sweep-rows.tsv" >&2; exit 3; }
+# Tab-separated `kind pattern row holds`, `#` opening a comment line; a line of
+# any other shape is refused naming it, so a typo never moves a path silently.
+LC_ALL=C awk -F'\t' '
+  { sub(/\r$/, "") }
+  $0 == "" || /^#/ { next }
+  NF != 4 { bad("not four tab-separated fields") }
+  $1 != "bug" && $1 != "security" && $1 != "*" { bad("kind is not bug, security or *") }
+  $2 == "" { bad("an empty pattern") }
+  $3 != "-" && $3 !~ /^[a-z][a-z-]*$/ { bad("row is not - or a lower-case word") }
+  $4 == "" { bad("an empty holds") }
+  # A pattern awk cannot compile stops awk here, which the caller refuses too.
+  { if ("" ~ $2) n++ }
+  function bad(why) { printf "sweep-rows.tsv line %d: %s: %s\n", NR, why, $0 > "/dev/stderr"; failed = 1; exit 3 }
+  END { if (failed) exit 3 }
+' "$rows" || { echo "the row file is malformed: .harness/sweep-rows.tsv" >&2; exit 3; }
+
 g() { git -C "$resolved" "$@"; }
 pinned=$(g rev-parse --verify HEAD)
 since=""
@@ -40,14 +56,16 @@ if [ "$mode" != full ] && last=$(g rev-parse --verify --quiet "refs/sweeps/$kind
   # the diff from it would skip files this commit never had swept.
   if g merge-base --is-ancestor "$last" "$pinned"; then since="$last"; fi
 fi
+# The swept tree's .gitattributes would decide what `grep -I` calls binary, so
+# they are read from the empty tree instead; a git older than 2.41 refuses the
+# option, and the run fails rather than trusting them.
+empty=$(g hash-object -t tree --stdin </dev/null)
 
 # The bytes inside fences, the only part of a sample the sweeps audit, one line
 # per blob of a `git cat-file --batch` stream. A fence closes only on its own
-# character, at least as long, with nothing after it but the line's end, a CR
-# included. A blob ends at a byte count, so LC_ALL=C, because gawk's length
-# counts characters in a UTF-8 locale, and BINMODE=3, because gawk under MSYS
-# strips the CR of a CRLF line; any other awk takes BINMODE as a variable it
-# never reads.
+# character, at least as long, with only blanks or a CR after it. A blob ends at
+# a byte count, so LC_ALL=C, as gawk counts characters in a UTF-8 locale, and
+# BINMODE=3, as gawk under MSYS strips a CRLF line's CR; other awks ignore it.
 fenced_bytes() {
   LC_ALL=C awk -v BINMODE=3 '
     state == 2 { if ($0 != "") bad = 1; state = 0; next }
@@ -87,7 +105,7 @@ mkdir "$out"
 # Any exit before the plan is printed takes the half-cut lists with it.
 trap 'rm -rf "$out"' EXIT
 g ls-tree -r -l -z --full-tree "$pinned" > "$out/tree.z"
-g grep -I -l -z -e '' "$pinned" -- . > "$out/text.z" || [ "$?" -eq 1 ]
+g --attr-source="$empty" grep -I -l -z -e '' "$pinned" -- . > "$out/text.z" || [ "$?" -eq 1 ]
 : > "$out/changed.z"
 [ -z "$since" ] || g diff --name-only --no-renames -z "$since" "$pinned" > "$out/changed.z"
 lines_of "$out/tree.z" "$out/tree.txt"
@@ -101,52 +119,48 @@ sed "s/^[0-9a-f]*://" "$out/text.raw" > "$out/text.txt"
   awk -F'\t' 'NF != 2 { bad = 1 } END { exit bad }' "$out/tree.txt" ||
   { echo "a tracked name with a tab or a carriage return" >&2; exit 3; }
 
-# The rows. A path no row owns is printed on stderr and counted, and the run
-# refuses below; the other lines are `L row size file` for what the sweep reads.
-#   bug       core screens suites tooling native samples
-#   security  source tooling native samples
+# The rows of this kind in file order, the first match winning; row `-` and no
+# match alike leave a path unowned, printed on stderr and counted, and the run
+# refuses below. The other lines are `L row size file` for what the sweep reads
+# and `B file` for a binary one it does not.
 awk -F'\t' -v kind="$kind" -v since="$since" '
-  function row_of(f,   top) {
-    if (index(f, "/") == 0) return "native"
-    top = f; sub(/\/.*/, "", top)
-    if (top == ".github" || top == ".claude" || top == ".vscode" || top == "tools") return "tooling"
-    if (top == "android" || top == "ios") return "native"
-    if (top == "docs") return "samples"
-    if (kind == "security") {
-      if (top == "src" || top == "e2e" || top == "public") return "source"
-      return ""
-    }
-    if (top == "e2e") return "suites"
-    if (top == "src") {
-      if (f ~ /\.spec\.ts$/) return "suites"
-      if (f ~ /^src\/app\/core\//) return "core"
-      return "screens"
-    }
-    if (top == "public") return "screens"
+  function row_of(f,   i) {
+    for (i = 1; i <= nrows; i++) if (f ~ pattern[i]) return row[i] == "-" ? "" : row[i]
     return ""
   }
-  FILENAME == ARGV[1] { text[$0] = 1; next }
-  FILENAME == ARGV[2] { changed[$0] = 1; next }
+  FILENAME == ARGV[1] {
+    sub(/\r$/, "")
+    if ($0 == "" || $0 ~ /^#/) next
+    if ($1 == kind || $1 == "*") { nrows++; pattern[nrows] = $2; row[nrows] = $3 }
+    next
+  }
+  FILENAME == ARGV[2] { text[$0] = 1; next }
+  FILENAME == ARGV[3] { changed[$0] = 1; next }
   {
     tracked++
     file = $2; n = split($1, meta, " "); size = meta[n]
     if (size !~ /^[0-9]+$/) size = 0
-    row = row_of(file)
-    if (row == "") { print "no row owns: " file > "/dev/stderr"; unowned++; next }
+    r = row_of(file)
+    if (r == "") { print "no row owns: " file > "/dev/stderr"; unowned++; next }
     if (since != "" && !(file in changed)) { unchanged++; next }
     if (size == 0) { empty++; next }
-    if (!(file in text)) { binary++; next }
+    if (!(file in text)) { binary++; printf "B\t%s\n", file; next }
     # Closed records are never edited to match the code, so a defect in their
     # samples has no fix to file; owned by the row, counted, not read.
-    if (file ~ /^docs\/superpowers\//) { record++; next }
-    printf "L\t%s\t%s\t%s\n", row, size, file
+    if (file ~ /^docs\/superpowers\// || file == "docs/pr-decision-log.md" || file == "docs/lessons.md") {
+      record++; next
+    }
+    printf "L\t%s\t%s\t%s\n", r, size, file
   }
   END { printf "T\t%d\t%d\t%d\t%d\t%d\t%d\n", tracked, unowned, unchanged, empty, binary, record }
-' "$out/text.txt" "$out/changed.txt" "$out/tree.txt" > "$out/plan.raw"
+' "$rows" "$out/text.txt" "$out/changed.txt" "$out/tree.txt" > "$out/plan.raw"
 
 totals=$(grep '^T' "$out/plan.raw")
 IFS=$'\t' read -r _ tracked unowned unchanged empty binary record <<<"$totals"
 [ "$unowned" -eq 0 ] || { echo "$unowned tracked path(s) no row owns" >&2; exit 3; }
+# No auditor reads a binary file, so each is named in a list the plan points at:
+# a NUL byte is all it takes to make a script one.
+awk -F'\t' '$1 == "B" { print $2 }' "$out/plan.raw" > "$out/binary.txt"
 
 # A sample counts only its fenced lines; one with none is counted, not listed.
 # Every sample goes through one cat-file and one awk, in tree order, rather than
@@ -170,11 +184,12 @@ if [ -z "$since" ] && [ "$listed" -eq 0 ]; then
   echo "a full run that lists nothing has read nothing" >&2; exit 3
 fi
 # A stable sort by row keeps each row's files in tree order.
-sort -t$'\t' -k1,1 -s "$out/plan.rows" > "$out/plan.sorted"
+LC_ALL=C sort -t$'\t' -k1,1 -s "$out/plan.rows" > "$out/plan.sorted"
 
 echo "pinned $pinned"
 if [ -n "$since" ]; then echo "mode since $since"; else echo "mode full"; fi
 echo "tracked $tracked listed $listed unchanged $unchanged empty $empty binary $binary record $record fenceless $fenceless"
+if [ "$binary" -gt 0 ]; then echo "binary $binary $out/binary.txt"; else rm -f "$out/binary.txt"; fi
 
 n=0 bytes=0 files=0 current="" list=""
 flush() {
@@ -190,7 +205,7 @@ while IFS=$'\t' read -r row size file; do
   bytes=$((bytes + size)) files=$((files + 1)) list="$list$file"$'\n'
 done < "$out/plan.sorted"
 flush
-# Only the numbered lists stay beside the worktree.
+# Only the lists stay beside the worktree.
 rm -f "$out"/*.z "$out"/*.raw "$out"/tree.txt "$out"/text.txt "$out"/changed.txt \
   "$out"/plan.rows "$out"/plan.sorted "$out"/samples.txt "$out"/samples.fenced
 trap - EXIT

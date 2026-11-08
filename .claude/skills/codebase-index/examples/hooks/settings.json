@@ -1,21 +1,26 @@
 {
-  "permissions": {
-    "deny": [
-      "Edit(.claude/skills/**)",
-      "Edit(./.claude/skills/**)",
-      "Edit(.claude/hooks/**)",
-      "Edit(./.claude/hooks/**)"
-    ]
-  },
   "hooks": {
     "PostToolUse": [
       {
-        "matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash|PowerShell",
+        "matcher": "Edit|Write|NotebookEdit|MultiEdit|Bash|PowerShell",
         "hooks": [
           {
             "type": "command",
-            "command": "cd \"${CLAUDE_PROJECT_DIR}\" && bash .claude/skills/codebase-index/scripts/run-index update >/dev/null 2>&1 &",
-            "timeout": 5
+            "command": "py -3.12 -P -c \"import os, runpy; runpy.run_path(os.environ['CLAUDE_PROJECT_DIR'] + '/.claude/hooks/refresh-index.py', run_name='__main__')\"",
+            "timeout": 15,
+            "statusMessage": "refreshing the code index"
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "py -3.12 -P -c \"import os, runpy; runpy.run_path(os.environ['CLAUDE_PROJECT_DIR'] + '/.claude/hooks/refresh-index.py', run_name='__main__')\"",
+            "timeout": 15,
+            "statusMessage": "refreshing the code index"
           }
         ]
       }

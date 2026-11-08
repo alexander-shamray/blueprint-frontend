@@ -11,9 +11,9 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: commit-gate-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
+# No concurrency group, for locality-gate.yml's reason: a rerun of an older
+# head's run would cancel the newest head's, which then stays there as a
+# failed required check that blocks the merge.
 
 jobs:
   commit-gate:
@@ -22,18 +22,13 @@ jobs:
       - uses: actions/checkout@v7
         with:
           # The range is base..head and the enforcing copy is read from the
-          # base commit, so history is needed.
+          # base commit, so history is needed (closure-gate.yml's reasoning).
+          # The decision below reads it too.
           fetch-depth: 0
 
-      # Dependabot's own pull requests carry no PR trailer, so the gate stands
-      # down for one that Dependabot opened and whose every commit Dependabot
-      # made, and runs for any commit made elsewhere: docs/change-locality.md
-      # section 6. The commits decide, by author and committer together. Who
-      # opened the pull request does not say who pushed to it, and a local
-      # amend or rebase keeps Dependabot as the author but makes the human the
-      # committer, where Dependabot's own commits and rebases have GitHub's.
-      # This is blueprint-admin#482's form, written after blueprint-admin#400
-      # found that checking the opener alone let a human push through.
+      # The opener alone is not enough: every commit's author and committer
+      # must be Dependabot's too; .github/commit-gate/README.md, How it runs.
+      # No job condition: a skipped job passes a required check unjudged.
       - name: Decide whether this is Dependabot's own pull request
         id: dependabot
         shell: bash
@@ -66,10 +61,10 @@ jobs:
         working-directory: .github/commit-gate
         run: python -m unittest
 
-      # The base copy judges, so a pull request cannot supply its own judge.
-      # The one difference is the pull request that introduces the gate: its
-      # base carries none, so it is judged by its own copy, with a notice. A
-      # base that predates the gate while the head also lacks it still fails.
+      # The base copy judges, as in closure-gate.yml. The one difference is
+      # the pull request that introduces the gate: its base carries none, so
+      # it is judged by its own copy, with a notice. A base that predates the
+      # gate while the head also lacks it still fails.
       - name: Take the enforcing gate from the base commit
         if: steps.dependabot.outputs.own != 'true'
         shell: bash

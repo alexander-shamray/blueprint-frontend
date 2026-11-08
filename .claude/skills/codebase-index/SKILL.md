@@ -1,59 +1,66 @@
 ---
 name: codebase-index
 description: Use before answering repository questions about architecture, implementation, symbols, references, dependencies, refactoring impact, data flow, or bugs. Query the local hybrid index first so the agent reads only evidence-bearing file:line ranges instead of scanning the repository, and verify evidence gathered earlier before relying on it.
-allowed-tools: Bash(bash .claude/skills/codebase-index/scripts/run-index search:*), Bash(bash .claude/skills/codebase-index/scripts/run-index explain:*), Bash(bash .claude/skills/codebase-index/scripts/run-index architecture:*), Bash(bash .claude/skills/codebase-index/scripts/run-index symbol:*), Bash(bash .claude/skills/codebase-index/scripts/run-index refs:*), Bash(bash .claude/skills/codebase-index/scripts/run-index impact:*), Bash(bash .claude/skills/codebase-index/scripts/run-index diff-impact:*), Bash(bash .claude/skills/codebase-index/scripts/run-index path:*), Bash(bash .claude/skills/codebase-index/scripts/run-index describe:*), Bash(bash .claude/skills/codebase-index/scripts/run-index verify:*), Bash(bash .claude/skills/codebase-index/scripts/run-index stats:*), Bash(bash .claude/skills/codebase-index/scripts/run-index doctor:*), Bash(bash .claude/skills/codebase-index/scripts/run-index update:*), Bash(bash .claude/skills/codebase-index/scripts/run-index index:*), Read, Grep, Glob
+allowed-tools: Bash(bash .claude/skills/codebase-index/scripts/cbx search:*), Bash(bash .claude/skills/codebase-index/scripts/cbx explain:*), Bash(bash .claude/skills/codebase-index/scripts/cbx architecture:*), Bash(bash .claude/skills/codebase-index/scripts/cbx symbol:*), Bash(bash .claude/skills/codebase-index/scripts/cbx refs:*), Bash(bash .claude/skills/codebase-index/scripts/cbx impact:*), Bash(bash .claude/skills/codebase-index/scripts/cbx diff-impact:*), Bash(bash .claude/skills/codebase-index/scripts/cbx path:*), Bash(bash .claude/skills/codebase-index/scripts/cbx describe:*), Bash(bash .claude/skills/codebase-index/scripts/cbx verify:*), Bash(bash .claude/skills/codebase-index/scripts/cbx stats:*), Bash(bash .claude/skills/codebase-index/scripts/cbx doctor:*), Bash(bash .claude/skills/codebase-index/scripts/cbx update:*), Bash(bash .claude/skills/codebase-index/scripts/cbx index:*), Read, Grep, Glob
 ---
 
 # Codebase Index
 
 Use the local index before reading repository files.
 
+The wrappers need the `codebase-index` package on the interpreter
+`.harness/agent-rules.md`, *Hard rules*, pins
+(`py -3.12 -m pip install codebase-index`).
+If they exit 127, the index is unavailable this session; use Grep/Glob.
+`cbx` exits 3 when the index is one the refresh hook would refuse to open,
+and 4 when no Python 3.12 can judge it; use Grep/Glob then too, and report
+the exit 3 message, which names what a branch tracked under the cache.
+
 The operating principle is **Find → Trace → Verify → Predict**:
 
 - **Find** the implementation with ranked retrieval.
-- **Trace** behavior through definitions, callers, dependencies, and paths.
+- **Trace** behaviour through definitions, callers, dependencies, and paths.
 - **Verify** that evidence you already hold is still true before relying on it.
 - **Predict** change impact while preserving an explicit evidence trail.
 
 ## Route the question
 
 Run every command as
-`bash .claude/skills/codebase-index/scripts/run-index <subcommand> …`.
-That wrapper exports `CBX_NO_SKILL_AUTO_UPDATE=1`. The package is named
-`codebase-index`; do not invoke that console script directly.
-
-**The wrapper that runs is the copy in the directory you stand in**, so the
-Bash guard refuses it wherever that copy, the gate it sources, the judge
-the gate starts or the hook the judge loads differs from the checkout this
-session's hooks run from — a worktree whose branch changed them
-(alexander-shamray/blueprint-frontend#146). Use Grep and Read there.
+`bash .claude/skills/codebase-index/scripts/cbx <subcommand> …`.
+That wrapper exports `CBX_NO_SKILL_AUTO_UPDATE=1` and refuses `graph`,
+`clean`, `init` and `watch`. Prefix grants still match the typed string, so
+do not put `$(…)`, a second command, or a write redirection on the same
+line — `.claude/hooks/guard-index-argv.py` refuses those. The package is
+named `codebase-index`; do not invoke that console script directly.
 
 | Intent | Command |
 |---|---|
-| Where is X implemented? | `bash .claude/skills/codebase-index/scripts/run-index search 'X' --limit 3 --session <tag> --json` |
-| How does X work? | `bash .claude/skills/codebase-index/scripts/run-index explain 'X' --session <tag> --json` |
-| What is this codebase? | `bash .claude/skills/codebase-index/scripts/run-index architecture --json` |
-| Find a named symbol | `bash .claude/skills/codebase-index/scripts/run-index symbol 'X' --json` |
-| Who calls or references X? | `bash .claude/skills/codebase-index/scripts/run-index refs 'X' --json` |
-| What changes if X changes? | `bash .claude/skills/codebase-index/scripts/run-index impact 'X' --json` |
-| What does my current diff affect? | `bash .claude/skills/codebase-index/scripts/run-index diff-impact --json` |
-| How are X and Y connected? | `bash .claude/skills/codebase-index/scripts/run-index path 'X' 'Y' --json` |
-| Describe X and its neighborhood | `bash .claude/skills/codebase-index/scripts/run-index describe 'X' --json` |
-| Is what I read earlier still true? | `bash .claude/skills/codebase-index/scripts/run-index verify --session <tag> --json` |
-| Produce a human graph | `bash .claude/skills/codebase-index/scripts/run-index graph 'X' --output <path>` — **not auto-approved**; take the prompt |
+| Where is X implemented? | `bash .claude/skills/codebase-index/scripts/cbx search 'X' --session <tag> --json` |
+| How does X work? | `bash .claude/skills/codebase-index/scripts/cbx explain 'X' --session <tag> --json` |
+| What is this codebase? | `bash .claude/skills/codebase-index/scripts/cbx architecture --json` |
+| Find a named symbol | `bash .claude/skills/codebase-index/scripts/cbx symbol 'X' --json` |
+| Who calls or references X? | `bash .claude/skills/codebase-index/scripts/cbx refs 'X' --json` |
+| What changes if X changes? | `bash .claude/skills/codebase-index/scripts/cbx impact 'X' --json` |
+| What does my current diff affect? | `bash .claude/skills/codebase-index/scripts/cbx diff-impact --json` |
+| How are X and Y connected? | `bash .claude/skills/codebase-index/scripts/cbx path 'X' 'Y' --json` |
+| Describe X and its neighbourhood | `bash .claude/skills/codebase-index/scripts/cbx describe 'X' --json` |
+| Is what I read earlier still true? | `bash .claude/skills/codebase-index/scripts/cbx verify --session <tag> --json` |
 
 **The term goes in single quotes.** Inside double quotes bash still runs a
 `$(…)`, a backtick or a `$VAR` the term carries, and a term copied out of a
-log, an error or a branch's file can carry one
-(alexander-shamray/blueprint-frontend#145). Write a single quote inside the
-term as `'\''`.
+log, an error or a branch's file can carry one; the guard refuses the first
+two and not the third. Write a single quote inside the term as `'\''`.
 
 **`search` takes `--limit 3`**, and no other subcommand takes it at all. The
-default is ten and no configuration changes it: `cli.py` and the MCP server
-each hardcode the number, and the `retrieval.limit` in the index's own
-`config.json` is read by neither. The evidence protocol below opens ranks 1–3,
-so the seven results past the third are paid for and never read — measured over
-eight questions about this client, 69,266 characters against 18,840.
+default is ten and no configuration file changes it — `cli.py` and the MCP
+server each hardcode the number — so the seven results past the third arrive
+whether or not they are read, and on this corpus they find the implementation
+no more often than the first three do.
+
+Which section owns a rule is not a question for this index: half those
+answers are absent from ten results and the rest rank below the fifth, so
+grep the product specification `docs/harness-local.md` *Documents* names
+instead of widening.
 
 Use `search --mode symbol` for exact symbol work, `--mode fts` for text and
 error messages, and the default `hybrid` mode for mixed questions. Use pure
@@ -68,16 +75,23 @@ or routing remain unclear.
    pass `--session <tag>` to every `search` and `explain`.
 2. Run the best-matching command with `--json`.
 3. Check `index` before trusting the payload:
-   - missing → run `bash .claude/skills/codebase-index/scripts/run-index index`, then repeat;
-   - stale with fewer than 20 changed files → run `bash .claude/skills/codebase-index/scripts/run-index update`;
-   - stale with 20 or more changed files → run `bash .claude/skills/codebase-index/scripts/run-index index`;
+   - missing → run `bash .claude/skills/codebase-index/scripts/cbx index`, then
+     repeat;
+   - stale with fewer than 20 changed files → run
+     `bash .claude/skills/codebase-index/scripts/cbx update`;
+   - stale with 20 or more changed files → run
+     `bash .claude/skills/codebase-index/scripts/cbx index`;
    - fresh → continue.
 4. Start with ranks 1–3. Read only `recommended_reads` line ranges.
-5. Trace one additional hop only when the question requires behavior,
+5. Trace one additional hop only when the question requires behaviour,
    ownership, or impact.
 6. Before answering or editing from evidence gathered earlier in the task, run
-   `bash .claude/skills/codebase-index/scripts/run-index verify --session <tag> --json` and reread anything whose
-   state is not `valid` or `relocated`.
+   this, and reread anything whose state is not `valid` or `relocated`:
+
+   ```bash
+   bash .claude/skills/codebase-index/scripts/cbx verify --session <tag> --json
+   ```
+
 7. Answer with `file:line` evidence and state uncertainty explicitly.
 
 Do not open whole files when a line range is available. A snippet may already
@@ -91,8 +105,8 @@ unrelated body lines; read the supplied range when the missing body matters.
   longer see it, Read the range.
 - `memory.invalidated` — evidence this session received has changed since.
   Treat your earlier copy as wrong and reread before relying on it.
-- `stale: true` — the index is older than the file. Run `bash .claude/skills/codebase-index/scripts/run-index update`
-  or Read the range.
+- `stale: true` — the index is older than the file. Run
+  `bash .claude/skills/codebase-index/scripts/cbx update` or Read the range.
 - A tag belongs to one context. Never give it to a subagent or another
   conversation. Start a new tag after the context is cleared or compacted, or
   whenever earlier snippets are no longer visible to you.
@@ -108,14 +122,12 @@ Verdict states and citing evidence in notes: [references/memory.md](references/m
   Grep/Glob fallback.
 
 On `refs` and `impact`, an empty result is inconclusive whatever `coverage`
-reports. The graph carries call edges, and an Angular component is mostly used
-without one: `ErrorBannerComponent` is imported by all six feature pages and
-named in each one's template, and `impact 'ErrorBannerComponent' --direction
-up` answers with no dependents and `coverage.partial: false`, while `refs`
-returns the definition and nothing else. A template lives in a string and a
-provider in an array, and neither is a call. Confirm with a targeted Grep
-before saying that nothing references the target, and never report an empty
-graph result as an absence.
+reports. The C# graph carries call edges but not every use: a registration
+like `services.AddScoped<IFoo, Foo>()` is recorded against neither name, so
+`impact 'Foo' --direction up` answers with no dependents and
+`coverage.partial: false` while four composition roots name it. Confirm with a
+targeted Grep before saying that nothing references the target, and never
+report an empty graph result as an absence.
 
 Edges carry `confidence`:
 

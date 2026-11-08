@@ -1,27 +1,8 @@
 #!/usr/bin/env python3
-"""Refuse to run the code-index CLI over an index the refresh hook would not open.
-
-**`run-index` and `cbx` are the skill's direct route to the index, and they
-opened it with none of the hook's judgement
-(alexander-shamray/blueprint-frontend#138).** A branch can force-track files
-under `.claude/cache/codebase-index/`, and a checkout writes them over the
-ignored ones. The first connection to a rollback-mode database replays a
-`-journal` it finds beside it, and that replay acts on what the journal says,
-which the branch wrote; a link at a sidecar sends SQLite's writes wherever it
-points. `index_openable` in `index-refresh.py` is the judgement for exactly
-these, so this file asks it rather than keeping a second copy of the rule.
-
-**The root is asked of git and of the working directory both**, because the
-CLI resolves its root from the directory it is run in and this cannot see
-which of the two it will take. A directory with no index yet is admitted, as
-`index_openable` admits a root with none. Outside a git checkout there is
-nothing to judge and the CLI runs. Exit 3 is a refusal; 0 lets the CLI run.
-
-The hook is loaded without writing bytecode: a `__pycache__` under
-`.claude/hooks/` would be one more file whose contents decide what a guard
-does. `mcp-launch.mjs` runs this file before it starts the MCP server, so that route
-is judged too; `docs/harness-boundaries.md` owns the window that remains.
-"""
+"""Refuse to start the code-index CLI over an index the refresh hook would not
+open, asking the hook's own `index_openable` of the working directory and of
+the checkout git puts it in. Exit 3 is a refusal and 0 lets the CLI run:
+`docs/harness-boundaries.md`, *Index refresh and worktree seeding*."""
 
 import importlib.util
 import os
@@ -29,28 +10,33 @@ import subprocess
 import sys
 
 HOOK = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "hooks", "index-refresh.py")
+    os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "hooks", "refresh-index.py")
 
 
 def toplevel():
     """The checkout the working directory sits in, or None outside one."""
+    environment = {name: value for name, value in os.environ.items()
+                   if name.upper() not in ("GIT_DIR", "GIT_WORK_TREE")}
     try:
-        out = subprocess.run(
+        done = subprocess.run(
             ["git", "rev-parse", "--show-toplevel"], capture_output=True,
-            encoding="utf-8", errors="replace", timeout=10)
+            encoding="utf-8", errors="replace", timeout=10, env=environment)
     except (OSError, subprocess.SubprocessError):
         return None
-    line = out.stdout.strip()
-    return line if out.returncode == 0 and line else None
+    line = done.stdout.strip()
+    return line if done.returncode == 0 and line else None
 
 
 def main():
+    # No `__pycache__` under `.claude/hooks/`: one more file deciding what runs.
+    # And no `git` from the working directory, which Windows searches first.
     sys.dont_write_bytecode = True
+    os.environ["NoDefaultCurrentDirectoryInExePath"] = "1"
     roots = [os.getcwd()]
     top = toplevel()
     if top is not None:
         roots.append(top)
-    spec = importlib.util.spec_from_file_location("index_refresh", HOOK)
+    spec = importlib.util.spec_from_file_location("refresh_index", HOOK)
     hook = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(hook)
     for root in dict.fromkeys(os.path.normpath(root) for root in roots):

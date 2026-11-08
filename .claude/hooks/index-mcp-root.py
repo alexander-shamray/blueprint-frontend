@@ -1,10 +1,7 @@
 #!/usr/bin/env python3
 """Refuse a code-index MCP call made from another checkout than the one the
-server reads, which is where the session started, and name the `run-index`
-command that reads this one (alexander-shamray/blueprint-frontend#195, ported
-from blueprint-backend's guard for its #563). `EnterWorktree` does not restart
-MCP servers, so after `/branch` moves the session its answers describe the main
-checkout. A call it cannot judge goes through, and it returns 0."""
+server reads, which is where the session started, and name the `cbx` command
+that reads this one. A call it cannot judge goes through, and it returns 0."""
 
 from __future__ import annotations
 
@@ -15,7 +12,7 @@ import sys
 from pathlib import Path
 
 MCP = "mcp__codebase-index__"
-RUN = "bash .claude/skills/codebase-index/scripts/run-index"
+CBX = "bash .claude/skills/codebase-index/scripts/cbx"
 
 # Each tool's subcommand, its arguments in the CLI's positional order, and
 # whether it takes a session tag, after SKILL.md's route table. `healthcheck`
@@ -79,18 +76,18 @@ def carried(value: object) -> bool:
 
 
 def command(tool: str, given: dict) -> str:
-    """The `run-index` line asking what the call asked, or its bare form where the
+    """The `cbx` line asking what the call asked, or its bare form where the
     call holds an argument the line does not carry, since a line dropping one
     would answer another question."""
     sub, positional, tagged = COMMANDS[tool]
-    bare = f"`{RUN} {sub}` with the call's arguments and `--json`"
+    bare = f"`{CBX} {sub}` with the call's arguments and `--json`"
     kind = given.get("kind")
     options = OPTIONS.get(sub, {})
     known = {*positional, *options, *(("session",) if tagged else ()), *(("kind",) if sub == "refs" else ())}
     if any(value is not None and key not in known for key, value in given.items()) or (
             kind is not None and kind not in ("callers", "all")):
         return bare
-    words = [RUN, sub]
+    words = [CBX, sub]
     for key in positional:
         value = given.get(key)
         if not carried(value):
@@ -127,7 +124,7 @@ def answer(event: dict) -> str | None:
     return (f"The codebase-index MCP server reads {served}, where this session started, and not {here}, "
             "where it now works, so its answers miss this checkout's changes. Load the codebase-index "
             f"skill, whose grant the CLI runs under, and run {run} from this checkout's root, alone on "
-            "its line, with no pipe, `;` or `&&`, which the skill's grant does not cover; the CLI reads this "
+            "its line, with no pipe, `;` or `&&`, which the index guard refuses; the CLI reads this "
             "checkout's own index.")
 
 

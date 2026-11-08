@@ -2,7 +2,7 @@
 when. It fails open and lets most calls through, so its exit status proves
 nothing; the cases run it as `settings.json` does, a process over stdin,
 beside a transcript and a temporary directory written for the case, and read
-what it printed. Ported from blueprint-backend's suite (#560, #566)."""
+what it printed."""
 
 import importlib.util
 import json
@@ -17,14 +17,16 @@ import uuid
 from pathlib import Path
 from unittest import mock
 
+from review_helpers import python_as_py
+
 SCRIPTS = Path(__file__).resolve().parent
 CLAUDE = SCRIPTS.parent
 HINT = CLAUDE / "hooks" / "index-search-hint.py"
-LAUNCHER = CLAUDE / "hooks" / "run-guard.sh"
 SETTINGS = CLAUDE / "settings.json"
+SKILL = CLAUDE / "skills" / "codebase-index" / "SKILL.md"
 EVENT = "PreToolUse"
 MATCHER = "Grep|Bash|PowerShell"
-COMMAND = 'sh "${CLAUDE_PROJECT_DIR}/.claude/hooks/run-guard.sh" index-search-hint.py || :'
+COMMAND = 'bash "${CLAUDE_PROJECT_DIR}/.claude/hooks/hint-bound.sh" PreToolUse index-search-hint.py'
 
 # Each searches the tree for a named symbol, so a session's first is refused.
 SEARCHES = (
@@ -77,14 +79,14 @@ TEXT = (
 
 # Each reads one file, a pipe or prose, which the index does not replace.
 NOT_SEARCHES = (
-    "grep -n Money src/money.ts",
+    "grep -n Money src/Money.cs",
     "git log --oneline | grep Fix",
     "cat build.log | rg Error",
     "rg Error < build.log",
     "git diff | rg ClaimAsync -",
     "grep -r ClaimAsync -",
     "rg ClaimAsync <<< \"$text\"",
-    "grep -rn Saga docs/client-architecture",
+    "grep -rn Saga docs/backend-architecture",
     "grep -rn Saga docs 2>/dev/null",
     "grep -rn Saga \\\n  docs",
     "git grep -n OutboxRelay -- docs ':!docs/superpowers'",
@@ -113,7 +115,7 @@ NOT_SEARCHES = (
     "gh pr create --body \"$(cat <<'EOF'\nsee \"a # b\"\nrg ClaimAsync src\nEOF\n)\"",
     'gh pr create --body "Steps:\ngrep -rn Foo src\n"',
     "git status --short",
-    "npm run build",
+    "dotnet build Platform.slnx",
 )
 
 
@@ -223,39 +225,32 @@ class TheWiring(unittest.TestCase):
 
         self.assertEqual([(EVENT, MATCHER)], running)
 
-    def test_the_launcher_admits_it(self):
-        self.assertRegex(LAUNCHER.read_text(encoding="utf-8"), r"\|index-search-hint\.py\)")
-
-    def test_the_registered_command_cannot_block_a_tool(self):
-        """The launcher leaves with 2 whenever it cannot prove it ran the
-        hook, and under `PreToolUse` that blocks the call, here every Grep and
-        shell call of the session. The command's `|| :` turns each such
-        failure into silence. Run as the harness runs it, from a project path
-        holding a space, from one whose launcher has no hook to run, and from
-        one with no launcher at all."""
-        sh = shutil.which("sh")
-        if sh is None:
-            self.fail("sh is required: the registered command starts with it")
+    def test_the_registered_command_survives_a_missing_file(self):
+        """Python exits 2 on a file it cannot open, a worktree emptied under a
+        running session; through `runpy` the same failure exits 1, and a
+        project path holding a quote still runs."""
+        argv = [shutil.which("bash"), str(CLAUDE / "hooks" / "hint-bound.sh"), EVENT, HINT.name]
         with tempfile.TemporaryDirectory() as scratch:
             transcript = Path(scratch) / "t.jsonl"
             transcript.write_text("", encoding="utf-8")
-            spaced, hollow = Path(scratch) / "two words", Path(scratch) / "hollow"
-            for root, names in ((spaced, ("run-guard.sh", "run-guard.py", HINT.name)),
-                                (hollow, ("run-guard.sh", "run-guard.py"))):
-                (root / ".claude" / "hooks").mkdir(parents=True)
-                for name in names:
-                    shutil.copyfile(LAUNCHER.parent / name, root / ".claude" / "hooks" / name)
-            for root, refused in ((spaced, True), (hollow, False), (Path(scratch), False)):
-                for attempt in ("probed", "remembered"):
-                    event = json.dumps({"hook_event_name": EVENT, "session_id": uuid.uuid4().hex,
-                                        "transcript_path": str(transcript), "tool_name": "Grep",
-                                        "tool_input": {"pattern": "Money"}, "tool_use_id": "x"}).encode()
-                    done = subprocess.run(
-                        [sh, "-c", COMMAND], input=event, capture_output=True, timeout=60, check=False,
-                        env=dict(environment(Path(scratch)), CLAUDE_PROJECT_DIR=str(root)))
-                    with self.subTest(root=root.name, attempt=attempt):
-                        self.assertEqual(0, done.returncode, done.stderr)
-                        self.assertEqual(refused, bool(done.stdout.strip()), done.stderr)
+            quoted = Path(scratch) / "O'Brien"
+            (quoted / ".claude" / "hooks").mkdir(parents=True)
+            shutil.copyfile(HINT, quoted / ".claude" / "hooks" / HINT.name)
+            for root, refused in ((CLAUDE.parent, True), (quoted, True), (Path(scratch), False)):
+                event = json.dumps({"hook_event_name": EVENT, "session_id": uuid.uuid4().hex,
+                                    "transcript_path": str(transcript), "tool_name": "Grep",
+                                    "tool_input": {"pattern": "Money"}, "tool_use_id": "x"}).encode()
+                done = subprocess.run(
+                    argv, input=event, capture_output=True, timeout=30, check=False,
+                    env=python_as_py(dict(environment(Path(scratch)), CLAUDE_PROJECT_DIR=str(root)), scratch))
+                with self.subTest(root=str(root)):
+                    self.assertNotEqual(2, done.returncode, done.stderr)
+                    # A hook that cannot run leaves hint-bound.sh's line, and the call is never blocked.
+                    if refused:
+                        self.assertTrue(done.stdout.strip(), done.stderr)
+                        self.assertNotIn(b"did not run", done.stdout)
+                    else:
+                        self.assertIn(b"did not run", done.stdout)
 
 
 class WhatCountsAsASearch(Scratch):
@@ -280,7 +275,7 @@ class WhatCountsAsASearch(Scratch):
         self.assertTrue(self.refused(*grep_call()))
         self.assertTrue(self.refused(*grep_call(path="src/Services")))
         self.assertTrue(self.refused(*grep_call(glob="!*.md")))
-        for extra in ({"path": "docs/client-architecture"}, {"glob": "*.md"},
+        for extra in ({"path": "docs/backend-architecture"}, {"glob": "*.md"},
                       {"type": "md"}, {"path": "C:\\repo\\docs"}, {"pattern": "retry.*budget"}):
             with self.subTest(extra=extra):
                 self.assertEqual("", self.refused(*grep_call(**extra)))
@@ -331,11 +326,11 @@ class WhatCountsAsASearch(Scratch):
         repo = self.scratch / "repo"
         (repo / ".git").mkdir(parents=True)
         (repo / "src").mkdir()
-        (repo / "src" / "money.ts").write_text("class Money {}", encoding="utf-8")
+        (repo / "src" / "Money.cs").write_text("class Money {}", encoding="utf-8")
         (repo / "docs").mkdir()
         (self.scratch / "other").mkdir()
         for command, refused in (("cd ../other && grep -rn OutboxRelay .", False),
-                                 ("cd src && grep -rn Amount money.ts", False),
+                                 ("cd src && grep -rn Amount Money.cs", False),
                                  ("cd docs && grep -rn Saga .", False),
                                  ("(cd docs && grep -rn Saga .); grep -rn Saga src", True),
                                  ("cd src; rg Amount", True),
@@ -362,23 +357,23 @@ class WhenItAsks(Scratch):
     def test_a_session_that_made_a_lookup_is_not_refused(self):
         for earlier in ((("mcp__codebase-index__find_refs", {"symbol": "X"}),),
                         (("mcp__codebase-index__search_code", {"query": "x"}),),
-                        (bash_call('bash .claude/skills/codebase-index/scripts/run-index refs "X" --json'),),
+                        (bash_call('bash .claude/skills/codebase-index/scripts/cbx refs "X" --json'),),
                         (bash_call("codebase-index search outbox --json"),),
                         (("mcp__codebase-index__verify_evidence", {}),),
-                        (bash_call("bash .claude/skills/codebase-index/scripts/run-index verify --session t --json"),),
+                        (bash_call("bash .claude/skills/codebase-index/scripts/cbx verify --session t --json"),),
                         (bash_call("pwsh -NoProfile -ExecutionPolicy Bypass -File "
                                    ".claude/skills/codebase-index/scripts/cbx.ps1 search outbox --json"),),
                         (bash_call("py -3.12 -P -m codebase_index refs X --json"),),
                         (bash_call('pwsh -NoProfile -Command "& ./.claude/skills/codebase-index/scripts/cbx.ps1'
                                    ' refs X --json"'),),
-                        (bash_call("bash -c 'bash .claude/skills/codebase-index/scripts/run-index refs X --json'"),),
-                        (bash_call("bash -x .claude/skills/codebase-index/scripts/run-index refs X --json"),),
-                        (bash_call("bash -lc 'bash .claude/skills/codebase-index/scripts/run-index refs X --json'"),),
+                        (bash_call("bash -c 'bash .claude/skills/codebase-index/scripts/cbx refs X --json'"),),
+                        (bash_call("bash -x .claude/skills/codebase-index/scripts/cbx refs X --json"),),
+                        (bash_call("bash -lc 'bash .claude/skills/codebase-index/scripts/cbx refs X --json'"),),
                         (bash_call("bash -o pipefail -c "
-                                   "'bash .claude/skills/codebase-index/scripts/run-index refs X --json'"),),
-                        (bash_call("git status\nbash .claude/skills/codebase-index/scripts/run-index refs X --json"),),
+                                   "'bash .claude/skills/codebase-index/scripts/cbx refs X --json'"),),
+                        (bash_call("git status\nbash .claude/skills/codebase-index/scripts/cbx refs X --json"),),
                         (bash_call("CBX_NO_SKILL_AUTO_UPDATE=1 bash "
-                                   ".claude/skills/codebase-index/scripts/run-index refs X --json"),),
+                                   ".claude/skills/codebase-index/scripts/cbx refs X --json"),),
                         (("PowerShell", {"command": "& C:\\repo\\.claude\\skills\\codebase-index\\scripts\\cbx.ps1"
                                                     " refs X --json"}),)):
             with self.subTest(earlier=earlier):
@@ -390,16 +385,16 @@ class WhenItAsks(Scratch):
                         "echo codebase-index search",
                         'py -3.12 -c "import codebase_index" search',
                         "bash -c 'echo cbx refs X'",
-                        "git commit -F - <<'EOF'\nbash .claude/skills/codebase-index/scripts/run-index refs X --json\nEOF",
-                        'gh pr create --body "Run:\nbash .claude/skills/codebase-index/scripts/run-index refs X\n"'):
+                        "git commit -F - <<'EOF'\nbash .claude/skills/codebase-index/scripts/cbx refs X --json\nEOF",
+                        'gh pr create --body "Run:\nbash .claude/skills/codebase-index/scripts/cbx refs X\n"'):
             with self.subTest(command=command):
                 self.assertTrue(self.refused(*grep_call(), earlier=[bash_call(command)]))
 
     def test_a_lookup_that_was_refused_or_failed_asked_nothing(self):
-        """A permission prompt refused `run-index … | head` as two commands, and an MCP tool
+        """A guard refuses `cbx … | head` as two commands, and an MCP tool
         called before it is loaded errors: neither reached the index. A
         shell command that exited non-zero after the lookup still ran it."""
-        lookup = bash_call("bash .claude/skills/codebase-index/scripts/run-index refs X --json | head -20")
+        lookup = bash_call("bash .claude/skills/codebase-index/scripts/cbx refs X --json | head -20")
         for earlier, text, failed in (
                 (lookup, "PreToolUse:Bash hook error: refused", True),
                 (("mcp__codebase-index__find_refs", {"symbol": "X"}), "<tool_use_error>not loaded", True),
@@ -416,7 +411,7 @@ class WhenItAsks(Scratch):
     def test_reading_the_index_without_asking_it_is_not_a_lookup(self):
         for earlier in ((("mcp__codebase-index__healthcheck", {}),),
                         (("mcp__codebase-index__index_stats", {}),),
-                        (bash_call("bash .claude/skills/codebase-index/scripts/run-index stats --json"),)):
+                        (bash_call("bash .claude/skills/codebase-index/scripts/cbx stats --json"),)):
             with self.subTest(earlier=earlier):
                 self.assertTrue(self.refused(*grep_call(), earlier=earlier))
 
@@ -438,7 +433,7 @@ class WhenItAsks(Scratch):
 
     def test_a_call_that_is_not_refused_does_not_spend_the_ask(self):
         session = Session(self.scratch)
-        for given in (bash_call("grep -rn timeout src"), bash_call("grep -n Money src/money.ts"),
+        for given in (bash_call("grep -rn timeout src"), bash_call("grep -n Money src/Money.cs"),
                       grep_call(path="docs")):
             self.assertEqual("", reason(session.before(*given)))
         self.assertEqual("", reason(session.before(*grep_call(), agent_id="a1", agent_type="Explore")))
@@ -508,30 +503,48 @@ class WhenItAsks(Scratch):
 
 
 class OneRoute(Scratch):
-    """alexander-shamray/blueprint-frontend#195: the MCP tools for every checkout.
-
-    A session in a worktree is turned back by `index-mcp-root.py` when its
-    server reads another root, so the hint does not send it the CLI unasked.
-    """
-
     def test_the_main_checkout_is_sent_to_the_mcp_tools_alone(self):
         main, _tree = self.worktree()
         text = self.refused(*grep_call(), cwd=main)
 
         self.assertEqual(["find_refs", "find_symbol"], tools(text))
         self.assertIn("select:mcp__codebase-index__find_refs,mcp__codebase-index__find_symbol", text)
-        self.assertNotIn("run-index", text)
+        self.assertNotIn("cbx", text)
 
-    def test_a_linked_worktree_is_sent_to_the_same_tools(self):
+    def test_a_quote_inside_a_term_cannot_end_its_quoting(self):
+        single = module().single
+
+        self.assertEqual("'MapPost'", single("MapPost"))
+        self.assertEqual("'it'" + chr(92) + "''s'", single("it's"))
+
+    def test_a_linked_worktree_is_sent_to_the_cli_alone(self):
         _main, tree = self.worktree()
         text = self.refused(*bash_call('grep -rnE "MapPost|MapPut" .'), cwd=tree / "src")
 
-        self.assertIn("`MapPost`, `MapPut`", text)
-        self.assertEqual(["find_refs", "find_symbol"], tools(text))
-        self.assertIn("select:mcp__codebase-index__find_refs,mcp__codebase-index__find_symbol", text)
-        self.assertNotIn("run-index", text)
+        self.assertIn("cbx refs 'MapPost' --json", text)
+        self.assertIn("cbx refs 'MapPut' --json", text)
+        self.assertIn("cbx symbol 'MapPost' --json", text)
+        self.assertNotIn('"', text)
+        self.assertIn("codebase-index skill", text)
+        self.assertIn("from the worktree's root", text)
+        self.assertIn("each alone on its line", text)
+        self.assertIn("`--kind callers`", text)
+        self.assertNotIn("mcp__", text)
 
-    def test_a_submodule_gets_the_same_route(self):
+    def test_the_commands_it_names_pass_the_index_guard(self):
+        _main, tree = self.worktree()
+        text = self.refused(*bash_call('grep -rnE "MapPost|MapPut" .'), cwd=tree)
+        spec = importlib.util.spec_from_file_location("guard_index_argv", CLAUDE / "hooks" / "guard-index-argv.py")
+        guard = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(guard)
+        commands = re.findall(r"`(bash \.claude/skills/codebase-index/scripts/cbx [^`]*)`", text)
+
+        self.assertEqual(3, len(commands), text)
+        for command in commands:
+            with self.subTest(command=command):
+                self.assertIsNone(guard.offence(command, guard._git_guard()))
+
+    def test_a_submodule_is_not_a_worktree(self):
         module = self.scratch / "module"
         (self.scratch / ".git" / "modules" / "module").mkdir(parents=True)
         module.mkdir()
@@ -556,7 +569,22 @@ class WhatItCannotRead(Scratch):
         _main, tree = self.worktree()
         text = self.refused(*grep_call("\u0141\u00f3d\u017aRelay"), cwd=tree)
 
-        self.assertIn("`\u0141\u00f3d\u017aRelay`", text)
+        self.assertIn("cbx refs '\u0141\u00f3d\u017aRelay'", text)
+
+
+class TheSkillAgrees(Scratch):
+    """A refusal naming a command the skill does not approve sends the session
+    to a permission prompt instead of the index."""
+
+    def test_every_cli_command_it_emits_is_one_the_skill_approves(self):
+        front = SKILL.read_text(encoding="utf-8").split("---")[1]
+        _main, tree = self.worktree()
+        commands = re.findall(r"`(bash [^`]+)`", self.refused(*grep_call(), cwd=tree))
+        self.assertTrue(commands)
+        for command in commands:
+            prefix = " ".join(command.split()[:3])
+            with self.subTest(command=command):
+                self.assertIn(f"Bash({prefix}:*)", front)
 
 
 if __name__ == "__main__":

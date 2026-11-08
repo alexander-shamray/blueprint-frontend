@@ -16,15 +16,14 @@ GATE_DIR = Path(__file__).resolve().parent
 REPO_ROOT = GATE_DIR.parents[1]
 
 DEFAULT_TEMPLATES = REPO_ROOT / ".github" / "ISSUE_TEMPLATE"
-# gh-issue-create.sh sources this library, whose `case` arms are the closed sets it files under.
-DEFAULT_HELPER = REPO_ROOT / ".claude" / "scripts" / "gh-issue-filing.sh"
-DEFAULT_CONTRACT = REPO_ROOT / "docs" / "change-locality.md"
+DEFAULT_HELPER = REPO_ROOT / ".claude" / "scripts" / "gh-issue-create.sh"
+DEFAULT_VOCABULARY = REPO_ROOT / "docs" / "harness" / "working-rules.md"
 
 # Every dropdown a form carries is one of these, and every form carries all three.
 GOVERNED = ("kind", "severity", "area")
 
-# The bullet of the contract's section 6 that owns the issue vocabulary.
-VOCABULARY_BULLET = "**The issue vocabulary is wider than the label helper**"
+# The bullet of working-rules' *Issues and the task list* that holds the issue vocabulary.
+VOCABULARY_BULLET = "**The issue vocabulary**"
 
 FIELD = re.compile(r"^  - type: (\S+)\s*$")
 FIELD_ID = re.compile(r"^    id: (\S+)\s*$")
@@ -91,24 +90,36 @@ def dropdowns(form: Path) -> dict[str, list[str]]:
 def case_arm(helper: Path, variable: str) -> list[str]:
     """The words of the one arm that admits a value in the helper's `case "$<variable>" in`."""
     text = helper.read_text(encoding="utf-8")
-    match = re.search(rf'case "\${variable}" in\s*\n\s*([a-z0-9|-]+)\) ;;', text)
+    match = re.search(rf'case "\${variable}" in\s*\n\s*([a-z0-9|,-]+)\) ;;', text)
     if match is None:
         raise InputRefused(f"{helper.name} has no `case \"${variable}\"` arm of the shape this gate reads")
     return match.group(1).split("|")
 
 
-def contract_kinds(contract: Path) -> list[str]:
-    """The kinds the contract's vocabulary bullet names, in its `kind is ...` sentence."""
-    text = contract.read_text(encoding="utf-8")
+def vocabulary_bullet(rules: Path) -> str:
+    """The rules' vocabulary bullet, on one line, ending at the next bullet."""
+    text = rules.read_text(encoding="utf-8")
     start = text.find(VOCABULARY_BULLET)
     if start < 0:
-        raise InputRefused(f"{contract.name} has no bullet opening {VOCABULARY_BULLET}")
+        raise InputRefused(f"{rules.name} has no bullet opening {VOCABULARY_BULLET}")
     end = text.find("\n- ", start)
-    bullet = " ".join(text[start:end if end >= 0 else len(text)].split())
-    match = re.search(r"kind is ((?:`[a-z0-9-]+`(?:, | or )?)+)", bullet)
+    return " ".join(text[start:end if end >= 0 else len(text)].split())
+
+
+def vocabulary_kinds(rules: Path) -> list[str]:
+    """The kinds the vocabulary bullet names, in its `kind is ...` sentence."""
+    match = re.search(r"kind is ((?:`[a-z0-9-]+`(?:, | or )?)+)", vocabulary_bullet(rules))
     if match is None:
-        raise InputRefused(f"{contract.name}'s vocabulary bullet has no `kind is ...` list")
+        raise InputRefused(f"{rules.name}'s vocabulary bullet has no `kind is ...` list")
     return WORD.findall(match.group(1))
+
+
+def vocabulary_areas(rules: Path) -> list[str]:
+    """The labels the bullet's `area is ...` sentence names; its trees are paths, which WORD never matches."""
+    match = re.search(r"\barea is (.*?\.) ", vocabulary_bullet(rules))
+    if match is None or not WORD.findall(match.group(1)):
+        raise InputRefused(f"{rules.name}'s vocabulary bullet has no `area is ...` sentence naming a label")
+    return list(dict.fromkeys(WORD.findall(match.group(1))))
 
 
 def label_names(stdin: str) -> set[str]:
@@ -135,7 +146,7 @@ def same(what: str, have: list[str], want: list[str], owner: str) -> list[str]:
     return problems
 
 
-def check(templates: Path, helper: Path, contract: Path, labels: set[str]) -> list[str]:
+def check(templates: Path, helper: Path, rules: Path, labels: set[str]) -> list[str]:
     if not templates.is_dir():
         return [f"{templates} is not a directory, so no form was read"]
     config = templates / "config.yml"
@@ -147,16 +158,20 @@ def check(templates: Path, helper: Path, contract: Path, labels: set[str]) -> li
     forms = [p for p in entries if p.is_file() and p.suffix in (".yml", ".yaml")]
     # GitHub offers a Markdown template beside the form, with none of the fields the form asks for.
     for other in sorted(set(entries) - set(forms)):
-        problems.append(f"{other.name} is neither config.yml nor a form, so it is offered unread")
+        problems.append(f"{other.name} is neither config.yml nor a form")
     if not forms:
         return problems + [f"{templates} holds no issue form, so no form was read"]
 
-    kinds = contract_kinds(contract)
+    kinds = vocabulary_kinds(rules)
     helper_kinds = case_arm(helper, "kind")
     severities = case_arm(helper, "severity")
+    areas = vocabulary_areas(rules)
+    # An area alternative such as `code,test` is one `--label` per word, so its words are what must match.
+    helper_areas = sorted({word for alternative in case_arm(helper, "area") for word in alternative.split(",")})
     outside = sorted(set(helper_kinds) - set(kinds))
     if outside:
-        problems.append(f"{helper.name} files under kinds the contract's vocabulary lacks: {outside}")
+        problems.append(f"{helper.name} files under kinds the vocabulary lacks: {outside}")
+    problems += same(f"{helper.name}'s area", helper_areas, areas, rules.name)
 
     for form in forms:
         if FIXED_LABELS.search(form.read_text(encoding="utf-8")):
@@ -169,9 +184,11 @@ def check(templates: Path, helper: Path, contract: Path, labels: set[str]) -> li
             if name not in found:
                 problems.append(f"{form.name}: no {name} dropdown")
         if "kind" in found:
-            problems += same(f"{form.name}'s kind", found["kind"], kinds, f"{contract.name} section 6")
+            problems += same(f"{form.name}'s kind", found["kind"], kinds, rules.name)
         if "severity" in found:
             problems += same(f"{form.name}'s severity", found["severity"], severities, helper.name)
+        if "area" in found:
+            problems += same(f"{form.name}'s area", found["area"], areas, rules.name)
         for name, options in found.items():
             for option in options:
                 if option not in labels:
@@ -183,12 +200,12 @@ def main(argv: list[str] | None = None, stdin: str | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--templates", type=Path, default=DEFAULT_TEMPLATES)
     parser.add_argument("--helper", type=Path, default=DEFAULT_HELPER)
-    parser.add_argument("--contract", type=Path, default=DEFAULT_CONTRACT)
+    parser.add_argument("--rules", type=Path, default=DEFAULT_VOCABULARY)
     args = parser.parse_args(argv)
 
     try:
         labels = label_names(sys.stdin.read() if stdin is None else stdin)
-        problems = check(args.templates, args.helper, args.contract, labels)
+        problems = check(args.templates, args.helper, args.rules, labels)
     except InputRefused as error:
         problems = [str(error)]
     for problem in problems:

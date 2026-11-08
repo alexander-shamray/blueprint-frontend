@@ -2,7 +2,6 @@
 # Record the commit a clean sweep read, as refs/sweeps/<kind>, so the next sweep
 # of that kind reads only what changed since; sweep-slices.sh reads it back.
 # The ref is local: a checkout without it sweeps in full, never less.
-# Ported from blueprint-backend's helper of the same name (blueprint-frontend#172).
 set -euo pipefail
 usage="usage: sweep-mark.sh <bug|security> <commit-sha>"
 [ "$#" -eq 2 ] || { echo "$usage" >&2; exit 2; }
