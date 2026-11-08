@@ -253,7 +253,7 @@ jobs:
 
   # Every gate suite under .github/, on a push to main too: a gate's own workflow runs its suite on
   # a pull request alone, and a gate with no workflow would otherwise run nowhere. The loop finds
-  # the directories, so a gate a sync adds is covered with no line here, and finding none fails.
+  # the directories, so a suite a sync adds is covered with no line here, and finding none fails.
   # Each suite runs from its own directory, as those workflows run it.
   gates:
     runs-on: ubuntu-latest
