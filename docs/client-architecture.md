@@ -1462,11 +1462,16 @@ sets `ANDROID_HOME` itself. That job therefore pins `runs-on: ubuntu-24.04`
 rather than following the other three onto `ubuntu-latest`: the claim above is
 about an image, and `ubuntu-latest` is a label that moves.
 
-The `harness` job runs the agent harness's own suite —
-`python -m unittest discover -s .claude/scripts` — across a three-OS matrix,
-and it is the newest of the five. It needs no Node and no Docker: the cases
-that mention `docker run` assert things about the TEXT of the scripts, which
-is what writing a gate's test against what the gate is looking at means. The
+The `harness` job runs the agent harness's own suite across a three-OS matrix,
+and it is the newest of the five. Since the first harness sync it runs the
+whole suite — `python -m unittest discover -s .claude/scripts` — on Linux
+only, as the harness's own CI and backend's do, and on Windows and macOS the
+platform modules the harness runs there with this repository's suites: the
+whole suite failed on both at the sync, in managed modules alone
+(alexander-shamray/blueprint-harness#191). It needs no Node and no Docker: the
+cases that mention `docker run` assert things about the TEXT of the scripts,
+which is what writing a gate's test against what the gate is looking at
+means. The
 matrix is not thoroughness. `test_edit_target_guard.py` asserts three
 properties of the *platform* rather than assuming them — how `..` resolves
 after a symbolic link, whether the filesystem folds case, and which link
