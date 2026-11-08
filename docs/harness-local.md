@@ -51,8 +51,8 @@ The checks `/ship` step 6's wait requires: `android`, `audit`, `closure-gate`,
 `commit-gate`, `commits`, `e2e`, `harness (macos-latest)`,
 `harness (ubuntu-latest)`, `harness (windows-latest)`, `harness-drift`,
 `ios-build`, `ios-config` and `web`. `rulesets/main.json` in `blueprint-harness`
-owns what the `main` ruleset requires. A check joins this list before it joins
-that file, so `/ship` never waits on a list short of the ruleset.
+owns what the `main` ruleset requires. A check is added here first, so the wait
+is not short of the ruleset; no gate compares the two.
 
 ## Residuals
 
