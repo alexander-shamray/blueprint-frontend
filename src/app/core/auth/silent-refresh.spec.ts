@@ -1,11 +1,12 @@
 import { HttpParams, provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
+import { Injectable } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { OAuthService, provideOAuthClient } from 'angular-oauth2-oidc';
+import { MemoryStorage, OAuthService, provideOAuthClient } from 'angular-oauth2-oidc';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { runInNewContext } from 'node:vm';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
  * #373: `public/silent-refresh.html` is the page `WebAuthStrategy.renew()`'s hidden iframe
@@ -56,45 +57,78 @@ describe('silent-refresh.html posts the authorization response to its parent (#3
     expect(postedOn(`${REDIRECT}#state=s1&code=c1`).message).toBe('#state=s1&code=c1');
   });
 
-  describe('what it posts, read by the library as its silent-refresh listener reads it', () => {
+  describe("what it posts, handed to angular-oauth2-oidc's own silent-refresh listener", () => {
+    const TOKEN_ENDPOINT = 'http://idp.test/token';
     let controller: HttpTestingController;
+    let oauth: ListeningOAuthService;
 
-    afterEach(() => controller.verify());
-
-    it("reaches angular-oauth2-oidc's code exchange with the code the query carried", async () => {
+    beforeEach(() => {
       TestBed.configureTestingModule({
-        providers: [provideHttpClient(), provideHttpClientTesting(), provideOAuthClient()],
+        providers: [
+          provideHttpClient(),
+          provideHttpClientTesting(),
+          provideOAuthClient(),
+          { provide: OAuthService, useClass: ListeningOAuthService },
+        ],
       });
       controller = TestBed.inject(HttpTestingController);
-      const oauth = TestBed.inject(OAuthService);
+      oauth = TestBed.inject(OAuthService) as ListeningOAuthService;
       oauth.configure({
         clientId: 'web-app',
         redirectUri: `${ORIGIN}/`,
-        tokenEndpoint: 'http://idp.test/token',
+        silentRefreshRedirectUri: REDIRECT,
+        tokenEndpoint: TOKEN_ENDPOINT,
         responseType: 'code',
         requireHttps: false,
         disablePKCE: true,
       });
+      // The nonce the authorize request would have stored; `state` carries it back, and the
+      // library's own check compares the two, so nothing in the round trip is switched off.
+      const storage = new MemoryStorage();
+      storage.setItem('nonce', 'n1');
+      oauth.setStorage(storage);
+      oauth.listen();
+    });
 
-      const { message } = postedOn(`${REDIRECT}?state=s1&code=c1`);
-      expect(typeof message).toBe('string');
-      // The listener hands the message on as `customHashFragment`; the nonce in `state` is the
-      // library's own check, out of this page's reach, so it is switched off here.
-      const exchange = oauth.tryLoginCodeFlow({
-        customHashFragment: String(message),
-        preventClearHashAfterLogin: true,
-        disableNonceCheck: true,
-        customRedirectUri: REDIRECT,
-      });
+    afterEach(() => {
+      oauth.stopListening();
+      controller.verify();
+    });
 
-      const request = await vi.waitFor(() => controller.expectOne('http://idp.test/token'));
+    const deliver = (message: unknown) =>
+      window.dispatchEvent(new MessageEvent('message', { data: message, origin: ORIGIN }));
+
+    it('exchanges the code the query carried, at the redirect the library chose', async () => {
+      deliver(postedOn(`${REDIRECT}?state=n1&code=c1`).message);
+
+      const request = await vi.waitFor(() => controller.expectOne(TOKEN_ENDPOINT));
       const body = request.request.body as HttpParams;
       expect(body.get('grant_type')).toBe('authorization_code');
       expect(body.get('code')).toBe('c1');
       expect(body.get('redirect_uri')).toBe(REDIRECT);
-
       request.flush({ error: 'invalid_grant' }, { status: 400, statusText: 'Bad Request' });
-      await expect(exchange).rejects.toBeDefined();
+    });
+
+    it.each([
+      ['the bare hash the page used to post', ''],
+      ['the query without its leading #', 'state=n1&code=c1'],
+    ])('exchanges nothing for %s, which is the #373 time-out', async (_, message) => {
+      deliver(message);
+
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      controller.expectNone(TOKEN_ENDPOINT);
     });
   });
 });
+
+/** Opens the library's protected listener, which `silentRefresh()` otherwise installs. */
+@Injectable()
+class ListeningOAuthService extends OAuthService {
+  listen(): void {
+    this.setupSilentRefreshEventListener();
+  }
+
+  stopListening(): void {
+    this.removeSilentRefreshEventListener();
+  }
+}
