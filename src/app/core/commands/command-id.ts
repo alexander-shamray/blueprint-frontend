@@ -28,6 +28,7 @@ export class CommandIdentity {
   private readonly id = signal(crypto.randomUUID());
   private readonly spent = signal(false);
   private failedValidationOnly = false;
+  private mayHaveCommitted = false;
 
   readonly current: Signal<string> = this.id.asReadonly();
 
@@ -49,8 +50,13 @@ export class CommandIdentity {
     // A validation failure never reached a handler — the request was refused
     // before IdempotencyBehavior claimed anything — so the id is free to be
     // released once the user changes the form. Every other failure may have
-    // committed, so the id is held.
-    this.failedValidationOnly = error.kind === 'validation';
+    // committed, so the id is held — and held for good: validation runs first,
+    // so a 400 under an id an earlier attempt committed says nothing about
+    // that commit, and releasing the id on it would place a second order.
+    // Only mint() clears it (client-architecture.md §12, *A validation refusal
+    // does not prove the id never committed*).
+    if (error.kind !== 'validation') this.mayHaveCommitted = true;
+    this.failedValidationOnly = error.kind === 'validation' && !this.mayHaveCommitted;
 
     // A reused id is spent for the same reason: its first command completed,
     // so under this id the form meets the same refusal for as long as the
@@ -61,10 +67,10 @@ export class CommandIdentity {
   }
 
   /**
-   * An edit releases the id ONLY after a validation failure. After a network
-   * failure or a 5xx the submission may have committed, and resubmitting
-   * changed data under a fresh id is the duplicate the whole mechanism exists
-   * to prevent.
+   * An edit releases the id ONLY when every failure under it was a validation
+   * failure. After a network failure or a 5xx the submission may have
+   * committed, and resubmitting changed data under a fresh id is the duplicate
+   * the whole mechanism exists to prevent — a later validation 400 included.
    */
   onEdit(): void {
     // A spent id is permanent: the platform has told us this id committed, and
@@ -87,5 +93,6 @@ export class CommandIdentity {
     this.id.set(crypto.randomUUID());
     this.spent.set(false);
     this.failedValidationOnly = false;
+    this.mayHaveCommitted = false;
   }
 }

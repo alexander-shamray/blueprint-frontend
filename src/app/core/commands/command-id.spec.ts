@@ -177,21 +177,56 @@ describe('CommandIdentity', () => {
     expect(identity.isSpent()).toBe(false);
   });
 
-  it('releases id after validation failure when previous non-validation failure did not reach a handler', () => {
-    // Trace: onFailure('retry') then onFailure('validation') then onEdit().
-    // The second failure (validation) is refused before the handler runs, so an id
-    // that answered retry cannot have committed on that attempt. If the earlier retry
-    // *had* committed, a resubmit under the same id would have replayed the success
-    // or answered 409 already_committed, not 400. So the transition is safe: a 400
-    // cannot follow a committed id.
+  it.each<ErrorKind>(['retry', 'unavailable', 'inProgress'])(
+    'holds the id on an edit after a validation failure that followed one of kind %s',
+    (uncertain) => {
+      // The first attempt may have committed. Validation runs before
+      // IdempotencyBehavior claims anything, so the edited resubmit's 400 says
+      // nothing about that commit, and a fresh id would place a second order.
+      const identity = new CommandIdentity();
+      const first = identity.current();
+
+      identity.onFailure(failure(uncertain));
+      identity.onFailure(failure('validation'));
+      identity.onEdit();
+
+      expect(identity.current()).toBe(first);
+    },
+  );
+
+  it('keeps holding the id through repeated validation failures after an uncertain one', () => {
     const identity = new CommandIdentity();
     const first = identity.current();
 
     identity.onFailure(failure('retry'));
-    // At this point, failedValidationOnly is false, so onEdit() is a no-op.
     identity.onFailure(failure('validation'));
-    // Now failedValidationOnly is true. The id may not have committed on retry,
-    // and if it had, we would not have reached this 400. Safe to release.
+    identity.onEdit();
+    identity.onFailure(failure('validation'));
+    identity.onEdit();
+
+    expect(identity.current()).toBe(first);
+  });
+
+  it('releases the id again once a success has minted a fresh one', () => {
+    // mint() clears the may-have-committed record: it belonged to the old id.
+    const identity = new CommandIdentity();
+
+    identity.onFailure(failure('retry'));
+    identity.onSuccess();
+    const fresh = identity.current();
+
+    identity.onFailure(failure('validation'));
+    identity.onEdit();
+
+    expect(identity.current()).not.toBe(fresh);
+  });
+
+  it('mints after a run of validation failures with nothing uncertain before them', () => {
+    const identity = new CommandIdentity();
+    const first = identity.current();
+
+    identity.onFailure(failure('validation'));
+    identity.onFailure(failure('validation'));
     identity.onEdit();
 
     expect(identity.current()).not.toBe(first);
