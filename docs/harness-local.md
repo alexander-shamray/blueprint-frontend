@@ -179,6 +179,25 @@ writable that was not, because `Edit` reached each of them already, and an
 auto-mode session uses it as readily as a redirection. Naming more of them in
 `.harness/config.json` would restore both at once.
 
+**The local suites' reasons live here, because the comment rule keeps them
+out of the files** (blueprint-frontend#383). `test_codebase_index_frontend.py`,
+`test_npm_checks.py`, `test_review_branch_frontend.py` and
+`test_settings_frontend.py` came out of suites the first sync dropped, by the
+backend's plan 5 Task 7, and stay local because each reads this repository's
+own files, which no payload suite could hold; the harness's `IMPORT.md`,
+*Frontend audit, pinned at 41a3f45*, clusters A and F, records it. Each case's
+issue: the settings denies exist because `npm-checks.sh` runs `package.json`'s
+scripts and the JavaScript configuration on the host while `/ship` holds
+`Write`, so a session must not write what it is then told to run
+(blueprint-frontend#115); the server starts without a shell because the first
+`bash` on a stdio server's Windows PATH is WSL's launcher
+(blueprint-frontend#134), and through a Node launcher that judges the index
+first (blueprint-frontend#138); the CLI's pin is blueprint-frontend#147 and its
+hashed install blueprint-frontend#309. `/review-branch` says "do not fix the
+findings" while holding `Write` and `Edit`, inside an unattended `/ship` whose
+input is prose in the branch under review, so its deny list is tested against
+the tree rather than against what it contains.
+
 ## Review examples
 
 The kinds of finding this repository's surface produces, which
