@@ -13,15 +13,17 @@ The four headings are fixed by the payload's `docs/harness-boundaries.md`,
 | Testing document | `docs/testing.md` |
 | Product specification | `docs/client-architecture.md`, then the design spec `docs/superpowers/specs/2026-09-10-blueprint-frontend-design.md` |
 | Roadmap | none |
-| Closed records | none |
+| Closed records | `docs/superpowers/plans/` |
 | Measurements | `docs/token-usage.md`, read through `docs/token-plan.md` |
 
 The change contract's classes are its §3 and its procedure, the touch set
 included, its §5; the class map is `.github/locality-gate/classes.yml`,
 which §3 cites. `docs/client-architecture.md` outranks the design spec
 wherever its §12 says so (`CLAUDE.md`, *Precedence*). The delivery plan under
-`docs/superpowers/plans/` is a record, never edited to match the code, and
-the sweeps already count everything under `docs/superpowers/` as one.
+`docs/superpowers/plans/` is a record, never edited to match the code, so it
+is the closed records; the design spec beside it is amended and is not. The
+sweeps' `sweep-slices.sh` counts all of `docs/superpowers/` as one closed
+slice, the spec included.
 
 ## Ship checks
 
@@ -156,13 +158,14 @@ harness's to build.
 
 **A shell write is refused where an edit is denied, and nowhere else.** The
 git guard this repository had before the sync refused a redirection, `cp` or
-`rm` into its own tables: `android`, `ios`, `.vscode`, `node_modules`, and
-every root configuration file including `.gitattributes`, `.gitignore`,
-`.editorconfig`, `.nvmrc` and `ionic.config.json`. The payload's guard takes
+`rm` into its own tables of trees and root files. The payload's guard takes
 that list from the settings denies instead, so a shell write now reaches
-whatever the `Edit` tool already could. Nothing became writable that was
-not: the old settings denied none of those paths to `Edit`, which an
-auto-mode session uses as readily as a redirection. Naming more of them in
+whatever the `Edit` tool already could. The paths that lost the refusal are
+those the settings never denied: `android`, `ios`, `.vscode`,
+`.gitattributes`, `.gitignore`, `.editorconfig`, `.nvmrc`,
+`ionic.config.json`, `eslint.config.js` and `.prettierrc`. Nothing became
+writable that was not, because `Edit` reached each of them already, and an
+auto-mode session uses it as readily as a redirection. Naming more of them in
 `.harness/config.json` would restore both at once.
 
 ## Review examples
