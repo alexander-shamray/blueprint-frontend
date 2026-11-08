@@ -455,10 +455,14 @@ describe('OwnProductsComponent', () => {
     page().reload();
     const fresh = mine((cursor) => cursor === null);
 
+    // The stale failure lands AFTER the fresh page: in the other order the fresh
+    // page clears the error itself, and the guard goes untested.
+    fresh.flush({ items: [product('a')], nextCursor: 'more' });
+    await settle();
     stale.flush({ title: 'Bad Gateway', status: 502 }, { status: 502, statusText: '' });
-    fresh.flush({ items: [product('a')], nextCursor: null });
     await settle();
     expect(page().error()).toBeNull();
+    expect(page().canLoadMore()).toBe(true);
   });
 
   describe('repricing (#176)', () => {

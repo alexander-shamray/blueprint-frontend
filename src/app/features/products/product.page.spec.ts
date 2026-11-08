@@ -186,6 +186,8 @@ describe('ProductPage', () => {
     expect(fixture.componentInstance.product()?.quantityAvailable).toBe(4);
   });
 
+  // Both cases land the stale reply AFTER the fresh one: in the other order the
+  // fresh reply overwrites whatever the stale one did, and the guard goes untested.
   it('reads a new product when the address changes, and drops the old reply', async () => {
     await mount(GUID_A);
     const first = controller.expectOne(url(GUID_A));
@@ -194,10 +196,31 @@ describe('ProductPage', () => {
     await settle();
     const second = controller.expectOne(url(GUID_B));
 
-    first.flush(product(1, GUID_A));
     second.flush(product(9, GUID_B));
     await settle();
+    first.flush(product(1, GUID_A));
+    await settle();
 
+    expect(fixture.componentInstance.product()?.productId).toBe(GUID_B);
+    expect(fixture.componentInstance.product()?.quantityAvailable).toBe(9);
+    expect(TestBed.inject(CatalogAvailability).of(GUID_A)).toBeUndefined();
+  });
+
+  it('drops a failure of the old read that lands after the new product', async () => {
+    await mount(GUID_A);
+    const first = controller.expectOne(url(GUID_A));
+
+    paramMap.next(GUID_B);
+    await settle();
+    const second = controller.expectOne(url(GUID_B));
+
+    second.flush(product(9, GUID_B));
+    await settle();
+    first.flush({ title: 'Down' }, { status: 503, statusText: 'Unavailable' });
+    await settle();
+
+    expect(fixture.componentInstance.error()).toBeNull();
+    expect(fixture.componentInstance.notAvailable()).toBe(false);
     expect(fixture.componentInstance.product()?.productId).toBe(GUID_B);
   });
 
