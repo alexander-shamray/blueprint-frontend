@@ -14,6 +14,11 @@ measurement came first there and comes first here**: this is step 1.
 The rules this plan moves are not restated. [`change-locality.md`](change-locality.md)
 owns the rule for documents, [`harness-boundaries.md`](harness-boundaries.md)
 owns what the harness grants, and each command owns its own procedure. The
+session rules step 2 landed in `CLAUDE.md` — the review loop, the delegation
+brief and the planning rule — are `.harness/agent-rules.md`'s *Subagents,
+review rounds and plans* since the shared harness's first sync here, and
+their reasons [`harness/token-rules.md`](harness/token-rules.md)'s; the
+steps below keep the record and the measurements. The
 figures are [`token-usage.md`](token-usage.md)'s, taken against `main` at
 `77951c9` on 2026-10-19, and nothing here is kept current.
 
