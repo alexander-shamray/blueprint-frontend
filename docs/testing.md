@@ -60,8 +60,8 @@ and **Python 3.12**.** How you
 reach that interpreter is a local choice: `py -3.12` works on Windows and
 exists nowhere else, `python` or `python3` elsewhere. **CI does not make that
 choice** — `actions/setup-python` puts 3.12 on PATH and the `harness` job runs
-`python -m unittest` on all three runners, Windows included, so a developer
-reproducing CI runs `python` whatever their platform. **That Python's SQLite
+`python -m unittest` on all three runners, so a developer reproducing CI runs
+`python` whatever their platform. **That Python's SQLite
 must be 3.37 or later, built with FTS5** (#140): the index-refresh cases build
 full-text tables and read `PRAGMA table_list`, and a 3.12 on Linux can be
 linked against an older system SQLite. Those cases assert the version in their
@@ -75,8 +75,10 @@ refuse. The
 shell helpers are written for **bash 3.2**, which is what macOS ships as
 `/bin/bash`; `grok-ledger.sh`, since archived, used an associative array until
 CI's three-OS matrix went red on macOS with `declare: -A: invalid option`.
-Nothing had ever run these helpers there. If you add a bash-4 construct —
-`declare -A`, `mapfile`, `${var,,}` — the macOS runner is what will tell you.
+Since the first sync the helpers are the harness's, and a static case,
+`test_pr_helpers.py`'s `NoHelperNeedsBash4`, refuses `declare -A`, `mapfile`
+and `${var,,}` on every runner; the macOS runner no longer executes them
+(below).
 
 **On a Windows host the whole harness suite is slow, so run the module a
 change touches**: `py -3.12 -m unittest discover -s .claude/scripts -p
@@ -85,10 +87,15 @@ change touches**: `py -3.12 -m unittest discover -s .claude/scripts -p
 delivers is larger than the one that issue measured (2,089 s on one Windows
 host at harness `9a774e5`, blueprint-harness#162). The per-class runner #259
 added was this repository's alone and went with the first sync
-(`docs/harness-local.md` names what stayed). **CI's `harness` job runs
-`python -m unittest discover`** because it is the gate — one spelling on all
-three runners, Windows included, and nothing between it and the suite — so a
-module that passes here and a suite that fails there is still red.
+(`docs/harness-local.md` names what stayed). **CI's `harness` job runs the
+whole suite on Linux only**, as the harness's own CI and backend's do: on
+Windows and macOS it runs the platform modules the harness's legs run there
+(`test_edit_target_guard`, `test_refresh_index`, `test_sed_crlf_guard`) and
+this repository's suites. The whole suite failed 139 cases on the macOS
+runner and 10 on the Windows one at the first sync, all in managed modules
+(alexander-shamray/blueprint-harness#191, which owns widening it again). A
+module that passes on a Windows host here is therefore not checked on
+Windows by CI unless it is one of those.
 
 **The code-index CLI is pinned, here** (alexander-shamray/blueprint-frontend#147).
 It is the one tool outside the lockfile that runs unprompted: the MCP server
