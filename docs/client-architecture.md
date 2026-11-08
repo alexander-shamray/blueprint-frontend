@@ -112,8 +112,12 @@ user completes the login screen only to land back signed out.
 
 *Renewal is a silent code flow, not a refresh.* `renew()` calls
 `silentRefresh()`, which builds a fresh authorization-code-plus-PKCE URL,
-appends `prompt=none` and loads it in a hidden iframe. `refreshToken()` would
-perform a grant this realm never issues. The schedule comes from the token's own
+appends `prompt=none` and loads it in a hidden iframe. Keycloak answers a code
+flow in the query, and the library reads only a message that opens with `#`, so
+`public/silent-refresh.html` posts the query behind a `#` unless the hash
+already carries the response (#373); posting the bare hash left every renewal
+to time out and sign the user out. `refreshToken()` would perform a grant
+this realm never issues. The schedule comes from the token's own
 `exp` claim, at 75% of its remaining life (`WebAuthStrategy.RENEW_AT`), so
 moving `accessTokenLifespan` in the realm moves the client's schedule without a
 client release — the number 300 appears nowhere in this repository.
