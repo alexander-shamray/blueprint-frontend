@@ -77,9 +77,8 @@ shell helpers are written for **bash 3.2**, which is what macOS ships as
 CI's three-OS matrix went red on macOS with `declare: -A: invalid option`.
 Since the first sync the helpers are the harness's, and a static case,
 `test_pr_helpers.py`'s `NoHelperNeedsBash4`, refuses `declare -A`, `mapfile`
-and `${var,,}` on the Linux leg; it reads the scripts' text rather than
-running them, so one runner is enough, and the macOS runner no longer
-executes them (below).
+and `${var,,}`; it reads the scripts' text rather than running them, and the
+macOS runner executes them as well (below).
 
 **On a Windows host the whole harness suite is slow, so run the module a
 change touches**: `py -3.12 -m unittest discover -s .claude/scripts -p
@@ -89,14 +88,11 @@ delivers is larger than the one that issue measured (2,089 s on one Windows
 host at harness `9a774e5`, blueprint-harness#162). The per-class runner #259
 added was this repository's alone and went with the first sync
 (`docs/harness-local.md` names what stayed). **CI's `harness` job runs the
-whole suite on Linux only**, as the harness's own CI and backend's do: on
-Windows and macOS it runs the platform modules the harness's legs run there
-(`test_edit_target_guard`, `test_refresh_index`, `test_sed_crlf_guard`) and
-this repository's suites. The whole suite failed 139 cases on the macOS
-runner and 10 on the Windows one at the first sync, all in managed modules
-(alexander-shamray/blueprint-harness#191, which owns widening it again). A
-module that passes on a Windows host here is therefore not checked on
-Windows by CI unless it is one of those.
+whole suite on all three runners**, as the harness's own CI has since
+blueprint-harness#222. Between the first sync and the sync that carried that
+fix it ran whole on Linux alone, because the suite failed 139 cases on the
+macOS runner and 10 on the Windows one, all in managed modules
+(alexander-shamray/blueprint-harness#191).
 
 **The code-index CLI is pinned, here** (alexander-shamray/blueprint-frontend#147).
 It is the one tool outside the lockfile that runs unprompted: the MCP server
