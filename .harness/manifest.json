@@ -1,11 +1,11 @@
 {
-  "harness_commit": "71340914538a3809c04ba9c929ba3c6c476ef952",
+  "harness_commit": "86748752a466e1e3c83bd1b5395528e8f5ab2774",
   "files": {
     ".claude/agents/branch-reviewer.md": "eff7a6e0a4c531834b39dd4c43031a6120e0f385ce0d262f4cfabd78122647dd",
     ".claude/agents/bug-auditor.md": "6219201313c10252798ff249570298f4de6ad6a66690f3dc40510fd76859b4d7",
     ".claude/agents/security-auditor.md": "387aea5f84c1da25d842146a98e512fdeb9f8ca6f56f02cec17b96b8885c6bad",
     ".claude/agents/team-peer.md": "87f43666086cebb3fdfbffd9a381c8a4707be9087c51ab476ae7d2ef66586096",
-    ".claude/commands/branch.md": "a13b7fe1e68be32387b7affef4b176eb55f09edfecddf52d0399ecf91c20f834",
+    ".claude/commands/branch.md": "cbc1b1d59a51e3c0753f79724ceb05a78d08326c457d30f9aa02ec62171dea36",
     ".claude/commands/bug-sweep.md": "8db9e4d7b01c7256f087c2cae029e88cddec3be337ddaa76624e5e9907e591a9",
     ".claude/commands/commit.md": "bbbd368f36d58a3d3219c415ec1e89a401fdffe58ab0593edab4ae2cdf3e1b42",
     ".claude/commands/dispatch.md": "bda00a9eb5df074cf2afef402c8ed8070b0341f20a9f0414c002799dc104b6cd",
@@ -110,7 +110,7 @@
     ".claude/scripts/test_root_ignore_covers_nested.py": "12392c59bad53c21825154dd18e3cd9607818950da3359778d832bd858bd6e12",
     ".claude/scripts/test_run_guard.py": "229170339ea50415d7b4ffb9afa84f3adb4283ba4aa38d7b3ee723fcdf53c18b",
     ".claude/scripts/test_sed_crlf_guard.py": "682f3490a23513cf295a0d517814e4ff0625e1cd6476ec4bfb3f470c04adbd6c",
-    ".claude/scripts/test_ship_dispatched.py": "2e0154ea62a346eace38decf497d425bf5ebcbf7c317496a2de99856fea16e82",
+    ".claude/scripts/test_ship_dispatched.py": "3cc60ad4b8e447fe5e6b6fcae3f7c7022bc5c7ce47cb803bafc85664c75e6d14",
     ".claude/scripts/test_ship_landing_method.py": "817a73c6afb44fbd49763f29a0aef532c3e53fa50da6c2e694e4235574559feb",
     ".claude/scripts/test_ship_sync.py": "e0496c7f8403adc2ff2f98c479926920d2331c91f4b70fc14c1a5a426347aeca",
     ".claude/scripts/test_sweep_slices.py": "2711f8939b7cb71951e39d274e49b573154d1f299085a041759e8c1a610b42da",
@@ -158,7 +158,7 @@
     ".harness/agent-rules.md": "9aaf0e838f7d6bf185bd340917197ace634fc17dc9eecfd2f1122f531a94d416",
     ".harness/render.py": "f1f986b939d946627e8db682ab8be54ade13d936d8cc148eac150521b1a63c54",
     ".harness/settings.base.json": "d4a483d72eaa3e77943977e59ce5637ba1ab1b98d0522b3587f92345751e51ea",
-    "docs/commands/branch.md": "c8a3002917839714ac675e9736fc223f74ed50182d249bd2aa4cb055422e3cfe",
+    "docs/commands/branch.md": "c5987c3c40e9ea1d26146df771fa697e6678bb1a762c434ee3a9bd74d1462dfd",
     "docs/commands/bug-sweep.md": "6ed066ad8b086e5ca19ecd50f9e4b27271cdcaa3b3f6944032d9e0dade66e64d",
     "docs/commands/dispatch.md": "d74035947a9d333d9d10c770b31673897feb6e6305240a5be37b31c1fe3232cd",
     "docs/commands/security-sweep.md": "2c2c166087b6fc22ffa7d24eb3c852c5cbd56344238a3468348033000c5588e3",
@@ -167,6 +167,6 @@
     "docs/harness-boundaries.md": "75474ec92e878fe2b9aa838213d46a4300adf95a46a945eba43d922e8b632685",
     "docs/harness/pitfalls.md": "f41d69f8de6c7419e73d85d6af36b8a0b78b4371eebccb3f9b0475b76da0e8ae",
     "docs/harness/token-rules.md": "cd83a078de693e468130242357b1eb6994df7e5beb0fad5c5dff510c6e4c7300",
-    "docs/harness/working-rules.md": "84215184d69a62f06a51533cfd550f88ebe9fcc0793f78f8035f4a443bc6ba62"
+    "docs/harness/working-rules.md": "603381b3c2cad24e3e36a5bcb48b2d94640d5bb7ae6bc17fdd3e694f17014b5a"
   }
 }

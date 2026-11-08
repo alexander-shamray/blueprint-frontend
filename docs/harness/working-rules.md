@@ -45,8 +45,9 @@ cited from here, never restated.
 - **A branch is updated for a conflict, never because another pull request
   merged.** `main` lands by rebase alone and a branch need not be up to
   date with it to merge, so rebase an open pull request only when GitHub
-  reports it conflicting or refuses its rebase landing, or once a red `main`
-  it waited on is green again (*CI*), and only a branch this session owns.
+  reports it conflicting or refuses its rebase landing, or once the revert
+  or fix for a check that belongs to `main` has landed (*CI*), and only a
+  branch this session owns.
   `git-rebase-onto-main.sh <branch> start` is the
   update: it fetches `origin/main`, replays the branch onto it and
   publishes under a lease. Set `git config rerere.enabled true` once per
@@ -149,19 +150,25 @@ keeping the guide's *Comments* rules be reworded, completed or expanded.
   else resumes — waiting on a review included. Fix the gate to match the
   failure only when the gate is what is wrong, and say which direction was
   taken. A red found while waiting on something else is found early, not
-  at the merge. A check red on `main` as well is `main`'s, below.
+  at the merge. A check the pull request touched none of is `main`'s, below.
 - **A red `main` is reverted first and fixed forward second.** The next
   pull request to land reverts the one that turned `main` red, by
   `git-revert-pr.sh <n>`; the fix forward is a pull request of its own
   after it. A red run that a rerun turns green is a flake: it is a comment
   on the flaky tests tracker, and an issue filed for the red `main`
   closes on that green run.
-- **A check red on a pull request and on `main` belongs to `main`**, so a
-  pull request that touched none of it waits for `main` to go green and is
-  not changed to make it pass. A rerun would then still read the old merge
-  with the red `main`, since a `pull_request` run is pinned to the merge it
-  started on, so that pull request is updated through
-  `git-rebase-onto-main.sh`, an update no conflict asked for.
+- **A check red on a pull request that touched none of it belongs to
+  `main`**, whether or not `main` ran red: a fix can land before `main` runs
+  again, and `closure-gate`, `comment-gate`, `commit-gate` and
+  `harness-drift` run on `pull_request` alone, so `main` never runs them.
+  *None of it* means a fault outside what the pull request changed, so a
+  gate's refusal of its own commits, body or added lines is its own to fix.
+  A rerun comes first, and one that turns green is a flake, as above. Failing
+  that, it waits for the revert or the fix, each a pull request of its own,
+  and is not changed to make it pass. A rerun would then still read the old
+  merge, since a `pull_request` run is pinned to the merge it started on, so
+  it is updated through `git-rebase-onto-main.sh`, an update no conflict asked
+  for.
 - **Auto-merge waits on `main`'s required checks and nothing else**: not on
   the review, not on an open issue for a red `main`, and not on a branch
   being up to date. So a pull request is set to auto-merge only once its
