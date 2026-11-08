@@ -47,13 +47,12 @@ Selected by what the diff touched:
   among it (`test_*_frontend.py`, `test_npm_checks.py`, `test_mcp_launch.py`,
   `test_root_ignore_coverage.py`) whatever else it touched.
 
-The required checks, which `/ship` step 6's wait holds the list to, as the
-`main` ruleset requires them: `android`, `audit`, `closure-gate`,
+The checks `/ship` step 6's wait requires: `android`, `audit`, `closure-gate`,
 `commit-gate`, `commits`, `e2e`, `harness (macos-latest)`,
 `harness (ubuntu-latest)`, `harness (windows-latest)`, `harness-drift`,
-`ios-build`, `ios-config` and `web`. A check joins this list before it joins
-`rulesets/main.json` in `blueprint-harness`, so `/ship` never waits on a list
-short of the ruleset.
+`ios-build`, `ios-config` and `web`. `rulesets/main.json` in `blueprint-harness`
+owns what the `main` ruleset requires. A check joins this list before it joins
+that file, so `/ship` never waits on a list short of the ruleset.
 
 ## Residuals
 
