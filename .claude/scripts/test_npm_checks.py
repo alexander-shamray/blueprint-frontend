@@ -40,16 +40,11 @@ PINNED_PY = re.compile(
 
 
 def program_word(grant):
-    """The program a `Bash(...)` grant runs, however the grant spells it.
-
-    `Bash(npx:*)`, `Bash(npx *)`, `Bash(npx)`, `Bash(NPX.exe:*)`,
-    `Bash(npx.cmd:*)`, `Bash(/usr/bin/npx:*)`, `Bash(CI=1 npx:*)` and
-    `Bash(env npx:*)` all run `npx`, and `Bash(python3.12:*)` runs
-    `python`. The house form is the colon one, so a prefix ending in a space
-    misses it. A colon before a slash is a drive letter, not the grant's
-    wildcard. A wrapper with a flag or nothing after it is its own word,
-    refused: a flag may take an argument, which would read as the program.
-    """
+    """The program a `Bash(...)` grant runs: `npx` for `npx:*`, `NPX.exe:*`,
+    `npx.cmd:*`, `/usr/bin/npx:*`, `CI=1 npx:*` and `env npx:*`; `python` for
+    `python3.12:*`. A colon before a slash is a drive letter; a wrapper with a
+    flag or nothing after it is its own word, since a flag's argument would
+    read as the program."""
     rest = grant.strip()
     while True:
         rest = re.sub(r"^(?:\w+=\S*\s+)*", "", rest)
@@ -85,15 +80,10 @@ def setUpModule():
 
 class TheCheckRunnerIsTheOnlyExecutor(unittest.TestCase):
     def test_no_command_grants_a_free_form_package_runner(self):
-        # `npm run:*` admits any script `package.json` names, including one the
-        # granted command has just written; `npm test -- --config <path>`
-        # admits a file Vitest executes in order to read it; `npx:*` fetches
-        # and executes a package nobody pinned; and `node:*` is an interpreter
-        # outright. The executor is `npm-checks.sh`, whose only variable is one
-        # word out of a closed set. Asserted over every command, the payload's
-        # included, since a sync can bring a grant this repository never wrote.
-        # Judged by program word, never by a prefix ending in a space: the
-        # house form is `Bash(<prefix>:*)`, which `"Bash(npx "` never matched.
+        # A package runner or an interpreter executes whatever it is pointed
+        # at, so the executor is `npm-checks.sh`, one closed-set word
+        # (docs/harness-local.md, *Residuals*). Every command is read, the
+        # payload's included, and each grant is judged by its program word.
         seen = grants = 0
         for path in sorted(COMMANDS.glob("*.md")):
             seen += 1
