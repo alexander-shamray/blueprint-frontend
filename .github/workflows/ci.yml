@@ -255,7 +255,7 @@ jobs:
     # Bounds a step that never exits, which would otherwise hold the runner
     # for GitHub's default limit (docs/testing.md). Headroom over the usual
     # run, not a duration.
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
@@ -270,24 +270,9 @@ jobs:
         run: brew install jq
       - name: The suite reads `git ls-files`, so the checkout must be a real one
         run: git rev-parse --is-inside-work-tree
-      # The harness certifies its payload's whole suite on Linux alone, as its
-      # own CI and backend's run it; docs/testing.md says what that leaves.
       - name: The whole suite
-        if: runner.os == 'Linux'
-        run: python -m unittest discover -s .claude/scripts -p 'test_*.py' -v
-      # Elsewhere, the modules the harness's own legs run there, then this
-      # repository's suites.
-      - name: The platform modules and the local suites
-        if: runner.os != 'Linux'
         shell: bash
-        run: |
-          set -euo pipefail
-          for module in test_edit_target_guard test_refresh_index test_sed_crlf_guard \
-              test_npm_checks test_review_branch_frontend test_settings_frontend \
-              test_codebase_index_frontend test_class_map_frontend \
-              test_root_ignore_coverage test_mcp_launch; do
-            python -m unittest discover -s .claude/scripts -p "$module.py" -v
-          done
+        run: python -m unittest discover -s .claude/scripts -p 'test_*.py' -v
 
   # The issue form under .github/ISSUE_TEMPLATE against the vocabularies it
   # mirrors and the labels its answers name; .github/issue-form-gate/README.md
