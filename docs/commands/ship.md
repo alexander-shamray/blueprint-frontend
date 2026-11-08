@@ -1001,6 +1001,39 @@ red `main` is not a recommended option**, and a conflicted branch is a
 question about the caller's tree that this chain cannot answer. Either one
 stops here and is reported as what it is.
 
+**An open `main is red` issue is a red check, and the pull request's own
+checks cannot show it.** A `pull_request` run is pinned to the merge ref of the
+push that started it and nothing reruns it when `main` moves, so a pull request
+last pushed before `main` went red still reads green, and `--watch` exits 0 over
+it (blueprint-admin's #531). The signal that does move is the issue the target's
+CI files on a red push run, and `main-red-open.sh` reads it. It matches the bare
+title and `main is red: <workflow>`, because a target that keeps one issue per
+watched workflow suffixes the title, and a title the rule does not match would
+read green while `main` is red. A `main-red` job or workflow therefore writes
+one of those two, with the `bug` label the read filters on. Exit 3 names every
+open one and is the CI-not-green stop; 2 is a listing it could not take, cut or
+read, and a read that cannot say `main` is green has not said so.
+
+It runs after the checks wait rather than before it, because that wait lasts
+minutes and `main` can turn red inside it. Two residues are accepted: the
+seconds between this read and the merge, and the signal's own lag, since the
+issue opens only once the push run has finished, so a `main` a landing broke
+reads green for that run's length. The helper takes no argument and fixes its
+fields, so the grant reaches no issue body, the reason `gh-issue-list.sh` exists
+and a raw `gh issue list` grant would undo.
+
+**The run that answers the issue is the one exemption.** The issue closes only
+once `main` is green, and the revert or the fix forward that makes it so is
+itself a landing, so a gate with no exemption leaves a red `main` no way out
+through this command. A run started as `/ship #<n>` for the open issue's own
+number exists to answer it, and exit 3 naming that number and no other is not
+its stop: where two workflows are red, answering one does not license landing
+over the other. It is keyed on the argument rather than on a `Reverts:` trailer
+because a fix forward, such as an external drift no revert undoes, carries none.
+A resumed run that drops the argument stops, and is resumed with it. A
+dispatched run's leading tag is not that argument, so it stops too: which of a
+red `main`'s answers lands first is the owner's.
+
 **`MERGEABLE` is GitHub's answer about a merge commit, and the step below asks
 for a rebase**, which replays each commit and can conflict where merging the
 same branch would not. So the landing may be refused after this read said yes.

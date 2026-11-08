@@ -1208,6 +1208,20 @@ so each is judged as the whole directory.
 `~` and the variables this process shares with the session are expanded and
 judged, and a literal `cd` is followed, through a subshell's end as well.
 
+**The same check holds three more writes, each narrowed by what agents type.**
+`find` is judged by what it writes: `-delete` as `rm -r` from each start, so
+`find .claude/hooks -delete` is refused and `.`, no start and `-files0-from` are
+not, and `-fprint`, `-fprint0`, `-fprintf` and `-fls` by their file. `git rm`,
+`git mv` and a checkout or a restore from another commit are held from a
+literal `-C`, in a main checkout alone: in a linked worktree each is in the
+pull request's diff, and the replay found agents typing all three there. A
+restore from `HEAD` or the index, `--staged`, `--cached` and a dry run are not
+held, since each leaves the file what it was. And `rm`, `mv`,
+`rmdir`, `shred` and `unlink` are refused the filesystem's root, the home
+directory and a strict parent of the checkout, a trailing `/*` read as the
+directory, so `rm -rf ..` and `rm -rf ../*` are refused from the root, and
+`rm -rf .`, `rm -rf ../foo*` and `mv notes.md ..` are not.
+
 **What it cannot read it admits, and that is the narrowing, not a gap.** An
 unknown variable, a computed operand, or a relative target after a `cd` nothing
 can read is admitted: `> "$var…"` was typed 523 times, `cd x && … > y` 736 and
@@ -1220,13 +1234,21 @@ place under `.claude/worktrees/`, and a checkout under the temp root that the
 session is not standing in is not this target's: mutation proofs write there,
 which the replay of backend's transcripts found.
 
-**Five lists reach what the flag check above did not.** The short spellings of
+**Six lists reach what the flag check above did not.** The short spellings of
 the flags that run a command, keyed by subcommand because a letter means
 something else on another; `bisect run` and `submodule foreach`, which run
 their operand; `--strategy` and `--template`, per subcommand; `--ext-diff`,
 `--textconv`, `--extcmd` and `--open-files-in-pager`, with `--text` read as the
-option it is; and `filter-branch`, `send-email`, `instaweb`, `daemon`,
-`http-backend` and `web--browse` refused whole. Those are lists and not an
+option it is; `filter-branch`, `send-email`, `instaweb`, `daemon`,
+`http-backend`, `web--browse`, `difftool` and `mergetool` refused whole, with
+`send-pack`, `http-push` and `receive-pack` beside `subtree push`, which update
+a remote ref past every check a push gets; and writes of a subset of the keys
+that run a program, `alias.*`, `core.pager`, `core.hooksPath`,
+`core.sshCommand`, `diff.external` and `*.cmd`, the `git -c` refused above made
+persistent. It is a subset by hand and not the enumeration refused above:
+`core.editor`, `credential.helper` and every other key stay admitted, with a
+read and a removal, since refusing the option whole here would stop
+`rerere.enabled`, which this harness's own rules set. Those are lists and not an
 allow-list of subcommands, which would refuse `git ls-remote`, `git config` and
 `git stash`, typed hundreds of times. `xargs` is refused only in front of a
 push, whose destination it supplies unseen; a fetch is refused its `-f`, `-u`
@@ -2035,7 +2057,8 @@ spelled as itself is **admitted** here.
 **Two things a path deny cannot reach are judged here all the same, and
 neither takes a copy of a list.** Every rule anchors at the session's
 permission root, so a worktree of this repository that the session has not
-entered, the main checkout seen from a linked one included, is reached by none
+entered, the main checkout seen from a linked one included, launched there or
+entered with the project left at main, is reached by none
 of them: its `.claude/scripts/x` and its `.git`
 are judged by this target's own `Edit(...)` denies, read from
 `.claude/settings.json` through `guard-git-argv.py`'s `denied_path`, anchored at
