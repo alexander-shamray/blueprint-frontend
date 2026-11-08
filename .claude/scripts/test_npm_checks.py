@@ -23,11 +23,15 @@ BASH = shutil.which("bash")
 GIT = shutil.which("git")
 
 # The programs no command may be granted in any spelling: package runners and
-# interpreters, each of which executes whatever it is pointed at.
+# interpreters, each of which executes whatever it is pointed at, and the
+# wrappers that run whichever program follows them.
 FORBIDDEN_PROGRAMS = frozenset({
     "npm", "npx", "node", "ng", "yarn", "pnpm", "bun", "deno",
-    "python", "python3", "pip", "pip3",
+    "python", "pip", "env", "command", "exec",
 })
+WRAPPERS = frozenset({"env", "command", "exec"})
+# The suffixes Windows runs a program by: npm installs `npx.cmd` beside `npx`.
+SHIM_SUFFIXES = (".exe", ".cmd", ".bat", ".ps1")
 # `py` is the launcher `.harness/agent-rules.md` requires, so it is granted,
 # but only pinned to a script under `.claude/scripts/` or to the unittest
 # runner `/ship`'s sync section runs the printed local suites with.
@@ -39,14 +43,27 @@ def program_word(grant):
     """The program a `Bash(...)` grant runs, however the grant spells it.
 
     `Bash(npx:*)`, `Bash(npx *)`, `Bash(npx)`, `Bash(NPX.exe:*)`,
-    `Bash(/usr/bin/npx:*)` and `Bash(CI=1 npx:*)` all run `npx`, and the
-    house form is the colon one, so a prefix ending in a space misses it.
-    A colon before a slash is a drive letter, not the grant's wildcard.
+    `Bash(npx.cmd:*)`, `Bash(/usr/bin/npx:*)`, `Bash(CI=1 npx:*)` and
+    `Bash(env -i npx:*)` all run `npx`, and `Bash(python3.12:*)` runs
+    `python`. The house form is the colon one, so a prefix ending in a space
+    misses it. A colon before a slash is a drive letter, not the grant's
+    wildcard. A wrapper with no program after it is its own word, refused.
     """
-    rest = re.sub(r"^(?:\w+=\S*\s+)*", "", grant.strip())
-    word = re.split(r"\s|:(?![\\/])|\*", rest, maxsplit=1)[0]
-    word = word.replace("\\", "/").rsplit("/", 1)[-1].lower()
-    return word[:-4] if word.endswith(".exe") else word
+    rest = grant.strip()
+    while True:
+        rest = re.sub(r"^(?:\w+=\S*\s+)*", "", rest)
+        word = re.split(r"\s|:(?![\\/])|\*", rest, maxsplit=1)[0]
+        word = word.replace("\\", "/").rsplit("/", 1)[-1].lower()
+        for suffix in SHIM_SUFFIXES:
+            if word.endswith(suffix):
+                word = word[:-len(suffix)]
+                break
+        word = re.sub(r"(?<=[a-z])\d+(?:\.\d+)*$", "", word)
+        after = re.sub(r"^\S+\s+(?:-\S*\s+)*", "", rest, count=1)
+        if word in WRAPPERS and after != rest and after and not after.startswith("-"):
+            rest = after
+            continue
+        return word
 
 
 def refused_grant(grant):
@@ -94,12 +111,17 @@ class TheCheckRunnerIsTheOnlyExecutor(unittest.TestCase):
         self.assertGreater(grants, 20, "found almost no grants")
 
     def test_a_package_runner_grant_is_refused_in_every_spelling(self):
-        # Every spelling here passed the spaced-prefix check this replaced.
+        # All but `npx *` and `npm run:*` passed the spaced-prefix check this
+        # replaced; those two it caught, and the word match must still.
         for grant in ("npx:*", "npx", "npx *", "node:*", "npm:*", "npm run:*",
                       "ng:*", "yarn:*", "pnpm:*", "NODE.EXE:*", "CI=1 npx:*",
                       "/usr/bin/node:*", "C:\\Python\\python.exe:*", "python:*",
                       "python3 -c:*", "pip install:*", "py:*", "py",
-                      "py -3.12:*", "py -3.12 -c:*", "py -3.12 /tmp/x.py:*"):
+                      "py -3.12:*", "py -3.12 -c:*", "py -3.12 /tmp/x.py:*",
+                      "npx.cmd:*", "npm.cmd run:*", "ng.bat:*", "node.ps1:*",
+                      "python3.12:*", "pip3.12 install:*", "env npx:*",
+                      "env -i node:*", "env FOO=1 npx:*", "command npx:*",
+                      "exec python:*", "env:*", "env -i:*"):
             with self.subTest(grant=grant):
                 self.assertTrue(refused_grant(grant))
         # And the grants the commands do hold, which a word match must spare.
