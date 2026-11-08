@@ -149,7 +149,7 @@ the audits' does. A bare `#NN` inside a managed file names an issue in
 `/ship`, `/branch`, `/commit`, `/pr`, `/review-branch`, `/style-pass`,
 `/security-sweep`, `/bug-sweep`, `/dispatch` and `/team` say what each does
 in their own frontmatter; `/ship` runs `/branch`, `/commit` and `/pr` to a
-merged PR and stops for nothing that is a judgement. The rules every repository on the harness
-shares are these:
+merged PR and stops for nothing that is a judgement. The rules every
+repository on the harness shares are these:
 
 @.harness/agent-rules.md
