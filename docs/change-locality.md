@@ -87,9 +87,10 @@ case". A file the work turns out to need is one of two things: inside the
 class's tree set, in which case it is **added to the row with its reason
 beside it** — a review found it, a test needed it — and the widening is on the
 record rather than rewritten out; or outside the class's tree set, in which
-case the class is wrong, so change the class, not the set. That reason takes
-the one form `/pr` gives it, `` `docs/x.md` (added: why) ``, and
-`pr-locality.sh` refuses a row holding any other
+case the class is wrong, so change the class, not the set. That reason goes in
+parentheses after a backticked token, as `/pr` writes it,
+`` `docs/x.md` (added: why) ``, and `pr-locality.sh` refuses one anywhere else
+or holding a backtick or a nested parenthesis
 ([`harness-boundaries.md`](harness-boundaries.md), *Pull request reads and the
 locality verdict*). A change that genuinely needs two classes names both —
 `C+E` for a rule that brings a package, `A+D` for a feature change whose native
