@@ -5,7 +5,6 @@ Each refusal is paired with the drop succeeding, so it failed for its reason.
 """
 
 import json
-import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -14,6 +13,7 @@ from review_helpers import SCRIPTS, setUpModule, temp_root, run_bash as _run_bas
 
 HELPER = SCRIPTS / "git-branch-drop.sh"
 OWNER = "acme/widgets"
+OTHER_OID = "d84f1368f0000000000000000000000000000000"
 
 SPELLINGS = ("main", "Main", "MAIN", "heads/main", "refs/heads/main",
              "origin/main", "refs/remotes/origin/main")
@@ -92,11 +92,14 @@ class Fixture(unittest.TestCase):
     def helper(self, branch="feat/x", rows=None, exit_code="0", move="", take=""):
         if rows is None:
             rows = [self.row(oid=self.tip())]
+        # The stubs go first inside the shell, not through its environment: Git for Windows' `bin\bash.exe`, which
+        # a runner's PATH can name before `usr\bin\bash.exe`, puts its own `git` and `tr` ahead of what it inherits,
+        # and a stub behind them never runs. `pwd` gives the directory in the shell's own spelling.
         return run_bash(
-            f'cd "$W"\nbash "$H" "$B"',
-            W=self.work, R=self.root, H=str(HELPER), B=branch,
+            'cd "$W"\nPATH="$(cd "$STUB_BIN" && pwd):$PATH"\nbash "$H" "$B"',
+            W=self.work, R=self.root, H=str(HELPER), B=branch, STUB_BIN=self.bin,
             STUB_OWNER=OWNER, STUB_ROWS=json.dumps(rows), STUB_EXIT=exit_code,
-            STUB_MOVE=move, STUB_TAKE=take, PATH=self.bin + os.pathsep + os.environ["PATH"])
+            STUB_MOVE=move, STUB_TAKE=take)
 
     def stub_git(self):
         """A `git` first on PATH that runs STUB_TAKE as the delete starts, after every read of the state.
@@ -113,6 +116,81 @@ class Fixture(unittest.TestCase):
             'exec git "$@"\n',
             encoding="utf-8", newline="\n")
         stub.chmod(0o755)
+
+
+SYNC = "chore/harness-sync-abcdef0"
+
+
+class ASupersededSyncGoesAndNothingElseDoes(Fixture):
+    """A sync's pull request closed unmerged and origin's branch deleted, as `harness_sync` leaves one it supersedes."""
+
+    def setUp(self):
+        super().setUp()
+        self.at(f"git branch {SYNC} feat/x")
+
+    def closed(self, branch=SYNC):
+        return self.row(state="CLOSED", oid=self.tip(branch))
+
+    def test_it_is_dropped_and_says_why(self):
+        result = self.helper(SYNC, rows=[self.closed()])
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertIn("superseded", result.stdout)
+        self.assertFalse(self.exists(SYNC))
+
+    def test_one_still_on_origin_is_kept(self):
+        # Its pull request can still be reopened.
+        self.at(f"git push -q origin {SYNC}")
+        result = self.helper(SYNC, rows=[self.closed()])
+        self.assertEqual(7, result.returncode, result.stderr)
+        self.assertIn("still on origin", result.stderr)
+        self.assertTrue(self.exists(SYNC))
+
+    def test_an_origin_that_cannot_be_asked_keeps_it(self):
+        self.at('git remote set-url origin "$R/no-such-remote.git"')
+        result = self.helper(SYNC, rows=[self.closed()])
+        self.assertEqual(12, result.returncode, result.stderr)
+        self.assertIn("cannot ask origin", result.stderr)
+        self.assertTrue(self.exists(SYNC))
+
+    def test_any_row_not_closed_keeps_it(self):
+        for other in ("OPEN", "MERGED"):
+            with self.subTest(other=other):
+                rows = [self.closed(), self.row(state=other, oid=OTHER_OID, number=8)]
+                result = self.helper(SYNC, rows=rows)
+                self.assertEqual(7, result.returncode, result.stderr)
+                self.assertIn("nor is every pull request for it closed", result.stderr)
+                self.assertTrue(self.exists(SYNC))
+
+    def test_no_pull_request_keeps_it(self):
+        self.assertEqual(7, self.helper(SYNC, rows=[]).returncode)
+        self.assertTrue(self.exists(SYNC))
+
+    def test_a_tip_the_closed_pull_request_never_held_keeps_it(self):
+        result = self.helper(SYNC, rows=[self.row(state="CLOSED", oid=OTHER_OID)])
+        self.assertEqual(7, result.returncode, result.stderr)
+        self.assertTrue(self.exists(SYNC))
+
+    def test_another_base_keeps_it(self):
+        result = self.helper(SYNC, rows=[self.row(state="CLOSED", oid=self.tip(SYNC), base="release")])
+        self.assertEqual(7, result.returncode, result.stderr)
+        self.assertTrue(self.exists(SYNC))
+
+    def test_a_worktree_on_it_keeps_it(self):
+        # A hand-back's: its worktree waits for the owner.
+        self.at(f'git worktree add -q "$R/elsewhere" {SYNC}')
+        result = self.helper(SYNC, rows=[self.closed()])
+        self.assertEqual(4, result.returncode, result.stderr)
+        self.assertTrue(self.exists(SYNC))
+
+    def test_any_other_name_is_kept_on_the_same_rows(self):
+        self.at("git push -q origin --delete feat/x")
+        for name in ("feat/x", "chore/harness-sync-workflow", "chore/harness-sync-abcdef01"):
+            with self.subTest(name=name):
+                if name != "feat/x":
+                    self.at(f"git branch {name} feat/x")
+                result = self.helper(name, rows=[self.closed(name)])
+                self.assertEqual(7, result.returncode, result.stderr)
+                self.assertTrue(self.exists(name))
 
 
 class TheHelperKeepsWhatHasNotLanded(Fixture):
