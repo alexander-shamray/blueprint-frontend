@@ -1,124 +1,8 @@
 """Nothing may be hidden from git and visible to the code index.
 
-**Two subjects, one question.** A *directory* every entry of which is hidden is
-`hidden_from_git_only`'s, and a *file* hidden beside a tracked one is
-`files_hidden_from_git_only`'s. The second was added after six generated files
-were found still being indexed, and the division between them is what the two
-functions are for. Two of the six sit in
-`android/app/src/main/assets`, which holds nothing else, so that directory is
-wholly hidden and the first function did report it. The other four sit beside
-tracked content — `cap sync` writes `capacitor.config.json` into
-`ios/App/App/` next to `AppDelegate.swift` — where no directory is wholly
-hidden and a directory-shaped gate is silent by construction. Those four are
-the blind spot, and the second function is the answer to them. Each argues its
-own half; everything below holds for both.
-
-**The subject is the disagreement between the two tools, not either one of
-them.**
-Git honours a `.gitignore` at any depth, so a directory holding one that says
-`*` vanishes from `git status` and from `git ls-files` — which is why
-`.remember/` and `.superpowers/sdd/` looked correctly excluded in this
-repository for as long as they did. The indexer reads only the root ignore
-files its config names, so the same nested file is invisible to it and both
-trees were indexed whole, session logs included: text from PR comments,
-reviews and sweeps came back ranked beside code as `recommended_reads`.
-blueprint-frontend#53 owns the measurement, which moves with the checkout, so
-it is cited here rather than copied.
-
-**Every issue number in this file names the frontend repository and says so.**
-`CLAUDE.md` reads a bare `#NN` under `.claude/` as an issue in the *backend*,
-where this machinery was built, so an unqualified `#53` here points a reader
-at the wrong tracker. The qualified form, `blueprint-frontend#<n>`, is the
-spelling already used in `guard-edit-target.py` and `test_edit_target_guard.py`.
-
-## Git answers the questions about git
-
-This file asks `git check-ignore` rather than matching patterns itself, and
-that is the whole of its design. An earlier version matched them here, and
-across five review rounds it was wrong five times — ordered negations, leading
-whitespace, whether a negation after `*` is effective, and twice about which
-spellings hide a directory completely. Every one failed **open**: the gate said
-covered, or said not-hidden, where git said otherwise.
-
-The last of them settled it. `*`, `/*`, `**`, `/**`, `?*`, `*?`, `?**` and
-`*[!zzz]` were each measured to hide a directory entirely, and there is no end
-to that list — any glob matching every possible name belongs to it. A set of
-blanket spellings cannot be completed by enumeration, so a gate resting on one
-cannot be made correct by adding the spelling somebody just found.
-
-So nothing here parses an ignore file. `git check-ignore` names the file and
-line that decided a path, and that is both halves of the question at once:
-whether git hides the directory, and whether the rule that hides it is one the
-indexer can see.
-
-Delegating is not the same as trusting one call to mean what it looks like.
-The verbose form reports a *negation* as a decision, for a path it does not
-ignore, so `deciders` asks twice — the plain form for whether a path is
-ignored at all, the verbose one only about the paths that survived it. That
-is argued where it happens.
-
-## The probe does the discriminating
-
-Each candidate directory is asked about one path inside it, spelled with a
-name nothing will ever be called. That name is what separates *hides
-everything* from *hides something specific* without enumerating either: a
-nested `*.log` cannot match it, and a nested `*` or `?*` matches it the way it
-matches any other name.
-
-**The probe never has to exist**, which is what makes the assertions below
-real on a CI checkout. `.remember/` and `.superpowers/` are local session
-state and a fresh checkout has neither, yet `check-ignore` still answers for a
-path inside them — measured, `.gitignore:67:.remember/`. The earlier version
-could only scan directories that were present, so its live case ran on an
-empty listing exactly where the suite gates.
-
-## What counts as covered, and which way it fails
-
-Coverage is the root `.gitignore` hiding the path **on its own**, asked in a
-scratch repository holding that file and nothing else — a directory for one
-walk, a file for the other. Anything it does not reach is hidden from git by
-something the indexer cannot see — a nested `.gitignore`, or
-`.git/info/exclude` — and that is the finding. A global excludes file is not
-on that list and cannot be: the paragraph at the foot of this docstring owns
-why.
-
-**Reading the *decider* was wrong, and it made this file's own advice
-unfollowable.** Git gives a deeper `.gitignore` precedence over the root one
-and names the deeper file whenever both match, so a rule added to the root
-file to cover a directory a nested template already hides moves no decider at
-all: the finding stands, the advice repeats itself, and nothing the reader can
-do to the root file will ever clear it. Measured — with `/sub/build/` at the
-root and `build/` in `sub/`, `check-ignore -v` answers
-`sub/.gitignore:1:build/`.
-
-The session-state trees never showed this, which is why it survived eight
-review rounds. A root rule spelling `.remember/` excludes the directory
-itself, and git does not descend into an excluded directory, so the
-`.gitignore` inside it is never read and the root file is the only decider
-there is. The native trees are the shape that discriminates:
-`android/.gitignore` and `ios/.gitignore` are Capacitor's own templates,
-sitting in directories this repository tracks, and every rule in them outranks
-anything the root file can say.
-
-That is still narrower than the indexer's own reading, deliberately. The
-indexer also consults `.codeindexignore`, `.cursorignore` and `.claudeignore`
-at the root, and git reads none of them; so a directory covered only by
-`.codeindexignore` is reported here although the indexer would in fact skip
-it. The report is then a false one, and it fails in the safe direction: the
-fix it asks for is a rule in the root `.gitignore`, which is where
-`blueprint-backend` and `blueprint-admin` put theirs, where this repository
-wants it anyway — and which now actually clears the finding.
-
-The user's global excludes file is emptied for every call — `core.excludesFile=`
-in `_check_ignore`. Without that, a developer's personal `~/.gitignore` decides
-paths here and the gate reports findings that exist on one machine. The
-consequence is that it can never be the source of a finding either: a path only
-it hides comes back from git un-ignored, so nothing is raised and nothing is
-suppressed. That is the right trade — a rule one machine has is not a
-disagreement this repository can act on — and it is why the list above names
-two sources rather than three. Raised by Copilot, against a list that still
-named it.
-"""
+A directory every entry of which is hidden is `hidden_from_git_only`'s, and a file hidden
+beside a tracked one is `files_hidden_from_git_only`'s. `docs/harness-local.md`, Residuals,
+owns why git is asked rather than its patterns read, and what counts as covered."""
 
 import atexit
 import subprocess
@@ -130,8 +14,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent.parent
 
 # The root ignore file git itself reads. The indexer reads three more —
-# `.codeindexignore`, `.cursorignore` and `.claudeignore` — and the module
-# docstring argues why coverage is judged against this one alone.
+# `.codeindexignore`, `.cursorignore` and `.claudeignore` — and
+# `docs/harness-local.md` argues why coverage is judged against this one alone.
 ROOT_IGNORE = ".gitignore"
 
 # A name no directory in this repository will hold, and which no narrow rule
@@ -158,28 +42,11 @@ def _check_ignore(root, flags, relatives):
 
 
 def deciders(root, relatives):
-    """`{path: deciding ignore file}` for the paths git ignores.
+    """`{path: deciding ignore file}` for the paths git ignores; the rest are absent.
 
-    Paths git does not ignore are absent rather than present with `None`, so
-    a caller asking about many directories reads the answer by membership.
-
-    **Two calls, and neither of them reads a pattern.** `check-ignore -v`
-    emits a record when the deciding rule is a *negation*, for a path it does
-    not ignore — measured: with `*` then `!keep`, the verbose form reports
-    `.gitignore:2:!keep` and exits 0 while the plain form prints nothing and
-    exits 1. One verbose call therefore recorded un-ignored paths as decided,
-    and that went wrong in both directions at once: a root negation matching
-    the probe read as coverage and the walk skipped the subtree beneath it,
-    and a nested one read as a finding that was not there. Raised by Copilot,
-    round 6.
-
-    So the plain call settles *whether* git ignores each path, which is git's
-    own answer rather than this file's reading of one, and the verbose call is
-    asked only about the paths that survived it — where every record is a
-    positive decision by construction. Dropping verbose records whose pattern
-    starts with `!` would also work, and would put pattern reading back into a
-    file whose whole design is not doing that.
-    """
+    Two calls: `check-ignore -v` emits a record for a negation, for a path it does not
+    ignore, so the plain call settles whether git ignores each path and the verbose one
+    is asked only about the survivors, where every record is a positive decision."""
     if not relatives:
         return {}
     ignored = [path for path in _check_ignore(root, [], relatives).split("\0")
@@ -200,19 +67,16 @@ _ROOT_ONLY_REPOS = {}
 def _root_only_repo(root):
     """A scratch repository whose only ignore source is `root`'s root file.
 
-    Built once per distinct text and reused, because the walk below asks
-    about every directory it reaches. A checkout with no root ignore file
-    gets a repository with none either, so the answer is *covers nothing*
-    rather than an error — and `NothingInThisCheckoutHidesFromGitAlone` has
-    the positive control that this checkout is not that one.
-    """
+    Built once per distinct text, because the walk asks about every directory it reaches.
+    A checkout with no root file gets a repository with none, so the answer is covers
+    nothing; `NothingInThisCheckoutHidesFromGitAlone` proves this checkout is not one."""
     source = Path(root, ROOT_IGNORE)
     text = source.read_text(encoding="utf-8") if source.is_file() else ""
     if text in _ROOT_ONLY_REPOS:
         return _ROOT_ONLY_REPOS[text]
     # TemporaryDirectory, not rmtree with ignore_errors: git writes its
     # objects read-only, Windows refuses to delete them, and the flag hid
-    # every one that stayed (blueprint-frontend#358).
+    # every one that stayed.
     holder = tempfile.TemporaryDirectory()
     atexit.register(holder.cleanup)
     scratch = Path(holder.name)
@@ -227,19 +91,9 @@ def _root_only_repo(root):
 def root_only_hides(root, relatives):
     """The subset of `relatives` the root ignore file hides by itself.
 
-    The module docstring argues why this is the question and the decider is
-    not. Nothing here reads a pattern: git is asked, in a repository where no
-    nested file exists to outrank the root one.
-
-    **A path is asked with a trailing slash where the real tree holds a
-    directory**, because `check-ignore` cannot tell that a path it cannot see
-    is one, and the scratch repository holds no directories at all. Measured:
-    with `/sub/build/` as the only rule, `check-ignore sub/build` answers *not
-    ignored* and `check-ignore sub/build/` answers with the rule. A caller
-    asking about a directory that need not exist — the regression locks at the
-    foot of this file — spells the slash itself, and it is kept rather than
-    doubled.
-    """
+    `docs/harness-local.md` argues why this is the question and the decider is not. A path
+    is asked with a trailing slash where the real tree holds a directory, because
+    `check-ignore` cannot tell a path it cannot see is one; a caller's own slash is kept."""
     if not relatives:
         return set()
     asked = {}
@@ -253,22 +107,11 @@ def root_only_hides(root, relatives):
 
 
 def hidden_whole(root, directory):
-    """The non-root ignore file hiding *every* entry of `directory`, or `None`.
+    """The non-root ignore file hiding every entry of `directory`, or `None`.
 
-    One visible entry is enough to say the tools agree about this directory:
-    git can see it, so it is not hidden, whatever the rule does to the rest.
-    That is what a sentinel could not establish — a rule matching one name
-    says nothing about the others, and both `zz-*` and `*[!zzz]` match some
-    names and not others.
-
-    An empty directory returns `None`. There is nothing in it for the index to
-    read, so there is no disagreement to report.
-
-    Entries the root file hides are ones the indexer skips too, so they
-    cannot raise the finding on their own, and a directory whose every entry
-    it reaches is not a disagreement. Reached, not decided: the root file can
-    cover an entry that a nested file is still reported as deciding.
-    """
+    One visible entry means the tools agree, and an empty directory has nothing to
+    disagree about. Entries the root file reaches are ones the indexer skips too, so a
+    directory whose every entry it reaches is no finding, whichever file git names."""
     base = Path(root, directory)
     try:
         names = sorted(entry.name for entry in base.iterdir()
@@ -291,28 +134,9 @@ def hidden_whole(root, directory):
 def hidden_from_git_only(root):
     """`(directory, source)` for every directory git hides that the index reads.
 
-    **Each directory is asked about twice, and the two questions are not the
-    same one.** Whether the *directory* is hidden decides pruning: only a root
-    rule covering the directory itself means the indexer agrees and everything
-    beneath is covered by construction, which is what keeps `node_modules/`
-    out of the walk. Whether *everything in it* is hidden decides the finding,
-    because a directory's own `.gitignore` cannot hide the directory — it
-    hides the contents.
-
-    Pruning on a sentinel was wrong, and quietly: a root rule can match the
-    sentinel's name without covering the directory at all — `zz-*` matches it
-    at any depth — so the walk skipped a directory the indexer reads and never
-    reached the nested file below it (Copilot, round 7).
-
-    **Raising the finding from a sentinel was wrong in the other direction**,
-    and one round later: a *nested* `zz-*` matches it too, and reports a
-    directory whose `visible.txt` git can see perfectly well. One name cannot
-    establish what a rule does to every other name, which is the same
-    enumeration mistake as `BLANKET_PATTERNS` wearing different clothes. The
-    finding is decided from the directory's real entries now — every one of
-    them hidden, by something other than the root file — so no spelling has to
-    be recognised at all (Copilot, round 8).
-    """
+    Each directory is asked twice: whether it is hidden decides pruning, since only a root
+    rule covering it means the indexer agrees, and whether everything in it is hidden
+    decides the finding, since a directory's own `.gitignore` hides only its contents."""
     findings = []
 
     def walk(relative):
@@ -343,7 +167,7 @@ def hidden_from_git_only(root):
                 continue
             # Git hides the directory. Whether the indexer does too is the
             # root file's question alone, and asking which file git named
-            # instead is the defect the module docstring records: a covered
+            # instead is the defect `docs/harness-local.md` records: a covered
             # directory a nested template also matches was reported for ever.
             # Either way the subtree is settled and is not descended into.
             if child not in covered:
@@ -358,46 +182,9 @@ def hidden_from_git_only(root):
 def files_hidden_from_git_only(root):
     """`(file, source)` for every file hidden from git that the index reads.
 
-    **The directory walk above cannot see a file beside a tracked one, and
-    four of those is what that cost.** Its subject is a directory *every*
-    entry of which is hidden, so it is silent wherever one tracked file keeps
-    the directory visible: `cap sync` writes `capacitor.config.json` into
-    `ios/App/App/` next to `AppDelegate.swift`, and `config.xml` into
-    `android/app/src/main/res/xml/` next to a tracked `file_paths.xml`. No
-    directory is wholly hidden in either, and the indexer reads both files.
-
-    It is not blind to all of them, and saying so would misplace the
-    limitation. The two files under `android/app/src/main/assets` have that
-    directory to themselves, so it is wholly hidden and the directory walk
-    reports it — measured, as the one finding left in the main checkout after
-    the directories were covered.
-
-    **Those two are reported once, and not here.** This walk prunes at a
-    directory `hidden_whole` matches, so it says nothing about their
-    containing directory or anything in it: the directory-level finding
-    already stands for the contents, and repeating it per file would bury the
-    finding under its own detail. The case below named for not descending into
-    an ignored directory is that suppression written down. So the division is
-    by finding rather than by file — a wholly hidden directory belongs to the
-    walk above, and a file whose directory stays visible belongs to this one.
-
-    They were found by walking a checkout that had really run `cap sync` and
-    asking which of its nested-hidden paths the root file failed to reach —
-    after a scratch-tree check had reported the directory fix complete, having
-    rebuilt the native trees from the very list it was checking. A list
-    verified against itself is the failure this repository already has a name
-    for, and the answer is the same one: make the subject what the gate is
-    looking at.
-
-    **A directory the other walk has already judged is not descended into**,
-    and asking git whether the directory is ignored was not enough to tell.
-    A `.gitignore` holding `*` hides a directory's *contents* and not the
-    directory, so `state/` is plainly visible to git while every file in it is
-    hidden — which is `hidden_from_git_only`'s finding, and repeating it once
-    per file inside would bury it. So both questions are asked: an ignored
-    directory is skipped, which is what keeps `node_modules/` out of the walk,
-    and so is one the directory walk reports.
-    """
+    The directory walk is silent wherever one tracked file keeps a directory visible, and
+    this one reads those. It prunes at a directory git ignores and at one `hidden_whole`
+    matches: that directory is the other walk's finding, stated once and not per file."""
     findings = []
 
     def walk(relative):
@@ -435,9 +222,8 @@ def files_hidden_from_git_only(root):
 class GitIsReallyBeingAsked(unittest.TestCase):
     """The control on the mechanism every other case here rests on.
 
-    `deciders` returning an empty map for everything would make the live scan
-    green and the coverage assertions red in a way that reads as a missing
-    rule rather than a broken call, so the call is proved first.
+    `deciders` returning an empty map would make the live scan green and the coverage
+    assertions red in a way that reads as a missing rule, so the call is proved first.
     """
 
     def setUp(self):
@@ -532,9 +318,8 @@ class GitIsReallyBeingAsked(unittest.TestCase):
 class TheGateSeesEveryWayGitCanHideADirectory(unittest.TestCase):
     """The load-bearing class: what the gate is looking at, not what it found.
 
-    Each spelling was measured with `git status --ignored=matching` before it
-    was written down, and the list is deliberately open-ended — it is evidence
-    that enumeration cannot finish, which is the argument for delegating.
+    Each spelling was measured with `git status --ignored=matching` before it was
+    written down, and the open-ended list is the argument for delegating to git.
     """
 
     def setUp(self):
@@ -550,7 +335,7 @@ class TheGateSeesEveryWayGitCanHideADirectory(unittest.TestCase):
         path.write_text(text, encoding="utf-8", newline="\n")
 
     def test_every_blanket_spelling_is_caught(self):
-        # `?*` is blueprint-frontend#53's PR round 5, and the reason this file
+        # `?*` is the reason this file
         # stopped keeping a set of these. Nothing recognises them now — each
         # directory holds two ordinary files and the question is whether git
         # can see either.
@@ -668,14 +453,9 @@ class TheGateSeesEveryWayGitCanHideADirectory(unittest.TestCase):
     def test_a_parent_rule_hiding_a_directory_is_a_finding(self):
         # The other half of asking about the directory itself: a nested file
         # one level up hides `state/sub` outright, and the indexer reads it.
-        #
-        # **This one does not pin the round-7 fix, and saying so is the
-        # point.** It was written believing it did, and measured against the
-        # probe-only walk it passes there too — hiding a directory hides
-        # everything under it, so the probe inside finds the same rule and
-        # both readings agree. It stays as cover for the directory-level
-        # branch, which nothing else reaches; the case above is the one that
-        # discriminates.
+        # It does not pin the pruning fix, since the probe inside finds the
+        # same rule; it stays as cover for the directory-level branch, which
+        # nothing else reaches. The case above is the one that discriminates.
         self.write("state/.gitignore", "sub/\n")
         (self.root / "state" / "sub").mkdir(parents=True)
         self.assertEqual([("state/sub", "state/.gitignore")],
@@ -718,12 +498,10 @@ class TheGateSeesEveryWayGitCanHideADirectory(unittest.TestCase):
 
     def test_an_ignored_directory_is_not_descended_into_for_files(self):
         # A directory the nested file hides is the directory walk's finding,
-        # and repeating it once per file inside would bury it.
-        #
-        # **This case does not reach the other prune.** `*` in a nested file
-        # hides the directory's contents and leaves the directory itself
-        # visible to git, so the skip taken here is `hidden_whole`'s. The case
-        # below is the one that discriminates. Raised by Copilot.
+        # and repeating it once per file inside would bury it. `*` in a nested
+        # file leaves the directory itself visible to git, so the skip taken
+        # here is `hidden_whole`'s and not the other prune; the case below is
+        # the one that discriminates.
         self.write("state/.gitignore", "*\n")
         self.write("state/one.txt", "x\n")
         self.write("state/two.txt", "x\n")
@@ -734,17 +512,9 @@ class TheGateSeesEveryWayGitCanHideADirectory(unittest.TestCase):
     def test_a_directly_ignored_directory_is_never_entered(self):
         """The prune no result can prove, so the traversal is the subject.
 
-        Deleting `if child in ignored: continue` leaves every other case in
-        this file green — both prunes end in no findings — while the walk
-        recurses through `node_modules/` and every other root-covered tree,
-        asking git about each file in them. Raised by Copilot, which is also
-        where the remedy comes from: record what the walk asked about rather
-        than what it returned.
-
-        `deciders` is rebound on the module rather than wrapped by argument,
-        because the walk resolves it as a global and that is the only seam
-        between it and git.
-        """
+        Deleting `if child in ignored: continue` leaves every other case green while the
+        walk enters every root-covered tree, so this records what the walk asked about.
+        `deciders` is rebound on the module: the walk resolves it as a global."""
         self.write(".gitignore", "vendor/\n")
         self.write("vendor/pkg/generated.json", "{}\n")
         self.write("vendor/pkg/kept.txt", "x\n")
@@ -789,11 +559,10 @@ class TheGateSeesEveryWayGitCanHideADirectory(unittest.TestCase):
 
     def test_a_root_rule_clears_a_finding_a_nested_file_still_decides(self):
         # The defect the native trees found, in the smallest tree that shows
-        # it. `outer` is tracked, so git reads `outer/.gitignore` and names it
-        # for `outer/state` although the root file covers that path too — and
-        # a gate reading the decider went on reporting a directory its own
-        # advice had already fixed. The two assertions are the two questions:
-        # git's decider, and the indexer's coverage.
+        # it: `outer` is tracked, so git names `outer/.gitignore` for
+        # `outer/state` although the root file covers that path too, and a gate
+        # reading the decider went on reporting a directory its advice had
+        # fixed. The two assertions are git's decider and the indexer's coverage.
         self.write(".gitignore", "/outer/state/\n")
         self.write("outer/.gitignore", "state/\n")
         self.write("outer/state/top.txt", "x\n")
@@ -842,14 +611,11 @@ class NothingInThisCheckoutHidesFromGitAlone(unittest.TestCase):
 
 
 class TheSessionStateTreesAreCoveredAtTheRoot(unittest.TestCase):
-    """The regression lock for blueprint-frontend#53, and it holds in CI.
+    """The regression lock for the session-state trees, and it holds in CI.
 
-    The live scan above cannot carry this on its own: `.remember/` and
-    `.superpowers/` are local session state, so a checkout without them scans
-    clean whether or not the root rules survived. These ask about paths inside
-    them regardless of whether they are there, which is the property the
-    earlier version of this file did not have.
-    """
+    `.remember/` and `.superpowers/` are local, so a checkout without them scans clean
+    whether or not the root rules survived. These ask about paths inside them regardless
+    of whether they are there."""
 
     def test_remember_is_covered_by_the_root_file(self):
         decided = deciders(ROOT, [f".remember/{PROBE}"])
@@ -863,19 +629,11 @@ class TheSessionStateTreesAreCoveredAtTheRoot(unittest.TestCase):
 
 
 class TheNativeGeneratedTreesAreCoveredAtTheRoot(unittest.TestCase):
-    """The regression lock for what `cap sync` and Gradle write, and it holds
-    in CI.
+    """The regression lock for what `cap sync` and Gradle write, and it holds in CI.
 
-    The live scan cannot carry this one either, and for the opposite reason to
-    the session-state trees above: these directories exist only in a checkout
-    that has built, so CI's tree is clean of them and scans green whether or
-    not the root rules survive. A developer's checkout is where they appear,
-    and a developer's checkout is the only place the index is ever built — the
-    measurement that found them is in the root `.gitignore` beside the rules.
-
-    Asked with a trailing slash, because every rule here ends in one and git
-    cannot tell that a path it cannot see is a directory.
-    """
+    These directories exist only in a checkout that has built, so CI's tree scans green
+    whether or not the root rules survive, and a developer's checkout is where the index
+    is built. Asked with a trailing slash: git cannot tell an unseen path is a directory."""
 
     GENERATED = (
         "android/.gradle/",
@@ -891,15 +649,10 @@ class TheNativeGeneratedTreesAreCoveredAtTheRoot(unittest.TestCase):
         "ios/capacitor-cordova-ios-plugins/",
     )
 
-    # The generated *files*, which need naming here more than the directories
-    # do. Only the pair under `android/app/src/main/assets/` has a directory to
-    # itself; the rest sit beside tracked content — `config.xml` next to
-    # `file_paths.xml`, `local.properties` next to the Gradle files, both iOS
-    # files next to `AppDelegate.swift` — so no directory is wholly hidden and
-    # the directory scan can never reach them whatever the checkout. An earlier
-    # revision of this comment counted three of those and there are four;
-    # Copilot found it, and naming them is what replaces the count.
-    # `local.properties` also carries an absolute SDK path from whichever
+    # The generated files, which need naming more than the directories do. Only the pair
+    # under `android/app/src/main/assets/` has a directory to itself; the rest sit beside
+    # tracked content, so no directory is wholly hidden and the directory scan can never
+    # reach them. `local.properties` also carries an absolute SDK path from whichever
     # machine ran the build.
     GENERATED_FILES = (
         "android/app/src/main/assets/capacitor.config.json",

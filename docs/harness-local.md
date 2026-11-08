@@ -206,6 +206,108 @@ findings" while holding `Write` and `Edit`, and its input is prose in the
 branch under review, so its deny list is tested against the tree rather than
 against what it contains.
 
+**`npm-checks.sh` closes the executor and not the manifest.** `npm run <name>`
+executes whatever `package.json` says under that name, a script a session has
+just written included, and `npm test -- <args>` forwards its tail to Vitest,
+which takes `--config <path>` and executes that file to load it, so either grant
+turns "run the tests" into "run this". The script names and the flags are fixed
+in the script for that reason. `package.json` stays editable all the same: every
+mode runs whatever its `scripts` block says, and loads `angular.json`,
+`eslint.config.js`, the Vitest configuration and `node_modules/.bin`.
+`/review-branch`'s `disallowed-tools` denies those, and a deny stops this agent
+from editing them. It cannot stop a branch from arriving with them already
+edited (blueprint-frontend#13), and `/review-branch`'s subject is a branch
+somebody else wrote: on an untrusted branch `npm ci` alone runs any `preinstall`
+or `postinstall` in the manifest or in a dependency the lockfile names, and
+every mode loads configuration that is executed in order to be read. What stands
+is the trust boundary. These modes run on the developer's own machine against a
+branch the developer is reviewing, which is the same act as opening the
+repository in an editor with a language server. An unattended run on a fork's
+branch is the case this does not cover; do that in a disposable environment with
+no credentials, or not at all. No mode runs Playwright, because it needs a
+browser download and the backend's Compose stack, and a mode that passed because
+nothing was listening would be worse than none: the `e2e` job runs it, and
+`docs/testing.md` owns what a local run needs.
+
+**`test_mcp_launch.py`'s stand-in CLI is a package, not a binary**
+(blueprint-frontend#138). `.mcp.json` starts the server through
+`mcp-launch.mjs`, which asks the hook's `index_openable`, through
+`gate-index.py`, before it starts the CLI, and the cases run the real launcher
+under real Node. The stand-in is a `codebase_index` package on `PYTHONPATH`,
+reached through the launcher's `python -m codebase_index` fallback, because a
+stand-in for the binary would have to be an `.exe` on Windows. The `PATH` the
+launcher sees holds only Node and the interpreter launcher, so no real
+`codebase-index` shadows the fallback.
+
+**`test_root_ignore_coverage.py` holds the disagreement between git and the code
+index, not either tool** (blueprint-frontend#53, which owns the measurement).
+Git honours a `.gitignore` at any depth, so a directory holding one that says
+`*` vanishes from `git status` and `git ls-files`. The indexer reads only the
+root ignore files its config names, so the same nested file is invisible to it:
+`.remember/` and `.superpowers/sdd/` looked excluded while both trees were
+indexed whole, and text from pull request comments came back ranked beside code.
+The two functions are the two shapes. `hidden_from_git_only` takes a directory
+every entry of which is hidden. `files_hidden_from_git_only` takes a file beside
+a tracked one, where no directory is wholly hidden and a directory-shaped gate
+is silent by construction: `cap sync` writes `capacitor.config.json` into
+`ios/App/App/` next to `AppDelegate.swift`, and `config.xml` into
+`android/app/src/main/res/xml/` next to `file_paths.xml`. The two files under
+`android/app/src/main/assets` have that directory to themselves, so the
+directory walk reports them once and the file walk prunes there rather than bury
+that finding per file. The generated files were found by walking a checkout that
+had really run `cap sync`, after a scratch-tree check had reported the
+directories complete, having rebuilt the native trees from the list it was
+checking. A list verified against itself is the failure this repository already
+names, and the answer is the same: make the subject what the gate is looking at.
+
+**That file asks `git check-ignore` and reads no pattern.** Matching patterns
+there failed open across five review rounds: ordered negations, leading
+whitespace, whether a negation after `*` is effective, and twice which spellings
+hide a directory completely. `*`, `/*`, `**`, `/**`, `?*`, `*?` and `?**` were
+each measured to hide one, and any glob matching every name belongs to that
+list, so a set of blanket spellings cannot be completed by enumeration;
+`*[!zzz]` looked as if it did, and leaves a name ending in `z` visible.
+`check-ignore` names the file and line that decided a path, which answers
+whether git hides it and whether the indexer can see the rule. One call is not
+enough. With `*` then `!keep`, the verbose form reports `.gitignore:2:!keep` and
+exits 0 while the plain form prints nothing and exits 1, so one verbose call
+recorded un-ignored paths as decided: a root negation read as coverage and
+skipped the subtree beneath it, and a nested one read as a finding that was not
+there. Dropping records that start with `!` would put pattern reading back. One
+name cannot establish what a rule does to every other name either: a root `zz-*`
+matches a sentinel without covering the directory, and a nested `zz-*` reports a
+directory whose `visible.txt` git can see, so pruning asks about the directory
+itself and the finding is decided from its real entries. The probe name never
+has to exist, because `check-ignore` answers for a path inside `.remember/` on a
+fresh checkout that has none, which is what keeps the session-state assertions
+real in CI.
+
+**Covered means the root `.gitignore` hides the path on its own**, asked in a
+scratch repository holding that file and nothing else. Anything it does not
+reach is hidden by something the indexer cannot see, a nested `.gitignore` or
+`.git/info/exclude`. Reading the decider instead made the gate's own advice
+unfollowable: git gives a deeper `.gitignore` precedence, so with `/sub/build/`
+at the root and `build/` in `sub/`, `check-ignore -v` answers
+`sub/.gitignore:1:build/`, and a rule added to the root file moves no decider.
+The session-state trees cannot show this, since a root `.remember/` excludes the
+directory and git never reads the file inside it. `android/.gitignore` and
+`ios/.gitignore` are the shape that discriminates: Capacitor's templates, in
+directories this repository tracks. A path is asked with a trailing slash where
+it is a directory, because `check-ignore` cannot tell that a path it cannot see
+is one: with `/sub/build/` as the only rule, `check-ignore sub/build` answers
+*not ignored* and `check-ignore sub/build/` answers with the rule. This is
+narrower than the indexer, which also consults `.codeindexignore`,
+`.cursorignore` and `.claudeignore` at the root, so a directory only
+`.codeindexignore` covers is reported falsely. That fails safe: the fix is a
+rule in the root `.gitignore`, which is where `blueprint-backend` and
+`blueprint-admin` put theirs. The user's global excludes file is emptied for
+every call (`core.excludesFile=`), so a personal `~/.gitignore` neither raises
+nor suppresses a finding, since a rule one machine has is not a disagreement
+this repository can act on. The scratch repositories use `TemporaryDirectory`,
+because git writes its objects read-only, Windows refuses to delete them, and
+`rmtree` with `ignore_errors` hid every one that stayed
+(blueprint-frontend#358).
+
 ## Review examples
 
 The kinds of finding this repository's surface produces, which

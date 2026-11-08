@@ -1,16 +1,8 @@
 #!/usr/bin/env python3
-"""alexander-shamray/blueprint-frontend#138: the MCP server opens its index too.
+"""The MCP server opens its index only through the real launcher, under real Node.
 
-`.mcp.json` starts the server through `mcp-launch.mjs`, which asks the hook's
-`index_openable` (through `gate-index.py`) before it starts the CLI. These cases
-run the real launcher under real Node, against a stand-in CLI.
-
-The stand-in is a `codebase_index` package on `PYTHONPATH`, reached through the
-launcher's `python -m codebase_index` fallback, because a stand-in for the
-binary would have to be an `.exe` on Windows. The `PATH` the launcher sees holds
-only Node and the interpreter launcher, so no real `codebase-index` shadows the
-fallback.
-"""
+`.mcp.json` starts it through `mcp-launch.mjs`, which asks `index_openable` first, and
+`docs/harness-local.md`, Residuals, says why the stand-in CLI is a package on `PYTHONPATH`."""
 
 import json
 import os
@@ -31,12 +23,10 @@ FLOOR = "import sys; sys.exit(sys.version_info < (3, 12))"
 
 def interpreter():
     """What the launcher would pick on this host, in its order: the first
-    candidate that meets the 3.12 floor, as a path and the arguments it takes.
+    candidate that meets the 3.12 floor, as a path.
 
-    `py` takes `-3.12`; the others are probed bare. A `python3` older than 3.12
-    beside a `python` that meets it is a host the launcher serves, and a test
-    that took only `python3` would fail there for a reason of its own.
-    """
+    `py` takes `-3.12`; the others are probed bare, because a `python3` older
+    than 3.12 beside a `python` that meets it is a host the launcher serves."""
     for name, flags in (("py", ["-3.12"]), ("python3", []), ("python", [])):
         found = shutil.which(name)
         if found and subprocess.run([found, *flags, "-c", FLOOR],

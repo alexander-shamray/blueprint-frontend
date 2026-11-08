@@ -1,56 +1,18 @@
 #!/usr/bin/env bash
-# The local gate for /review-branch and /ship, with no free parameter anywhere.
-#
-# It replaces `Bash(npm run:*)` and `Bash(npx:*)`, both of which are grants far
-# wider than the operation the commands name. `npm run <name>` executes whatever
-# `package.json` says under that name — including a script a session may
-# legitimately have just written — and `npm test -- <args>` forwards its tail to
-# Vitest, which takes `--config <path>` and EXECUTES that file to load it. Either
-# one turns "run the tests" into "run this". So the script names and the flag
-# sets are fixed here, and the only variable is one word out of a closed set.
-#
-# **This closes the executor and not the manifest, and the gap is wider than an
-# earlier draft of this header admitted.** `package.json` is still a file the
-# session can edit, and every mode below runs whatever its `scripts` block
-# currently says; the same holds for the config files those scripts read
-# (`angular.json`, `eslint.config.js`, the Vitest config) and for
-# `node_modules/.bin`. review-branch.md's `disallowed-tools` denies all of them,
-# and this header used to point there as if that settled it.
-#
-# **It does not, and Copilot was right to say so against PR #13.** A deny stops
-# THIS agent from editing those files. It cannot stop a BRANCH from arriving
-# with them already edited — and /review-branch's whole subject is a branch
-# somebody else wrote. So on an untrusted branch, `npm ci` alone runs any
-# `preinstall`/`postinstall` in the manifest or in any dependency the lockfile
-# names, and every mode below loads configuration that is executed in order to
-# be read. The deny protects the file; nothing here protects the host.
-#
-# **What actually stands is the trust boundary, not this script.** These modes
-# run on the developer's own machine against a branch the developer is
-# reviewing, which is the same act as opening the repository in an editor with
-# a language server. Running these checks on a fork's branch,
-# unattended, is the case this does not cover; do that in a disposable
-# environment with no credentials, or not at all.
-#
-# `e2e` is deliberately NOT one of the modes. Playwright needs a browser
-# download and the backend's Compose stack, neither of which a checkout can
-# assume; a mode that silently passed because
-# nothing was listening would be worse than no mode at all. E2E is CI's job —
-# see the `e2e` job in .github/workflows/ci.yml — and `docs/testing.md` owns
-# what a local run needs, ports included.
+# The local gate for /review-branch and /ship, with no free parameter: it replaces
+# `Bash(npm run:*)` and `Bash(npx:*)`, which run whatever a manifest or a `--config` names,
+# by fixing the script names and flags. It closes the executor and not the manifest:
+# docs/harness-local.md, Residuals, owns that gap and why no mode runs the e2e suite.
 set -euo pipefail
 
 mode="${1:-all}"
 root="$(git rev-parse --show-toplevel)"
 cd "$root"
 
-# **An absent install checks main's packages, and passes.** /branch forks
-# under .claude/worktrees/, inside the main checkout, and both Node's module
-# search and npm's PATH walk up out of a worktree into the main checkout's
-# node_modules — so every mode below would find main's ng, eslint and vitest
-# and check this branch against them. Presence only: an mtime test against
-# package-lock.json refuses correct installs, because a checkout or rebase
-# that passes through another lockfile rewrites it with identical content.
+# An absent install checks main's packages, and passes: /branch forks inside the main
+# checkout, and Node's module search and npm's PATH walk up out of a worktree into its
+# node_modules. Presence only: an mtime test against package-lock.json refuses correct
+# installs, because a checkout or rebase through another lockfile rewrites it unchanged.
 [ -d node_modules ] ||
   { echo "no node_modules in $root — run npm ci here first" >&2; exit 3; }
 
