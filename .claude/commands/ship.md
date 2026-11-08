@@ -1,7 +1,7 @@
 ---
 description: Start from a clean main, fork a worktree where one can be forked, branch, commit, push and open a PR, run the local review until a round has nothing open, then merge the PR and tear the workspace down. Decides for itself rather than stopping to ask
 argument-hint: "[what the change does | sync #<n>] [--sleep] [--dispatched <run-dir>] [--berserk] — omit and each step derives its own"
-allowed-tools: Read, Grep, Glob, Write, Skill, Agent(branch-reviewer), EnterWorktree, ExitWorktree, Bash(git status:*), Bash(git diff:*), Bash(git branch --list:*), Bash(git branch --show-current), Bash(git branch -a), Bash(git log:*), Bash(git fetch origin:*), Bash(bash .claude/scripts/git-branch-create.sh:*), Bash(bash .claude/scripts/git-worktree-fork.sh:*), Bash(bash .claude/scripts/git-switch-existing.sh:*), Bash(bash .claude/scripts/git-rebase-onto-main.sh:*), Bash(git rev-parse:*), Bash(git worktree list:*), Bash(ls:*), Bash(git add:*), Bash(git commit:*), Bash(bash .claude/scripts/git-unstage.sh:*), Bash(git push -u origin:*), Bash(git push origin:*), Bash(wc:*), Bash(bash .claude/scripts/gh-pr-create.sh:*), Bash(bash .claude/scripts/pr-state.sh:*), Bash(bash .claude/scripts/pr-for-branch.sh:*), Bash(bash .claude/scripts/git-trailer-pr.sh:*), Bash(gh pr checks:*), Bash(bash .claude/scripts/gh-pr-merge.sh:*), Bash(git pull --ff-only), Bash(git merge-base --is-ancestor:*), Bash(bash .claude/scripts/git-worktree-remove.sh:*), Bash(git worktree prune:*), Bash(bash .claude/scripts/pr-locality.sh:*), Bash(bash .claude/scripts/gh-issue-hand.sh:*), Bash(bash .claude/scripts/system-sleep.sh), Bash(py -3.12 .claude/scripts/sync_pr.py:*), Bash(bash .claude/scripts/git-worktree-sync.sh:*), Bash(bash .claude/scripts/gh-issue-harness.sh:*), Bash(py -3.12 -m unittest discover:*), Bash(bash .claude/scripts/gh-issue-list.sh), Bash(bash .claude/scripts/gh-issue-suppresses.sh:*), Bash(bash .claude/scripts/git-branch-drop.sh:*), Bash(git merge-base origin/main HEAD), Bash(bash .claude/skills/codebase-index/scripts/cbx search:*), Bash(bash .claude/skills/codebase-index/scripts/cbx refs:*), Bash(bash .claude/skills/codebase-index/scripts/cbx impact:*), Bash(bash .claude/skills/codebase-index/scripts/cbx diff-impact:*)
+allowed-tools: Read, Grep, Glob, Write, Skill, Agent(branch-reviewer), EnterWorktree, ExitWorktree, Bash(git status:*), Bash(git diff:*), Bash(git branch --list:*), Bash(git branch --show-current), Bash(git branch -a), Bash(git log:*), Bash(git fetch origin:*), Bash(bash .claude/scripts/git-branch-create.sh:*), Bash(bash .claude/scripts/git-worktree-fork.sh:*), Bash(bash .claude/scripts/git-switch-existing.sh:*), Bash(bash .claude/scripts/git-rebase-onto-main.sh:*), Bash(git rev-parse:*), Bash(git worktree list:*), Bash(ls:*), Bash(git add:*), Bash(git commit:*), Bash(bash .claude/scripts/git-unstage.sh:*), Bash(git push -u origin:*), Bash(git push origin:*), Bash(wc:*), Bash(bash .claude/scripts/gh-pr-create.sh:*), Bash(bash .claude/scripts/pr-state.sh:*), Bash(bash .claude/scripts/pr-for-branch.sh:*), Bash(bash .claude/scripts/git-trailer-pr.sh:*), Bash(gh pr checks:*), Bash(bash .claude/scripts/gh-pr-merge.sh:*), Bash(git pull --ff-only), Bash(git merge-base --is-ancestor:*), Bash(bash .claude/scripts/git-worktree-remove.sh:*), Bash(git worktree prune:*), Bash(bash .claude/scripts/pr-locality.sh:*), Bash(bash .claude/scripts/gh-issue-hand.sh:*), Bash(bash .claude/scripts/system-sleep.sh), Bash(py -3.12 .claude/scripts/sync_pr.py:*), Bash(bash .claude/scripts/git-worktree-sync.sh:*), Bash(bash .claude/scripts/gh-issue-harness.sh:*), Bash(py -3.12 -m unittest discover:*), Bash(bash .claude/scripts/gh-issue-list.sh), Bash(bash .claude/scripts/gh-issue-suppresses.sh:*), Bash(bash .claude/scripts/git-branch-drop.sh:*), Bash(bash .claude/scripts/main-red-open.sh), Bash(git merge-base origin/main HEAD), Bash(bash .claude/skills/codebase-index/scripts/cbx search:*), Bash(bash .claude/skills/codebase-index/scripts/cbx refs:*), Bash(bash .claude/skills/codebase-index/scripts/cbx impact:*), Bash(bash .claude/skills/codebase-index/scripts/cbx diff-impact:*)
 disallowed-tools: Agent(claude), Agent(Explore), Agent(Plan), Agent(claude-code-guide), Agent(statusline-setup), Agent(fork), Agent(bug-auditor), Agent(security-auditor), Agent(team-peer), Edit(~/.claude/projects/**), Edit(~/.claude/output-styles/**)
 ---
 
@@ -36,7 +36,7 @@ checkout and removes the worktree, however the review ended.
 
 | | |
 |---|---|
-| A helper or a guarded git command exits non-zero, or the harness refuses it | The step did not run; a report that says otherwise is false. `git pull --ff-only` refusing a diverged branch is the commonest one; step 7's `system-sleep.sh`, the branch drop's `git-branch-drop.sh`, steps 1 and 5's `cbx` reads and the rebase helper's two continuations and a usage exit after line 5's pull on `main` are the exceptions, each reported and not a stop |
+| A helper or a guarded git command exits non-zero, or the harness refuses it | The step did not run; a report that says otherwise is false. `git pull --ff-only` refusing a diverged branch is the commonest one; step 7's `system-sleep.sh`, the branch drop's `git-branch-drop.sh`, steps 1 and 5's `cbx` reads, `main-red-open.sh`'s exit 3 in the run started for that issue, and the rebase helper's two continuations and a usage exit after line 5's pull on `main` are the exceptions, each reported and not a stop |
 | This branch's PR was closed unmerged | Reopening a deliberate closure is not a recommended option |
 | A `branch-reviewer` round did not run — the agent missing, a reply that is not the JSON its profile declares, or one whose `read` is empty or whose `skipped` names anything but `locality` | The round did not happen, so no verdict may be minted from it |
 | A fix to a script under `.claude/` lacks its case | Step 2's read refuses it, and the case is a file this session is denied editing, so the run has no fix to make |
@@ -561,11 +561,12 @@ target*)
    review is unconverged; report findings per round and whether the rate was
    still flat when the budget ran out.
 
-   Three things genuinely gate it, and none is a judgement:
+   Four things genuinely gate it, and none is a judgement:
 
    ```bash
    bash .claude/scripts/pr-state.sh <n>
    gh pr checks <n> --watch --fail-fast --interval 60
+   bash .claude/scripts/main-red-open.sh
    git status --short              # empty
    git log <headRefOid>..HEAD      # empty: this workspace holds nothing extra
    ```
@@ -595,6 +596,12 @@ target*)
      non-mergeable result stops the chain.
    - `mergeable` must be `MERGEABLE` and every check pass, on the pushed
      head; either failing stops.
+   - **An open `main is red` issue is a red check**, read after the checks
+     wait: a pull request's checks never rerun when `main` turns red. Exit 3
+     names each one and is the CI-not-green stop, unless this run was started
+     as `/ship #<n>` for the one issue it names: its revert or fix is what
+     turns `main` green. 2 is the read failing, and stops too. (why:
+     docs/commands/ship.md, *Step 6: the gates*)
    - **A head no round reviewed is not merged.** If `headRefOid` is not one
      of the recorded reviewed heads, run `git pull --ff-only` (a refusal
      stops), re-enter step 5 for a recheck
