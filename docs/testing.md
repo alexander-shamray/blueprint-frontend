@@ -190,10 +190,11 @@ accommodate. Do not "fix" a port here.
 **This table is the one place they are written down, and everything else
 cites it.** `change-locality.md` §2 gives every fact one owner: the owner of
 a port *value* is the environment file above, and the owner of *what a local
-e2e run needs* is this table. `/ship`, `/review-branch`, `/bug-sweep`,
-`npm-checks.sh` and `CLAUDE.md` each name the prerequisite and point here
-rather than repeating the number — they used to repeat it, which is how one
-port change would have left five stale copies behind.
+e2e run needs* is this table. `/ship`, `/review-branch`, `/bug-sweep` and
+`CLAUDE.md` each name the prerequisite and point here, and `npm-checks.sh` does
+through `docs/harness-local.md`, *Residuals*, rather than repeating the number —
+they used to repeat it, which is how one port change would have left five stale
+copies behind.
 
 **Three projects, run one after another.** `playwright.config.ts` defines
 `chromium` (desktop, what the suite always was), `webkit` (Desktop Safari: the
