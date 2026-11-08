@@ -44,10 +44,11 @@ def program_word(grant):
 
     `Bash(npx:*)`, `Bash(npx *)`, `Bash(npx)`, `Bash(NPX.exe:*)`,
     `Bash(npx.cmd:*)`, `Bash(/usr/bin/npx:*)`, `Bash(CI=1 npx:*)` and
-    `Bash(env -i npx:*)` all run `npx`, and `Bash(python3.12:*)` runs
+    `Bash(env npx:*)` all run `npx`, and `Bash(python3.12:*)` runs
     `python`. The house form is the colon one, so a prefix ending in a space
     misses it. A colon before a slash is a drive letter, not the grant's
-    wildcard. A wrapper with no program after it is its own word, refused.
+    wildcard. A wrapper with a flag or nothing after it is its own word,
+    refused: a flag may take an argument, which would read as the program.
     """
     rest = grant.strip()
     while True:
@@ -59,7 +60,7 @@ def program_word(grant):
                 word = word[:-len(suffix)]
                 break
         word = re.sub(r"(?<=[a-z])\d+(?:\.\d+)*$", "", word)
-        after = re.sub(r"^\S+\s+(?:-\S*\s+)*", "", rest, count=1)
+        after = re.sub(r"^\S+\s+", "", rest, count=1)
         if word in WRAPPERS and after != rest and after and not after.startswith("-"):
             rest = after
             continue
@@ -121,7 +122,8 @@ class TheCheckRunnerIsTheOnlyExecutor(unittest.TestCase):
                       "npx.cmd:*", "npm.cmd run:*", "ng.bat:*", "node.ps1:*",
                       "python3.12:*", "pip3.12 install:*", "env npx:*",
                       "env -i node:*", "env FOO=1 npx:*", "command npx:*",
-                      "exec python:*", "env:*", "env -i:*"):
+                      "exec python:*", "env:*", "env -i:*",
+                      "env -u VAR npx:*", "exec -a x npx:*"):
             with self.subTest(grant=grant):
                 self.assertTrue(refused_grant(grant))
         # And the grants the commands do hold, which a word match must spare.
