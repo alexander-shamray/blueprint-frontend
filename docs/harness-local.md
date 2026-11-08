@@ -144,6 +144,27 @@ execute — `vitest`, `vite`, `playwright` and `capacitor`, each as
 root as it matches a Vitest config. The cost is the one a named list always
 has.
 
+**`npm-checks.sh` is granted to every turn, not to four commands.** Before
+the first sync the grant sat in the frontmatter of `/ship`, `/pr`,
+`/style-pass` and `/review-branch` and lasted their turn; the payload's
+`/ship` carries no stack grant and a managed runbook takes no per-target
+line, so `.harness/config.json`'s `allow` holds it. Any session that edits a
+spec or `eslint.config.js` can now run them unprompted. The executable input
+is the same one `/ship` ran before; what widened is when it may run. A
+per-command grant the payload could carry would close it, and that is the
+harness's to build.
+
+**A shell write is refused where an edit is denied, and nowhere else.** The
+git guard this repository had before the sync refused a redirection, `cp` or
+`rm` into its own tables: `android`, `ios`, `.vscode`, `node_modules`, and
+every root configuration file including `.gitattributes`, `.gitignore`,
+`.editorconfig`, `.nvmrc` and `ionic.config.json`. The payload's guard takes
+that list from the settings denies instead, so a shell write now reaches
+whatever the `Edit` tool already could. Nothing became writable that was
+not: the old settings denied none of those paths to `Edit`, which an
+auto-mode session uses as readily as a redirection. Naming more of them in
+`.harness/config.json` would restore both at once.
+
 ## Review examples
 
 The kinds of finding this repository's surface produces, which
