@@ -35,7 +35,7 @@ named `codebase-index`; do not invoke that console script directly.
 
 | Intent | Command |
 |---|---|
-| Where is X implemented? | `bash .claude/skills/codebase-index/scripts/cbx search 'X' --session <tag> --json` |
+| Where is X implemented? | `bash .claude/skills/codebase-index/scripts/cbx search 'X' --limit 3 --session <tag> --json` |
 | How does X work? | `bash .claude/skills/codebase-index/scripts/cbx explain 'X' --session <tag> --json` |
 | What is this codebase? | `bash .claude/skills/codebase-index/scripts/cbx architecture --json` |
 | Find a named symbol | `bash .claude/skills/codebase-index/scripts/cbx symbol 'X' --json` |
@@ -55,7 +55,8 @@ two and not the third. Write a single quote inside the term as `'\''`.
 default is ten and no configuration file changes it — `cli.py` and the MCP
 server each hardcode the number — so the seven results past the third arrive
 whether or not they are read, and on this corpus they find the implementation
-no more often than the first three do.
+no more often than the first three do. `test_index_skill_examples.py` holds
+every `search` line under this skill to that value.
 
 Which section owns a rule is not a question for this index: half those
 answers are absent from ten results and the rest rank below the fifth, so
@@ -63,8 +64,16 @@ grep the product specification `docs/harness-local.md` *Documents* names
 instead of widening.
 
 Use `search --mode symbol` for exact symbol work, `--mode fts` for text and
-error messages, and the default `hybrid` mode for mixed questions. Use pure
-`vector` mode only when embeddings are enabled and exact vocabulary is unknown.
+error messages, and the default `hybrid` mode for mixed questions. The
+embeddings backend is the package's default, `noop`, and stays there, so pure
+`vector` mode has nothing to search: local embeddings were measured on
+2026-09-21 and rejected. On a
+fourteen-question benchmark they lowered code retrieval from 8/8 to 6/8 at
+`--limit 3`, gained nothing on rule ownership that the grep above does not,
+and cost about 3 GB of packages, a 326-second vector build and a model load
+per query; and `codebase-index` 2.0.0 cannot build their table as shipped,
+since it sizes the vector column from a `dim` set only inside `embed()`. Do
+not turn them on again without a new reason.
 
 Read [references/commands.md](references/commands.md) only when command options
 or routing remain unclear.

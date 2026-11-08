@@ -7,8 +7,8 @@ the whole is about 31k. `Grep -n "^## <title>"` gives its first line.
 
 | Section | What it covers |
 |---|---|
-| Purpose and provenance of this file | Why the section left backend's CLAUDE.md, the four edits made in the move, and the two passages since moved to backend's residuals. |
-| Edit denies and agent self-protection | Edit-only file rules, the denied .claude trees, and why the skill and index-wrapper grants need guarding. |
+| Purpose and provenance of this file | Why the section left backend's CLAUDE.md, the four edits made in the move, and the three passages since moved to backend's residuals. |
+| Edit denies and agent self-protection | Edit-only file rules, the denied .claude and .harness trees, and why the skill and index-wrapper grants need guarding. |
 | Index refresh and worktree seeding | The PostToolUse refresh hook, seeding worktree indexes, carrying MCP approval into forks, and the SessionStart refresh. |
 | Index hint hooks and hook wiring | Query, search and MCP-root hooks, MCP_TIMEOUT, and why hook commands run without a shell. |
 | Settings self-lock and permission root | The settings.json self-lock and its delay, settings.local.json, how EnterWorktree moves rules, and the hooks deny. |
@@ -29,6 +29,7 @@ the whole is about 31k. `Grep -n "^## <title>"` gives its first line.
 | Normalisation, residuals and the sweeps | Unicode and per-directory traits, the .. admission, out-of-tree residual, how the sweeps share worktrees, and their slice lists and ref. |
 | The sed line-ending guard | guard-sed-crlf.py refusing `sed -i` on a tracked CRLF file: what it reads, what a crafted path makes it run, where it fails open, and its residuals. |
 | Headless dispatched sessions | Unattended `claude -p` executors, what holds them, why no grant was added, and the night's residuals: a refusal read in the morning, and the weekly stop. |
+| The suite's shard runner | shard-harness-suite.py dealing the `.claude/scripts` classes to parallel workers, what it may never stop placing, its tables, and its one-run-per-user lock. |
 | Managed files | Which paths blueprint-harness owns and where they are changed, the `local` paths a repository keeps, and the drift gate that holds them. |
 
 ## Purpose and provenance of this file
@@ -55,10 +56,12 @@ count of rotted totals said "in this file" of `CLAUDE.md` and named two siblings
 that now live in two other files, and the sandbox residual said the commands
 cite "this file" — true while it sat in `CLAUDE.md`, and a contradiction of the
 paragraph below the moment it moved. Not one argument was shortened, and no
-paragraph was dropped. Two were later moved out when the file became the
+paragraph was dropped. Three were later moved out when the file became the
 harness's, because only backend's own commands make them true: the callout
-on what backend's link and blueprint checks read, and the paragraph on its
-mutation sweep. They are backend's residuals now.
+on what backend's link and blueprint checks read, the paragraph on its
+mutation sweep, and the ninth entry's argument on a build tool's grants,
+which that entry now summarises and hands over. They are backend's
+residuals now.
 
 **The second of those was found by review rather than by the move**, which is
 worth recording where the edits are listed: a self-reference that stays *true
@@ -147,6 +150,19 @@ in the code can reach a second peer as a claim. The residual is that
 supports the claim; the owner's decision at the end, made with the shell
 the peers were denied, is the only check of that
 ([`docs/commands/team.md`](commands/team.md)).
+
+**`.harness/**` is the same argument one level further up.** Its
+`config.json` is what the next sync adds to the base settings to render
+`.claude/settings.json`, and its `sweep-rows.tsv` decides what the sweeps
+read; the rest is managed or written by `apply`. A session that could edit
+the config could not unlock itself, since the config cannot remove a base
+deny, the change shows in its pull request's diff and it takes a render to
+apply, but it could widen `allow` or drop a target's own denies, and would
+hand every reviewer a settings file to re-read for what changed. So a change
+to anything under `.harness/` is the owner's, as one to
+`.claude/settings.json` is; the deny names the whole directory rather than
+the config alone, because a sweep able to narrow its own rows has audited
+less than it reports.
 
 **`.claude/skills/**` is the same argument one directory over.** A skill's
 `allowed-tools` is auto-approval, so a session that can rewrite `SKILL.md`
@@ -383,10 +399,13 @@ file.
 `gate-index.py`, which loads this hook and asks `index_openable` of the
 working directory and of the checkout git puts it in; exit 3 is a refusal,
 and no Python 3.12 is exit 4 rather than a pass, since the CLI would open an
-index nobody judged. `cbx.ps1` runs no gate: the skill neither grants nor
-teaches it, so a session reaches it only through a prompt, and the window
-between the gate's look and the CLI's own open is the one every check here
-leaves.
+index nobody judged. `cbx.ps1` runs the same `gate-index.py` inside its `try`,
+under the first `py -3.12` or 3.12 `python`; the gate's exit becomes the
+script's and the CLI starts only when none was set, so the one `exit` after
+the `finally` still holds. `test_cbx.py`'s launcher stubs answer the gate's
+`-I` call with the exit `CBX_STUB_GATE_EXIT` names; the bash wrapper's
+stubs always pass it. The window between the
+gate's look and the CLI's own open is the one every check here leaves.
 
 **The approval of `.mcp.json`'s servers belongs to a directory, so the fork
 carries it.** A session started in a worktree reads that worktree's own
@@ -407,10 +426,10 @@ walking up, because the helper forks only under `.claude/worktrees/` and the
 worktree has none of its own. Two residuals stand. The helper writes a file
 the session's `Edit` is denied, and what it writes is one key read from a
 file the session is denied too, or, under an approve-all, from `.mcp.json`,
-which the session may edit but whose servers the main checkout's approve-all
-already approves. And the approval names servers rather than
-definitions, so a `.mcp.json` that reaches a worktree through git,
-force-added past the ignore, is found before the main checkout's and
+which the session's `Edit` is denied as well and whose servers the main
+checkout's approve-all already approves. And the approval names servers
+rather than definitions, so a `.mcp.json` that reaches a worktree through
+git, force-added past the ignore, is found before the main checkout's and
 approved under the same name without a prompt. The fork writes nothing at a
 `settings.local.json` the branch already carries, a dangling link included,
 and the locality gate refuses a pull request that leaves an ignored path in
@@ -499,15 +518,19 @@ its profile may hold neither the MCP tools nor a shell.
 starts with `--root .` in the directory the session started in, and
 `EnterWorktree` does not restart it, so after the move its answers describe
 the main checkout's index and not the branch's edits (#563); `cbx`, run from
-the worktree, reads the worktree's own seeded index. So in a `/branch`
-worktree the reason names the skill and the CLI alone, each command alone on
-its line because `guard-index-argv.py` refuses a shared one, and elsewhere
-the MCP tools alone, with the ToolSearch spelling that loads them. A server
-that follows the session is not something `.mcp.json` can say.
-`test_index_search_hint.py` holds the wiring, what is refused and when, and
-the commands it emits to prefixes the skill approves;
-`test_index_query_hint.py` holds the two hooks to one map from question to
-tool.
+the worktree, reads the worktree's own seeded index. So where the session
+stands in another checkout than the one `CLAUDE_PROJECT_DIR` names, the reason
+names the skill and the CLI alone, each command alone on its line because
+`guard-index-argv.py` refuses a shared one, and elsewhere the MCP tools alone,
+with the ToolSearch spelling that loads them. That is the comparison
+`index-mcp-root.py` below refuses a call on, so a session started in a worktree
+is sent to the MCP tools there, and one that moved back to the main checkout
+to the CLI. With no such variable, or no checkout at either end, a linked
+worktree is taken to be off the server. A server that follows the session is
+not something `.mcp.json` can say. `test_index_search_hint.py` holds the wiring,
+what is refused and when, the route against that hook's refusal, and the
+commands it emits to prefixes the skill approves; `test_index_query_hint.py`
+holds the two hooks to one map from question to tool.
 
 **`PreToolUse` runs `.claude/hooks/index-mcp-root.py` before every
 `codebase-index` MCP tool, because naming the CLI did not stop the MCP
@@ -630,6 +653,17 @@ the window closes on its own schedule and a defect found afterwards needs the
 lift granted again. That happened on the PR that added the argv guard — the
 guard shipped refusing its own commit message, and the fix needed a second
 lift.
+
+**A lift lags the same way, and a relaunch is what ends it.** Measured in
+blueprint-backend on 2026-09-21: with the four `Edit(...)` deny lines deleted
+from the worktree's `.claude/settings.json` and the file read back, an `Edit`
+of `.claude/commands/ship.md` was still refused as *in a directory that is
+denied by your permission settings*. So a session needing an edit under
+`.claude/` has the owner lift the deny and relaunch Claude Code from the
+worktree directory, where `/ship` step 0 stays in the unfinished worktree;
+launched from the main checkout, `/branch` stops on a slug already taken.
+The denies name directories, not the manifest, so a path a target lists
+under `local` in a denied directory is refused exactly as a managed one is.
 
 **`.claude/settings.local.json` was the gap a review found**, and it is the
 enumeration lesson in miniature: an exact-file rule cannot cover a sibling, and
@@ -772,7 +806,11 @@ otherwise: it refuses a command substitution anywhere in a command that runs a
 for its own. So `oid=$(git rev-parse HEAD)` and a helper line beneath it are
 refused though that line is clean: a heredoc's substitution runs for the
 helper's stdin on no helper line, so the whole command is what is judged, and
-such a value is read in a call of its own. It leaves the `.sh` helpers, whose
+such a value is read in a call of its own. It takes the command word past
+assignment prefixes, `env`, `timeout`, `nice`, `nohup`, `stdbuf`, `time`,
+`command` and `exec`, the interpreter's value flags (`py -X utf8`) and gh's
+`--repo`, as `guard-sed-crlf.py` does; a wrapper it does not name (`xargs`,
+`sudo`, `bash -c`) is a residual. It leaves the `.sh` helpers, whose
 arguments are numbers and names, and it judges substitutions alone: a second
 command is the grant's own matching.
 
@@ -1003,6 +1041,7 @@ row is therefore a spelling the deny list does not match.
 | Edit the git directory itself | `Edit(.git)` | `deny` | `test_destructive_classes.py` |
 | Edit the MCP server definitions | `Edit(.mcp.json)` | `deny` | `test_destructive_classes.py` |
 | Edit the index's ignore list | `Edit(.codeindexignore)` | `deny` | `test_destructive_classes.py` |
+| Edit the harness config | `Edit(.harness/config.json)` | `deny` | `test_destructive_classes.py` |
 | Edit a hook through a link | `Edit(linked/hooks/guard-git-argv.py)` | `guard-edit-target` | `test_destructive_classes.py` |
 | Edit the settings through a link | `Edit(linked/claude/settings.json)` | `guard-edit-target` | `test_destructive_classes.py` |
 | Edit the agent notes through a link | `Edit(linked/remember/notes.md)` | `guard-edit-target` | `test_destructive_classes.py` |
@@ -1332,11 +1371,16 @@ is named and the start refuses a dirty tree; `--merge` keeps the apply backend
 out, which leaves a commit it never applied looking like one a resolution
 emptied), takes one branch name that has to equal the one checked out, refuses
 `main` by name before it reads the checkout at all, refuses a remote holding
-commits this checkout lacks, and leases the push against the commit the same
-run read. **A rule could have bought none of that**: a permission pattern
-matches the text of a command, and every guard in that list is a fact about
-the checkout. Which is the general form — where the safety is a property of
-the state rather than of the words, the grant has to be a helper.
+commits this checkout lacks, leases the push against the commit the same run
+read, and refuses (exit 7) an `origin` with more than one push URL, or whose
+one URL, after `pushurl`, `pushInsteadOf` and `insteadOf`, names another host
+or path than the URL the remote was added with. A protocol rewrite on one host
+passes, and a URL with no host and path to compare has no key and is refused:
+`file://`, `ext::`, a one-component hosted path, a dot or empty segment, a
+query or a fragment. **A rule could have bought none of that**: a permission
+pattern matches the text of a command, and every guard in that list is a fact
+about the checkout. Which is the general form — where the safety is a property
+of the state rather than of the words, the grant has to be a helper.
 
 **A second helper rewrites published commits, and is a second force push.**
 `git-trailer-pr.sh` adds `PR: #<n>` to the commits of the branch checked out,
@@ -1346,7 +1390,9 @@ It takes one number and spells the `git rebase -x` command itself, so no
 folded as the rebase helper folds it, a pull request that is not an open,
 same-repository one into `main` for this branch, a dirty tree, a remote that
 differs from the checkout in either direction, a merge commit, and a commit
-that already names another pull request. Its residual is a push that fails
+that already names another pull request. A rewrite failing on `index.lock`, as
+one does when a concurrent git reader holds the index, is aborted and tried
+once more; any other failure stops. Its residual is a push that fails
 after the rewrite: the local branch then carries the trailers and origin's
 does not, and a rerun finishes it, because a commit that has the trailer is
 skipped. `git-revert-pr.sh` writes no remote; it reads trailers off
@@ -1457,12 +1503,18 @@ the path and root checks are `git-worktree-fork.sh`'s; a branch that exists
 locally, or that origin lacks, is refused. A name that matches is not a proved
 sync, which is `sync_pr.py verify`'s to say, and `/ship` and `/dispatch` run it
 before the helper. Residual: called directly, the helper opens any branch named
-like a sync, which it checks out and runs nothing in.
+like a sync, which it checks out and runs nothing in. The helper also seeds
+neither the MCP approval nor the code index that `git-worktree-fork.sh` does,
+and that is left so: a sync run reads a diff and runs suites, which need no
+index, and a session an owner opens there sees `codebase-index` pending until
+they approve it. Seeding would add a read of the main checkout's `.mcp.json`
+and settings to a grant that is meant to do two git commands and nothing else.
 
 **`Bash(py -3.12 -m unittest discover:*)` runs the code of whatever tree it is
 pointed at, and is `/ship`'s alone.** A sync's step 2 runs the target-local
-suites with it, and a prefix grant cannot pin `-s`, so what bounds it is where
-it runs: only in a worktree whose `HEAD` equals the proved oid and whose `git
+suites with it, as it runs the payload suites `sync_pr.py` names as walking its
+commands, and a prefix grant cannot pin `-s`, so what bounds it is where it
+runs: only in a worktree whose `HEAD` equals the proved oid and whose `git
 status --short` is empty, which the sync section requires before anything in the
 tree runs, and which `dispatch_board.py sync-launch` and `run` compare before a
 `--dispatched` run starts in it. The settings do not allow it, so no other
@@ -1648,13 +1700,20 @@ since git permits a newline in a name, so each arrives JSON-encoded and is
 printed only if it decodes to a plain path: no escape, path characters
 only, a `/` or a `.` in it, no `..` segment. Any other name refuses the
 whole run, because a verdict list with one line withheld reads as complete.
+For the same reason it reads the pull request's `changedFiles` and exits 3
+when the endpoint's count of `filename`s differs, a rename being one file: the
+endpoint stops short of a very large pull request, and a short list would print
+verdicts for part of the diff.
 
 **Its grammar refuses rather than guesses.** A body carrying neither row
 prints nothing, and the caller skips its touch-set check and says so; one
 row without the other is refused, because each caller reads the pair. A
 class cell is one letter A–E, two distinct letters joined by `+`, or
 `A+D+E`; a touch-set cell is a comma-separated list of path tokens, bare or
-in balanced backticks, of path and glob characters, each carrying a `/` or a
+in balanced backticks, a backticked one optionally followed by a space and its
+reason in parentheses (no backtick, no nested parenthesis; dropped unread,
+never printed, and its commas and braces its own), of path and glob
+characters, each carrying a `/` or a
 `.` and each repository-relative — no leading `/`, no `./`, no `..`, brace
 alternatives included. A token may hold `@` and `+` as a changed path may,
 the `+` read as a character and not as a quantifier, in the class map's items
@@ -1677,7 +1736,7 @@ authority, an `outside` or `outside-class` line is a finding, and an
 tree needs.** It admits `@` and `+`, as a changed path may. A target's own
 locality gate is that target's file and must be widened in step, and a gate
 that is not refuses them: until it is, a row naming `@` or `+` reads `inside`
-here and is refused in CI. Backend's gate is such a one today. A token both
+here and is refused in CI. A token both
 admit is held to one answer by the target's own suite, not by this one.
 
 **Every `gh` read these helpers make is bounded, because one that stalls
@@ -1689,7 +1748,16 @@ running at `GH_READ_BOUND_SECONDS` with `timeout`'s exit 124 and a line on
 stderr naming the call. A stall then fails as loudly as a refused login
 does, rather than looking like a slow API. `test_pr_helpers.py` runs every
 `pr-*.sh` against a `gh` that never answers, so a helper added later is held
-to the bound by the glob rather than by someone remembering it.
+to the bound by the glob rather than by someone remembering it. macOS ships
+no `timeout`, and every helper reading through it exited 127 there (#191),
+so the file's `bounded`, which `gh_read`, `gh-issue-harness.sh` and
+`hint-bound.sh` all run under, takes GNU `timeout` where it is installed
+and otherwise a watchdog sending TERM to the command it started, answering
+124 the same way. Unlike `timeout`, it does not signal the command's process
+group, so a command that leaves work in a child it did not `exec` keeps that
+child past the bound; `gh` is one process. `GH_READ_TIMEOUT` names the
+program it looks for, so the stalled-read and pass-through cases and every
+`hint-bound.sh` case also run under the watchdog on hosts that have `timeout`.
 
 ## Sweep push denies and chained commands
 
@@ -2170,7 +2238,10 @@ a worktree the next sweep's start can drop.
 `sweep-slices.sh` writes its slice lists to the worktree's path plus
 `.slices`, a name it derives from the same checked shape rather than takes,
 and `git-worktree-drop.sh` removes that directory once git has removed the
-worktree. `sweep-mark.sh` moves `refs/sweeps/bug` or `refs/sweeps/security`
+worktree, a half-finished removal included: where git unregistered the worktree
+and failed to delete its tree, an empty directory goes and any other is named,
+exit 4, for the owner to remove, since no later sweep's start can see it.
+`sweep-mark.sh` moves `refs/sweeps/bug` or `refs/sweeps/security`
 to a commit, and only to an existing one by its full SHA. The ref is local
 and a missing one means a full sweep, so the write can make a later sweep
 read less only by pointing at a commit that really was swept clean; a
@@ -2323,6 +2394,15 @@ crash, never a success.
 
 **Residuals.**
 
+- The dispatcher's and `issue_decisions.py`'s `path_which` take a `.bat` or
+  `.cmd` that `PATHEXT` names, where `refresh-index.py`'s `on_path` takes only
+  `.exe` and `.com`. The decision (issue #130) is to keep it: `claude`
+  installed by npm is a `.cmd`, so refusing one would stop `/dispatch` on such
+  a machine. The other two rules bound it: only an absolute `PATH` entry is
+  searched and never the working directory, and `dispatch_run.py` passes
+  `claude` fixed arguments with its prompt on stdin, so no issue or executor
+  text reaches the command interpreter. A planted batch file needs write
+  access to a `PATH` directory, which already runs code.
 - A refusal at night is a hand-back. `result` classifies it, the morning
   report shows it, and the grant is never widened to get past it (the
   spec's §2, its last anti-goal).
@@ -2339,6 +2419,52 @@ crash, never a success.
   and held, and the rebuild and the interview read its text. A collaborator's
   is held like a stranger's, and under a repository an organisation owns every
   row is, since no author is the organisation's login: the cautious side.
+
+## The suite's shard runner
+
+**`py -3.12 .claude/scripts/shard-harness-suite.py` is the `.claude/scripts`
+suite, run in parallel.** It takes no arguments and exits 0 only when every
+discovered test ran and passed or skipped itself, as a case does on a host
+without what it needs. `.claude/scripts` is its one root, the tree
+every target holds; a gate's suite or a stack's root is the target's to run
+beside it. `python` will do where `py` is not installed.
+
+**It deals classes from a queue to parallel workers.** The unit is the class,
+since a class is what shares a fixture, and the count is the host's cores
+capped at the measured knee. A worker takes the next unit when it finishes the
+last, longest first, so a wrong guess at a class's cost costs that class rather
+than a whole worker.
+
+**What a splitter may never do is stop placing a class.** Every worker green
+and one class never run is the most-repeated failure of
+`.harness/agent-rules.md` in its cheapest form. So placement comes from
+discovery, with no list written by hand, and `test_harness_shards.py` compares
+the units back against discovery. Every unit has to come back finished, a
+worker refuses an id discovery does not hold rather than reporting a pass, and
+a root that discovers nothing refuses the run. A unit is claimed by creating
+its claim file exclusively, and a rename is not exclusive on Windows.
+
+**Each class runs as its own suite.** Its time is measured whole, and module
+cleanups run between two classes of one worker, so a fixture a module caches
+has to be built again after one. Class sharding cannot split a class, so the
+run never takes less than its slowest one, which is why the worker count is
+capped rather than tuned.
+
+**Two of its three tables are not about speed.** `SERIAL` holds the classes
+whose subject is elapsed time, `TOGETHER` the ones sharing the `secsweep-*`
+namespace in the temp root and this checkout's own `.git`, and `WEIGHT` only
+orders the queue. A name in any of them that no longer resolves fails a test, so
+a renamed class loses its pinning loudly. A target's `local` test module is
+placed on its test count and needs no entry.
+
+**One run at a time, per user.** A run takes a lock named for the user in their
+temp directory before it discovers anything, and a second run, from another
+session, worktree or target, waits and says so. Two at once ran twice the
+workers the host holds and each took about three times as long. The lock spans
+what one user runs, which on a developer's machine is every session that could
+collide; another user's runs, or one under a different `TMPDIR`, are not held by
+it. The operating system drops the lock with the process that held it, so there
+is nothing stale to clear.
 
 ## Managed files
 
@@ -2360,7 +2486,19 @@ repository's own file and never in the manifest. That is the one change a
 target makes to a managed path itself: a pull request that changes the
 config carries the re-rendered `.claude/settings.json` and
 `.harness/manifest.json`, rendered at the commit the manifest already names
-(the drift gate's README, *Changing this repository's config*).
+(the drift gate's README, *Changing this repository's config*). The config
+is Edit-denied with the rest of `.harness/` (*Edit denies and agent
+self-protection*), so that change is the owner's to make or lift.
+
+**A target's stack grant goes in the config's `allow` too**, such as the
+check runner its *Ship checks* names. It is granted to every turn of every
+session there, not only to the commands that run it, and that is accepted:
+the runner is a script under `.claude/scripts/`, Edit-denied, so the grant
+admits one fixed endpoint a session cannot rewrite. A per-command route was
+rejected: it would make every managed command a rendered file, differing
+from the payload by each target's lines, and the drift gate and `sync_pr.py
+verify`, which hold a managed file to the payload's content, would each need
+a second renderer to judge it.
 
 **A path the config lists under `local` is the repository's own**, even
 inside a managed directory: a sync neither writes nor deletes it.
