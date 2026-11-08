@@ -68,6 +68,23 @@ the report: the push did not happen, the `! git push -u origin <branch>` line
 for the caller, and the user-level `autoMode.environment` setting that removes
 the need. A resumed run lands at the *clean and pushed* row.
 
+**A refused merge is the same stop at the other end of the chain.** The
+auto-mode classifier can refuse `gh-pr-merge.sh` with no exit code and no hook
+reason after every step 6 gate has passed: blueprint-admin measured it (its
+#613), as "Merge Without Review" with a clean review behind it and `/ship`'s own
+grant on the helper, and it let another merge through the same day. So the step
+is tried rather than skipped, and a refusal is reported, never retried by
+another spelling and never answered with a branch update, which would rewrite a
+reviewed head and answer nothing, since GitHub was not what refused. The PR did
+not merge, and the caller gets the `! bash .claude/scripts/gh-pr-merge.sh <n>
+<oid>` line with the oid the gates read. The owner's merge leaves the run at the
+*already merged* row: step 0 tears the workspace down, and the task list row
+step 6's teardown would have deleted goes then. What lifts it is the user's own
+`autoMode` settings, not a grant here, and admin's `autoMode.allow` entry for
+the helper is the expected remedy rather than a measured one; that record is
+admin's, and `docs/harness/pitfalls.md` says only that the classifier refuses
+some outward writes.
+
 **The review hitting its ceiling is not in the runbook's stop table.** A
 ceiling ends the review — it reports itself unconverged and step 6 merges
 anyway, because a budget running out is not a verdict. Reading it as a
@@ -185,9 +202,10 @@ it waited for has merged finds that worktree and branch where the unmerged
 ending left them, and the helper would refuse a second make, so the run enters
 the one that exists and makes the same comparisons.
 
-**Step 2 runs the target's own suites and nothing else.** The managed files were
-checked in the harness, so *Ship checks* would read them a second time; what the
-harness never runs is the target-local test a payload change can trip
+**Step 2 runs the target's own suites and the payload suites `sync_pr.py` names
+as walking its commands, and nothing else.** The managed files were checked in
+the harness, so *Ship checks* would read them a second time; what the harness
+never runs is the target-local test or command a payload change can trip
 (`docs/harness/working-rules.md`). Each is run as CI runs it, with `discover -s
 <dir> -p <file>`, because it imports its siblings from its own directory and a
 dotted module name cannot be formed from `.claude/` or `.github/comment-gate/`.
@@ -196,7 +214,9 @@ be named by its own grants. A failing suite has no ending of its own, since step
 2 otherwise says to fix what the checks find and a sync branch is never
 committed to: it is a target-local finding, filed in the target, and the sync
 ends unmerged or is handed back with no round run, because the code under test
-is the target's and a review of the managed files cannot clear it. A re-take
+(or the command a walker refuses) is the target's and a review of the managed
+files cannot clear it.
+A re-take
 keeps `HEAD` at `<oid>` and so reruns the head's old copy of the suite: the fix
 the finding waits for is on `main`, not in this head, so only a later sync cut
 from the fixed `main` clears it. A finding in a local file the round reads is
@@ -228,34 +248,38 @@ in the target, and this sync is taken again once that merges. The harness is not
 the checkout's repository, so a payload finding is filed with
 `gh-issue-harness.sh`, whose repository is a literal and which only `/ship`
 holds: a route or repository word to `gh-issue-create.sh` would be declared by
-the caller, which is why no command is granted that helper. A
-`low` goes where its code is, as the user-level filing rule sends it: a payload
-one into the one harness issue, and a target-local one into the target's own
-one; the merge goes on, and a `nit` is not filed. The harness filer only creates
-on a first filing: a re-taken sync meets the issue its first round filed, so it
-first searches the open issues for that exact title, with every call under a
-timeout, and comments on a match, and a failed search files nothing. Its area is
-the finding's tree, as `docs/harness/working-rules.md` maps it: `.claude/` is
-`harness`, other prose `documentation`, the rest `code`, with `test` beside
-`harness` or `code` for a suite. A target-local low goes through
-`gh-issue-hand.sh`, which always creates, so a re-take reads
-`gh-issue-list.sh` first, and where an open issue already holds that title
-nothing is filed. A low that issue does not list stays in the run's report,
-naming the open issue's number, and under `--dispatched` in the result's
-`decisions`, since a dispatched merge's result has no other slot for it, and
-since the check is by title and not by item. A re-take that cannot find the
-citing line it raised gets the review diff's citations from main's tip and not
-the head's, because a sync never changes a local file and the head is not
-rebased, so its copy still holds a line the target's own fix removed. A
-hand-back for a low would be a stop, and the rule already sends lows to an
-issue.
+the caller, which is why no command is granted that helper. A `low` goes where
+its code is, as the user-level filing rule sends it: a payload one into the one
+harness issue, and a target-local one into the target's own one; the merge goes
+on, and a `nit` is not filed. The harness filer only creates on a first filing:
+a re-taken sync meets the issue its first round filed, so it first searches the
+open issues for that exact title, with every call under a timeout, and comments
+on a match, and a failed search files nothing. Its area is the finding's tree,
+as `docs/harness/working-rules.md` maps it: `.claude/` is `harness`, other prose
+`documentation`, the rest `code`, with `test` beside `harness` or `code` for a
+suite. A target-local low goes through `gh-issue-hand.sh`, which always creates,
+so a re-take reads `gh-issue-list.sh` first, and where an open issue already
+holds that title nothing is filed, but only where `gh-issue-suppresses.sh
+<number>` exits 0 on it, as the sweeps gate their own skip: a title alone would
+let anyone able to open an issue of that exact title suppress the low, and an
+issue the owner did not open, or a lookup that exits 3, suppresses nothing. A
+low that issue does not list stays in the run's report, naming the open issue's
+number, and under `--dispatched` in the result's `decisions`, since a dispatched
+merge's result has no other slot for it, and since the check is by title and not
+by item. A re-take that cannot find the citing line it raised gets the review
+diff's citations from main's tip and not the head's, because a sync never
+changes a local file and the head is not rebased, so its copy still holds a line
+the target's own fix removed. A hand-back for a low would be a stop, and the
+rule already sends lows to an issue.
 
 **Step 6 verifies again after a rebase, and that replaces the recheck.** A
 rebase rewrites the head, so what was proved is gone, and `verify` on the new
 head is the proof again. The step's ordinary route re-enters step 5 for a
 recheck after a rebase; a sync keeps its one round, because the verify compares
 the new head's managed files by blob id. A failed verify is handed back, as the
-first one is.
+first one is, and so is a rebase that took the helper's `continue`: a conflict
+resolved by hand may have changed the head's own `sync_pr.py`, and the verify
+would then run the very file it is proving.
 
 **What was proved is what runs and merges, so the proof carries the head, and
 the first proof is not made by the tree it proves.** A `verify` run inside the
@@ -642,6 +666,17 @@ carries on with the current branch, and the assumption is said aloud, with
 the branch and the directory named, so a tree that has drifted onto the
 wrong one is visible before anything is committed to it.
 
+**Then the change itself, and its code is found through the index before it is
+read.** The prompt-time hint cannot do this for a run: it reads a `/ship`
+argument as a question, and an issue number or a plan's task is none. So the
+runbook names the skill's `search`, `refs` and `impact` lines, and grants them,
+since the skill's own grant holds only once it is loaded and a dispatched run's
+every shell read has to be one its grants name. `update` and `index`, which
+write the cache, stay the skill's. **An empty `refs` or `impact` is never an
+absence**, the skill's confidence contract says when to read further, and a
+`cbx` that cannot answer is not one of the stops: a target may have no index,
+and the index speeds the run without being what makes it correct.
+
 ## Step 2: checks
 
 **The checks are the target's, and follow the class the PR body will
@@ -742,6 +777,17 @@ a lease would be satisfied by them because they have been fetched.
 told what the author thinks is a second copy of the author. Step 6 refuses a
 head no round read, so each round's `git rev-parse HEAD` is recorded when its
 input is written.
+
+**A full pass starts from the diff's blast radius.** `diff-impact` names the
+symbols and files the diff reaches through the graph, beyond the lines a
+reviewer quotes, and a contradiction outside the changed lines lives there. It
+is read against the merge base, which `git merge-base origin/main HEAD` answers
+under an exact grant, because its default of `HEAD` compares nothing on a clean
+branch. It names no absences, so a file it omits may still depend on the change.
+A recheck reads the diff and the findings and nothing else, so it writes none,
+which nobody would read. The reviewer never names it in `skipped`, whose other
+entries stop the chain, since an index a target lacks is not a round that did
+not run.
 
 **The bar comes from `origin/main`, never from the branch.** A change under
 `docs/harness/` is ordinary here, so a reviewer taking its bar from the
@@ -939,6 +985,11 @@ to perform. The rule is to wait for the run on the pushed head; `--watch`
 is the spelling that actually does, and `--fail-fast` returns the moment
 one check fails rather than sitting out the rest.
 
+**`--interval 60` is what keeps the wait cheap.** Off a terminal `--watch`
+prints the whole table again every interval, ten seconds by default. A minute is
+a sixth of the repeats and costs at most that much latency on a run of minutes;
+blueprint-admin read about a quarter less text a call (its #225).
+
 **`headRefOid` is read here, before the checks and before the merge**, and
 it is the `<oid>` the merge below matches on. Reading it afterwards would
 defeat the point: the value has to come from the same look that decided the
@@ -950,12 +1001,14 @@ red `main` is not a recommended option**, and a conflicted branch is a
 question about the caller's tree that this chain cannot answer. Either one
 stops here and is reported as what it is.
 
-**`MERGEABLE` is GitHub's answer about a merge commit, and the step below
-asks for a rebase**, which replays each commit and can conflict where
-merging the same branch would not. So the landing may be refused after this
-read said yes. That failure is loud and it lands *before* the teardown, so
-the workspace is intact when the chain stops: report the refusal rather
-than reaching for another method.
+**`MERGEABLE` is GitHub's answer about a merge commit, and the step below asks
+for a rebase**, which replays each commit and can conflict where merging the
+same branch would not. So the landing may be refused after this read said yes.
+That failure is loud and it lands *before* the teardown, so the workspace is
+intact when the chain stops: report the refusal rather than reaching for another
+method. **This is GitHub refusing the rebase, and the helper exits non-zero.** A
+refusal by the auto-mode classifier, with no exit code, is the refused-merge
+stop instead (*It runs to the end*), and no branch update answers it.
 
 `git-rebase-onto-main.sh`, the runbook's step 6 branch update, replays the
 branch onto `origin/main` and publishes the result under a lease. **A conflict
@@ -1136,6 +1189,21 @@ rule rather than complied with it.
 four of them depend on which outcome step 1 produced; the line numbers
 below are that block's.
 
+**A usage exit after line 5's pull is repeated from the pulled text.** Step 6
+has a second pull, the fast-forward before a recheck, and a usage exit after
+that one is not this exception. Off `main` line 5 fetches only and changes
+nothing in the tree, so the pull did not cause a usage exit there and pulled
+text cannot settle it: it is a stop, not this exception. The run's
+`/ship` text was loaded before the merge, and line 5's pull can bring a helper
+whose arguments a sync changed (`git-worktree-remove.sh` gaining `<branch>`:
+line 7 exited 2 on the old text's missing `<branch>`, and the drop then exited
+4 with the branch still checked out). Read literally, line 7's exit is a stop,
+though the merge had landed; so the run reads the teardown again from the file
+the pull brought and repeats it from the line that exited (line 7 only on a
+forked run whose line 7 has not exited 0, since an in-place run skips it and a
+second run of it exits 3), and the report says so. (Found by the run of
+blueprint-harness sync #140: blueprint-harness#141.)
+
 **`main` ends at a descendant of the merge, not at the merge**, and the
 ancestry check is what says so honestly. Another PR merging between this
 merge and the pull leaves local `main` correctly ahead of this run's oid —
@@ -1183,12 +1251,17 @@ main checkout — so line 3 is the only thing that makes the pull mean `main`.
 Running line 7 anyway exits non-zero against a worktree that never existed
 and stops the chain on a helper failure with nothing behind it.
 
-**The task-list row `/branch` added is deleted once the merge is verified**,
-after the pull, by the file's own path, which `.harness/agent-rules.md`,
-*Working in a target*, puts outside every checkout so that the isolation refuses
-it to no workspace. Nothing else removes it: a row left behind reads as work
-still in progress after the PR has landed, which is what *In progress* exists
-not to say.
+**The task-list rows of this change are re-derived when the nine lines end**, at
+line 9 or at a line that stops them after the verified merge, which deletes
+the row `/branch` added unless its issue stays open, by the file's own path,
+which `.harness/agent-rules.md`, *Working in a target*, puts outside every
+checkout so that the isolation refuses it to no workspace. Nothing else removes
+it: a row left behind reads as work still in progress after the PR has landed,
+which is what *In progress* exists not to say. An issue the merge left open, one
+a later pull request of a set closes, is still open work, so its row goes where
+`docs/harness/working-rules.md`, *Issues and the task list*, puts it rather than
+off the list. It reads the branch as those lines left it, since read earlier
+the branch still stands and the row stays *In progress* naming one about to go.
 
 Line 5 runs on both paths, the pull on `main` or the fetch elsewhere,
 because skipping it leaves local `main` a merge behind — precisely the state

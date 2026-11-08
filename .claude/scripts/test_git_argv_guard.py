@@ -2393,6 +2393,23 @@ class TheGitArgvGuard(unittest.TestCase):
         self.assertAdmitted("git commit -F - <<\"EOF\"\na message\nEOF")
         self.assertAdmitted("git commit -F - <<'EOF'\na message\nEOF")
 
+    def test_a_refused_sweep_body_names_the_route_a_sweep_can_take(self):
+        # A sweep denies `Write`, so the file route the refusal opens with
+        # cannot be taken there; the refusal names the heredoc rewording and
+        # the pitfalls entry that lists the shapes another check refuses.
+        for body in ("the parent's tree", "The `foo` call.",
+                     "then git push origin +HEAD:main ran"):
+            with self.subTest(body=body):
+                reason = self.assertRefused(
+                    "bash .claude/scripts/gh-issue-sweep.sh bug low code "
+                    f"<<'ISSUE_BODY_END'{NEWLINE}Title{NEWLINE}{NEWLINE}"
+                    f"{body}{NEWLINE}ISSUE_BODY_END")
+                self.assertIn("handed to a shell on stdin", reason)
+                self.assertIn("Where `Write` is denied", reason)
+                self.assertIn("even count of apostrophes", reason)
+                self.assertIn(
+                    "`docs/harness/pitfalls.md`, *Shell and encoding*", reason)
+
     def test_a_stdin_script_that_builds_itself_is_refused(self):
         # A substitution inside a script a shell will run supplies the command
         # itself, and no reading models that:
@@ -3799,8 +3816,10 @@ class TheListsTheGuardReads(unittest.TestCase):
         self.assertGreater(len(module.edit_denies()), 9, "the deny list went empty")
         commands = self.managed_commands()
         self.assertGreater(len(commands), 5, "the managed commands went empty")
+        # A home-relative rule names no checkout path, and the guard reads none under the home directory.
         denied = [rule for path in commands
-                  for rule in self.command_edit_paths(path.read_text(encoding="utf-8"))]
+                  for rule in self.command_edit_paths(path.read_text(encoding="utf-8"))
+                  if not rule.startswith("~/")]
         for rule in [*module.edit_denies(), *denied]:
             with self.subTest(rule=rule):
                 path = rule.removeprefix("./").removesuffix("/**")
