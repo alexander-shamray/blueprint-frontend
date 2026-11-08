@@ -2,7 +2,13 @@
 <html>
   <body>
     <script>
-      parent.postMessage(location.hash, location.origin);
+      // The code flow comes back in the query, Keycloak's default response mode for
+      // response_type=code, and a fragment response mode in the hash. angular-oauth2-oidc
+      // drops a message that does not start with '#' and parses the rest as the response,
+      // so post whichever of the two carries it, with the '#' in front (#373).
+      var inHash = /[#&](code|error)=/.test(location.hash);
+      var response = inHash ? location.hash : '#' + location.search.substring(1);
+      parent.postMessage(response, location.origin);
     </script>
   </body>
 </html>
