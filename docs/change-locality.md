@@ -309,9 +309,9 @@ only this repository has:
   path `.harness/config.json` names under `task_list`. It is for the user,
   and its layout is the backend's task list, `.todo/blueprint-backend.md`
   beside it, exactly: the rules note topmost, then **In progress**,
-  **Remaining** (a wave and group per row) and **Paused**. An issue's row
-  moves from Remaining to In progress, and leaves Remaining in the same
-  edit, when its branch is made.
+  **Remaining** (a wave and group per row), **Tracking** and **Paused**. Which
+  of them holds a row, and when it moves, is the state table in
+  `docs/harness/working-rules.md`, *Issues and the task list*.
   It lives outside the checkout because Claude Code's isolation refuses a
   session moved into `.claude/worktrees/` with `EnterWorktree` every path
   in the main checkout outside that worktree — *"Edit the worktree copy of
