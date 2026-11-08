@@ -186,8 +186,8 @@ describe('ProductPage', () => {
     expect(fixture.componentInstance.product()?.quantityAvailable).toBe(4);
   });
 
-  // Both cases land the stale reply AFTER the fresh one: in the other order the
-  // fresh reply overwrites whatever the stale one did, and the guard goes untested.
+  // The stale reply lands AFTER the fresh one: in the other order the fresh
+  // product overwrites the stale one, and the guard goes untested.
   it('reads a new product when the address changes, and drops the old reply', async () => {
     await mount(GUID_A);
     const first = controller.expectOne(url(GUID_A));
