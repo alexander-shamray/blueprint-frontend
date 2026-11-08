@@ -3,8 +3,8 @@ name: ci
 on:
   # Pushes to main only, not to every branch. A pull request already
   # triggers the pull_request event, so an unqualified `push:` ran both
-  # jobs twice for every commit on a PR branch - observed on PR #1, which
-  # opened with two `web` and two `e2e` runs for one push.
+  # jobs twice for every commit on a PR branch: a pull request opened
+  # with two `web` and two `e2e` runs for one push.
   push:
     branches: [main]
   pull_request:
@@ -28,12 +28,10 @@ jobs:
       - run: npm run build
 
   # Rebase landing puts every commit on main, and `web` lints and builds only
-  # the head. A commit that does not build costs a `git bisect` its whole
-  # range, so each one before the head is linted and built here; a red test in
-  # one costs a single step, so tests are not run (nor Playwright, nor the
-  # native jobs). One `npm ci`, repeated only for a commit whose
-  # `package-lock.json` differs from the last one installed. A pull request of
-  # one commit has nothing to build and passes (#207).
+  # the head. A commit that does not build costs a `git bisect` its whole range,
+  # so each one before the head is linted and built here; a red test in one costs
+  # a single step, so tests are not run. One `npm ci`, repeated only for a commit
+  # whose `package-lock.json` differs. A pull request of one commit passes.
   commits:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
@@ -69,28 +67,11 @@ jobs:
             echo "::endgroup::"
           done
 
-  # The production dependency tree, audited at `high` (#90). Its own job so a
-  # new advisory fails one job with one meaning and not `web`. Every pin is
-  # exact, so a finding is closed by a deliberate bump with `package-lock.json`
-  # in the same commit - never `npm audit fix`, never `npm install`.
-  #
-  # An advisory with no fixed version, or one whose path this client does not
-  # have, is allowed by id with an EXPIRY and a reason in `ALLOWED` below, not
-  # by disabling the job: an expired row fails again, and a row whose advisory
-  # has gone is reported so it gets deleted. Each row is
-  # `<GHSA id> <YYYY-MM-DD expiry> <reason>`.
-  #
-  # `npm audit` failing to answer (a registry outage) is not a clean tree, so
-  # a document with no `metadata` fails the job rather than passing it.
-  #
-  # The whole tree, the build toolchain every `npm ci` installs included, is
-  # audited at every severity, and `npm ci` itself must print no
-  # `npm warn deprecated`: a clean install is the bar, because a finding left
-  # to Dependabot waits on a parent whose own range excludes the fix (vite
-  # under @angular/build, uuid under xcode), which Dependabot cannot move. Such
-  # a finding is closed by an `overrides` entry in package.json, and one with
-  # no fixed release by an `ALLOWED` row (docs/client-architecture.md section
-  # 14).
+  # The production tree at `high` and the whole tree at every severity, in a job of its
+  # own, and `npm ci` must print no `npm warn deprecated`: docs/client-architecture.md §14
+  # owns the argument and how a finding closes. An `ALLOWED` row is
+  # `<GHSA id> <YYYY-MM-DD expiry> <reason>`. `npm audit` failing to answer is not a clean
+  # tree, so a document with no `metadata` fails the job.
   audit:
     runs-on: ubuntu-latest
     # Bounds a step that never exits, which would otherwise hold the runner
@@ -145,16 +126,11 @@ jobs:
 
   e2e:
     runs-on: ubuntu-latest
-    # The platform's images are pulled from the registry the backend
-    # publishes them to, at the tag that follows each image's newest signed
-    # build (blueprint-backend ADR-134), instead of being compiled on the
-    # runner. Only the broker is still built here. So a backend change that
-    # has not been published yet is not under test in this job. `up --wait`
-    # blocks until every health check passes, so anything that never becomes
-    # healthy hangs here rather than failing. Without a limit that hang runs
-    # to the six-hour job default, holding a runner for a result nobody is
-    # going to read. The limit is several times a cold build, so it cannot
-    # trip on a slow start; it only ever fires on something stuck.
+    # Pulls the platform's images from the backend's registry, at the tag that follows each
+    # image's newest signed build (blueprint-backend ADR-134), and builds only the broker, so
+    # an unpublished backend change is not under test. `up --wait` hangs on anything that
+    # never turns healthy, and six hours of that is a result nobody reads: the limit is
+    # several times a cold build, so it only ever fires on something stuck.
     timeout-minutes: 45
     env:
       BLUEPRINT_REGISTRY: ghcr.io/alexander-shamray/blueprint-backend
@@ -213,39 +189,11 @@ jobs:
             compose.log
             test-results/
 
-  # The harness's own suite, and it is here because three files in `.claude/`
-  # argued from a premise this repository did not make true. `/review-grok`,
-  # archived since under the tag `archive/external-reviewers`, said the
-  # tracked-symlink premise was "still gated" because "the helper suite
-  # fails on any mode 120000 in `git ls-files -s` on every push" — which was a
-  # statement about the repository this harness came from. Nothing here ran it,
-  # so a premise offered as defence in depth was resting on a gate that did not
-  # exist. Copilot's seventh round on PR #13 found the neighbouring overclaims;
-  # this one was found by sweeping for the same class.
-  #
-  # It needs no Node and no Docker. What it does need is bash,
-  # grep, git and jq, and `setUpModule` FAILS rather than skips when one is
-  # missing — a skip on a missing tool reports a pass, which is the fail-open
-  # this suite exists to refuse.
-  #
-  # Python is pinned to 3.12 because that is what the two PreToolUse hooks are
-  # invoked as in `.claude/settings.json`; running the suite on a different
-  # interpreter would verify something other than what a developer runs.
-  # **The matrix is not thoroughness, it is the module's own claim.**
-  # `test_edit_target_guard.py` says "CI runs this module on Linux, Windows
-  # and macOS for exactly that reason", and the reason is that it asserts
-  # three PLATFORM properties rather than assuming them: how `..` resolves
-  # after a link, which POSIX does against the target and Windows collapses
-  # first; whether the filesystem folds case, which is the mount's answer and
-  # not the platform's; and which link primitives exist at all. A single
-  # ubuntu runner would leave the Windows junction path and the macOS
-  # case-insensitive path unexercised while the docstring claimed otherwise —
-  # a stated coverage nothing enforces, which is the failure this repository
-  # ranks critical. Raised by Copilot against PR #13 round 8, against the job
-  # added in round 7. Each leg occupies a runner of its own, but the legs run
-  # concurrently, so one adds wall clock only when it is the last job in the
-  # run to finish. How long each takes is for the run's job timings to report,
-  # not this comment (`docs/change-locality.md` §2).
+  # The harness's own suite: docs/client-architecture.md §14 owns why it runs here, why on
+  # this matrix and why on Python 3.12, and docs/testing.md what it needs. `setUpModule` fails
+  # rather than skips when a tool is missing, since a skip on a missing tool reports a pass.
+  # Each leg takes a runner and the legs run concurrently; how long each takes is for the
+  # run's job timings to report (`docs/change-locality.md` §2).
   harness:
     strategy:
       fail-fast: false
@@ -324,13 +272,11 @@ jobs:
   # time and quietly drop the blueprint:// intent filter, which is the one
   # part of it that is not generated.
   android:
-    # Pinned, unlike the other three jobs, because this one has a dependency
-    # on the IMAGE and not just on Linux: it uses the Android SDK the runner
-    # ships (variables.gradle compiles against android-36) instead of
-    # installing one. `ubuntu-latest` is a moving label, so a future image
-    # migration could drop that platform and break this build with no change
-    # to the project. Bumping this pin is a deliberate act with one thing to
-    # re-check.
+    # Pinned because this job depends on the IMAGE and not just on Linux: it uses the
+    # Android SDK the runner ships (variables.gradle compiles against android-36) instead of
+    # installing one, and `ubuntu-latest` is a moving label, so an image migration could drop
+    # that platform with no change to the project. Bumping this pin is a deliberate act with
+    # one thing to re-check.
     runs-on: ubuntu-24.04
     # Bounds a step that never exits, which would otherwise hold the runner
     # for GitHub's default limit (docs/testing.md). Headroom over the usual
@@ -347,20 +293,11 @@ jobs:
           distribution: temurin
           java-version: '21'
       - run: npm ci
-      # The emulator relaxations (#7) are gated in capacitor.config.ts, and
-      # three things about that gate are worth asserting here. None of them is
-      # observable from a unit test: both keys leave the TypeScript and land in
-      # files `cap sync` generates.
-      #
-      # The gate has TWO selectors and they are not equally safe. The
-      # BLUEPRINT_EMULATOR variable is explicit. `npm_lifecycle_event` is a
-      # match on a script NAME, so renaming that script in package.json — or
-      # npm changing what it exports — would silently break every command the
-      # README, §15 and the plan give, while a check that only set the variable
-      # stayed green. So the first step runs the real documented command with
-      # BLUEPRINT_EMULATOR pinned to '0', which means a pass can only have come
-      # from the lifecycle selector. It is also the only place anything builds
-      # `--configuration android`.
+      # The emulator relaxations are gated in capacitor.config.ts, and no unit test sees them:
+      # both keys land in files `cap sync` generates. `npm_lifecycle_event` matches a script
+      # NAME, so a rename would silently break every documented command while a check setting
+      # only the variable stayed green. So this step runs the real command with
+      # BLUEPRINT_EMULATOR pinned to '0', and is the only `--configuration android` build.
       - name: The documented emulator command asks for cleartext and mixed content
         env:
           BLUEPRINT_EMULATOR: '0'
@@ -379,15 +316,11 @@ jobs:
             || { echo 'BLUEPRINT_EMULATOR=1 did not enable cleartext traffic.' >&2; exit 1; }
           grep -q '"allowMixedContent": true' android/app/src/main/assets/capacitor.config.json \
             || { echo 'BLUEPRINT_EMULATOR=1 did not allow mixed content.' >&2; exit 1; }
-      # `sync` after `build`, always: it is what copies dist into
-      # android/app/src/main/assets/public, and that directory is gitignored,
-      # so the checkout has no web assets in it at all until this runs.
-      #
-      # This pair also has to be the LAST build and sync before gradle. The
-      # emulator step above leaves dist/ carrying environment.android.ts, so
-      # without rebuilding here the APK would be assembled from a bundle
-      # pointing at 10.0.2.2 — green, and not the artefact this job says it
-      # produces.
+      # `sync` after `build`, always: it copies dist into the gitignored
+      # android/app/src/main/assets/public, so the checkout has no web assets until it runs.
+      # This pair must also be the LAST build and sync before gradle: the emulator step above
+      # leaves dist/ carrying environment.android.ts, so the APK would otherwise be assembled
+      # from a bundle pointing at 10.0.2.2, green and not the artefact this job says it makes.
       - run: npm run build
       - run: npx cap sync android
       # The direction that matters: an APK that shipped cleartext would pass
