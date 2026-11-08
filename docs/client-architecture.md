@@ -1343,6 +1343,35 @@ were chosen and is held by the axe walk in `e2e/a11y.spec.ts`, which runs in
 CI and not in the unit suite. Visual baselines for the two sheets are #102's.
 This entry supersedes spec §10's "theming" bullet, which is left as written.
 
+### A validation refusal does not prove the id never committed
+
+*The claim.* Spec §5.3: "A success or any edit to the form after a failed
+validation mints a new id." Section 4 above says the same of
+`CommandIdentity`: `onEdit()` releases the id whenever the last failure was a
+validation refusal, because a validation refusal claimed no key.
+
+*What is true.* It claimed no key on *that* attempt, and says nothing about an
+earlier one. Validation is the outer behaviour, so a 400 is raised before
+`IdempotencyBehavior` looks the id up at all. A buyer whose first submission
+timed out or met a 5xx after the platform committed it, and who then edits and
+resubmits under the held id with a value only the server refuses — a postal
+code, a country — is answered 400, never the replay, `command.already_committed`
+or `command.id_reused` that would have said the id was spent. Releasing the id
+on that 400 sends the corrected form under a fresh one, and places a second
+order with nothing raised (#374).
+
+*Where it shows.* `CommandIdentity` records the uncertainty and keeps it:
+`onFailure()` sets a may-have-committed flag on any failure but a validation
+one, and a validation failure releases the id on the next edit only when no
+such failure happened under the current id. Only `mint()` — a success, or a
+new buyer — clears it, because the record belongs to the id it was made
+under. The cost is that a buyer who meets a validation refusal after a timeout
+resubmits under the held id, and the platform answers it as it answers any held
+id — a replay, `command.id_reused`, `command.already_committed`, or, where the
+first attempt never committed, the command itself — every one of which the
+pages holding an identity already handle. This entry supersedes that sentence of spec §5.3
+and the release rule as section 4 states it; both are left as written.
+
 ## 13. The bundle budget is set above the bundle, not at it
 
 `npm run build` was failing before this work could ship, and the failure was the

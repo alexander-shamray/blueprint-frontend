@@ -268,6 +268,12 @@ dropped, and spends nothing. This is the one place the
 client holds state across requests on purpose, and `client-architecture.md`
 explains why in terms of `IdempotencyBehavior`.
 
+> **Superseded in part on 2026-11-08.** "Any edit to the form after a failed
+> validation mints a new id" is overtaken by `docs/client-architecture.md`
+> §12, *A validation refusal does not prove the id never committed*: after a
+> network failure or a 5xx, a later validation refusal leaves the id held, and
+> only a success or a new buyer mints. The paragraph is kept as written.
+
 ### 5.4 Order placed
 
 Shows the returned order id, the buyer status the order read reports for it,
