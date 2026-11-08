@@ -1466,6 +1466,16 @@ with a token that may read the checkout and the issues and nothing more
 (#359).
 `.github/issue-form-gate/README.md` owns what it reads and claims.
 
+The `gates` job runs every suite under `.github/*/` from its own directory, then
+`plan_size_gate.py` (#404). A gate's own workflow runs its suite on a pull
+request alone, and `plan-size-gate` has no workflow, so this job is what runs
+them on a push to `main`. It finds the directories rather than naming them, so
+a gate a sync adds is covered with no edit here, and finding none fails it. The
+`workflow-lint` job runs `actionlint` over `.github/workflows/`, after requiring
+it to fail the fixture beside its README, `.github/workflow-lint/README.md`,
+which owns what it reads and claims. Neither job is yet among the checks
+`/ship` waits for; `docs/harness-local.md` *Ship checks* holds that list.
+
 The `e2e` job checks out this repository and the backend, starts the backend's
 Compose stack with `--wait`, polls the gateway's `/health/ready` for five
 minutes, and runs the Playwright smoke against it. It is deliberately not
