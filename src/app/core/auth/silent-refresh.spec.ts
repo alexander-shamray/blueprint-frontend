@@ -80,12 +80,14 @@ describe('silent-refresh.html posts the authorization response to its parent (#3
         tokenEndpoint: TOKEN_ENDPOINT,
         responseType: 'code',
         requireHttps: false,
-        disablePKCE: true,
+        disablePKCE: false,
       });
-      // The nonce the authorize request would have stored; `state` carries it back, and the
-      // library's own check compares the two, so nothing in the round trip is switched off.
+      // What the authorize request would have stored: the nonce `state` carries back, which the
+      // library's own check compares, and the PKCE verifier the exchange must send, as
+      // `WebAuthStrategy` keeps PKCE on.
       const storage = new MemoryStorage();
       storage.setItem('nonce', 'n1');
+      storage.setItem('PKCE_verifier', 'v1');
       oauth.setStorage(storage);
       oauth.listen();
     });
@@ -105,6 +107,7 @@ describe('silent-refresh.html posts the authorization response to its parent (#3
       const body = request.request.body as HttpParams;
       expect(body.get('grant_type')).toBe('authorization_code');
       expect(body.get('code')).toBe('c1');
+      expect(body.get('code_verifier')).toBe('v1');
       expect(body.get('redirect_uri')).toBe(REDIRECT);
       request.flush({ error: 'invalid_grant' }, { status: 400, statusText: 'Bad Request' });
     });
