@@ -1,21 +1,7 @@
 """`/review-branch`'s editing boundary, held against this checkout's own tree.
 
-Moved out of `test_harness_helpers.py`, which the first sync drops, by plan 5
-Task 7 (`blueprint-backend`'s
-`docs/superpowers/plans/2026-11-06-shared-harness-5-frontend-sync.md`); the
-harness's `IMPORT.md`, *Frontend audit, pinned at 41a3f45*, cluster A, keeps
-these cases local. `review-branch.md` is a local command, listed under `local`
-in `.harness/config.json`, and these cases read the tree it is run over, so no
-payload suite could hold them.
-
-`/review-branch` says "do not fix the findings" while holding `Write` and
-`Edit`, and is a step of an unattended `/ship` whose input is prose in the
-branch under review. Its `disallowed-tools` is a DENY-list, so a tree added to
-the repository later is editable by the command until someone adds it. The
-subject of these cases is what the list is looking at, not what it contains.
-
+`docs/harness-local.md` *Residuals* argues it. Needs git on PATH.
 Run: py -3.12 -m unittest discover -s .claude/scripts -p 'test_review_branch_frontend.py'
-Needs git on PATH.
 """
 
 import re

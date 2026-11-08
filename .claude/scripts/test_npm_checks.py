@@ -1,13 +1,7 @@
 """Frontend's npm cases: the check runner and the grants it replaced.
 
-Moved out of `test_harness_helpers.py`, which the first sync drops, by plan 5
-Task 7 Step 5 (`blueprint-backend`'s
-`docs/superpowers/plans/2026-11-06-shared-harness-5-frontend-sync.md`).
-`npm-checks.sh` is this repository's stack, granted through
-`.harness/config.json`, and `docs/harness-local.md` *Ship checks* names it.
-
+`docs/harness-local.md` *Ship checks* names it. Needs bash and git on PATH.
 Run: py -3.12 -m unittest discover -s .claude/scripts -p 'test_npm_checks.py'
-Needs bash and git on PATH.
 """
 
 import re

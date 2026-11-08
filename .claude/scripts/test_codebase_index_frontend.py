@@ -1,12 +1,6 @@
 """How this repository starts the code-index server, and the CLI's pin.
 
-Moved out of `test_harness_helpers.py`, which the first sync drops, by plan 5
-Task 7 (`blueprint-backend`'s
-`docs/superpowers/plans/2026-11-06-shared-harness-5-frontend-sync.md`); the
-harness's `IMPORT.md`, *Frontend audit, pinned at 41a3f45*, cluster A, keeps
-these cases local. `.mcp.json`, `mcp-launch.mjs`, `docs/testing.md` and the
-requirements file are this repository's own, so no payload suite holds them.
-
+`docs/harness-local.md` *Residuals* says why these cases are local.
 Run: py -3.12 -m unittest discover -s .claude/scripts -p 'test_codebase_index_frontend.py'
 """
 
@@ -22,12 +16,11 @@ ROOT = SCRIPTS.parent.parent
 
 class TheMcpServerStartsWithoutAShell(unittest.TestCase):
     def test_the_mcp_server_starts_without_a_shell(self):
-        # blueprint-frontend#134: Claude Code starts a stdio server with the
-        # Windows PATH, not inside Git Bash, and the first `bash` there is
-        # WSL's launcher, which exits at once on a host with no distribution.
-        # The server starts through a Node launcher, which judges the index
-        # first (#138; `test_mcp_launch.py` runs it), and the auto-update
-        # disable is in the server's own environment.
+        # Claude Code starts a stdio server with the Windows PATH, not inside
+        # Git Bash, and the first `bash` there is WSL's launcher, which exits at
+        # once on a host with no distribution. The server starts through a Node
+        # launcher, which judges the index first (`test_mcp_launch.py` runs it),
+        # and the auto-update disable is in the server's own environment.
         servers = json.loads((ROOT / ".mcp.json").read_text(encoding="utf-8"))["mcpServers"]
         self.assertTrue(servers)
         for name, server in servers.items():
@@ -41,9 +34,9 @@ class TheMcpServerStartsWithoutAShell(unittest.TestCase):
 
 
 class TheCodeIndexCliIsInstalledAtAPinnedVersion(unittest.TestCase):
-    """blueprint-frontend#147: the CLI the hooks and the MCP server run
-    unprompted was installed unpinned. `docs/testing.md` owns the version and
-    `CLAUDE.md` cites it, so the cases ask both halves of that.
+    """The hooks and the MCP server run this CLI unprompted, so it stays pinned.
+    `docs/testing.md` owns the version and `CLAUDE.md` cites it, so the cases
+    ask both halves of that.
     """
 
     DOCS = ROOT / "docs" / "testing.md"
@@ -71,8 +64,8 @@ class TheCodeIndexCliIsInstalledAtAPinnedVersion(unittest.TestCase):
         self.assertIn("The code-index CLI is pinned", self.DOCS.read_text(encoding="utf-8"))
 
     def test_the_install_block_is_the_hashed_requirements_file(self):
-        # blueprint-frontend#309: a hashed install split over two lines gives
-        # the one-line case nothing to find, so this holds the install itself.
+        # A hashed install split over two lines gives the one-line case nothing
+        # to find, so this holds the install itself.
         text = self.DOCS.read_text(encoding="utf-8")
         self.assertIn("pip install --require-hashes \\\n    -r "
                       "docs/codebase-index-requirements.txt", text)
