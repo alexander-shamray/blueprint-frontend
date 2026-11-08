@@ -284,7 +284,8 @@ jobs:
           set -euo pipefail
           for module in test_edit_target_guard test_refresh_index test_sed_crlf_guard \
               test_npm_checks test_review_branch_frontend test_settings_frontend \
-              test_codebase_index_frontend test_root_ignore_coverage test_mcp_launch; do
+              test_codebase_index_frontend test_class_map_frontend \
+              test_root_ignore_coverage test_mcp_launch; do
             python -m unittest discover -s .claude/scripts -p "$module.py" -v
           done
 
