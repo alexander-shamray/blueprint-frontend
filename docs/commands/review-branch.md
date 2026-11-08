@@ -320,8 +320,8 @@ and `Write` are granted here without a path scope; the enumerated trees are a
 DENY list, and a path no rule names is permitted. So an injected finding could
 have written `node_modules/.bin/ng` or `node_modules/@angular/cli/bin/ng.js`
 and the `npm run lint` that follows would have executed it. Both spellings are
-denied now, in every command that holds an editing tool, and
-`test_every_editing_command_denies_the_machinery` covers it.
+denied now, in `.harness/config.json`'s settings and so for every command that
+holds an editing tool, and `test_settings_frontend.py` covers it.
 
 What is still true, and is a mitigation rather than the control: `npm ci`
 removes and reinstalls the tree from the lockfile, so a write into it does not
