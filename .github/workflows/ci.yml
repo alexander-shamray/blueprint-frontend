@@ -456,15 +456,18 @@ jobs:
       - run: xcodebuild -project ios/App/App.xcodeproj -scheme App -sdk iphonesimulator CODE_SIGNING_ALLOWED=NO build
 
   # A pull request is not tested against the newest main before it lands
-  # (docs/change-locality.md §6), so two that pass apart can fail together,
-  # and the run that shows it is a push to main nobody may be watching. This
-  # turns a failed push run into an issue the repository's watchers are told
-  # about: one issue while main stays red, found by its title, and a comment
-  # on it for each further red run. It is closed by hand once main is green.
+  # (docs/change-locality.md §6), so two that pass apart can fail together, and the run that shows
+  # it is a push nobody may be watching. This opens one issue while main stays red, found by its
+  # title, and comments on it for each further red run; it is closed by hand once main is green.
   # `commits` is not in `needs` because it never runs on a push.
   main-red:
     needs: [web, audit, e2e, harness, issue-form, android, ios-config, ios-build]
-    if: failure() && github.event_name == 'push'
+    # A job that hits its timeout or that no runner picks up reports `cancelled`, and `failure()`
+    # is false for that. No `concurrency` block cancels a run here, so the one false alarm is
+    # somebody's own cancel.
+    if: >-
+      always() && github.event_name == 'push' &&
+      (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled'))
     runs-on: ubuntu-latest
     # Bounds a step that never exits, which would otherwise hold the runner
     # for GitHub's default limit (docs/testing.md). Headroom over the usual
@@ -485,7 +488,7 @@ jobs:
             gh issue comment "$open" --body "Red again at $GITHUB_SHA: $RUN_URL"
           else
             printf '%s\n' \
-              "The \`ci\` run on a push to \`main\` failed at $GITHUB_SHA: $RUN_URL" \
+              "The \`ci\` run on a push to \`main\` did not pass at $GITHUB_SHA: $RUN_URL" \
               '' \
               '## Severity' \
               '' \
