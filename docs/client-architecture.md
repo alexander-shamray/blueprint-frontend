@@ -1470,8 +1470,9 @@ The `gates` job runs every suite under `.github/*/` from its own directory, then
 `plan_size_gate.py` (#404). A gate's own workflow runs its suite on a pull
 request alone, and `plan-size-gate` has no workflow, so this job is what runs
 them on a push to `main`. It finds the directories rather than naming them, so
-a gate a sync adds is covered with no edit here, and finding none fails it. The
-`workflow-lint` job runs `actionlint` over `.github/workflows/`, after requiring
+a suite a sync adds is covered with no edit here, and finding none fails it; a
+gate with no workflow still needs a step for its own script, as
+`plan_size_gate.py` has. The `workflow-lint` job runs `actionlint` over `.github/workflows/`, after requiring
 it to fail the fixture beside its README, `.github/workflow-lint/README.md`,
 which owns what it reads and claims. Neither job is yet among the checks
 `/ship` waits for; `docs/harness-local.md` *Ship checks* holds that list.
