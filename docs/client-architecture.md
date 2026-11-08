@@ -1475,7 +1475,9 @@ gate with no workflow still needs a step for its own script, as
 `plan_size_gate.py` has. The `workflow-lint` job runs `actionlint` over `.github/workflows/`, after requiring
 it to fail the fixture beside its README, `.github/workflow-lint/README.md`,
 which owns what it reads and claims. Neither job is yet among the checks
-`/ship` waits for; `docs/harness-local.md` *Ship checks* holds that list.
+`docs/harness-local.md` *Ship checks* says `/ship` step 6's wait must find, so
+one that never reports does not fail that wait, while a red one still stops the
+merge.
 
 The `e2e` job checks out this repository and the backend, starts the backend's
 Compose stack with `--wait`, polls the gateway's `/health/ready` for five
