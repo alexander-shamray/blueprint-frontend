@@ -1,8 +1,8 @@
 # The class -> tree-set map of docs/change-locality.md section 3, held once.
 #
-# .claude/scripts/pr-locality.sh gives the verdict from it and owns its grammar,
-# in `to_regex` and its map-reading loop; test_class_map_frontend.py holds it
-# against the tree.
+# .claude/scripts/pr-locality.sh gives the verdict from it, and refuses a line or
+# token outside the grammar it reads; test_class_map_frontend.py holds it against
+# the tree.
 
 # A -- local. One feature slice, its specs, and the one e2e step.
 A:
