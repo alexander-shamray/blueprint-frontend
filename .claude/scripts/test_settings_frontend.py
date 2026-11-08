@@ -72,5 +72,16 @@ class TheEditDeniesTheChecksRunOnAreInSettings(unittest.TestCase):
                 self.assertFalse(rule.startswith("Write("))
 
 
+class TheFolderOpenTaskFileIsDenied(unittest.TestCase):
+    def test_both_spellings_are_denied_from_this_repositorys_config(self):
+        # `.vscode/tasks.json` can carry a task VS Code runs on folder open.
+        config = json.loads(CONFIG.read_text(encoding="utf-8"))["settings"]["deny"]
+        rules = deny()
+        for rule in ("Edit(.vscode/**)", "Edit(./.vscode/**)"):
+            with self.subTest(rule=rule):
+                self.assertIn(rule, rules)
+                self.assertIn(rule, config)
+
+
 if __name__ == "__main__":
     unittest.main()

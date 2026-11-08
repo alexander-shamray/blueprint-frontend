@@ -172,12 +172,18 @@ git guard this repository had before the sync refused a redirection, `cp` or
 `rm` into its own tables of trees and root files. The payload's guard takes
 that list from the settings denies instead, so a shell write now reaches
 whatever the `Edit` tool already could. The paths that lost the refusal are
-those the settings never denied: `android`, `ios`, `.vscode`,
-`.gitattributes`, `.gitignore`, `.editorconfig`, `.nvmrc`,
-`ionic.config.json`, `eslint.config.js` and `.prettierrc`. Nothing became
-writable that was not, because `Edit` reached each of them already, and an
-auto-mode session uses it as readily as a redirection. Naming more of them in
-`.harness/config.json` would restore both at once.
+those the settings never denied: `android`, `ios`, `.gitattributes`,
+`.gitignore`, `.editorconfig`, `.nvmrc`, `ionic.config.json`,
+`eslint.config.js` and `.prettierrc`. Nothing became writable that was not,
+because `Edit` reached each of them already, and an auto-mode session uses it
+as readily as a redirection. `.vscode/**` was on that list and is now denied
+(blueprint-frontend#383): `tasks.json` can carry a task VS Code runs on folder
+open, and no command edits the tree as its job. The rest stay out on purpose.
+`android/**` and `ios/**` are Class D's own work; `.editorconfig`,
+`eslint.config.js` and `.prettierrc` are what `/style-pass` edits; and nothing
+here executes `.gitignore`, `.gitattributes`, `.nvmrc` or `ionic.config.json`,
+so a deny would cost an owner's hand on routine edits and buy nothing. Naming
+one in `.harness/config.json` would restore both refusals at once.
 
 **The local suites' reasons live here, because the comment rule keeps them
 out of the files** (blueprint-frontend#383). `test_codebase_index_frontend.py`,

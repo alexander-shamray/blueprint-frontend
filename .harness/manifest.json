@@ -116,7 +116,7 @@
     ".claude/scripts/test_team_board.py": "982340b2d9c867771e866d9b42c63702815b86331ca71daf5f96b8bed32c342f",
     ".claude/scripts/test_watch_session.py": "8efcf5fa26167aac8804340ae3ec0378e6e6e95021cf30fe3a8574005f445006",
     ".claude/scripts/watch_session.py": "d0ba949e78bfaaffa09fb5972e4c7ff6380ab75c855f37dd3524e86db268452a",
-    ".claude/settings.json": "e658b6601d56628b79918aaff63db459954d03d15509e8bc7c3a93d095f35be3",
+    ".claude/settings.json": "16ef6b4ff0eb738455933dc4f39657e915ccce6e3f432fd7f93fc4c0e9db6fb8",
     ".claude/skills/codebase-index/SKILL.md": "20c5fddd4a41c813f2e294b18e689ff955d6854878469c49448ef136a7879c41",
     ".claude/skills/codebase-index/examples/hooks/settings.json": "f220572a87c2296ff4445b2a430ca9bb750a609ccdd7cfca467e9b412661242d",
     ".claude/skills/codebase-index/references/commands.md": "eeb9b27a4f6a58d68a94883de78501154ca96220f78c59be1fc96b8b9efbdc1c",
