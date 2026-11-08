@@ -130,10 +130,10 @@ describe('CommandIdentity', () => {
   });
 
   it('does not un-spend an id on edit after already-committed, even if validation failed', () => {
-    // alreadyCommitted marks this id as spent and permanently exhausted.
-    // A subsequent validation failure sets failedValidationOnly, but onEdit()
-    // must not release a spent id: it is a guarantee that the platform has told
-    // us this id committed, and resubmitting under a fresh id would be a second order.
+    // alreadyCommitted marks this id as spent and permanently exhausted, and as
+    // one that may have committed, so a later validation failure does not make
+    // it releasable. Either record alone holds it: the platform has told us this
+    // id committed, and resubmitting under a fresh id would be a second order.
     const identity = new CommandIdentity();
     const first = identity.current();
 
@@ -141,10 +141,8 @@ describe('CommandIdentity', () => {
     expect(identity.isSpent()).toBe(true);
 
     identity.onFailure(failure('validation'));
-    // failedValidationOnly is now true, but spent is still true.
 
     identity.onEdit();
-    // onEdit() must NOT mint when spent is true, regardless of failedValidationOnly.
     expect(identity.current()).toBe(first);
     expect(identity.isSpent()).toBe(true);
   });
