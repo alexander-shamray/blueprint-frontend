@@ -200,9 +200,9 @@ scripts and the JavaScript configuration on the host while `/ship` holds
 (blueprint-frontend#134), and through a Node launcher that judges the index
 first (blueprint-frontend#138); the CLI's pin is blueprint-frontend#147 and its
 hashed install blueprint-frontend#309. `/review-branch` says "do not fix the
-findings" while holding `Write` and `Edit`, inside an unattended `/ship` whose
-input is prose in the branch under review, so its deny list is tested against
-the tree rather than against what it contains.
+findings" while holding `Write` and `Edit`, and its input is prose in the
+branch under review, so its deny list is tested against the tree rather than
+against what it contains.
 
 ## Review examples
 
