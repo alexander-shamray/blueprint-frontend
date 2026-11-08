@@ -333,7 +333,6 @@ reads a branch's text while holding `Write`, and what it could write under
 session, which outlives any finding. Both sit outside the checkout, so neither
 enumeration above could ever name them, and `test_review_branch_frontend.py`
 holds the pair by name. blueprint-harness#254 denied them in the managed
-commands and left this one to this repository, because a payload suite cannot
-require a deny in a target's own file; `docs/harness-boundaries.md`, in the
-paragraph *A command that holds `Write` or `Edit`*, argues them and states their
-limits.
+commands and left this one to this repository, since the payload's case reads
+only the managed commands; `docs/harness-boundaries.md`, in the paragraph *A
+command that holds `Write` or `Edit`*, argues them and states their limits.
