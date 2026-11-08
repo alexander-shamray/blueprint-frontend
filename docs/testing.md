@@ -77,8 +77,9 @@ shell helpers are written for **bash 3.2**, which is what macOS ships as
 CI's three-OS matrix went red on macOS with `declare: -A: invalid option`.
 Since the first sync the helpers are the harness's, and a static case,
 `test_pr_helpers.py`'s `NoHelperNeedsBash4`, refuses `declare -A`, `mapfile`
-and `${var,,}` on every runner; the macOS runner no longer executes them
-(below).
+and `${var,,}` on the Linux leg; it reads the scripts' text rather than
+running them, so one runner is enough, and the macOS runner no longer
+executes them (below).
 
 **On a Windows host the whole harness suite is slow, so run the module a
 change touches**: `py -3.12 -m unittest discover -s .claude/scripts -p
