@@ -270,7 +270,7 @@ the same PR. It waives nothing else. In particular:
   before touching anything under `.claude/`: its index names the section a
   change needs.
 
-### Working rules
+### The working rules
 
 The working rules every repository on the harness shares are
 `.harness/agent-rules.md`'s, imported by `CLAUDE.md`, uncommitted work and
