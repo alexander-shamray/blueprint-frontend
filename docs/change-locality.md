@@ -295,9 +295,10 @@ only this repository has:
 - **Auto-merge only while the ruleset requires checks.** The landing is the
   rebase `docs/harness/working-rules.md` *Commits* names. GitHub's
   auto-merge waits only for the checks the ruleset requires, and with none
-  required it merges at once, red or not. So a pull request merged by hand gets auto-merge when its review is
-  done only while the ruleset requires checks, and `/ship` never uses it: its
-  step 6 waits for every check itself and merges directly.
+  required it merges at once, red or not. So a pull request merged by hand
+  gets auto-merge when its review is done only while the ruleset requires
+  checks, and `/ship` never uses it: its step 6 waits for every check itself
+  and merges directly.
 - **The task list is `.todo/blueprint-frontend.md` in the main checkout's
   parent directory: outside every checkout, local, never committed**, the
   path `.harness/config.json` names under `task_list`. It is for the user,
