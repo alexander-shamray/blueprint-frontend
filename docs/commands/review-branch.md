@@ -326,3 +326,14 @@ holds an editing tool, and `test_settings_frontend.py` covers it.
 What is still true, and is a mitigation rather than the control: `npm ci`
 removes and reinstalls the tree from the lockfile, so a write into it does not
 survive the next install.
+
+**The user's memory and output styles are denied too (#407).** This command
+reads a branch's text while holding `Write`, and what it could write under
+`~/.claude/projects/` or `~/.claude/output-styles/` instructs every later
+session, which outlives any finding. Both sit outside the checkout, so neither
+enumeration above could ever name them, and `test_review_branch_frontend.py`
+holds the pair by name. blueprint-harness#254 denied them in the managed
+commands and left this one to this repository, because a payload suite cannot
+require a deny in a target's own file; `docs/harness-boundaries.md`, in the
+paragraph *A command that holds `Write` or `Edit`*, argues them and states their
+limits.

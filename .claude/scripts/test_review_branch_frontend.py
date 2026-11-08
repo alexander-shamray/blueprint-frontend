@@ -120,6 +120,13 @@ class ReviewBranchDeniesEveryTrackedPath(unittest.TestCase):
         tracked_now = tracked_root_files()
         self.assertIn(".npmrc", [n for n in self.AUTO_IMPORTED if n not in tracked_now])
 
+    def test_the_users_memory_and_output_styles_are_denied(self):
+        # Both sit outside the checkout, so no listing of its tree could reach them.
+        rules = disallowed()
+        for target in ("~/.claude/projects/**", "~/.claude/output-styles/**"):
+            with self.subTest(target=target):
+                self.assertIn(f"Edit({target})", rules)
+
     def test_gits_own_control_directory_is_denied(self):
         # `.git` is absent from `git ls-files`, so the coverage case cannot
         # reach it; with an unrestricted `Edit` a command could set
