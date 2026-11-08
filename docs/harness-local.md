@@ -211,7 +211,7 @@ executes whatever `package.json` says under that name, a script a session has
 just written included, and `npm test -- <args>` forwards its tail to Vitest,
 which takes `--config <path>` and executes that file to load it, so either grant
 turns "run the tests" into "run this". The script names and the flags are fixed
-in the script for that reason. `package.json` stays editable all the same: every
+in the script for that reason. The manifest stays open all the same: every
 mode runs whatever its `scripts` block says, and loads `angular.json`,
 `eslint.config.js`, the Vitest configuration and `node_modules/.bin`.
 `/review-branch`'s `disallowed-tools` denies those, and a deny stops this agent
