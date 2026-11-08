@@ -115,10 +115,12 @@ manifest names, including one a command has just written, and `npm test --
 granted: the executor is `npm-checks.sh`, whose only variable is one word
 out of a closed set, and `test_npm_checks.py` asserts that no command's
 `allowed-tools` grants a package runner or an interpreter — `npm`, `npx`,
-`node`, `ng`, `yarn`, `pnpm`, `bun`, `deno`, `python`, `python3`, `pip`,
-`pip3`, or a `py` not pinned to a script under `.claude/scripts/` or to the
-unittest runner. It judges each grant by its program word, in any spelling:
-the house form `Bash(npx:*)` never matched the prefix `Bash(npx ` the check
+`node`, `ng`, `yarn`, `pnpm`, `bun`, `deno`, `python` or `pip` in any
+version, a wrapper (`env`, `command`, `exec`) that runs whichever program
+follows it, or a `py` not pinned to a script under `.claude/scripts/` or to
+the unittest runner. It judges each grant by its program word, through a
+path, a Windows shim suffix, an environment assignment or a wrapper: the
+house form `Bash(npx:*)` never matched the prefix `Bash(npx ` the check
 first looked for (blueprint-frontend#375). The helper closes the executor and
 not the manifest, so the auto-load names are denied as well in
 `/review-branch`, the one local command that states an editing boundary, and
