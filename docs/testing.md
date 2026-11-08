@@ -88,11 +88,8 @@ delivers is larger than the one that issue measured (2,089 s on one Windows
 host at harness `9a774e5`, blueprint-harness#162). The per-class runner #259
 added was this repository's alone and went with the first sync
 (`docs/harness-local.md` names what stayed). **CI's `harness` job runs the
-whole suite on all three runners**, as the harness's own CI has since
-blueprint-harness#222. Between the first sync and the sync that carried that
-fix it ran whole on Linux alone, because the suite failed 139 cases on the
-macOS runner and 10 on the Windows one, all in managed modules
-(alexander-shamray/blueprint-harness#191).
+whole suite on all three runners**; `docs/client-architecture.md` §14 says how
+it came to.
 
 **The code-index CLI is pinned, here** (alexander-shamray/blueprint-frontend#147).
 It is the one tool outside the lockfile that runs unprompted: the MCP server
