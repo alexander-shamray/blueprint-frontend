@@ -226,14 +226,13 @@ the same PR. It waives nothing else. In particular:
   identifiers keep their real spelling, 80-column prose, 100-column code;
 - `client-architecture.md` sections superseded with the old claim kept, never
   rewritten;
-- `main` stays green, and **a red `main` is reverted first and fixed
-  forward second**: `git-revert-pr.sh <n>` on the pull request that turned
-  it red, merged once its own checks pass, then the fix in a pull request
-  of its own. A pull request is not tested against the newest `main` before
-  it lands (below), so two that pass apart can fail together, and a push to
-  `main` is where that shows. `ci.yml` runs every job on that push but
-  `commits`, and `commit-gate.yml` none: both judge a pull request's own
-  commits, their trailers and that each one builds. A replay onto a newer
+- `main` stays green, and a red `main` is reverted first and fixed forward
+  second, as `docs/harness/working-rules.md` *CI* says. A pull request is
+  not tested against the newest `main` before it lands, so two that pass
+  apart can fail together, and a push to `main` is where that shows.
+  `ci.yml` runs every job on that push but `commits`, and `commit-gate.yml`
+  none: both judge a pull request's own commits, their trailers and that
+  each one builds. A replay onto a newer
   `main` can leave an intermediate commit that no longer builds, which costs
   `git bisect` that commit's whole range (`ci.yml`'s comment on `commits`)
   but is not a red `main`, because `web` builds the head. The gap is
@@ -244,29 +243,24 @@ the same PR. It waives nothing else. In particular:
   issue titled `CI is red on main`, or comments on the open one, so a red run
   nobody watched still reaches the repository's watchers and every
   `gh issue list`; it is closed by hand once `main` is green;
-- every commit carries `PR: #<n>`, and every intermediate commit lints and
-  builds as its pull request carried it. A pull request lands by rebase, so
-  the trailer is the only record of which pull request a commit on `main`
-  came from: `/pr` adds it once the number exists, `/commit` writes it after,
-  and the commit gate refuses a range without it. The `commits` job lints and
-  builds each commit but the head, which `web` covers, so `git bisect` meets
-  only commits that build, short of a replay that changed one (above).
-  Reverting a pull request is `git-revert-pr.sh <n>`;
-- a Dependabot pull request (`.github/dependabot.yml`) carries no `PR:`
-  trailer, so `commit-gate.yml` stands down when `dependabot[bot]` opened it
-  **and made every commit in it**: Dependabot's address as author and
-  GitHub's (`noreply@github.com`) as committer, as its own commits and
-  rebases carry. The other jobs in `ci.yml` run on it as on any pull request,
-  and the owner merges it. **Rebase a Dependabot branch with
-  `@dependabot rebase`, not locally**: a local rebase or amend keeps
-  Dependabot as the author but makes you the committer, so the gate runs, and
-  so it does for a commit anyone else pushes, which then needs the trailer
-  like any other. A merge commit from *Update branch* is refused whatever it
-  carries, so it is dropped with `@dependabot recreate`, which drops the other
-  kind too. A commit that only claims both addresses is a deliberate bypass,
-  which branch protection and the owner's review bound, not this check
-  (blueprint-admin#400). With no trailer, a Dependabot commit on `main` is
-  invisible to `git-revert-pr.sh`, so it is reverted by its sha;
+- every commit carries `PR: #<n>`, as `docs/harness/working-rules.md`
+  *Commits* says, and every intermediate commit lints and builds as its pull
+  request carried it: the `commits` job lints and builds each commit but the
+  head, which `web` covers, so `git bisect` meets only commits that build,
+  short of a replay that changed one (above);
+- a Dependabot pull request (`.github/dependabot.yml`) is the exception
+  `docs/harness/working-rules.md` *Pull requests* names: the commit gate
+  stands down only where Dependabot's address is every commit's author and
+  GitHub's (`noreply@github.com`) its committer, the other jobs in `ci.yml`
+  run on it as on any pull request, and the owner merges it. **Rebase a
+  Dependabot branch with `@dependabot rebase`, not locally**: a local rebase
+  or amend keeps Dependabot as the author but makes you the committer, so
+  the gate runs, and so it does for a commit anyone else pushes, which then
+  needs the trailer like any other. A merge commit from *Update branch* is
+  refused whatever it carries, so it is dropped with `@dependabot recreate`,
+  which drops the other kind too. A commit that only claims both addresses
+  is a deliberate bypass, which branch protection and the owner's review
+  bound, not this check (blueprint-admin#400);
 - when a change closes an issue, `Closes #n` as a bare line, not only inside
   a table cell;
 - a kind label and a severity label on every issue;
@@ -276,23 +270,20 @@ the same PR. It waives nothing else. In particular:
   before touching anything under `.claude/`: its index names the section a
   change needs.
 
-### The working rules
+### Working rules
 
-These were `CLAUDE.md`'s *Working in this repo* section, and moved here when
-that file became a locator (blueprint-frontend#170); each is argued where it
-is stated. Two of them, where the task list lives and the backend-issue rule
-for a `#NN`, are also kept in `CLAUDE.md`, because they reach every session
-before this file is opened; this section owns them.
+The working rules every repository on the harness shares are
+`.harness/agent-rules.md`'s, imported by `CLAUDE.md`, uncommitted work and
+the task list's moments among them, and their detail is
+[`docs/harness/working-rules.md`](harness/working-rules.md)'s: commit
+messages and `Closes #n`, the trailer, branch updates, a red `main`, the
+Dependabot exception, review threads and managed files. Beside them, what
+only this repository has:
 
 - **Read before you edit**: the claim you are about to change is usually
   stated more than once. `app.config.ts` and `app.routes.ts` are the
   composition roots, and a Class A change that has to edit one has outgrown
   its class.
-- **Commit messages** are semantic and present-tense — `docs:`,
-  `feat(<scope>):`, `fix:`, `chore:`, `refactor:`, `test:` — and the body
-  argues the change. A `Closes #n` in a commit body fires on merge whatever
-  the description says, so the description is reconciled to the commits and
-  never the reverse.
 - **The issue vocabulary is `docs/harness/working-rules.md`'s**, *Issues and
   the task list*: the kinds, the severities and the areas. The issue form
   under `.github/ISSUE_TEMPLATE/` offers it, and `.github/issue-form-gate/`
@@ -301,40 +292,20 @@ before this file is opened; this section owns them.
   the triager copies onto the label because an answer cannot attach one. The
   form offers `documentation` as an area too, so a finding in a document can
   pick both; either answer names the one label.
-- **A reply is not a resolution.** Resolve a review thread in the same act as
-  the reply, and leave an `Ask` open on purpose.
-- **A branch is updated only when GitHub reports a conflict, never because
-  another pull request landed.** Several agents keep pull requests open at
-  once, and the ruleset does not require a branch to be up to date before it
-  merges, so a branch behind `main` lands as it is; rebasing every open one
-  after each merge buys nothing but the next rebase. A conflict is
-  `mergeable` reading `CONFLICTING`, or the rebase landing refused. The
-  update is a rebase onto `origin/main`, resolved in the replayed commits and
-  published under a lease: `git-rebase-onto-main.sh <branch> start` from a
-  session, where the raw force push is refused, and `git fetch origin main`,
-  `git rebase origin/main`, `git push --force-with-lease` from anywhere else.
-  **Never force-push a branch somebody else owns**; a Dependabot branch is
-  rebased by Dependabot (above). Each clone sets
-  `git config rerere.enabled true` once, which its worktrees share, so a
-  conflict resolved in one replay is not resolved again in the next.
 - **Auto-merge only while the ruleset requires checks.** The landing is the
-  rebase the trailer rule above names. GitHub's auto-merge waits only for the
-  checks the ruleset requires, and with none required it merges at once, red
-  or not. So a pull request merged by hand gets auto-merge when its review is
+  rebase `docs/harness/working-rules.md` *Commits* names. GitHub's
+  auto-merge waits only for the checks the ruleset requires, and with none
+  required it merges at once, red or not. So a pull request merged by hand gets auto-merge when its review is
   done only while the ruleset requires checks, and `/ship` never uses it: its
   step 6 waits for every check itself and merges directly.
-- **Uncommitted work in the tree belongs in the PR being worked on**, in its
-  own commit with a body that argues it. **Never revert it to clean the tree**;
-  if it does not belong here, say so and ask rather than decide by deleting.
 - **The task list is `.todo/blueprint-frontend.md` in the main checkout's
-  parent directory: outside every checkout, local, never committed.** It is
-  for the user, and its layout is the backend's task list,
-  `.todo/blueprint-backend.md` beside it, exactly: the rules note topmost,
-  then **In progress**, **Remaining** (a wave and group per row) and
-  **Paused**. Update it the moment this session starts a branch, opens,
-  merges or closes a PR, or files, closes or reopens an issue, from
-  wherever the session stands; an issue's row moves from Remaining to In
-  progress, and leaves Remaining in the same edit, when its branch is made.
+  parent directory: outside every checkout, local, never committed**, the
+  path `.harness/config.json` names under `task_list`. It is for the user,
+  and its layout is the backend's task list, `.todo/blueprint-backend.md`
+  beside it, exactly: the rules note topmost, then **In progress**,
+  **Remaining** (a wave and group per row) and **Paused**. An issue's row
+  moves from Remaining to In progress, and leaves Remaining in the same
+  edit, when its branch is made.
   It lives outside the checkout because Claude Code's isolation refuses a
   session moved into `.claude/worktrees/` with `EnterWorktree` every path
   in the main checkout outside that worktree — *"Edit the worktree copy of
@@ -355,9 +326,10 @@ before this file is opened; this section owns them.
   the default of 30 truncates silently; severity is the `high`, `medium` or
   `low` label. Those recover the rows only: the rules note, the waves, the
   groups and Paused come from the backend's task list.
-- **A `#NN` inside `.claude/` or `docs/harness-boundaries.md` is an issue in
-  the backend repository**, where that machinery was built. It is not an issue
-  here.
+- **A bare `#NN` inside a managed file is not an issue here**: it names one
+  in `blueprint-backend`, where most of that machinery was built, or in
+  `blueprint-harness`. `CLAUDE.md` repeats this, because it reaches every
+  session before this file is opened; this section owns it.
 
 ## 7. Checklist
 
