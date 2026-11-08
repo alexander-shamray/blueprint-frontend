@@ -67,8 +67,8 @@ full-text tables and read `PRAGMA table_list`, and a 3.12 on Linux can be
 linked against an older system SQLite. Those cases assert the version in their
 set-up, so on such a host every one of them fails there, naming the cause
 rather than failing on a missing table; `python -c "import sqlite3;
-print(sqlite3.sqlite_version)"` answers before you run anything. The hooks use
-`.claude/hooks/run-guard.sh` to select a compatible launcher. **The harness
+print(sqlite3.sqlite_version)"` answers before you run anything. The guards
+use `.claude/hooks/run-guard.sh` to select a compatible launcher. **The harness
 suite's `setUpModule` fails rather than skips when a tool is missing** — a
 skip on a missing tool reports a pass, which is the fail-open it exists to
 refuse. The
@@ -83,12 +83,12 @@ change touches**: `py -3.12 -m unittest discover -s .claude/scripts -p
 '<module>.py'`. Most of a local run is `git` and Git Bash processes starting
 (alexander-shamray/blueprint-frontend#259), and the suite the harness sync
 delivers is larger than the one that issue measured (2,089 s on one Windows
-host at harness `9a774e5`, blueprint-harness#162). The per-class runner #259 added was this
-repository's alone and went with the first sync (`docs/harness-local.md`
-names what stayed). **CI's `harness` job runs `python -m unittest discover`**
-because it is the gate — one spelling on all three runners, Windows included,
-and nothing between it and the suite — so a module that passes here and a
-suite that fails there is still red.
+host at harness `9a774e5`, blueprint-harness#162). The per-class runner #259
+added was this repository's alone and went with the first sync
+(`docs/harness-local.md` names what stayed). **CI's `harness` job runs
+`python -m unittest discover`** because it is the gate — one spelling on all
+three runners, Windows included, and nothing between it and the suite — so a
+module that passes here and a suite that fails there is still red.
 
 **The code-index CLI is pinned, here** (alexander-shamray/blueprint-frontend#147).
 It is the one tool outside the lockfile that runs unprompted: the MCP server

@@ -181,28 +181,30 @@ is a judgement.
 ### Under `.claude/`
 
 **Read the section of `docs/harness-boundaries.md` its index names for the
-change before touching anything here**, and state a new residual there, not
-here. Four rules reach every session:
+change before touching anything here**. That file is managed by the harness
+sync, so a residual only this repository makes true goes in
+`docs/harness-local.md` *Residuals*, not here. Four rules reach every
+session:
 
 - **File permission rules take `Edit(...)`, never `Write(...)`** — a
   `Write(path)` rule matches nothing and stops Claude Code from starting.
 - **`.claude/settings.json` self-locks, not instantaneously** — a change to it
   lands complete and goes last, and a restore is verified by reading the file,
   never by trying what it forbids.
-- **Every hook uses `run-guard.sh`**; the index refresh and the three hints are
-  not guards, and their commands end `|| :` because the launcher's exit 2 would
-  erase the prompt or block every call (*The index hints and the root guard*).
+- **Every guard uses `run-guard.sh`**; the index hooks launch otherwise — the
+  hints through `hint-bound.sh`, the refresh and the MCP root check through
+  `py -3.12 -P` — and `docs/harness-boundaries.md`, *Index hint hooks and hook
+  wiring*, says why each is wired as it is.
 - **`python -m unittest discover -s .claude/scripts -p 'test_*.py'` is the
   harness's own suite** and CI's `harness` job runs it on three platforms. Run
   it after any change under `.claude/`; it reads `git ls-files`, so a new
   tracked root file or top-level tree fails it until somebody decides which side
   of the boundary it is on. `docs/testing.md` owns the prerequisite and the
-  faster per-class runner.
+  per-module run.
 
 ### What was not ported
 
-This repository's `.claude/` came from the backend, and the closure gate's
-workflow, the locality gate and the two document audits did not come with it:
-`docs/change-locality.md` §3 and `/pr` say where the gap bites.
-`.github/closure-gate/` holds the gate ahead of that workflow, and its README,
-*How it runs*, says why it has to.
+This repository's `.claude/` is the shared harness's, synced from
+`alexander-shamray/blueprint-harness` at the commit `.harness/manifest.json`
+names. The locality gate's workflow and the two document audits did not come
+with it: `docs/change-locality.md` §3 says where the gap bites.
