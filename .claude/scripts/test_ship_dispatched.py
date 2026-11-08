@@ -39,7 +39,7 @@ DROP_GRANTS = ("Bash(bash .claude/scripts/git-branch-drop.sh:*)",)
 # run's own grants, since an ungranted command is the auto classifier's to refuse.
 SYNC_GRANTS = ("Bash(py -3.12 .claude/scripts/sync_pr.py:*)", "Bash(bash .claude/scripts/git-worktree-sync.sh:*)",
                "Bash(bash .claude/scripts/gh-issue-harness.sh:*)", "Bash(py -3.12 -m unittest discover:*)",
-               "Bash(bash .claude/scripts/gh-issue-list.sh)")
+               "Bash(bash .claude/scripts/gh-issue-list.sh)", "Bash(bash .claude/scripts/gh-issue-suppresses.sh:*)")
 BRANCH_GRANTS_BEFORE = (
     "Read", "Grep", "EnterWorktree", "Bash(git status:*)", "Bash(git diff:*)", "Bash(git branch --list:*)",
     "Bash(git branch --show-current)", "Bash(git branch -a)", "Bash(git log:*)", "Bash(git fetch origin:*)",
@@ -113,7 +113,7 @@ class TheDispatchedTokenChangesOnlyWhatTheSpecLists(unittest.TestCase):
     def test_both_task_list_writes_are_skipped(self):
         # The skip follows the write it names, so it cannot be read as about another line.
         for name, text, write in (
-                ("ship.md step 6", flat(ship_step_6()), "delete this change's row from *In progress*"),
+                ("ship.md step 6", flat(ship_step_6()), "re-derive this change's rows by state"),
                 ("branch.md step 5", flat(branch_step_5()), "add the change to *In progress*")):
             with self.subTest(where=name):
                 self.assertIn(SKIP_WRITE, text)
