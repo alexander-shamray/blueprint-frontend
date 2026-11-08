@@ -52,9 +52,12 @@ cited from here, never restated.
   clone. `/ship` step 6 merges after its own wait on the checks.
 - **A pull request that is ready merges in the turn that establishes it
   is ready**, a Dependabot one aside, which the owner merges: every check
-  settled green, the review ended and no blocking deny left open.
-  Handing a ready pull request back with merge instructions makes the
-  owner a queue step for a decision already made.
+  settled green, the review ended, no blocking deny left open, and, for
+  the one of a set serving one issue that carries the set's closing
+  keyword, every other pull request of the set landed, so the issue closes
+  only once the whole set has. Handing a ready pull request back with
+  merge instructions makes the owner a queue step for a decision already
+  made.
 - **A Dependabot pull request is the one exception to the trailer and to
   the class row.** It declares no class and no touch set and carries no
   `PR:` trailer, so the gates that read them skip it, and a skipped step
@@ -65,6 +68,14 @@ cited from here, never restated.
   Dependabot's included, so the commits are rewritten or the branch
   replaced. With no trailer, `git-revert-pr.sh` cannot find its commit, so
   one is reverted with `git revert` on a branch of its own.
+- **Landing a Dependabot pull request is the owner's, and has three
+  catches.** `gh-pr-merge.sh` binds to the checked-out branch, so a
+  session cannot land one from elsewhere; the owner's merge is `gh pr
+  merge <n> --rebase --match-head-commit <oid>`; and where GitHub reports
+  the branch conflicting, the update is a rebase request
+  (`@dependabot rebase`), not a push to its branch, which can wait tens of
+  minutes for its run, so a session asks, does other work and reads the
+  head again, rather than polling.
 - **The class and the touch set** a pull request declares are the change
   contract's that `docs/harness-local.md` *Documents* names; a target
   with none declares none.
@@ -184,6 +195,14 @@ keeping the guide's *Comments* rules be reworded, completed or expanded.
   other.
 - **An issue's comments are read before it is judged unblocked**: the
   owner records live measurements that block an issue as comments.
+- **A comment or review feed is read whole, never cut with `head` or
+  `tail`.** One body runs to kilobytes, so a cut lands inside the first
+  and ends mid-prose, which reads as complete: a pull request at a clean
+  second round was once reported as owing its first. A REST read also
+  stops at 30 items, and under `--paginate` a `--jq` filter runs once per
+  page, so `.[-1]` there is not the newest nor `length` the count: write
+  the whole feed, `gh api --paginate`, to a file, and take the newest or
+  the count from that file.
 - **The task list** is where `.harness/agent-rules.md`, *Working in a
   target*, puts it. Its *Remaining* and *Paused* sections put undated rows
   first, then dated ones nearest first, and a row never sits above one it
