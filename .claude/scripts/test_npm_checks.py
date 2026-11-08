@@ -22,6 +22,40 @@ COMMANDS = SCRIPTS.parent / "commands"
 BASH = shutil.which("bash")
 GIT = shutil.which("git")
 
+# The programs no command may be granted in any spelling: package runners and
+# interpreters, each of which executes whatever it is pointed at.
+FORBIDDEN_PROGRAMS = frozenset({
+    "npm", "npx", "node", "ng", "yarn", "pnpm", "bun", "deno",
+    "python", "python3", "pip", "pip3",
+})
+# `py` is the launcher `.harness/agent-rules.md` requires, so it is granted,
+# but only pinned to a script under `.claude/scripts/` or to the unittest
+# runner `/ship`'s sync section runs the printed local suites with.
+PINNED_PY = re.compile(
+    r"py -3\.\d+ (?:\.claude/scripts/[\w.-]+\.py|-m unittest discover)(?::\*)?")
+
+
+def program_word(grant):
+    """The program a `Bash(...)` grant runs, however the grant spells it.
+
+    `Bash(npx:*)`, `Bash(npx *)`, `Bash(npx)`, `Bash(NPX.exe:*)`,
+    `Bash(/usr/bin/npx:*)` and `Bash(CI=1 npx:*)` all run `npx`, and the
+    house form is the colon one, so a prefix ending in a space misses it.
+    A colon before a slash is a drive letter, not the grant's wildcard.
+    """
+    rest = re.sub(r"^(?:\w+=\S*\s+)*", "", grant.strip())
+    word = re.split(r"\s|:(?![\\/])|\*", rest, maxsplit=1)[0]
+    word = word.replace("\\", "/").rsplit("/", 1)[-1].lower()
+    return word[:-4] if word.endswith(".exe") else word
+
+
+def refused_grant(grant):
+    """Whether a `Bash(...)` grant runs a package runner or an interpreter."""
+    word = program_word(grant)
+    if word == "py":
+        return not PINNED_PY.fullmatch(grant.strip())
+    return word in FORBIDDEN_PROGRAMS
+
 
 def setUpModule():
     # Not a skip: a skip on a missing tool reports a pass, which is the
@@ -40,17 +74,41 @@ class TheCheckRunnerIsTheOnlyExecutor(unittest.TestCase):
         # outright. The executor is `npm-checks.sh`, whose only variable is one
         # word out of a closed set. Asserted over every command, the payload's
         # included, since a sync can bring a grant this repository never wrote.
-        seen = 0
+        # Judged by program word, never by a prefix ending in a space: the
+        # house form is `Bash(<prefix>:*)`, which `"Bash(npx "` never matched.
+        seen = grants = 0
         for path in sorted(COMMANDS.glob("*.md")):
             seen += 1
             text = path.read_text(encoding="utf-8")
             for line in re.findall(r"^allowed-tools:\s*(.+)$", text, re.MULTILINE):
-                for forbidden in ("Bash(npm ", "Bash(npx ", "Bash(node ",
-                                  "Bash(ng ", "Bash(yarn ", "Bash(pnpm "):
-                    with self.subTest(command=path.name, grant=forbidden):
-                        self.assertNotIn(forbidden, line)
-        # The positive control: an empty glob would satisfy every case above.
+                for grant in re.findall(r"Bash\(([^)]*)\)", line):
+                    grants += 1
+                    with self.subTest(command=path.name, grant=grant):
+                        self.assertFalse(
+                            refused_grant(grant),
+                            f"{path.name} grants `Bash({grant})`, which runs a "
+                            "package runner or an interpreter")
+        # The positive controls: an empty glob, or a parser that found no
+        # grant, would satisfy every case above.
         self.assertGreater(seen, 3, "found almost no commands")
+        self.assertGreater(grants, 20, "found almost no grants")
+
+    def test_a_package_runner_grant_is_refused_in_every_spelling(self):
+        # Every spelling here passed the spaced-prefix check this replaced.
+        for grant in ("npx:*", "npx", "npx *", "node:*", "npm:*", "npm run:*",
+                      "ng:*", "yarn:*", "pnpm:*", "NODE.EXE:*", "CI=1 npx:*",
+                      "/usr/bin/node:*", "C:\\Python\\python.exe:*", "python:*",
+                      "python3 -c:*", "pip install:*", "py:*", "py",
+                      "py -3.12:*", "py -3.12 -c:*", "py -3.12 /tmp/x.py:*"):
+            with self.subTest(grant=grant):
+                self.assertTrue(refused_grant(grant))
+        # And the grants the commands do hold, which a word match must spare.
+        for grant in ("bash .claude/scripts/npm-checks.sh:*",
+                      "py -3.12 .claude/scripts/sync_pr.py:*",
+                      "py -3.12 -m unittest discover:*", "git diff:*",
+                      "gh pr checks:*", "ls:*"):
+            with self.subTest(grant=grant):
+                self.assertFalse(refused_grant(grant))
 
     def test_the_check_runner_helper_takes_no_free_parameter(self):
         # The script names and the flags are literals, and the one argument is
