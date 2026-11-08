@@ -1369,8 +1369,9 @@ under. The cost is that a buyer who meets a validation refusal after a timeout
 resubmits under the held id, and the platform answers it as it answers any held
 id — a replay, `command.id_reused`, `command.already_committed`, or, where the
 first attempt never committed, the command itself — every one of which the
-pages holding an identity already handle. This entry supersedes that sentence of spec §5.3
-and the release rule as section 4 states it; both are left as written.
+pages holding an identity already handle. This entry supersedes that sentence
+of spec §5.3 and the release rule as section 4 states it; both are left as
+written.
 
 ## 13. The bundle budget is set above the bundle, not at it
 
