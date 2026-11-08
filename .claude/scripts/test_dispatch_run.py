@@ -65,7 +65,8 @@ LIMIT_KIND = {**SUCCESS, "subtype": "error_during_execution", "is_error": True, 
               "error": {"type": "rate_limit"}, "result": "API Error"}
 FAKE_CLAUDE = """import json, os, sys
 here = os.path.dirname(os.path.abspath(__file__))
-seen = {"argv": sys.argv[1:], "cwd": os.getcwd(), "stdin": sys.stdin.buffer.read().decode("utf-8")}
+seen = {"argv": sys.argv[1:], "cwd": os.getcwd(), "stdin": sys.stdin.buffer.read().decode("utf-8"),
+        "temp": {name: os.environ.get(name) for name in ("TMP", "TEMP", "TMPDIR")}}
 with open(os.path.join(here, "seen.json"), "w", encoding="utf-8") as handle:
     json.dump(seen, handle)
 with open(os.path.join(here, "reply.bin"), "rb") as handle:
@@ -161,6 +162,11 @@ class InRoot(unittest.TestCase):
         patcher = mock.patch.object(dr, "now", lambda: self.clock)
         patcher.start()
         self.addCleanup(patcher.stop)
+        # Every launch makes an executor temp directory; a suite's goes in its own tree, never the system's.
+        (self.root / "system-temp").mkdir()
+        temp = mock.patch.object(dr, "TEMP_ROOT", str(self.root / "system-temp"))
+        temp.start()
+        self.addCleanup(temp.stop)
 
 
 class PathWhichTests(InRoot):
@@ -494,6 +500,74 @@ class LaunchTests(InRoot):
         self.assertEqual(0, raw["exit"])
         self.assertEqual(SUCCESS, json.loads(raw["stdout"]))
         self.assertTrue(int((state_dir() / "S1.pid").read_text(encoding="utf-8")) > 0)
+
+    def test_run_gives_each_executor_its_own_temp_directory_outside_every_checkout(self):
+        # Two executors sharing the system temp directory ran each other's scratch scripts.
+        record(RUN, "S1", status="running", branch=BRANCH, worktree=WORKTREE)
+        parent = {name: "shared-parent-temp" for name in ("TMP", "TEMP", "TMPDIR")}
+        with mock.patch.dict(os.environ, parent):
+            run_fake_claude(stdout=json.dumps(SUCCESS).encode("utf-8"))
+        seen = json.loads(Path("fake/seen.json").read_text(encoding="utf-8"))
+        own = Path(seen["temp"]["TMP"])
+        self.assertEqual({name: str(own) for name in parent}, seen["temp"])
+        self.assertEqual((self.root / "system-temp").resolve(), own.parent)
+        self.assertTrue(own.name.startswith(f"dispatch-{self.root.resolve().name}-{RUN}-S1-"), own.name)
+        # Each launch makes a new one, so no path is fixed in advance for someone else to plant.
+        first, second = dr.executor_temp(".", RUN, "S1"), dr.executor_temp(".", RUN, "S1")
+        self.addCleanup(shutil.rmtree, first, True)
+        self.addCleanup(shutil.rmtree, second, True)
+        self.assertNotEqual(first, second)
+
+    def test_run_removes_the_executors_temp_directory_once_it_exits(self):
+        # Each launch's mkdtemp directory outlived its executor and piled up under the system temp root.
+        record(RUN, "S1", status="running", branch=BRANCH, worktree=WORKTREE)
+        run_fake_claude(stdout=json.dumps(SUCCESS).encode("utf-8"))
+        seen = json.loads(Path("fake/seen.json").read_text(encoding="utf-8"))
+        self.assertFalse(Path(seen["temp"]["TMP"]).exists())
+        self.assertEqual([], list((self.root / "system-temp").iterdir()))
+
+    def test_run_removes_the_temp_directory_of_an_executor_that_fails_or_cannot_start(self):
+        record(RUN, "S1", status="running", branch=BRANCH, worktree=WORKTREE)
+        run_fake_claude(stdout=b"", code=1)
+        self.assertEqual([], list((self.root / "system-temp").iterdir()))
+        task_text()
+        with mock.patch.object(dr, "CLAUDE_COMMAND", [str(self.root / "no-such-claude")]):
+            self.assertIn("refused: could not start claude", run_cli(["run", RUN, "S1"]))
+        self.assertEqual([], list((self.root / "system-temp").iterdir()))
+
+    def test_run_removes_the_temp_directory_when_the_pid_file_cannot_be_written(self):
+        record(RUN, "S1", status="running", branch=BRANCH, worktree=WORKTREE)
+        task_text()
+
+        def refuse(path, text):
+            raise dr.Refusal("pid file refused")
+
+        with mock.patch.object(dr, "CLAUDE_COMMAND", [sys.executable, "-c", "pass"]), \
+                mock.patch.object(dr, "_write", refuse):
+            self.assertIn("refused: pid file refused", run_cli(["run", RUN, "S1"]))
+        self.assertEqual([], list((self.root / "system-temp").iterdir()))
+
+    def test_the_executor_temp_root_is_the_systems_and_outside_the_checkout_and_its_worktrees(self):
+        # refresh-index.py's worker runs from it, and guard-git-argv.py's scratch checkouts are judged under it.
+        with mock.patch.object(dr, "TEMP_ROOT", None):
+            made = dr.executor_temp(".", RUN, "S1")
+        self.addCleanup(os.rmdir, made)
+        got = os.path.normcase(str(made))
+        system = os.path.normcase(os.path.realpath(tempfile.gettempdir()))
+        self.assertTrue(got.startswith(system + os.sep), got)
+        checkout = os.path.normcase(str(self.root.resolve()))
+        self.assertFalse(got.startswith(checkout + os.sep), got)
+
+    def test_run_refuses_an_executor_whose_temp_directory_cannot_be_made(self):
+        record(RUN, "S1", status="running", branch=BRANCH, worktree=WORKTREE)
+        blocker = Path("not-a-directory")
+        blocker.write_text("a file where the temp root goes", encoding="utf-8")
+        task_text()
+        with mock.patch.object(dr, "TEMP_ROOT", str(blocker.resolve())), \
+                mock.patch.object(dr, "CLAUDE_COMMAND", [sys.executable, "-c", "print('{}')"]):
+            self.assertIn("refused: could not create the executor's temp directory", run_cli(["run", RUN, "S1"]))
+        self.assertFalse((state_dir() / "S1.pid").exists())
+        self.assertTrue((state_dir() / "S1.refused.json").is_file())
 
     def test_run_refuses_a_group_with_no_claude_or_already_handed_back(self):
         record(RUN, "S1", status="running")
@@ -835,6 +909,20 @@ class ResultCommandTests(InRoot):
         entry = group_state(RUN, "S1")
         self.assertEqual(({"input_tokens": 100}, ["modelUsage"]), (entry["usage"], entry["usage_sources"]))
         self.assertEqual(({"m": {"input_tokens": 100}}, 0.5), (entry["usage_models"], entry["cost_usd"]))
+        # Its spend is unknown, so the group's row must not read as the whole cost.
+        self.assertEqual(1, entry["usage_uncounted"])
+        self.assertEqual(["S1: 100 tokens (input 100, cache write 0, cache read 0, output 0), $0.50, from modelUsage, "
+                          "1 session left no usage, not counted"], dr._usage_lines("S1", entry))
+        self.absorb(MERGED_S1, envelope="not an envelope", status="relaunch", absorbed="2026-11-01T20:00:00+00:00",
+                    usage_uncounted=1)
+        entry = group_state(RUN, "S1")
+        self.assertEqual(2, entry["usage_uncounted"])
+        self.assertEqual(["S1: 2 sessions left no usage, not counted"],
+                         dr._usage_lines("S1", entry))
+        self.assertEqual(["S1: $0.25, 1 session left no usage, not counted"],
+                         dr._usage_lines("S1", {"usage": {}, "cost_usd": 0.25, "usage_uncounted": 1}))
+        self.absorb(MERGED_S1)
+        self.assertEqual(0, group_state(RUN, "S1")["usage_uncounted"])
 
     def test_result_copies_validates_classifies_records_and_names_the_transcript(self):
         self.assertEqual("transcript: not found", self.absorb(MERGED_S1)[1])
@@ -1554,6 +1642,19 @@ class WakeTests(InRoot):
                 with mock.patch.object(ctypes, "WinDLL", return_value=kernel), \
                         mock.patch.object(ctypes, "get_last_error", return_value=error):
                     self.assertEqual(expected, dr.alive(4242))
+        else:
+            # The kernel's answer, not a Linux path, since macOS has no `/proc`: another user's process is alive,
+            # and only a pid with no process behind it is dead. The pid is a finished one, so `/proc` would say dead.
+            gone = finished_pid()
+            for error, expected in ((PermissionError, True), (ProcessLookupError, False)):
+                with mock.patch.object(dr.os, "kill", side_effect=error) as kill:
+                    self.assertEqual(expected, dr.alive(gone))
+                kill.assert_called_once_with(gone, 0)
+
+    def test_a_pid_past_the_c_int_range_is_dead_rather_than_a_traceback(self):
+        # A hand-edited pid file can hold one: os.kill raises OverflowError on both, and a DWORD would truncate 2**64.
+        for pid in (2 ** 31, 2 ** 64):
+            self.assertFalse(dr.alive(pid))
 
     def test_resume_adopts_only_its_own_dead_groups(self):
         FINISHED_PID = finished_pid()

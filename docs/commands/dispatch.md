@@ -63,6 +63,17 @@ refused rather than merged, and is made again from a fresh `board`. The
 interview's answers change the list by the same route, in the same step
 (spec §5).
 
+**An exit 2 promises no more than that the helper refused.** The runbook says
+only that, because a refusal can follow a write and no one sentence about
+"nothing written" holds for every helper. `board --run` writes `tasks.read.md`
+as soon as it has read the list, and the `bodies/` cache beside it, since the
+list a board refuses is the one a rebuild must repair; `run` removes the
+earlier session's files it would replace before its launch checks, then leaves
+`<group>.refused.json`, which `result` reads; `wake` saves its usage reading to
+`state.json` before it parses the list; and a `tasks` write refused after the
+list changed leaves the list changed. What a refusal left is read from the
+files, never assumed from the exit.
+
 **In progress is never rebuilt.** At step 0 the run has moved nothing, so a
 guard keyed to this run's groups would hold no row, and a rebuild could drop
 or edit another session's, which the spec's §4 leaves alone. So the whole
@@ -71,6 +82,14 @@ run's own rows change only through `move`, `done` and `back`, and a stale
 row of another session's is named to the owner rather than deleted. The
 rebuild's cleanup of closed and merged rows is therefore *Remaining*,
 *Tracking* and *Paused* only.
+
+**A list `board` refuses is still rebuilt from.** `board --run` keeps its
+copy as soon as it has read the list, before it cuts a group, so a group
+spanning two waves or two models, which it refuses, is re-cut by the same
+rebuild rather than by a hand edit. A list that does not parse at all, a
+malformed header or an *In progress* row naming two issues, still needs a
+human: `tasks rewrite` parses the live list too, and *In progress* is never
+rebuilt.
 
 `--run` takes the run's name, as every other subcommand does, and is
 resolved under `artifacts/dispatch/` to a run `start` opened; `board --run`
@@ -239,9 +258,10 @@ one.
 
 The executor writes `<group>.json` in its own worktree, and `result` copies
 it into the run and checks it as untrusted data: a missing, unparsable or
-mis-shaped result is a crash, never a success (spec §6.3). A claimed merge
-is believed only once `verify` has read it from GitHub — merged, at that
-oid, from that branch, into `main` — and the main checkout, pulled, holds
+mis-shaped result is a crash, never a success (spec §6.3), unless GitHub shows
+the merge at the worktree's tip (*Waking*). A claimed merge is believed only
+once `verify` has read it from GitHub — merged, at that oid, from that branch,
+into `main` — and the main checkout, pulled, holds
 it. A read that fails leaves the claim to be checked again; a contradiction
 is a stop. The schema is `dispatch_run.py`'s, and `/ship`'s runbook shows
 the executor its shape.
@@ -269,10 +289,43 @@ The dispatcher forks each worktree itself, from the main checkout, before
 `tasks move` and `launch`: `launch` trusts only a worktree git shows on the
 branch the *In progress* row names, so the order is fork, record, launch.
 
+`run` hands each executor its own temp directory through `TMP`, `TEMP` and
+`TMPDIR`, a new one per launch made by `mkdtemp` under the system's:
+executors that shared the system's one ran each other's scratch scripts
+(blueprint-harness#199), and a fixed path in a shared temp root is one another
+user could plant. It stays outside every checkout, because
+`refresh-index.py`'s worker runs from it and the guards admit a mutation
+proof's scratch checkout only under it; `run` removes it, best effort, once
+the executor exits or fails to start (blueprint-harness#205). After an
+executor it then runs `git worktree prune`, as best effort: a `git worktree
+add` the session made under that directory has lost its target, and would stay
+listed until something pruned it.
+
 On every wake it absorbs the result, verifies a merge, places what was
 filed, then asks `wake` what to launch; the outcome table is the spec's
 §6.4. A hand-back or a stop goes back into its wave marked `OWNER` and is
 not retried (spec §2); a crash is relaunched once (spec §6.4).
+
+A crash that merged is not one. An executor that wrote no result, or none
+valid, and whose worktree meets `/ship` step 0's finished predicate — clean,
+its tip the head of a row `MERGED` into `main` — has nothing a relaunch could
+do but read the merge, so `result` takes it as `merged-claimed`, from GitHub's
+fields and with `verify` still to come, and its `decisions` say the result
+came from there. The rounds it ran went with the file, so a first session goes
+to *Needs a human* as a merge with no review round unless its transcript shows
+a reviewer, and a relaunch reads as one onto a merged PR does (*What an
+executor returns*). A read that fails, or a predicate that does not hold,
+leaves the crash as it was, and so does a sync whose tip is not the head its
+proof bound (*The proof binds*). Run 20261108-071135 relaunched five groups of
+twenty-one: one had merged and written its result to the main checkout's run
+directory rather than its worktree's, which `result` does not read, and four
+had ended the turn on `/commit`'s report, before any merge, which only a
+relaunch can recover. A turn ended there ends a `claude -p` session, which is
+why `/ship --dispatched` says a step's status is not a reply.
+
+A `Model` cell `launch` would refuse holds its group at `board` and `wake`,
+since `launch` comes after the fork and `tasks move`, and a refusal there
+leaves an empty worktree behind.
 
 A `run` that starts no executor — no `claude` on the path, a stale file it
 cannot remove, the stop file — would otherwise hold its slot all night,
@@ -340,6 +393,15 @@ cost is that those groups run under the settings the sync would replace.
 Holding a slot for it would stall the backlog for a change nobody is waiting
 on, so nothing reserves one: the morning's list shows it, and the next
 `/dispatch` that starts with no group active takes it first.
+
+**A wait leaves nothing behind.** A `blueprint-harness` merge touching the
+payload opens a new sync and closes the one before it, and a sync that waits may
+be superseded that way ten times a night, so `sync-ready` asks `sync-launch`'s
+checks that read no tree before `git-worktree-sync.sh` makes a worktree and a
+branch for a launch that was never going to happen. `sync-drop`, before the
+report, offers `git-branch-drop.sh` every local branch named as a sync head:
+what merged goes, as does one whose pull request closed with origin's branch
+gone at this tip, which no merge can land and which a worktree does not hold.
 
 **The proof binds.** The verify at step 0.3 and after each exit runs in the
 main checkout, because the executor runs that head's own copy of `sync_pr.py`,
@@ -421,7 +483,15 @@ session, one entry per model and its subagents included. The envelope's
 1662280, and it looks just as plausible, so it is read only for an envelope
 with no model counts and the row says which of the two it came from. The row
 carries `total_cost_usd`, and a session on more than one model has a line per
-model, since a Sonnet executor's reviewer runs on Opus.
+model, since a Sonnet executor's reviewer runs on Opus. A session whose
+record was read but left no envelope, none of the three, spent an amount
+nothing records, so the row ends with how many sessions it did not count, and
+a group whose every such session left none still gets a row saying so: a
+relaunched group's figure would otherwise read as its whole cost. A session
+with no record at all (`absorb`'s `_unrecorded`, a `run` that exited refused)
+is not counted: `result` prints `transcript: not found` for it, and the
+report lists the group under *Needs a human* as a crash hand-back or a
+pre-launch refusal, adding nothing to the row.
 
 The report is `report`'s English facts written up in `--lang`, in seven
 sections, the spec's §10's and *Syncs*, eight on a `--berserk` run (*The

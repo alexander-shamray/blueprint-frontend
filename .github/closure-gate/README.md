@@ -34,7 +34,10 @@ A commit list at or above `gh`'s page size is **refused** rather than judged,
 because a prefix of one page and a complete list of one page read alike.
 `closingIssuesReferences` needs no such guard: `gh` preloads it through
 every page. A cross-repository reference is refused by name, because every
-issue this repository tracks lives in it.
+issue this repository tracks lives in it, and so is a
+`closingIssuesReferences` entry whose `url` names another one, since its
+number would otherwise cover a local issue with the same number. `GH-n` is
+read as `#n`.
 
 ## The Dependabot description
 
@@ -56,8 +59,8 @@ One JSON document on stdin — the pull request's number, URL, body, commits,
 closing references and head, each one of `REQUIRED_FIELDS`, and its `author`,
 which is optional and read only for the exemption above; the repository
 is read from the URL — fetched by the workflow, so the deciding is
-testable without a network. The testing document `docs/harness-local.md`
-*Documents* names has the live invocation.
+testable without a network. The live invocation is in
+[`closure-gate.yml`](../workflows/closure-gate.yml) and in `/pr`.
 
 ## How it runs
 
@@ -66,6 +69,8 @@ with no path filter, and on `edited` as well as pushes, because a
 description edit with no push behind it can break the claim. **The gate that
 judges is read out of the base commit**, while the suite runs the branch's
 copy, so a pull request cannot supply its own judge; a base carrying no gate
-fails rather than falling back. The workflow file itself is still the
+fails rather than falling back. The suite runs only after the gate has judged,
+so head test code cannot alter the run ahead of it, and a red gate leaves the
+suite unrun. The workflow file itself is still the
 branch's copy, because `pull_request` runs the head definition, and closing
 that needs a required status check on `main`.
