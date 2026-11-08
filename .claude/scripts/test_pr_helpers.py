@@ -4,6 +4,7 @@ The shared harness and the reason it shells out rather than re-implementing are
 `review_helpers.py`'s.
 """
 
+import itertools
 import json
 import os
 import re
@@ -170,10 +171,10 @@ class NoCommandReadsAPullRequestFeedUnfiltered(unittest.TestCase):
 
     def test_the_locality_rows_go_through_the_fixed_helper(self):
         # The change contract `docs/harness-local.md` *Documents* names asks a PR body for `| Class |` and
-        # `| Touch set |`, and no command may hold `gh pr view`, so the rows arrive through a helper that reads `body`
-        # and the changed names and nothing else, since a caller that chooses fields can choose `reviews`. The two `gh`
-        # lines are compared whole, because a substring check passes one that chains `--json reviews` after a
-        # semicolon; names arrive as JSON strings, because git permits a newline in a name.
+        # `| Touch set |`, and no command may hold `gh pr view`, so the rows arrive through a helper that reads `body`,
+        # `changedFiles` and the changed names and nothing else, since a caller that chooses fields can choose
+        # `reviews`. The `gh` lines are compared whole, because a substring check passes one that chains
+        # `--json reviews` after a semicolon; names arrive as JSON strings, because git permits a newline in a name.
         helper = SCRIPTS / "pr-locality.sh"
         text = helper.read_text(encoding="utf-8")
         code = code_lines(text)
@@ -182,8 +183,9 @@ class NoCommandReadsAPullRequestFeedUnfiltered(unittest.TestCase):
         self.assertEqual(
             [
                 'body=$(gh_read pr view "$pr" --json body --jq .body)',
+                'changed=$(gh_read pr view "$pr" --json changedFiles --jq .changedFiles)',
                 'files=$(gh_read api "repos/{owner}/{repo}/pulls/$pr/files" '
-                "--paginate --jq '.[] | (.filename, (.previous_filename // empty)) | @json')",
+                """--paginate --jq '.[] | (.filename | @json), (.previous_filename // empty | "from " + @json)')""",
             ],
             gh_calls,
         )
@@ -220,8 +222,9 @@ class NoCommandReadsAPullRequestFeedUnfiltered(unittest.TestCase):
             (d / ".github" / "locality-gate" / "classes.yml").write_text(text, encoding="utf-8")
         return scripts
 
-    def _run_helper_with_gh(self, helper, arg, script, bound=None, scripts=SCRIPTS):
-        # A `gh` shim on PATH, the shape every stubbed helper test here uses.
+    def _run_helper_with_gh(self, helper, arg, script, bound=None, scripts=SCRIPTS, timeout_program=None):
+        # A `gh` shim on PATH, the shape every stubbed helper test here uses. `timeout_program` names the program
+        # gh-read-bound.sh looks for, so one that is not there takes the watchdog a host without `timeout` runs.
         d = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, d, ignore_errors=True)
         gh = Path(d) / "gh"
@@ -231,6 +234,8 @@ class NoCommandReadsAPullRequestFeedUnfiltered(unittest.TestCase):
         env["PATH"] = d + os.pathsep + env["PATH"]
         if bound is not None:
             env["GH_READ_BOUND_SECONDS"] = bound
+        if timeout_program is not None:
+            env["GH_READ_TIMEOUT"] = timeout_program
         return subprocess.run(
             [BASH, str(scripts / helper), arg],
             capture_output=True, text=True, encoding="utf-8", env=env,
@@ -253,14 +258,39 @@ class NoCommandReadsAPullRequestFeedUnfiltered(unittest.TestCase):
             {"pr-closure-input.sh", "pr-for-branch.sh", "pr-locality.sh", "pr-state.sh"},
             set(helpers),
         )
-        for helper in helpers:
+        # Under GNU `timeout`, and under the watchdog a host without it runs, as macOS, which ships none.
+        for helper, program in itertools.product(helpers, (None, "no-such-timeout")):
             arg = "some-branch" if helper == "pr-for-branch.sh" else "187"
-            with self.subTest(helper=helper):
+            with self.subTest(helper=helper, timeout=program or "timeout"):
                 start = time.monotonic()
-                r = self._run_helper_with_gh(helper, arg, "exec sleep 30\n", bound="1")
+                r = self._run_helper_with_gh(helper, arg, "exec sleep 30\n", bound="1", timeout_program=program)
                 self.assertLess(time.monotonic() - start, 20, helper)
                 self.assertNotEqual(0, r.returncode, r.stderr)
                 self.assertIn("did not answer within 1 s", r.stderr)
+
+    def test_the_watchdog_passes_a_quick_read_through_whole(self):
+        # Its answer must be gh's: the output, the status and the stdin, none read as the bound firing. The stub
+        # answers at once, so a 124, the bound's line or a wait here is the watchdog misreading its own stop.
+        bound = (SCRIPTS / "gh-read-bound.sh").as_posix()
+        for rc in ("0", "1", "143"):
+            with self.subTest(rc=rc):
+                d = tempfile.mkdtemp()
+                self.addCleanup(shutil.rmtree, d, ignore_errors=True)
+                gh = Path(d) / "gh"
+                gh.write_text('#!/usr/bin/env bash\nprintf "out:%s" "$(cat)"\nexit "$STUB_RC"\n',
+                              encoding="utf-8", newline="\n")
+                gh.chmod(0o755)
+                env = dict(os.environ, PATH=d + os.pathsep + os.environ["PATH"], STUB_RC=rc, BOUND=bound,
+                           GH_READ_TIMEOUT="no-such-timeout", GH_READ_BOUND_SECONDS="30")
+                start = time.monotonic()
+                r = subprocess.run(
+                    [BASH, "-c", 'set -e; . "$BOUND"; got=$(gh_read pr view) || exit "$?"; printf "%s" "$got"'],
+                    input="the stdin", capture_output=True, text=True, encoding="utf-8", env=env)
+                self.assertLess(time.monotonic() - start, 20, "the caller waited on the watchdog's sleep")
+                self.assertEqual(int(rc), r.returncode, r.stderr)
+                self.assertNotIn("did not answer", r.stderr)
+                if rc == "0":
+                    self.assertEqual("out:the stdin", r.stdout)
 
     def test_the_closure_input_asks_for_every_field_the_workflow_does(self):
         # The gate reads `author` for the Dependabot exemption, and a helper
@@ -291,17 +321,61 @@ class NoCommandReadsAPullRequestFeedUnfiltered(unittest.TestCase):
                 self.assertEqual([], [line for line in code if bare.search(line)])
 
     @staticmethod
-    def _gh_printing(body, files="docs/x.md\n"):
+    def _gh_printing(body, files="docs/x.md\n", changed=None):
         # Quoted heredocs, since a double-quoted printf would command-substitute a body's backticks, which is the stub
         # doing what the helper refuses. The files endpoint gets one JSON-encoded name per line, the shape the helper's
-        # `--jq` produces, newline in a name and all; anything else gets the body.
-        encoded = "".join(
-            json.dumps(name) + "\n" for name in files.split("\n") if name
-        )
+        # `--jq` produces, newline in a name and all; `changedFiles` gets that count unless a case names another, and
+        # anything else gets the body.
+        names = [name for name in files.split("\n") if name]
+        encoded = "".join(json.dumps(name) + "\n" for name in names)
         return (
-            'case "$*" in *"/files"*) cat <<\'FILES\'\n' + encoded + "FILES\n"
+            f'case "$*" in *changedFiles*) echo {len(names) if changed is None else changed} ;;\n'
+            '*"/files"*) cat <<\'FILES\'\n' + encoded + "FILES\n"
             ";; *) cat <<'STUB'\n" + body + "STUB\n;; esac\n"
         )
+
+    def test_the_files_endpoint_disagreeing_with_changed_files_is_refused(self):
+        # The endpoint stops short of a very large pull request, so a short list read as complete prints verdicts for
+        # part of the diff. Each direction is a disagreement, and the refusal prints no verdict.
+        body = "| Class | D |\n| Touch set | docs/** |\n"
+        for changed, names in ((3, 1), (0, 1)):
+            with self.subTest(changed=changed):
+                r = self._run_locality_with_gh(self._gh_printing(body, "docs/a.md\n", changed=changed))
+                self.assertEqual(3, r.returncode, r.stderr)
+                self.assertEqual("", r.stdout)
+                self.assertEqual(f"the files endpoint returned {names} names against changedFiles {changed}\n", r.stderr)
+
+    def test_a_changed_files_value_that_is_not_a_count_is_refused(self):
+        body = "| Class | D |\n| Touch set | docs/** |\n"
+        for changed in ("", "null", "3x", "-1"):
+            with self.subTest(changed=changed):
+                r = self._run_locality_with_gh(self._gh_printing(body, "docs/a.md\n", changed=changed))
+                self.assertEqual(3, r.returncode, r.stderr)
+                self.assertEqual("", r.stdout)
+                self.assertEqual("changedFiles is not a count\n", r.stderr)
+
+    def test_the_class_letters_are_spelled_out_not_ranged(self):
+        # A regex library that collates by locale reads the range as admitting lower case: this host's bash `=~` does,
+        # so the map's `d:` below read as a class here, and a C-locale runner passes that case either way. So the code
+        # is read too. Both spellings are the subject: the row's and the map's.
+        code = "\n".join(code_lines((SCRIPTS / "pr-locality.sh").read_text(encoding="utf-8")))
+        self.assertNotIn("[A-E]", code)
+        self.assertEqual(3, code.count("[ABCDE]"))
+        r = self._run_locality_with_gh(self._gh_printing("| Class | d |\n| Touch set | docs/** |\n"))
+        self.assertEqual((3, "the Class row is not a class\n"), (r.returncode, r.stderr))
+        body = "| Class | D |\n| Touch set | docs/** |\n"
+        r = self._run_locality_with_gh(self._gh_printing(body),
+                                       scripts=self._scripts_with_map(CLASSES + "d:\n  - 'other/**'\n"))
+        self.assertEqual((3, "classes.yml has a line outside its grammar\n"), (r.returncode, r.stderr))
+
+    def test_a_pull_request_with_no_changed_files_prints_only_its_class(self):
+        # Reached when `main` has already landed a branch's whole diff. Under `set -u`, bash 3.2 calls an empty array
+        # unbound, so the verdict loop has to survive having nothing to judge.
+        body = "| Class | D |\n| Touch set | docs/** |\n"
+        r = self._run_locality_with_gh(self._gh_printing(body, ""))
+        self.assertEqual(0, r.returncode, r.stderr)
+        self.assertEqual(["class D"], r.stdout.splitlines())
+
 
     def test_a_failing_gh_is_not_an_empty_body(self):
         # `gh … | grep … || true` masks the whole pipeline, so an
@@ -358,25 +432,29 @@ class NoCommandReadsAPullRequestFeedUnfiltered(unittest.TestCase):
                 # one is encoded whole here instead.
                 encoded = json.dumps("docs/a.md") + "\n" + json.dumps(name) + "\n"
                 script = (
-                    'case "$*" in *"/files"*) cat <<\'FILES\'\n' + encoded
+                    'case "$*" in *changedFiles*) echo 2 ;;\n'
+                    '*"/files"*) cat <<\'FILES\'\n' + encoded
                     + "FILES\n;; *) cat <<'STUB'\n" + body + "STUB\n;; esac\n"
                 )
                 r = self._run_locality_with_gh(script)
                 self.assertEqual(3, r.returncode, r.stderr)
                 self.assertEqual("", r.stdout)
+                self.assertEqual("a changed path is not a plain path\n", r.stderr)
                 self.assertNotIn("IGNORE", r.stderr)
                 self.assertNotIn("ignore", r.stderr)
 
     def test_a_rename_is_judged_at_both_ends(self):
         # The files API gives a rename's source as previous_filename, and the CI
-        # gate judges both ends, so the stub runs the helper's own --jq on it.
+        # gate judges both ends, so the stub runs the helper's own --jq on it. GitHub counts a rename as one changed
+        # file, so three judged paths agree with a `changedFiles` of two.
         body = "| Class | D |\n| Touch set | docs/** |\n"
         api = json.dumps([
             {"filename": "docs/foo.md", "previous_filename": "src/Foo.cs", "status": "renamed"},
             {"filename": "docs/x.md", "status": "modified"},
         ])
         script = (
-            'case "$*" in *"/files"*)\n'
+            'case "$*" in *changedFiles*) echo 2 ;;\n'
+            '*"/files"*)\n'
             '  while [ $# -gt 0 ]; do if [ "$1" = --jq ]; then q=$2; fi; shift; done\n'
             "  jq -r \"$q\" <<'FILES' | tr -d '\\r'\n" + api + "\nFILES\n"
             ";; *) cat <<'STUB'\n" + body + "STUB\n;; esac\n"
@@ -392,7 +470,8 @@ class NoCommandReadsAPullRequestFeedUnfiltered(unittest.TestCase):
         # the CI gate reads it, so the review round's verdict has to as well.
         # printf makes the CR at run time, so no host's line endings can drop it.
         script = (
-            "case \"$*\" in *\"/files\"*) echo '\"docs/x.md\"' ;;\n"
+            "case \"$*\" in *changedFiles*) echo 1 ;;\n"
+            "*\"/files\"*) echo '\"docs/x.md\"' ;;\n"
             "*) printf '| Class | D |\\r\\n| Touch set | docs/x.md |\\r\\n' ;; esac\n"
         )
         r = self._run_locality_with_gh(script)
@@ -422,6 +501,37 @@ class NoCommandReadsAPullRequestFeedUnfiltered(unittest.TestCase):
                 self.assertEqual("", r.stdout)
                 self.assertNotIn("Ignore", r.stderr)
                 self.assertNotIn("rm -rf", r.stderr)
+
+    def test_a_backticked_token_takes_its_reason_beside_it(self):
+        # `/pr` tells an author to widen a row "with its reason beside it", so
+        # `` `path` (why) `` is the form the row takes. The reason, commas and
+        # braces included, is dropped unread and the token is judged alone; a
+        # reason on a token that is not backticked, or one left open, is not
+        # the form and is refused.
+        body = (
+            "| Class | D |\n"
+            "| Touch set | `docs/x.md` (added: the rule moved, see #65), "
+            "`docs/{a,b}.md` (both, {braced}), docs/y.md |\n"
+        )
+        files = "docs/x.md\ndocs/a.md\ndocs/b.md\ndocs/y.md\ndocs/z.md\n"
+        r = self._run_locality_with_gh(self._gh_printing(body, files))
+        self.assertEqual(0, r.returncode, r.stderr)
+        self.assertEqual(
+            ["class D", "inside docs/x.md", "inside docs/a.md", "inside docs/b.md",
+             "inside docs/y.md", "outside docs/z.md"],
+            r.stdout.splitlines())
+        for cell, message in (
+            ("docs/x.md (the reason)", "the Touch set row is not a path list"),
+            ("`docs/x.md` (open reason", "the Touch set row has an unbalanced parenthesis"),
+            ("`docs/x.md` (a (nested) reason)", "the Touch set row has a reason outside its grammar"),
+            ("`docs/x.md` (a `quoted` reason)", "the Touch set row has a reason outside its grammar"),
+            ("`docs/x.md` (why) and also everything else", "the Touch set row has a reason outside its grammar"),
+        ):
+            with self.subTest(cell=cell):
+                r = self._run_locality_with_gh(self._gh_printing(f"| Class | D |\n| Touch set | {cell} |\n"))
+                self.assertEqual(3, r.returncode, r.stderr)
+                self.assertEqual("", r.stdout)
+                self.assertEqual(message + "\n", r.stderr)
 
     def test_a_second_row_is_refused_before_either_is_read(self):
         # With two Class rows, `grep -q` passes on the valid first and a print
@@ -717,7 +827,7 @@ BASH_4 = re.compile(
 
 
 class NoHelperNeedsBash4(unittest.TestCase):
-    """Frontend's required `harness (macos-latest)` leg runs the helpers under bash 3.2."""
+    """The harness's required `payload-suites (macos-latest)` leg runs the whole helpers suite under bash 3.2."""
 
     def shell_scripts(self):
         # The helper directories alone: `.claude/worktrees/` holds every forked

@@ -1,8 +1,8 @@
 ---
 description: Start from a clean main, fork a worktree where one can be forked, branch, commit, push and open a PR, run the local review until a round has nothing open, then merge the PR and tear the workspace down. Decides for itself rather than stopping to ask
 argument-hint: "[what the change does | sync #<n>] [--sleep] [--dispatched <run-dir>] [--berserk] — omit and each step derives its own"
-allowed-tools: Read, Grep, Glob, Write, Skill, Agent(branch-reviewer), EnterWorktree, ExitWorktree, Bash(git status:*), Bash(git diff:*), Bash(git branch --list:*), Bash(git branch --show-current), Bash(git branch -a), Bash(git log:*), Bash(git fetch origin:*), Bash(bash .claude/scripts/git-branch-create.sh:*), Bash(bash .claude/scripts/git-worktree-fork.sh:*), Bash(bash .claude/scripts/git-switch-existing.sh:*), Bash(bash .claude/scripts/git-rebase-onto-main.sh:*), Bash(git rev-parse:*), Bash(git worktree list:*), Bash(ls:*), Bash(git add:*), Bash(git commit:*), Bash(bash .claude/scripts/git-unstage.sh:*), Bash(git push -u origin:*), Bash(git push origin:*), Bash(wc:*), Bash(bash .claude/scripts/gh-pr-create.sh:*), Bash(bash .claude/scripts/pr-state.sh:*), Bash(bash .claude/scripts/pr-for-branch.sh:*), Bash(bash .claude/scripts/git-trailer-pr.sh:*), Bash(gh pr checks:*), Bash(bash .claude/scripts/gh-pr-merge.sh:*), Bash(git pull --ff-only), Bash(git merge-base --is-ancestor:*), Bash(bash .claude/scripts/git-worktree-remove.sh:*), Bash(git worktree prune:*), Bash(bash .claude/scripts/pr-locality.sh:*), Bash(bash .claude/scripts/gh-issue-hand.sh:*), Bash(bash .claude/scripts/system-sleep.sh), Bash(py -3.12 .claude/scripts/sync_pr.py:*), Bash(bash .claude/scripts/git-worktree-sync.sh:*), Bash(bash .claude/scripts/gh-issue-harness.sh:*), Bash(py -3.12 -m unittest discover:*), Bash(bash .claude/scripts/gh-issue-list.sh), Bash(bash .claude/scripts/git-branch-drop.sh:*)
-disallowed-tools: Agent(claude), Agent(Explore), Agent(Plan), Agent(claude-code-guide), Agent(statusline-setup), Agent(fork), Agent(bug-auditor), Agent(security-auditor), Agent(team-peer)
+allowed-tools: Read, Grep, Glob, Write, Skill, Agent(branch-reviewer), EnterWorktree, ExitWorktree, Bash(git status:*), Bash(git diff:*), Bash(git branch --list:*), Bash(git branch --show-current), Bash(git branch -a), Bash(git log:*), Bash(git fetch origin:*), Bash(bash .claude/scripts/git-branch-create.sh:*), Bash(bash .claude/scripts/git-worktree-fork.sh:*), Bash(bash .claude/scripts/git-switch-existing.sh:*), Bash(bash .claude/scripts/git-rebase-onto-main.sh:*), Bash(git rev-parse:*), Bash(git worktree list:*), Bash(ls:*), Bash(git add:*), Bash(git commit:*), Bash(bash .claude/scripts/git-unstage.sh:*), Bash(git push -u origin:*), Bash(git push origin:*), Bash(wc:*), Bash(bash .claude/scripts/gh-pr-create.sh:*), Bash(bash .claude/scripts/pr-state.sh:*), Bash(bash .claude/scripts/pr-for-branch.sh:*), Bash(bash .claude/scripts/git-trailer-pr.sh:*), Bash(gh pr checks:*), Bash(bash .claude/scripts/gh-pr-merge.sh:*), Bash(git pull --ff-only), Bash(git merge-base --is-ancestor:*), Bash(bash .claude/scripts/git-worktree-remove.sh:*), Bash(git worktree prune:*), Bash(bash .claude/scripts/pr-locality.sh:*), Bash(bash .claude/scripts/gh-issue-hand.sh:*), Bash(bash .claude/scripts/system-sleep.sh), Bash(py -3.12 .claude/scripts/sync_pr.py:*), Bash(bash .claude/scripts/git-worktree-sync.sh:*), Bash(bash .claude/scripts/gh-issue-harness.sh:*), Bash(py -3.12 -m unittest discover:*), Bash(bash .claude/scripts/gh-issue-list.sh), Bash(bash .claude/scripts/gh-issue-suppresses.sh:*), Bash(bash .claude/scripts/git-branch-drop.sh:*), Bash(git merge-base origin/main HEAD), Bash(bash .claude/skills/codebase-index/scripts/cbx search:*), Bash(bash .claude/skills/codebase-index/scripts/cbx refs:*), Bash(bash .claude/skills/codebase-index/scripts/cbx impact:*), Bash(bash .claude/skills/codebase-index/scripts/cbx diff-impact:*)
+disallowed-tools: Agent(claude), Agent(Explore), Agent(Plan), Agent(claude-code-guide), Agent(statusline-setup), Agent(fork), Agent(bug-auditor), Agent(security-auditor), Agent(team-peer), Edit(~/.claude/projects/**), Edit(~/.claude/output-styles/**)
 ---
 
 Take the working tree from wherever it is to a merged PR. Description:
@@ -36,7 +36,7 @@ checkout and removes the worktree, however the review ended.
 
 | | |
 |---|---|
-| A helper or a guarded git command exits non-zero, or the harness refuses it | The step did not run; a report that says otherwise is false. `git pull --ff-only` refusing a diverged branch is the commonest one; step 7's `system-sleep.sh`, the branch drop's `git-branch-drop.sh` and the rebase helper's two continuations (step 6) are the exceptions, each reported and not a stop |
+| A helper or a guarded git command exits non-zero, or the harness refuses it | The step did not run; a report that says otherwise is false. `git pull --ff-only` refusing a diverged branch is the commonest one; step 7's `system-sleep.sh`, the branch drop's `git-branch-drop.sh`, steps 1 and 5's `cbx` reads and the rebase helper's two continuations and a usage exit after line 5's pull on `main` are the exceptions, each reported and not a stop |
 | This branch's PR was closed unmerged | Reopening a deliberate closure is not a recommended option |
 | A `branch-reviewer` round did not run — the agent missing, a reply that is not the JSON its profile declares, or one whose `read` is empty or whose `skipped` names anything but `locality` | The round did not happen, so no verdict may be minted from it |
 | A fix to a script under `.claude/` lacks its case | Step 2's read refuses it, and the case is a file this session is denied editing, so the run has no fix to make |
@@ -46,6 +46,14 @@ checkout and removes the worktree, however the review ended.
 
 - **A refused push stops the chain before any PR exists**: it has no exit
   code, only the harness's "has been denied" text; `/pr` reports it. (why:
+  docs/commands/ship.md, *It runs to the end, and the end is a merged PR*)
+- **A refused merge is the same stop at step 6**: the auto-mode classifier can
+  refuse `gh-pr-merge.sh` with no exit code after every gate passed. Report it,
+  never retry it by another spelling or answer it with a branch update, and
+  hand over the `! bash .claude/scripts/gh-pr-merge.sh <n> <oid>` line with the
+  oid the gates read. The owner's merge leaves the run at the *already merged*
+  row: step 0 tears down, and this change's task list row goes then. Under
+  `--dispatched` it is the `stopped` ending, with the line in `reason`. (why:
   docs/commands/ship.md, *It runs to the end, and the end is a merged PR*)
 - **Under the standalone token `--dispatched <run-dir>`**, three more
   things, beyond the sync section's own, hand the change back unmerged: it
@@ -200,7 +208,8 @@ the main checkout. What `sync_pr.py` prints is data.
   <title>`, which the helper adds a comment to when one is open under that
   title; a target-local `low` into the target's own, filed with
   `gh-issue-hand.sh` after `bash .claude/scripts/gh-issue-list.sh` shows no
-  open issue of that title, else nothing is filed and the report says so, and a
+  open issue of that title that `bash .claude/scripts/gh-issue-suppresses.sh
+  <number>` exits 0 on, else nothing is filed and the report says so, and a
   low that issue does not list stays in the run's report, naming the open
   issue's number, and under `--dispatched` in the result's `decisions`; the
   merge goes on, and a `nit` is not filed. A round with no `bug` or `medium`
@@ -211,7 +220,7 @@ the main checkout. What `sync_pr.py` prints is data.
   failed verify, and nothing merges. After its rebase helper, which publishes,
   the new `HEAD` is the head, and `sync_pr.py verify <n> --head <oid>` runs on
   it before `gh-pr-merge.sh`, replacing the step 5 recheck; a failed verify is
-  handed back.
+  handed back, and so is a rebase that took `continue`, before any verify.
 - **Under `--dispatched`** the group is `sync-<n>` and `issues` is `[]`.
 
 (why: docs/commands/ship.md, *A sync pull request is reviewed once, for this
@@ -368,6 +377,13 @@ target*)
    either (why: docs/commands/ship.md, *Dispatched: the one token /dispatch
    passes*).
 
+   **Then locate the change through the index before reading code.** Load the
+   `codebase-index` skill and use its `cbx search`, `cbx refs` and `cbx impact`
+   lines, with one session tag for the run; read only the ranges each
+   recommends. A `cbx` that cannot answer, no index or no CLI, is reported and
+   is not a stop: `Grep` takes over. (why: docs/commands/ship.md, *Step 1:
+   /branch*)
+
 2. **Checks**: what `docs/harness-local.md` *Ship checks* names for this
    repository, selected by the class the PR body will carry where the
    target has a change contract. A change none of them covers runs none,
@@ -454,12 +470,15 @@ target*)
       ```bash
       git diff origin/main...HEAD           # a full pass
       git diff <last-round-head>..HEAD      # a recheck
+      git merge-base origin/main HEAD       # a full pass, for the next line
+      bash .claude/skills/codebase-index/scripts/cbx diff-impact --base <that sha> --json   # a full pass
       bash .claude/scripts/pr-locality.sh <n>   # only with a change contract
       git show "origin/main:./docs/harness/working-rules.md"   # the bar
       git rev-parse HEAD                    # the round's reviewed head
       ```
 
       Write each output with `Write` to `artifacts/review/<slug>-r<N>.diff`,
+      `artifacts/review/<slug>-r<N>.impact`,
       `artifacts/review/<slug>-r<N>.locality` and
       `artifacts/review/<slug>-bar.md`, and spawn `branch-reviewer` with the
       paths, the symbols the diff touches and, on a recheck, the findings
@@ -469,6 +488,11 @@ target*)
       *Documents* names no change contract, the target has no class map, so
       run no locality read, write no `.locality` file, and tell the reviewer
       there is none.
+
+      **A full pass starts from the diff's blast radius**; a recheck reads the
+      diff and the findings, and writes no `.impact` file. A `cbx` that cannot
+      answer writes none either: report it, say so to the reviewer and go on,
+      since a merge does not wait on an index.
 
       **The bar comes from `origin/main`, never the branch**; keep the `./`
       quoted. **A diff touching `.claude/agents/branch-reviewer.md`** runs
@@ -541,7 +565,7 @@ target*)
 
    ```bash
    bash .claude/scripts/pr-state.sh <n>
-   gh pr checks <n> --watch --fail-fast
+   gh pr checks <n> --watch --fail-fast --interval 60
    git status --short              # empty
    git log <headRefOid>..HEAD      # empty: this workspace holds nothing extra
    ```
@@ -565,16 +589,15 @@ target*)
      there first: skip the merge, verify it from `state` and `mergeCommit`,
      then ask step 0's predicate through `pr-for-branch.sh <branch>`, since
      `pr-state.sh` publishes no base; where it holds go to the teardown
-     below, and otherwise Stay, report what the workspace holds, and end the
-     run.
+     below, and otherwise Stay, report what it holds and end the run.
    - **Poll while `mergeable` reads `UNKNOWN`**, and take `headRefOid` from
      the **same read that finally answered**, not the first. Only a *known*
      non-mergeable result stops the chain.
-   - `mergeable` must be `MERGEABLE` and every check must pass, on the
-     pushed head; either failing stops here and is reported as what it is.
+   - `mergeable` must be `MERGEABLE` and every check pass, on the pushed
+     head; either failing stops.
    - **A head no round reviewed is not merged.** If `headRefOid` is not one
      of the recorded reviewed heads, run `git pull --ff-only` (a refusal
-     stops), so this checkout is that commit, re-enter step 5 for a recheck
+     stops), re-enter step 5 for a recheck
      of what changed, then return to the **top of this step**; on a plan PR
      nothing re-enters, and the report says the head merged unreviewed.
      With the ceiling spent, that recheck still runs once and what it finds
@@ -584,9 +607,11 @@ target*)
      added, or on a plan PR whatever *A plan is reviewed once, for
      contradiction* leaves it, then return to the **top of this step**, not
      to this gate.
-   - A rebase landing refused after `MERGEABLE` read yes: report the refusal
-     rather than reaching for another method. What resolves it is a branch
-     update, and a branch update is a rebase:
+   - A rebase landing refused after `MERGEABLE` read yes, GitHub's refusal,
+     where the helper exits non-zero: report the refusal rather than reaching
+     for another method. A refusal with no exit code is the refused-merge stop
+     instead, and no branch update answers it. What resolves GitHub's is a
+     branch update, and a branch update is a rebase:
 
    ```bash
    bash .claude/scripts/git-rebase-onto-main.sh <branch> start
@@ -647,8 +672,10 @@ target*)
    - Run lines 4 to 6 and the prune on both paths; report containment,
      never equality: the oid `main` landed on, and that the merge is in
      its history.
-   - Once the merge is verified, delete this change's row from *In
-     progress* in the task list named by `.harness/config.json`
+   - **A usage exit after line 5's pull on `main` is not a stop**: rerun from
+     the exiting line as the pulled `ship.md` spells it, and report it.
+   - When these lines end, re-derive this change's rows by state in
+     the task list named by `.harness/config.json`
      `task_list`, in the main checkout's parent directory, by that path (why:
      docs/commands/ship.md, *Step 6: the teardown*).
    - Under `--dispatched`, skip this write, and only lines 1 and 8 run: no
@@ -658,12 +685,11 @@ target*)
      token /dispatch passes*).
    - Line 9 drops the merged branch: a forked run's once line 7 exits 0, an
      in-place run's after the switch to `main`; a refused removal keeps its
-     branch, exit 4 (a directory that holds something or that a process holds)
-     included, and an exit 0
-     is also git failing only to delete the empty directory the helper then
-     removed. Any non-zero exit of the drop is reported and is not a stop, and
-     exit 6 (no local branch) is simply reported. Under `--dispatched` the run
-     does not drop; `/dispatch` does.
+     branch, exit 4 included, and an exit 0 is also git failing only to
+     delete the empty directory the helper then removed. Any non-zero exit of
+     the drop is reported and is not a stop, and exit 6 (no local branch) is
+     simply reported. Under `--dispatched` the run does not drop; `/dispatch`
+     does.
 
    (why: docs/commands/ship.md, *Step 6: the teardown*)
 
