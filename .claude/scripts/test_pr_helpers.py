@@ -4,6 +4,7 @@ The shared harness and the reason it shells out rather than re-implementing are
 `review_helpers.py`'s.
 """
 
+import itertools
 import json
 import os
 import re
@@ -220,8 +221,9 @@ class NoCommandReadsAPullRequestFeedUnfiltered(unittest.TestCase):
             (d / ".github" / "locality-gate" / "classes.yml").write_text(text, encoding="utf-8")
         return scripts
 
-    def _run_helper_with_gh(self, helper, arg, script, bound=None, scripts=SCRIPTS):
-        # A `gh` shim on PATH, the shape every stubbed helper test here uses.
+    def _run_helper_with_gh(self, helper, arg, script, bound=None, scripts=SCRIPTS, timeout_program=None):
+        # A `gh` shim on PATH, the shape every stubbed helper test here uses. `timeout_program` names the program
+        # gh-read-bound.sh looks for, so one that is not there takes the watchdog a host without `timeout` runs.
         d = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, d, ignore_errors=True)
         gh = Path(d) / "gh"
@@ -231,6 +233,8 @@ class NoCommandReadsAPullRequestFeedUnfiltered(unittest.TestCase):
         env["PATH"] = d + os.pathsep + env["PATH"]
         if bound is not None:
             env["GH_READ_BOUND_SECONDS"] = bound
+        if timeout_program is not None:
+            env["GH_READ_TIMEOUT"] = timeout_program
         return subprocess.run(
             [BASH, str(scripts / helper), arg],
             capture_output=True, text=True, encoding="utf-8", env=env,
@@ -253,14 +257,39 @@ class NoCommandReadsAPullRequestFeedUnfiltered(unittest.TestCase):
             {"pr-closure-input.sh", "pr-for-branch.sh", "pr-locality.sh", "pr-state.sh"},
             set(helpers),
         )
-        for helper in helpers:
+        # Under GNU `timeout`, and under the watchdog a host without it runs, as macOS, which ships none.
+        for helper, program in itertools.product(helpers, (None, "no-such-timeout")):
             arg = "some-branch" if helper == "pr-for-branch.sh" else "187"
-            with self.subTest(helper=helper):
+            with self.subTest(helper=helper, timeout=program or "timeout"):
                 start = time.monotonic()
-                r = self._run_helper_with_gh(helper, arg, "exec sleep 30\n", bound="1")
+                r = self._run_helper_with_gh(helper, arg, "exec sleep 30\n", bound="1", timeout_program=program)
                 self.assertLess(time.monotonic() - start, 20, helper)
                 self.assertNotEqual(0, r.returncode, r.stderr)
                 self.assertIn("did not answer within 1 s", r.stderr)
+
+    def test_the_watchdog_passes_a_quick_read_through_whole(self):
+        # Its answer must be gh's: the output, the status and the stdin, none read as the bound firing. The stub
+        # answers at once, so a 124, the bound's line or a wait here is the watchdog misreading its own stop.
+        bound = (SCRIPTS / "gh-read-bound.sh").as_posix()
+        for rc in ("0", "1", "143"):
+            with self.subTest(rc=rc):
+                d = tempfile.mkdtemp()
+                self.addCleanup(shutil.rmtree, d, ignore_errors=True)
+                gh = Path(d) / "gh"
+                gh.write_text('#!/usr/bin/env bash\nprintf "out:%s" "$(cat)"\nexit "$STUB_RC"\n',
+                              encoding="utf-8", newline="\n")
+                gh.chmod(0o755)
+                env = dict(os.environ, PATH=d + os.pathsep + os.environ["PATH"], STUB_RC=rc, BOUND=bound,
+                           GH_READ_TIMEOUT="no-such-timeout", GH_READ_BOUND_SECONDS="30")
+                start = time.monotonic()
+                r = subprocess.run(
+                    [BASH, "-c", 'set -e; . "$BOUND"; got=$(gh_read pr view) || exit "$?"; printf "%s" "$got"'],
+                    input="the stdin", capture_output=True, text=True, encoding="utf-8", env=env)
+                self.assertLess(time.monotonic() - start, 20, "the caller waited on the watchdog's sleep")
+                self.assertEqual(int(rc), r.returncode, r.stderr)
+                self.assertNotIn("did not answer", r.stderr)
+                if rc == "0":
+                    self.assertEqual("out:the stdin", r.stdout)
 
     def test_the_closure_input_asks_for_every_field_the_workflow_does(self):
         # The gate reads `author` for the Dependabot exemption, and a helper
@@ -422,6 +451,37 @@ class NoCommandReadsAPullRequestFeedUnfiltered(unittest.TestCase):
                 self.assertEqual("", r.stdout)
                 self.assertNotIn("Ignore", r.stderr)
                 self.assertNotIn("rm -rf", r.stderr)
+
+    def test_a_backticked_token_takes_its_reason_beside_it(self):
+        # `/pr` tells an author to widen a row "with its reason beside it", so
+        # `` `path` (why) `` is the form the row takes. The reason, commas and
+        # braces included, is dropped unread and the token is judged alone; a
+        # reason on a token that is not backticked, or one left open, is not
+        # the form and is refused.
+        body = (
+            "| Class | D |\n"
+            "| Touch set | `docs/x.md` (added: the rule moved, see #65), "
+            "`docs/{a,b}.md` (both, {braced}), docs/y.md |\n"
+        )
+        files = "docs/x.md\ndocs/a.md\ndocs/b.md\ndocs/y.md\ndocs/z.md\n"
+        r = self._run_locality_with_gh(self._gh_printing(body, files))
+        self.assertEqual(0, r.returncode, r.stderr)
+        self.assertEqual(
+            ["class D", "inside docs/x.md", "inside docs/a.md", "inside docs/b.md",
+             "inside docs/y.md", "outside docs/z.md"],
+            r.stdout.splitlines())
+        for cell, message in (
+            ("docs/x.md (the reason)", "the Touch set row is not a path list"),
+            ("`docs/x.md` (open reason", "the Touch set row has an unbalanced parenthesis"),
+            ("`docs/x.md` (a (nested) reason)", "the Touch set row has a reason outside its grammar"),
+            ("`docs/x.md` (a `quoted` reason)", "the Touch set row has a reason outside its grammar"),
+            ("`docs/x.md` (why) and also everything else", "the Touch set row has a reason outside its grammar"),
+        ):
+            with self.subTest(cell=cell):
+                r = self._run_locality_with_gh(self._gh_printing(f"| Class | D |\n| Touch set | {cell} |\n"))
+                self.assertEqual(3, r.returncode, r.stderr)
+                self.assertEqual("", r.stdout)
+                self.assertEqual(message + "\n", r.stderr)
 
     def test_a_second_row_is_refused_before_either_is_read(self):
         # With two Class rows, `grep -q` passes on the valid first and a print
@@ -717,7 +777,7 @@ BASH_4 = re.compile(
 
 
 class NoHelperNeedsBash4(unittest.TestCase):
-    """Frontend's required `harness (macos-latest)` leg runs the helpers under bash 3.2."""
+    """The harness's required `payload-suites (macos-latest)` leg runs the whole helpers suite under bash 3.2."""
 
     def shell_scripts(self):
         # The helper directories alone: `.claude/worktrees/` holds every forked
