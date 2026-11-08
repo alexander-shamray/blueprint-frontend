@@ -207,4 +207,5 @@ session:
 This repository's `.claude/` is the shared harness's, synced from
 `alexander-shamray/blueprint-harness` at the commit `.harness/manifest.json`
 names. The locality gate's workflow and the two document audits did not come
-with it: `docs/change-locality.md` §3 says where the gap bites.
+with it: `docs/change-locality.md` §3 says where the first gap bites, and
+`docs/harness-local.md` *Residuals* where the audits' does.
