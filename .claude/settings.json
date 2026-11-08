@@ -83,6 +83,8 @@
       "Edit(./AGENTS.md)",
       "Edit(.github/**)",
       "Edit(./.github/**)",
+      "Edit(.vscode/**)",
+      "Edit(./.vscode/**)",
       "Edit(package.json)",
       "Edit(./package.json)",
       "Edit(**/package.json)",
