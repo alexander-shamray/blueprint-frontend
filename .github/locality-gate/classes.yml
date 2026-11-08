@@ -1,22 +1,7 @@
 # The class -> tree-set map of docs/change-locality.md section 3, held once.
 #
-# This file is the owner of which paths each change class may touch. The
-# contract's table states each class's rule in words and cites this file for
-# the paths. No gate in CI reads it here: the locality gate was not ported
-# (section 3 says so), and .claude/scripts/pr-locality.sh, which /review-branch
-# and /ship run against an open pull request, is its one reader.
-#
-# The grammar is the one pr-locality.sh accepts and nothing else: a comment or
-# blank line; a class line, one capital letter A to E and a colon; an item
-# line, two spaces, a dash, a space and one single-quoted path token. Every
-# class appears once and carries at least one item. A token is a
-# repository-relative path or glob: `**` crosses directories, `*` and `?` do
-# not, `{a,b}` is an alternation, and a token also covers everything beneath
-# the directory it names.
-#
-# The map is deliberately coarse. It says what a class may reach in this
-# repository, not "one feature slice" or "one core area", which is a property
-# of the change: the PR body's `| Touch set |` row is the sharper check.
+# .claude/scripts/pr-locality.sh is its one reader; docs/harness-boundaries.md,
+# *Pull request reads and the locality verdict*, owns the grammar.
 
 # A -- local. One feature slice, its specs, and the one e2e step.
 A:
@@ -24,11 +9,13 @@ A:
   - 'e2e/**'
 
 # B -- shared mechanism. One core area or shared component, the one feature
-# spec that proves the wiring, and the one paragraph stating the rule.
+# spec that proves the wiring, the one paragraph stating the rule, and the
+# silent-refresh page, the auth mechanism's other half.
 B:
   - 'src/app/core/**'
   - 'src/app/shared/**'
   - 'src/app/features/**'
+  - 'public/**'
   - 'docs/client-architecture.md'
 
 # C -- a rule moved. Code and specs, one client-architecture section, and the
@@ -39,7 +26,8 @@ C:
   - 'docs/superpowers/specs/**'
 
 # D -- docs or harness. The documents, the harness and its sync record, CI,
-# the native projects, e2e, tools, and the root configuration files.
+# the native projects, the web assets, e2e, tools, and the root configuration
+# files.
 D:
   - 'docs/**'
   - '.claude/**'
@@ -48,6 +36,7 @@ D:
   - '.vscode/**'
   - 'android/**'
   - 'ios/**'
+  - 'public/**'
   - 'e2e/**'
   - 'tools/**'
   - 'CLAUDE.md'
