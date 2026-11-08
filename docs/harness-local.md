@@ -119,9 +119,9 @@ out of a closed set, and `test_npm_checks.py` asserts that no command's
 `pip3`, or a `py` not pinned to a script under `.claude/scripts/` or to the
 unittest runner. It judges each grant by its program word, in any spelling:
 the house form `Bash(npx:*)` never matched the prefix `Bash(npx ` the check
-first looked for (#375). The helper closes the executor and not the
-manifest, so the auto-load names are denied as well in `/review-branch`, the
-one local command that states an editing boundary, and
+first looked for (blueprint-frontend#375). The helper closes the executor and
+not the manifest, so the auto-load names are denied as well in
+`/review-branch`, the one local command that states an editing boundary, and
 `test_review_branch_frontend.py` holds that list. The exact filenames are
 measured; a glob beside them in a `disallowed-tools` value is not.
 
