@@ -478,7 +478,7 @@ jobs:
           GH_REPO: ${{ github.repository }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
-          title='CI is red on main'
+          title='main is red: ci'
           open=$(gh issue list --state open --label bug --limit 1000 --json number,title \
             --jq "map(select(.title == \"$title\")) | .[0].number // empty")
           if [ -n "$open" ]; then

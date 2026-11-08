@@ -242,7 +242,7 @@ the same PR. It waives nothing else. In particular:
   ruleset forbids rewriting, so it would report what nobody can fix, and
   `git bisect skip` steps over the commit it would have named.
   When a job fails on a push to `main`, `ci.yml`'s `main-red` job opens an
-  issue titled `CI is red on main`, or comments on the open one, so a red run
+  issue titled `main is red: ci`, or comments on the open one, so a red run
   nobody watched still reaches the repository's watchers and every
   `gh issue list`; it is closed by hand once `main` is green;
 - every commit carries `PR: #<n>`, as `docs/harness/working-rules.md`
