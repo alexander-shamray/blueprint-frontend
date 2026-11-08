@@ -51,7 +51,7 @@ e2e/                   the Playwright smoke, against a real stack
 android/, ios/         committed, not generated here; CI compiles the manifest a developer edits
 capacitor.config.ts    the one file that decides what `cap sync` writes into both
 .github/workflows/     ci — the jobs `docs/client-architecture.md` §14 names, including `harness`
-.claude/               commands, agents, hooks, scripts — managed, see The harness below
+.claude/               commands, agents, hooks, scripts — managed but for `.harness/config.json`'s `local` list
 .harness/              the harness's config, manifest and shared rules
 tools/                 token-usage/ — the report on where a session's tokens go
 docs/                  this file's table, above
