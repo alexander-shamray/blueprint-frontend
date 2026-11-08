@@ -9,13 +9,18 @@ cited from here by name, never restated.
 
 | | |
 |---|---|
-| `.todo/blueprint-frontend.md` in the main checkout's parent directory (local) | The task list, for the user; [`docs/change-locality.md`](docs/change-locality.md) §6 says where it lives and how it is kept |
-| [`docs/change-locality.md`](docs/change-locality.md) | The operating contract: the trust order, the one rule, the change classes and their touch sets, and §6's working rules (commits, issues, review threads, branch updates, a red `main`, the task list) |
+| `.todo/blueprint-frontend.md` in the main checkout's parent directory (local) | The task list, for the user; `.harness/agent-rules.md` says when it changes, [`docs/change-locality.md`](docs/change-locality.md) §6 why it lives there |
+| [`docs/change-locality.md`](docs/change-locality.md) | The operating contract: the trust order, the one rule, the change classes and their touch sets, and §6's working rules only this repository has |
 | [`docs/client-architecture.md`](docs/client-architecture.md) | Why this client is shaped the way it is — one numbered argument each; §12 is where the spec turned out wrong |
 | [`docs/superpowers/specs/2026-09-10-blueprint-frontend-design.md`](docs/superpowers/specs/2026-09-10-blueprint-frontend-design.md) | The design spec, §1–§11 — outranked by §12 above wherever the two disagree |
 | [`docs/superpowers/plans/2026-09-10-blueprint-frontend.md`](docs/superpowers/plans/2026-09-10-blueprint-frontend.md) | The delivery record, Tasks 0–20 — complete; cited for a task's title and order, never as current truth |
-| [`docs/harness-boundaries.md`](docs/harness-boundaries.md) | What the harness grants these commands, and refuses. **Read the section its index names for the change, not the file** |
-| [`docs/commands/`](docs/commands/) | The argument behind each long command (`/ship`, `/branch`, `/bug-sweep`, `/security-sweep`, `/review-branch`); the command file is the runbook. Read the one for a command before editing or disputing it |
+| [`.harness/agent-rules.md`](.harness/agent-rules.md) | The working rules every repository on the harness shares, imported below; managed |
+| [`docs/harness/working-rules.md`](docs/harness/working-rules.md) | Their detail for commits, pull requests, review, CI, tests and issues, and the review bar; managed |
+| [`docs/harness/token-rules.md`](docs/harness/token-rules.md) | The reasons behind the subagent, review-round and plan rules; managed |
+| [`docs/harness/pitfalls.md`](docs/harness/pitfalls.md) | Shell, git, machine and auto-mode traps; managed |
+| [`docs/harness-boundaries.md`](docs/harness-boundaries.md) | What the harness grants these commands, and refuses; managed. **Read the section its index names for the change, not the file** |
+| [`docs/harness-local.md`](docs/harness-local.md) | What the managed commands name by role, filled in for this repository: its documents, *Ship checks*, residuals and review examples |
+| [`docs/commands/`](docs/commands/) | The argument behind each long command; the command file is the runbook. Managed, but for `review-branch.md`, this repository's own as its command is. Read the one for a command before disputing it |
 | [`docs/style-guide.md`](docs/style-guide.md) | The prose, TypeScript and Angular dialect, and which rules a linter enforces |
 | [`docs/testing.md`](docs/testing.md) | What a checkout needs that `package.json` and `ci.yml` cannot say: the Playwright prerequisites, the worktree install, the harness suite, the code-index CLI's pin |
 | [`docs/token-plan.md`](docs/token-plan.md) | Where a session's tokens go and the steps that cut them; [`docs/token-usage.md`](docs/token-usage.md) holds the measurements and `tools/token-usage/` the report |
@@ -46,7 +51,8 @@ e2e/                   the Playwright smoke, against a real stack
 android/, ios/         committed, not generated here; CI compiles the manifest a developer edits
 capacitor.config.ts    the one file that decides what `cap sync` writes into both
 .github/workflows/     ci — the jobs `docs/client-architecture.md` §14 names, including `harness`
-.claude/               commands, agents, hooks, scripts
+.claude/               commands, agents, hooks, scripts — managed, see The harness below
+.harness/              the harness's config, manifest and shared rules
 tools/                 token-usage/ — the report on where a session's tokens go
 docs/                  this file's table, above
 ```
@@ -106,10 +112,6 @@ either. The
 import boundaries in `eslint.config.js` are **a lint failure, not a review
 comment**: a feature never imports another feature, and `core` knows nothing
 about screens (spec §3); `src/app/core/boundaries.spec.ts` is the precise check.
-One lesson stays here, because its subject is every other rule: **a gate that
-silently stops covering the newest surface is the most-repeated failure in
-these repositories**, and the only defence is a test whose subject is *what the
-gate is looking at*, not what it found.
 
 ## Style
 
@@ -129,83 +131,25 @@ true before anyone opens it:
 - **LF line endings.** `.gitattributes` is `* text=auto eol=lf`, and a CRLF
   that reaches the tree breaks the `.claude/scripts` shebangs mid-line.
 
-## Subagents, review rounds and plans
+## The harness
 
-Every turn re-sends the whole context, so an agent costs what it reads times
-the turns it takes, and a tool result stays in the parent for the rest of the
-session. `docs/token-plan.md` is the plan for that and `docs/token-usage.md`
-holds the measurements.
-
-- **Delegate with a brief.** A subagent is handed the files, diff or question
-  it needs and returns a short structured answer — findings as `file:line`,
-  not prose. `Explore` before `general-purpose` for a search; nothing is
-  delegated that one `Grep` answers; a step's reads go in one message.
-- **The review loop** is `/ship` step 5's, which owns what a recheck reads and
-  where the rounds end (`docs/commands/ship.md` argues them), and a pull
-  request reviewed outside `/ship` runs it too: rounds of one `branch-reviewer`
-  each, read-only by its tool list, handed the diff under `artifacts/review/`
-  and not the author's conclusions — never `general-purpose`, and never the
-  session reviewing its own diff.
-- **Plans.** A change that fits one pull request takes plan mode, not a plan
-  file. A plan file cites code by path and symbol rather than pasting it and
-  stays under 50 KB; research for it goes to `Explore` with a brief, and the
-  plan-writing agent is handed the spec and the symbols the plan cites and
-  writes it in one pass.
-- **Before a wait, shed the context.** A session about to wait on CI, a
-  background agent or a check-in compacts first, or hands the wait to a fresh
-  agent that holds only the pull request and returns the verdict; a wake
-  re-sends the whole context, and after the cache has expired writes all of it
-  again.
-- **One task per session**: `/clear` between tasks.
-
-## Working in this repo
-
-The working rules — commit messages and `Closes #n`, the issue vocabulary,
-resolving a review thread, when a branch is updated and how a pull request
-lands, a red `main`, uncommitted work, and where the task list lives — are
-`docs/change-locality.md` §6's. Two reach every session, so they stay:
-
-- **The task list is `.todo/blueprint-frontend.md` in the main checkout's
-  parent directory**, outside every checkout so that a session in a worktree
-  can write it. Write it by that path from wherever the session stands, never
-  through a `TODO.md` link at the root.
-- **A `#NN` inside `.claude/` or `docs/harness-boundaries.md` is an issue in
-  the backend repository**, where that machinery was built. It is not an issue
-  here.
+Every path `.harness/manifest.json` lists is managed: `blueprint-harness`
+owns it, synced at the commit the manifest names, and a sync pull request
+brings it here. `docs/harness-boundaries.md` is what the harness grants these
+commands and refuses; read the section its index names before touching
+anything under `.claude/`. A residual only this repository has goes in
+`docs/harness-local.md` *Residuals*, and a working rule only this repository
+has in `docs/change-locality.md` §6. The locality gate's workflow and the two
+document audits did not come with the harness: `docs/change-locality.md` §3
+says where the first gap bites, and `docs/harness-local.md` *Residuals* where
+the audits' does. A bare `#NN` inside a managed file names an issue in
+`blueprint-backend`, where most of that machinery was built, or in
+`blueprint-harness`; it is not an issue here.
 
 `/ship`, `/branch`, `/commit`, `/pr`, `/review-branch`, `/style-pass`,
-`/security-sweep` and `/bug-sweep` say what each does in their own
-frontmatter; `/ship` runs the others to a merged PR and stops for nothing that
-is a judgement.
+`/security-sweep`, `/bug-sweep`, `/dispatch` and `/team` say what each does
+in their own frontmatter; `/ship` runs the others to a merged PR and stops
+for nothing that is a judgement. The rules every repository on the harness
+shares are these:
 
-### Under `.claude/`
-
-**Read the section of `docs/harness-boundaries.md` its index names for the
-change before touching anything here**. That file is managed by the harness
-sync, so a residual only this repository makes true goes in
-`docs/harness-local.md` *Residuals*, not here. Four rules reach every
-session:
-
-- **File permission rules take `Edit(...)`, never `Write(...)`** — a
-  `Write(path)` rule matches nothing and stops Claude Code from starting.
-- **`.claude/settings.json` self-locks, not instantaneously** — a change to it
-  lands complete and goes last, and a restore is verified by reading the file,
-  never by trying what it forbids.
-- **Every guard uses `run-guard.sh`**; the index hooks launch otherwise — the
-  hints through `hint-bound.sh`, the refresh and the MCP root check through
-  `py -3.12 -P` — and `docs/harness-boundaries.md`, *Index hint hooks and hook
-  wiring*, says why each is wired as it is.
-- **`python -m unittest discover -s .claude/scripts -p 'test_*.py'` is the
-  harness's own suite** and CI's `harness` job runs it on three platforms. Run
-  it after any change under `.claude/`; it reads `git ls-files`, so a new
-  tracked root file or top-level tree fails it until somebody decides which side
-  of the boundary it is on. `docs/testing.md` owns the prerequisite and the
-  per-module run.
-
-### What was not ported
-
-This repository's `.claude/` is the shared harness's, synced from
-`alexander-shamray/blueprint-harness` at the commit `.harness/manifest.json`
-names. The locality gate's workflow and the two document audits did not come
-with it: `docs/change-locality.md` §3 says where the first gap bites, and
-`docs/harness-local.md` *Residuals* where the audits' does.
+@.harness/agent-rules.md
