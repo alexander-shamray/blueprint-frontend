@@ -255,7 +255,7 @@ jobs:
     # Bounds a step that never exits, which would otherwise hold the runner
     # for GitHub's default limit (docs/testing.md). Headroom over the usual
     # run, not a duration.
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7

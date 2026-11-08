@@ -1,103 +1,44 @@
-"""git-rebase-onto-main.sh: the only force push, and what bounds it.
+"""git-rebase-onto-main.sh: a leased force push, and what bounds it.
 
-A permission rule matches the text of a command, so it can pin a flag and
-cannot pin a fact about the checkout. Everything that makes this force push
-safe is the second kind — the branch is the current one, it is not `main`, and
-the remote holds nothing the push would discard — so the script is the
-boundary and this suite is what watches it. The first class reads the flags;
-the rest run the thing.
+A permission rule cannot pin a fact about the checkout, so the guards are the
+script's, and its header lists them. The first class reads the flags, the last
+reads this file, and the rest run it against real repositories."""
 
-Ported from `alexander-shamray/blueprint-backend`, where the helper was built
-and reviewed (#57). The module's own harness is spelled here rather than
-imported: the suite this repository already runs against its shell helpers,
-`test_harness_helpers.py`, carries its own `run_bash` and `code_lines` and argues
-for both, and a shared module introduced for one port would be a second
-spelling of what exists three files over. The other suites here need neither,
-which is why there is nothing to share yet rather than something being
-duplicated.
-
-Run: py -3.12 -m unittest discover -s .claude/scripts
-Needs bash and git on PATH, and nothing else: every case here drives a real
-repository, and none of them parses JSON or matches a declared pattern.
-"""
-
-import os
+import ast
 import re
-import shutil
-import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
-SCRIPTS = Path(__file__).resolve().parent
+from review_helpers import (
+    SCRIPTS,
+    code_lines,
+    git_commands,
+    setUpModule,
+    temp_root,
+    run_bash as _run_bash,
+)
+
 HELPER = SCRIPTS / "git-rebase-onto-main.sh"
-
-# The fixtures must answer for the script, not for whoever is running them.
-# `run_bash` hands the child its own environment, so without this the
-# developer's global gitconfig is live inside every fixture repository — and
-# one of the cases below exists to prove that configuration cannot change what
-# the replay does, which it cannot establish while it inherits some. A path
-# that does not exist reads as an empty config file on every platform, where
-# `/dev/null` is a spelling only some of them have.
-NO_CONFIG = str(SCRIPTS / "no-such-gitconfig-for-the-fixtures")
-
-BASH = shutil.which("bash")
-GIT = shutil.which("git")
-
-
-def setUpModule():
-    # Not a skip. A skip on a missing tool reports a pass, which is the
-    # fail-open every gate in this repository is written against. Absent
-    # either of these, this suite has established nothing and says so.
-    missing = [name for name, path in (("bash", BASH), ("git", GIT)) if path is None]
-    if missing:
-        raise RuntimeError(
-            f"{', '.join(missing)} required and not on PATH: these tests exercise "
-            "the same tools the script does, and asserting through Python "
-            "equivalents instead would be testing a second specification"
-        )
 
 
 def run_bash(script, subject="", **env_extra):
-    """Run a bash fragment with the subject on stdin and everything else in env.
+    """`review_helpers.run_bash` with the caller's git configuration shut out.
 
-    Nothing is passed as an argument: under MSYS — the host this repository is
-    developed on — an argv element crossing into `bash.exe` is re-parsed by the
-    MSYS runtime, so a path or a pattern arrives mangled and the case silently
-    tests something else. Environment variables and stdin are not re-parsed, so
-    they mean the same thing on both platforms.
+    `rebase.backend`, `rebase.updateRefs` and `core.autocrlf` would each decide
+    what the fixtures reach. `/dev/null` is spelled the same on every runner.
     """
-    env = dict(os.environ)
-    env.setdefault("GIT_CONFIG_GLOBAL", NO_CONFIG)
-    env.setdefault("GIT_CONFIG_SYSTEM", NO_CONFIG)
-    env.update(env_extra)
-    return subprocess.run(
-        [BASH, "-c", script],
-        input=subject,
-        capture_output=True,
-        text=True,
-        env=env,
-    )
-
-
-def code_lines(text):
-    """The executable lines of a shell script — comments and blanks dropped.
-
-    An assertion that a line exists, made against the whole file, passes on a
-    comment that mentions it, so deleting the executable line would not fail
-    it. This helper names the flags it refuses, in the comments explaining
-    why, which makes a whole-file scan read the explanation as the defect.
-    """
-    return [
-        line for line in text.splitlines()
-        if line.strip() and not line.lstrip().startswith("#")
-    ]
+    return _run_bash(script, subject,
+                     GIT_CONFIG_GLOBAL="/dev/null",
+                     GIT_CONFIG_SYSTEM="/dev/null",
+                     GIT_CONFIG_NOSYSTEM="1",
+                     **env_extra)
 
 
 # A remote, a checkout of it, a branch with one commit, and a `main` that has
 # moved since — the state every branch update starts from.
-FIXTURE = '''
+BUILD = '''
 set -eu
-root=$(mktemp -d)
 git init -q --bare --initial-branch=main "$root/remote.git"
 git init -q --initial-branch=main "$root/work"
 cd "$root/work"
@@ -113,8 +54,30 @@ git checkout -q main
 echo moved > c.txt && git add -A && git commit -qm "main moved"
 git push -q origin main
 git checkout -q feat/x
-printf %s "$root"
 '''
+
+# Each test's own copy of that state, built once per module: about twenty git
+# processes a test become three, which is most of this suite's time on Windows.
+FIXTURE = '''
+set -eu
+: "${TEMPLATE:?}"
+cp -Rp "$TEMPLATE/." "$root/"
+git -C "$root/work" remote set-url origin "$root/remote.git"
+'''
+_template = []
+
+
+def template():
+    if not _template:
+        holder = tempfile.TemporaryDirectory()
+        unittest.addModuleCleanup(holder.cleanup)
+        root = Path(holder.name).as_posix()
+        built = run_bash(BUILD, root=root)
+        if built.returncode != 0:
+            raise RuntimeError(f"the rebase fixture did not build: {built.stderr}")
+        _template.append(root)
+    return _template[0]
+
 
 # Both sides edit the same line, so the replay cannot proceed without a person.
 CONFLICT = '''
@@ -124,40 +87,20 @@ git checkout -q feat/x && echo theirs > a.txt && git add -A
 git commit -qm "the branch edits a.txt" && git push -q origin feat/x
 '''
 
+# A push that fails after the replay has finished. The remote refuses a
+# non-fast-forward rather than being broken, because the fetch has to succeed
+# for the replay to happen at all. It is the remote's setting and not a
+# `pre-push` hook, which the helper ignores along with the rest of the host's.
+FAIL_PUSH = 'git --git-dir=../remote.git config receive.denyNonFastForwards true'
+ALLOW_PUSH = 'git --git-dir=../remote.git config --unset receive.denyNonFastForwards || true'
+# A rebase that fails before any state exists, on every platform: git wants the
+# index lock and finds a file there. The helper runs no `pre-rebase` hook.
+LOCK_INDEX = 'printf x > "$(git rev-parse --git-path index.lock)"'
+UNLOCK_INDEX = 'rm -f "$(git rev-parse --git-path index.lock)"'
 
-# **Built once and copied, not built per test**
-# (alexander-shamray/blueprint-frontend#259). A fixture is about fifteen `git`
-# processes, every one slow to start under Git Bash on Windows, and building it
-# in each `setUp` made this module the largest single cost of the local suite.
-# A copy is one `cp -a` and one `git remote set-url`: the clone records its
-# origin by absolute path, and nothing else in either repository names one.
-# Each test still gets a repository of its own, so no case sees another's.
-_TEMPLATES = {}
-
-
-def fixture(*steps):
-    """A fresh copy of FIXTURE with `steps` run in its work tree, built once."""
-    if steps not in _TEMPLATES:
-        root = run_bash(FIXTURE).stdout.strip()
-        if not root:
-            raise RuntimeError("the fixture produced no path")
-        for step in steps:
-            done = run_bash('cd "$W" && ' + step, W=root + "/work")
-            if done.returncode:
-                raise RuntimeError(f"a fixture step failed: {done.stderr}")
-        _TEMPLATES[steps] = root
-    copy = run_bash(
-        'set -eu; copy=$(mktemp -d); cp -a "$T/." "$copy/"; '
-        'git -C "$copy/work" remote set-url origin "$copy/remote.git"; '
-        'printf %s "$copy"', T=_TEMPLATES[steps])
-    if copy.returncode:
-        raise RuntimeError(f"the fixture could not be copied: {copy.stderr}")
-    return copy.stdout.strip()
-
-
-def tearDownModule():
-    for root in _TEMPLATES.values():
-        run_bash('rm -rf "$R"', R=root)
+REBASE_RUNNING = ('test -d "$(git rev-parse --git-path rebase-merge)" '
+                  '-o -d "$(git rev-parse --git-path rebase-apply)" '
+                  '&& echo yes || echo no')
 
 
 class TheFlagsAreTheScriptsOwn(unittest.TestCase):
@@ -171,67 +114,111 @@ class TheFlagsAreTheScriptsOwn(unittest.TestCase):
     # not fail it — which is `code_lines`' own argument.
     source = "\n".join(code_lines(HELPER.read_text(encoding="utf-8")))
 
-    # A command may be written with the environment in front of it, and this
-    # file already writes one that way — `GIT_EDITOR=true git rebase
-    # --continue`. Both scans below decide what to look at by how the line
-    # STARTS, so without this a second push spelled `GIT_SSH_COMMAND=… git push
-    # --force …` is invisible to both of them: it never enters the push list,
-    # so the count still reads one, and it never enters the command text, so
-    # the force scan still reads clean. A gate that stops covering the newest
-    # spelling is the failure this repository records most often, and this is
-    # that gate.
-    LEADING_ENV = re.compile(r"^(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+|env\s+|command\s+)*")
-
-    @classmethod
-    def commands(cls, prefix):
-        found = []
-        for line in cls.source.splitlines():
-            bare = cls.LEADING_ENV.sub("", line.strip())
-            if bare.startswith(prefix):
-                found.append(bare)
-        return found
-
     def test_there_is_exactly_one_push_and_it_carries_an_expected_value(self):
+        pushes = [c for c in git_commands(self.source) if c.startswith("git push")]
         self.assertEqual(
-            self.commands("git push"),
-            ['git push --force-with-lease="$branch:$lease" origin "$branch"'],
+            pushes, ['git push --force-with-lease="refs/heads/$branch:$lease" '
+                     'origin "refs/heads/$branch:refs/heads/$branch"'],
             "one push, leased against the commit this run read, naming its remote and its refspec")
 
-    def test_the_scan_sees_a_command_written_behind_its_environment(self):
-        # The positive control for the stripping above, and it is not
-        # hypothetical: the helper's own `git rebase --continue` is written
-        # that way, so a scan that missed the form would miss a real line.
-        self.assertIn("git rebase --continue",
-                      " ".join(self.commands("git rebase")),
-                      "a `NAME=value git …` line must reach the scans")
-
     def test_no_spelling_of_the_unleased_force_appears(self):
-        # The commands only. Scanning the whole file catches `[ -f "$state/… ]`
-        # and every prose mention of the deny this helper exists beside, which
-        # is a check that fails on its own documentation.
-        commands = "\n".join(self.commands("git "))
-        for spelling in ("--force ", "--force\n", "--force=", " -f ", "--force-if-includes"):
+        # The commands only: the whole file holds `[ -f "$state/… ]` and every
+        # prose mention of the deny. The trailing newline lets a flag ending
+        # the last command match, so each spelling is listed in both forms.
+        commands = "\n".join(git_commands(self.source)) + "\n"
+        for spelling in ("--force ", "--force\n", "--force=", " -f ", " -f\n",
+                         "--force-if-includes"):
             self.assertNotIn(spelling, commands, f"{spelling!r} would discard without a lease")
+        # `+<refspec>` forces with no flag at all. Not anchored on a colon:
+        # `+$branch` forces branch:branch without one, and a quote can sit
+        # where the space was.
+        for command in commands.splitlines():
+            if command.startswith("git push") or " push " in command:
+                self.assertNotRegex(command, r'''(?:^|\s)["']?\+\S''',
+                                    "a `+` refspec forces without naming a flag")
+
+    def test_the_scan_sees_what_a_line_scan_misses(self):
+        """The scan's subject is the scan, not what it happened to find.
+
+        Every line below is a second, unleased force push. Its flags must stay
+        attached: a scan that cut one before `--force` would pass a count.
+        """
+        hidden = (
+            'GIT_SSH_COMMAND=ssh git push --force origin "$branch"',
+            'git rev-parse HEAD || { git push --force origin "$branch"; }',
+            'if [ -n "$x" ]; then git push --force origin "$branch"; fi',
+            'for r in a b; do git push --force origin "$r"; done',
+            '! git push --force origin "$branch"',
+            'eval git push --force origin "$branch"',
+            'git push origin "${branch}" --force',
+            'git push origin +$branch',
+            'git push origin "+$branch:$branch"',
+            'git push origin "$branch" -f',
+            'git -C . push --force origin "$branch"',
+            'git -c push.default=current push origin +$branch',
+            'git --git-dir=.git push origin "+$branch:$branch"',
+            'env git push --force origin "$branch"',
+            'git --no-pager push origin +$branch',
+            'git -c "k=a b" push --force origin "$branch"',
+            'timeout 60 git push --force origin "$branch"',
+            'timeout -k 5 60 git push --force origin "$branch"',
+            'echo "$branch" | xargs git push --force origin',
+            'echo "$branch" | xargs -n 1 git push origin +$branch',
+            'sudo git push --force origin "$branch"',
+            'nice -n 5 git push --force origin "$branch"',
+            'stdbuf -oL git push --force origin "$branch"',
+            'setsid git push --force origin "$branch"',
+            'command -p git push --force origin "$branch"',
+            'git' + chr(9) + 'push --force origin "$branch"',
+            'git push origin ' + chr(92) + chr(10) + '  --force "$branch"',
+        )
+        baseline = git_commands(self.source)
+        for line in hidden:
+            with self.subTest(line=line):
+                seen = git_commands(self.source + chr(10) + line)
+                self.assertGreater(len(seen), len(baseline),
+                                   "the scan does not see this command at all")
+                added = seen[len(baseline):]
+                self.assertTrue(
+                    any("--force" in c or " -f" in c or "+" in c for c in added),
+                    f"the scan truncated the command before its flags: {added!r}")
+
+    def test_every_replay_spells_the_flags_that_decide_what_is_replayed(self):
+        # Each `rebase.*` key behind these flags changes WHICH commits are
+        # replayed or what the tree is while they are, and the result is
+        # force-pushed. `--continue` replays what `start` planned and takes
+        # none, so the replays are the rebases that name a base.
+        replays = [c for c in git_commands(self.source)
+                   if c.startswith("git rebase") and "--continue" not in c and "--abort" not in c]
+        self.assertEqual(1, len(replays), replays)
+        for flag in ("--merge", "--no-rebase-merges", "--no-update-refs", "--no-autosquash",
+                     "--no-fork-point", "--no-autostash"):
+            with self.subTest(flag=flag):
+                self.assertIn(flag, replays[0])
 
     def test_the_push_leases_against_the_value_the_guard_approved(self):
         # Re-reading the remote ref in `publish` would lease against whatever a
         # fetch had since made of it, with the whole replay in between — the
-        # lease would then name the commits the guard refused.
+        # lease would then name the commits the guard refused. A pattern, so a
+        # second read spelled another way is still counted.
         self.assertIn('lease="$approved_lease"', self.source)
-        self.assertEqual(
-            1, self.source.count('approved_lease=$(git rev-parse "refs/remotes/origin/$branch")'),
-            "one place reads the remote tip into a lease, and it is the guard")
-        for line in self.source.splitlines():
-            self.assertNotRegex(line.strip(), r'^lease=\$\(git rev-parse',
-                                "a lease built from a fresh read names whatever a fetch has since made of it")
+        reads = re.findall(r"\w*lease=\$\(\s*git rev-parse", self.source)
+        self.assertEqual(1, len(reads),
+                         "one place reads the remote tip into a lease, and it is the guard")
+        # Narrowed to remote refs: `head=$(git rev-parse HEAD)` is in that
+        # function too, and is not a lease.
+        body = self.source.split("publish() {", 1)[1].split(chr(10) + "}", 1)[0]
+        self.assertNotRegex(body, r'rev-parse\s+"?refs/remotes',
+                            "publish re-reading a remote ref would lease against "
+                            "whatever a fetch has since made of it")
 
 
 class TheHelperRefusesBeforeItRewrites(unittest.TestCase):
 
     def setUp(self):
-        self.root = fixture()
-        self.assertTrue(self.root, "the fixture produced no path")
-        self.addCleanup(lambda: run_bash('rm -rf "$R"', R=self.root))
+        self.root = temp_root(self)
+        built = run_bash(FIXTURE, TEMPLATE=template(), root=self.root)
+        self.assertEqual(0, built.returncode, built.stderr)
         self.work = self.root + "/work"
 
     def helper(self, branch, mode="start"):
@@ -243,11 +230,6 @@ class TheHelperRefusesBeforeItRewrites(unittest.TestCase):
 
     def head(self):
         return self.at("git rev-parse HEAD").stdout.strip()
-
-    def test_it_takes_a_branch_and_a_mode(self):
-        one = run_bash('cd "$W" && bash "$H" feat/x', W=self.work, H=str(HELPER))
-        self.assertEqual(2, one.returncode)
-        self.assertEqual(2, self.helper("feat/x", "land").returncode, "an unknown mode is refused")
 
     def test_main_is_refused_even_while_main_is_checked_out(self):
         self.at("git checkout -q main")
@@ -281,7 +263,9 @@ class TheHelperRefusesBeforeItRewrites(unittest.TestCase):
 
     def test_a_dirty_tree_is_refused(self):
         self.at("echo uncommitted >> b.txt")
-        self.assertEqual(5, self.helper("feat/x").returncode)
+        result = self.helper("feat/x")
+        self.assertEqual(5, result.returncode, result.stderr)
+        self.assertIn("the tree is dirty", result.stderr)
         self.assertIn("uncommitted", self.at("cat b.txt").stdout, "the edit survives the refusal")
 
     def test_a_skip_worktree_file_is_refused_and_named(self):
@@ -289,154 +273,227 @@ class TheHelperRefusesBeforeItRewrites(unittest.TestCase):
         # fires; the message is what tells this guard from that one.
         self.at("git update-index --skip-worktree b.txt")
         self.assertEqual("", self.at("git status --porcelain").stdout.strip())
+        before = self.head()
         result = self.helper("feat/x")
-        self.assertEqual(5, result.returncode)
+        self.assertEqual(5, result.returncode, result.stderr)
         self.assertIn("skip-worktree", result.stderr)
         self.assertIn("b.txt", result.stderr)
         self.assertNotIn("the tree is dirty", result.stderr)
+        self.assertEqual(before, self.head())
+        self.assertEqual("", self.at('cat "$(git rev-parse --git-path claude-rebase-pending)" 2>/dev/null').stdout,
+                         "a record was left for a replay that never started")
 
     def test_a_sparse_checkout_is_not_read_as_a_lift(self):
-        self.at("git config core.sparseCheckout true && "
-                "git update-index --skip-worktree b.txt")
-        self.assertNotIn("skip-worktree", self.helper("feat/x").stderr)
+        self.at("git config core.sparseCheckout true && git update-index --skip-worktree b.txt")
+        result = self.helper("feat/x")
+        self.assertNotIn("skip-worktree", result.stderr)
+        self.assertEqual(0, result.returncode, result.stderr)
 
     def test_a_branch_the_remote_does_not_have_is_refused(self):
-        # Exit 6 has two sources — no `origin/main` to rebase onto, and no
-        # `origin/<branch>` to push over — so the code alone does not say
-        # which guard fired, and a regression into the neighbouring one would
-        # leave this green.
         self.at("git checkout -qb feat/unpublished")
         result = self.helper("feat/unpublished")
-        self.assertEqual(6, result.returncode)
+        self.assertEqual(6, result.returncode, result.stderr)
         self.assertIn("origin has no feat/unpublished", result.stderr)
+
+    def test_origin_without_main_is_refused_by_its_own_message(self):
+        # Exit 6's other site. `start` fetches before it looks, so a branch
+        # that was never pushed cannot reach it: the remote has to lose `main`
+        # and the fetch has to prune it.
+        run_bash('cd "$R/remote.git" && git symbolic-ref HEAD refs/heads/feat/x '
+                 '&& git update-ref -d refs/heads/main', R=self.root)
+        self.at("git config remote.origin.prune true")
+        result = self.helper("feat/x")
+        self.assertEqual(6, result.returncode, result.stderr)
+        self.assertIn("no refs/remotes/origin/main", result.stderr)
 
     def test_commits_only_the_remote_has_stop_it(self):
         # A lease is satisfied by a commit this checkout has fetched, so it
         # would not stop a push that knowingly discards another session's work.
-        # This is the guard that does.
+        # Exit 7 has three sites, and moving this guard after the replay would
+        # still exit 7 with the branch rewritten; the message and the untouched
+        # tip are what pin it.
         self.at('git clone -q ../remote.git ../second')
         run_bash('cd "$R/second" && git config user.email t@e.invalid && git config user.name T '
                  '&& git checkout -q feat/x && echo theirs > theirs.txt && git add -A '
                  '&& git commit -qm "another session" && git push -q origin feat/x', R=self.root)
-        self.assertEqual(7, self.helper("feat/x").returncode)
+        before = self.head()
+        result = self.helper("feat/x")
+        self.assertEqual(7, result.returncode, result.stderr)
+        self.assertIn("carries commits this checkout did not start from", result.stderr)
+        self.assertEqual(before, self.head(), "the branch was rewritten before the refusal")
 
     def test_continue_and_abort_refuse_when_no_rebase_is_running(self):
-        # Exit 9 has six sources in this script, so each case that ends on it
-        # names the one it means. Without that, a guard regressing into a
-        # neighbouring refusal keeps every one of them green.
-        cont = self.helper("feat/x", "continue")
-        self.assertEqual(9, cont.returncode)
-        self.assertIn("'continue' has nothing to finish", cont.stderr)
-        abort = self.helper("feat/x", "abort")
-        self.assertEqual(9, abort.returncode)
-        self.assertIn("'abort' has nothing to undo", abort.stderr)
+        # Exit 9 is shared across all four modes, so each message is the guard.
+        finish = self.helper("feat/x", "continue")
+        self.assertEqual(9, finish.returncode, finish.stderr)
+        self.assertIn("'continue' has nothing to finish", finish.stderr)
+        undo = self.helper("feat/x", "abort")
+        self.assertEqual(9, undo.returncode, undo.stderr)
+        self.assertIn("'abort' has nothing to undo", undo.stderr)
 
-    def test_a_rebase_that_never_started_leaves_no_record_behind(self):
-        # The lease is recorded BEFORE the replay so it survives a failed
-        # push; a replay that never happens must not leave that record lying
-        # there. Left behind, it refuses the next `start` — "a replay is
-        # waiting to be published" — about a branch git never touched, and
-        # hands `publish` a lease approved for a rebase that did not run.
-        #
-        # The failure is made with a held index lock: a `pre-rebase` hook used
-        # to do it, and the helper now ignores every hook of the host's, so a
-        # hook is no longer a way to make `git rebase` fail. A file where git
-        # wants its state directory was tried and fails the rebase on Windows
-        # only. A lock on the index fails it before any state exists on every
-        # platform, which is the shape the case is about, and is not a hook.
-        self.at('printf x > "$(git rev-parse --git-path index.lock)"')
-        self.assertEqual(11, self.helper("feat/x").returncode)
-        self.assertEqual(
-            "absent",
-            self.at('test -f "$(git rev-parse --git-path claude-rebase-pending)" '
-                    '&& echo present || echo absent').stdout.strip())
+    def test_publish_refuses_when_no_replay_is_waiting(self):
+        # The retry path, with nothing to retry, must not fall through to a push.
+        result = self.helper("feat/x", "publish")
+        self.assertEqual(9, result.returncode, result.stderr)
+        self.assertIn("no replay is waiting to be published", result.stderr)
 
-        self.at('rm -f "$(git rev-parse --git-path index.lock)"')
-        again = self.helper("feat/x")
-        self.assertEqual(0, again.returncode, again.stderr)
+    def interactive_rebase_by_hand(self):
+        # A todo that stops at once and then drops the branch's commit, which
+        # is the rebase the marker guard is for. Written by a shell function
+        # rather than `sed -i`, whose in-place flag GNU and BSD spell apart.
+        self.at("GIT_SEQUENCE_EDITOR='f() { { echo break; sed \"s/^pick/drop/\" \"$1\"; } "
+                "> \"$1.new\" && mv \"$1.new\" \"$1\"; }; f' "
+                "git rebase -i refs/remotes/origin/main")
+        self.assertEqual("yes", self.at(REBASE_RUNNING).stdout.strip(),
+                         "the hand-run rebase did not stop, so nothing below is reached")
+        self.addCleanup(lambda: self.at("git rebase --abort"))
 
     def test_a_rebase_this_helper_did_not_start_is_not_published(self):
         # An interactive rebase dropping the branch's commits passes every
         # other check in `continue`: the published tip is what it started
         # from, so the divergence guard is satisfied and the result — which
         # holds none of the branch's work — would be forced over it.
-        #
-        # git runs `GIT_SEQUENCE_EDITOR` through a shell with the todo path
-        # appended, so a redirection is the portable way to write one. `sed -i
-        # <script>` is not: BSD sed reads the script as the backup suffix, so
-        # on macOS the editor fails, the rebase never starts, and the case goes
-        # green for the wrong reason — `continue` refusing a rebase that is not
-        # there rather than one this helper did not start. The source
-        # repository never met that, because its matrix job runs two modules
-        # and its full suite runs on ubuntu alone; this repository's `harness`
-        # job runs the whole discover on all three platforms, which is what
-        # caught it.
         published = self.at("git rev-parse refs/remotes/origin/feat/x").stdout.strip()
-        self.at('GIT_SEQUENCE_EDITOR="echo break >" '
-                'git rebase -i refs/remotes/origin/main')
+        self.interactive_rebase_by_hand()
         result = self.helper("feat/x", "continue")
         self.assertEqual(9, result.returncode, result.stderr)
         self.assertIn("not started by this helper", result.stderr)
         self.assertEqual(published, self.at("git rev-parse refs/remotes/origin/feat/x").stdout.strip(),
                          "the remote still carries the branch's published work")
-        self.at("git rebase --abort")
+
+    def test_a_rebase_this_helper_did_not_start_is_not_aborted(self):
+        # The more destructive twin of the case above: `abort` would run
+        # `git rebase --abort` and throw away a replay somebody is standing in.
+        self.interactive_rebase_by_hand()
+        result = self.helper("feat/x", "abort")
+        self.assertEqual(9, result.returncode, result.stderr)
+        self.assertIn("not this helper's to undo", result.stderr)
+        self.assertEqual("yes", self.at(REBASE_RUNNING).stdout.strip(),
+                         "the foreign rebase was thrown away")
+
+    def test_a_git_am_session_is_refused_as_itself(self):
+        # It shares rebase-apply with a rebase, so without its own check each
+        # mode names it as one: a rebase in progress, or one of no branch.
+        self.at('git format-patch -1 --stdout refs/remotes/origin/main > ../main.patch '
+                '&& echo other > c.txt && git add c.txt && git commit -qm "c.txt here first"; '
+                'git am ../main.patch')
+        self.assertEqual("yes", self.at(REBASE_RUNNING).stdout.strip(), "the am session did not stop")
+        self.addCleanup(lambda: self.at("git am --abort"))
+        for mode in ("start", "continue", "publish", "abort"):
+            with self.subTest(mode=mode):
+                result = self.helper("feat/x", mode)
+                self.assertEqual(9, result.returncode, result.stderr)
+                self.assertIn("a 'git am' session is in progress, not a rebase", result.stderr)
+        self.assertEqual("yes", self.at(REBASE_RUNNING).stdout.strip(), "the am session was disturbed")
 
     def test_a_rebase_that_never_started_is_not_called_a_conflict(self):
         # Every other way `git rebase` can fail leaves no state, and reporting
         # it as a conflict sends the caller to a `continue` with nothing to do.
-        # A held index lock, as the case above makes it.
-        self.at('printf x > "$(git rev-parse --git-path index.lock)"')
+        self.at(LOCK_INDEX)
         result = self.helper("feat/x")
         self.assertEqual(11, result.returncode, result.stderr)
-        self.assertIn("did not start", result.stderr)
+        self.assertIn("the rebase did not start", result.stderr)
+        # A clean `git status` with git refusing to overwrite local changes is a
+        # skip-worktree file; the refusal says how to see one.
+        self.assertIn("git ls-files -v", result.stderr)
+        self.assertIn("skip-worktree", result.stderr)
+
+
+class TheArgumentGuardsEachHaveTheirOwnCase(unittest.TestCase):
+    """Exit 2 covers five conditions, so each case pins its message too.
+
+    No fixture, and that is the property: a guard that needed a repository
+    would be one the session's location could switch off.
+    """
+
+    def refuse(self, branch, mode="start"):
+        return run_bash('bash "$H" "$B" "$M"', H=str(HELPER), B=branch, M=mode)
+
+    def test_it_takes_exactly_two_arguments(self):
+        # Relaxed to `-ge 2`, the helper would ignore a trailing argument —
+        # the trailing-flag case a helper exists to answer.
+        for args in ("", '"$B"', '"$B" "$M" --onto'):
+            with self.subTest(args=args or "(none)"):
+                result = run_bash('bash "$H" ' + args,
+                                  H=str(HELPER), B="feat/x", M="start")
+                self.assertEqual(2, result.returncode, result.stderr)
+                self.assertIn("usage: git-rebase-onto-main.sh", result.stderr)
+
+    def test_an_unknown_mode_is_refused_by_its_own_message(self):
+        result = self.refuse("feat/x", "skip")
+        self.assertEqual(2, result.returncode, result.stderr)
+        self.assertIn("mode must be start, continue, publish or abort", result.stderr)
+
+    def test_a_leading_dash_is_refused_before_it_can_be_a_flag(self):
+        for branch in ("-D", "--onto", "-f"):
+            with self.subTest(branch=branch):
+                result = self.refuse(branch)
+                self.assertEqual(2, result.returncode, result.stderr)
+                self.assertIn("may not start with '-'", result.stderr)
+
+    def test_a_range_is_refused(self):
+        result = self.refuse("feat/a..feat/b")
+        self.assertEqual(2, result.returncode, result.stderr)
+        self.assertIn("may not contain '..'", result.stderr)
+
+    def test_anything_the_pattern_does_not_admit_is_refused(self):
+        for branch in ("feat/x;id", "feat/x y", ".hidden", "feat/x$(id)", ""):
+            with self.subTest(branch=branch):
+                result = self.refuse(branch)
+                self.assertEqual(2, result.returncode, result.stderr)
+                self.assertIn("not a branch name this helper will take", result.stderr)
 
 
 class TheHostsHooksNeverRunInAReplay(unittest.TestCase):
-    """#180. The helper spells the `rebase.*` keys itself and used to leave
-    `core.hooksPath` to the host, so a `pre-rebase`, `post-rewrite`, `pre-push`
-    or `reference-transaction` hook in the repository ran inside a replay that
-    rewrites published history. The helper now points `core.hooksPath` at an
-    empty directory for the whole run, through the environment so that every
-    git it starts — and every git those start, the sequencer's included —
-    inherits it.
+    """The helper points `core.hooksPath` at an empty directory for the whole run,
+    through the environment, so a `pre-rebase`, `post-rewrite`, `pre-push` or
+    `reference-transaction` hook of the host's, which could veto or alter a
+    replay, runs in no git the helper starts.
     """
 
     HOOKS = ("pre-rebase", "post-rewrite", "pre-push", "reference-transaction")
 
     def setUp(self):
-        self.root = fixture()
-        self.assertTrue(self.root, "the fixture produced no path")
-        self.addCleanup(lambda: run_bash('rm -rf "$R"', R=self.root))
+        self.root = temp_root(self)
+        built = run_bash(FIXTURE, TEMPLATE=template(), root=self.root)
+        self.assertEqual(0, built.returncode, built.stderr)
         self.work = self.root + "/work"
 
     def at(self, script, **env):
         return run_bash('cd "$W" && ' + script, W=self.work, **env)
 
-    def helper(self, mode):
+    def helper(self, mode, **env):
         return run_bash('cd "$W" && bash "$H" feat/x "$M"',
-                        W=self.work, H=str(HELPER), M=mode)
+                        W=self.work, H=str(HELPER), M=mode, **env)
 
     def plant_every_hook(self):
         # Each hook records that it ran and then FAILS, so a hook that fires
         # either leaves its marker or stops the replay it fires in.
         for name in self.HOOKS:
-            self.at('hooks="$(git rev-parse --git-path hooks)" && mkdir -p "$hooks" '
-                    '&& printf \'#!/bin/sh\\necho ran >> "%s"\\nexit 1\\n\' "$R/ran-$N" '
-                    '> "$hooks/$N" && chmod +x "$hooks/$N"',
-                    R=self.root, N=name)
+            planted = self.at('hooks="$(git rev-parse --git-path hooks)" && mkdir -p "$hooks" '
+                              "&& printf '#!/bin/sh\\necho ran >> \"%s\"\\nexit 1\\n' \"$R/ran-$N\" "
+                              '> "$hooks/$N" && chmod +x "$hooks/$N"',
+                              R=self.root, N=name)
+            self.assertEqual(0, planted.returncode, planted.stderr)
 
     def markers(self):
         return self.at('ls "$R" | grep "^ran-" || true', R=self.root).stdout.split()
+
+    def test_a_hook_fires_here_when_nothing_ignores_it(self):
+        # The positive control: the same hooks run under plain git in this
+        # fixture, so their silence below is the helper's doing.
+        self.plant_every_hook()
+        self.at("git rebase -q origin/main || true")
+        self.assertIn("ran-pre-rebase", self.markers())
 
     def test_a_clean_replay_ignores_every_hook_in_the_repository(self):
         self.plant_every_hook()
         result = self.helper("start")
         self.assertEqual(0, result.returncode, result.stderr)
         self.assertEqual([], self.markers(), "a hook of the host's ran inside the replay")
-        self.assertEqual(
-            self.at("git rev-parse HEAD").stdout.strip(),
-            self.at("git rev-parse refs/remotes/origin/feat/x").stdout.strip(),
-            "the replay was published")
+        self.assertEqual(self.at("git rev-parse HEAD").stdout.strip(),
+                         self.at("git rev-parse refs/remotes/origin/feat/x").stdout.strip(),
+                         "the replay was published")
 
     def test_a_replay_finished_by_continue_ignores_them_too(self):
         # `post-rewrite` fires when the sequencer finishes, which on a conflict
@@ -451,24 +508,27 @@ class TheHostsHooksNeverRunInAReplay(unittest.TestCase):
 
     def test_configuration_the_caller_already_injected_is_kept(self):
         # The helper appends to `GIT_CONFIG_COUNT` rather than overwriting it,
-        # so a caller's own entry survives and the hooks path is still set.
+        # so a caller's own entry survives and the hooks path is still set. The
+        # entry is a key the helper does not spell, with an effect that shows on
+        # the replayed commit: the committer name. A helper that overwrote entry
+        # 0 would lose it and the replay would be committed as `Test`.
         self.plant_every_hook()
-        result = run_bash('cd "$W" && bash "$H" feat/x start', W=self.work, H=str(HELPER),
-                          GIT_CONFIG_COUNT="1", GIT_CONFIG_KEY_0="rebase.rebaseMerges",
-                          GIT_CONFIG_VALUE_0="true")
+        result = self.helper("start", GIT_CONFIG_COUNT="1", GIT_CONFIG_KEY_0="user.name",
+                             GIT_CONFIG_VALUE_0="Injected")
         self.assertEqual(0, result.returncode, result.stderr)
         self.assertEqual([], self.markers())
+        self.assertEqual("Injected", self.at("git log -1 --format=%cn").stdout.strip(),
+                         "the caller's entry was dropped rather than kept beside the helper's")
 
     def test_the_path_is_set_before_the_first_command_that_can_run_a_hook(self):
-        # The behaviour above is the proof; this is what keeps it covering the
-        # newest command. A fetch updates refs and a rebase and a push run
-        # hooks of their own, so none of them may precede the export.
-        code = code_lines(HELPER.read_text(encoding="utf-8"))
-        text = "\n".join(code)
+        # The behaviour above is the proof; this keeps it covering the newest
+        # command. A fetch updates refs, and a rebase and a push run hooks of
+        # their own, so none of them may precede the export.
+        text = "\n".join(code_lines(HELPER.read_text(encoding="utf-8")))
         export = text.find("GIT_CONFIG_KEY_")
         self.assertGreaterEqual(export, 0, "the hooks path is not set")
         self.assertIn("core.hooksPath", text)
-        self.assertIn("mktemp -d", text, "the path is an empty directory made for the run")
+        self.assertRegex(text, r"mktemp\s+-d", "the path is an empty directory made for the run")
         for command in ("git fetch origin", "git rebase", "git push"):
             with self.subTest(command=command):
                 self.assertIn(command, text)
@@ -478,15 +538,16 @@ class TheHostsHooksNeverRunInAReplay(unittest.TestCase):
 class AConflictIsTheCaseRebaseIsHereFor(unittest.TestCase):
     """The resolution belongs in the replayed commit, not in a merge commit.
 
-    So `start` leaves a conflicted rebase in progress rather than aborting it:
-    backing out would send the caller to the merge this repository stopped
-    making, and the tree would stop being a line.
+    So `start` leaves a conflicted rebase in progress: backing out would send
+    the caller to the merge this repository stopped making.
     """
 
     def setUp(self):
-        self.root = fixture(CONFLICT)
-        self.addCleanup(lambda: run_bash('rm -rf "$R"', R=self.root))
+        self.root = temp_root(self)
+        built = run_bash(FIXTURE, TEMPLATE=template(), root=self.root)
+        self.assertEqual(0, built.returncode, built.stderr)
         self.work = self.root + "/work"
+        self.at(CONFLICT)
 
     def at(self, script):
         return run_bash('cd "$W" && ' + script, W=self.work)
@@ -496,19 +557,128 @@ class AConflictIsTheCaseRebaseIsHereFor(unittest.TestCase):
                         W=self.work, H=str(HELPER), B=branch, M=mode)
 
     def rebase_running(self):
-        return self.at('test -d "$(git rev-parse --git-path rebase-merge)" '
-                       '-o -d "$(git rev-parse --git-path rebase-apply)" '
-                       '&& echo yes || echo no').stdout.strip()
+        return self.at(REBASE_RUNNING).stdout.strip()
 
     def test_a_conflict_leaves_the_rebase_in_progress_and_names_the_paths(self):
         result = self.helper("start")
-        self.assertEqual(8, result.returncode)
-        self.assertIn("a.txt", result.stderr, "the caller is told what to resolve")
+        self.assertEqual(8, result.returncode, result.stderr)
+        # Joined to the helper's banner: git prints the conflicting commit's
+        # title, which names a.txt, before the helper prints anything.
+        self.assertIn("which is the point:\na.txt", result.stderr,
+                      "the caller is told which files to resolve")
         self.assertEqual("yes", self.rebase_running(), "aborting here would mean a merge instead")
 
     def test_continue_refuses_while_anything_is_still_unmerged(self):
         self.assertEqual(8, self.helper("start").returncode)
-        self.assertEqual(9, self.helper("continue").returncode, "nothing was resolved")
+        result = self.helper("continue")
+        self.assertEqual(9, result.returncode, result.stderr)
+        self.assertIn("these are still unmerged", result.stderr)
+        self.assertEqual("yes", self.rebase_running())
+
+    def test_start_refuses_while_a_rebase_is_already_in_progress(self):
+        self.assertEqual(8, self.helper("start").returncode)
+        again = self.helper("start")
+        self.assertEqual(9, again.returncode, again.stderr)
+        self.assertIn("a rebase is already in progress", again.stderr)
+        self.assertEqual("yes", self.rebase_running(), "the running rebase was disturbed")
+
+    def test_continue_refuses_a_replay_whose_head_was_moved(self):
+        # Checked out onto a branch mid-replay, `--continue` would commit the
+        # rest there, move that branch, and publish a history never replayed.
+        published = self.at("git rev-parse refs/remotes/origin/feat/x").stdout.strip()
+        self.assertEqual(8, self.helper("start").returncode)
+        self.at('echo resolved > a.txt && git add a.txt && git checkout -q -b feat/other')
+        other = self.at("git rev-parse feat/other").stdout.strip()
+
+        result = self.helper("continue")
+        self.assertEqual(9, result.returncode, result.stderr)
+        self.assertIn("is not where the replay of feat/x stopped", result.stderr)
+        self.assertIn("'abort' the replay", result.stderr)
+        self.assertEqual(other, self.at("git rev-parse feat/other").stdout.strip(), "feat/other was moved")
+        self.assertEqual(published, self.at("git ls-remote origin refs/heads/feat/x").stdout.split()[0],
+                         "origin was published over")
+
+    def test_a_resolution_the_caller_committed_is_kept(self):
+        # git allows committing mid-replay, and `--continue` keeps the commit;
+        # refusing it and naming a move back would lose it.
+        self.assertEqual(8, self.helper("start").returncode)
+        self.at('echo resolved > a.txt && git add a.txt && git commit -qm "resolved by hand"')
+        result = self.helper("continue")
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual("resolved\n", self.at("git show refs/remotes/origin/feat/x:a.txt").stdout,
+                         "the committed resolution did not reach origin")
+
+    def test_more_than_the_callers_resolution_on_the_stop_is_refused(self):
+        # A second commit on the stop is not a resolution of this replay, and
+        # would ride into the publish.
+        published = self.at("git rev-parse refs/remotes/origin/feat/x").stdout.strip()
+        self.assertEqual(8, self.helper("start").returncode)
+        self.at('echo resolved > a.txt && git add a.txt && git commit -qm "resolved by hand" '
+                '&& echo other > other.txt && git add other.txt && git commit -qm "not this replay"')
+        head = self.at("git rev-parse HEAD").stdout.strip()
+        result = self.helper("continue")
+        self.assertEqual(9, result.returncode, result.stderr)
+        self.assertIn("nor one commit on it", result.stderr)
+        self.assertIn(head, result.stderr, "the commit abort would leave behind is not named")
+        self.assertEqual(published, self.at("git ls-remote origin refs/heads/feat/x").stdout.split()[0])
+
+    def test_continue_sends_an_unrecorded_stop_to_abort(self):
+        # An empty mark, as the previous version wrote, names nowhere to be.
+        self.assertEqual(8, self.helper("start").returncode)
+        self.at(': > "$(git rev-parse --git-path rebase-merge)/started-by-this-helper" '
+                '&& echo resolved > a.txt && git add a.txt')
+        result = self.helper("continue")
+        self.assertEqual(9, result.returncode, result.stderr)
+        self.assertIn("'abort' the replay", result.stderr)
+
+    def test_continue_refuses_a_todo_edited_since_the_stop(self):
+        # Every other guard reads HEAD, the marker and the remote, and a hand
+        # edit of what is left to replay changes none of them.
+        published = self.at("git rev-parse refs/remotes/origin/feat/x").stdout.strip()
+        self.assertEqual(8, self.helper("start").returncode)
+        self.at("GIT_SEQUENCE_EDITOR='f() { echo \"exec true\" >> \"$1\"; }; f' git rebase --edit-todo")
+        self.at('echo resolved > a.txt && git add a.txt')
+        result = self.helper("continue")
+        self.assertEqual(9, result.returncode, result.stderr)
+        self.assertIn("todo list is not the one it stopped with", result.stderr)
+        self.assertEqual("yes", self.rebase_running())
+        self.assertEqual(published, self.at("git ls-remote origin refs/heads/feat/x").stdout.split()[0])
+
+    def test_continue_sends_a_replay_whose_remote_branch_went_to_abort(self):
+        # Mid-replay there is nothing to push normally, so the way out named
+        # has to be one that works from here.
+        self.assertEqual(8, self.helper("start").returncode)
+        self.at("git update-ref -d refs/remotes/origin/feat/x")
+        self.at('echo resolved > a.txt && git add a.txt')
+        result = self.helper("continue")
+        self.assertEqual(6, result.returncode, result.stderr)
+        self.assertIn("nothing to force over: 'abort' it", result.stderr)
+        self.assertEqual("yes", self.rebase_running())
+
+    def test_continue_refuses_an_apply_backend_replay_left_marked(self):
+        # An earlier version's replay: marked as this helper's, on the backend
+        # it no longer uses, where a stop can repeat for ever.
+        self.at('git -c rebase.backend=apply rebase refs/remotes/origin/main; '
+                ': > "$(git rev-parse --git-path rebase-apply)/started-by-this-helper"')
+        self.assertEqual("yes", self.rebase_running(), "the apply replay did not stop")
+        self.addCleanup(lambda: self.at("git rebase --abort"))
+        self.at('echo resolved > a.txt && git add a.txt')
+        result = self.helper("continue")
+        self.assertEqual(9, result.returncode, result.stderr)
+        self.assertIn("apply backend, which this helper no longer uses", result.stderr)
+
+    def test_continue_refuses_a_rebase_belonging_to_another_branch(self):
+        self.assertEqual(8, self.helper("start").returncode)
+        result = self.helper("continue", branch="feat/other")
+        self.assertEqual(4, result.returncode, result.stderr)
+        self.assertIn("the rebase in progress is feat/x, not feat/other", result.stderr)
+        self.assertEqual("yes", self.rebase_running())
+
+    def test_publish_refuses_while_a_rebase_is_still_in_progress(self):
+        self.assertEqual(8, self.helper("start").returncode)
+        result = self.helper("publish")
+        self.assertEqual(9, result.returncode, result.stderr)
+        self.assertIn("a rebase is still in progress", result.stderr)
         self.assertEqual("yes", self.rebase_running())
 
     def test_resolving_and_continuing_publishes_a_line(self):
@@ -529,7 +699,7 @@ class AConflictIsTheCaseRebaseIsHereFor(unittest.TestCase):
     def test_continue_fails_closed_when_the_starting_commit_is_unreadable(self):
         # The lease alone would not stop this: another session's commits that
         # this checkout has fetched satisfy it. Skipping the check that does
-        # would leave the only force push in the repository unguarded.
+        # would leave this force push unguarded.
         self.assertEqual(8, self.helper("start").returncode)
         self.at('rm -f "$(git rev-parse --git-path rebase-merge)"/orig-head '
                 '"$(git rev-parse --git-path rebase-merge)"/head')
@@ -542,11 +712,24 @@ class AConflictIsTheCaseRebaseIsHereFor(unittest.TestCase):
         before = self.at("git rev-parse HEAD").stdout.strip()
         remote_before = self.at("git rev-parse refs/remotes/origin/feat/x").stdout.strip()
         self.assertEqual(8, self.helper("start").returncode)
-        self.assertEqual(0, self.helper("abort").returncode)
+        result = self.helper("abort")
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertIn("aborted;", result.stdout)
 
         self.assertEqual("no", self.rebase_running())
         self.assertEqual(before, self.at("git rev-parse HEAD").stdout.strip())
         self.assertEqual(remote_before, self.at("git rev-parse refs/remotes/origin/feat/x").stdout.strip())
+
+    def test_abort_names_the_uncommitted_edits_it_discards(self):
+        # Accepted rather than refused: discarding the stop's work is what an
+        # abort is for, so the edits are listed rather than kept.
+        self.assertEqual(8, self.helper("start").returncode)
+        self.at('echo scratch > b.txt')
+        result = self.helper("abort")
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertIn("aborting discards these uncommitted changes", result.stderr)
+        self.assertIn("b.txt", result.stderr)
+        self.assertEqual("work\n", self.at("cat b.txt").stdout, "the abort did not reset the tree")
 
 
 class ALegacyMergeForwardIsNotSilentlyDropped(unittest.TestCase):
@@ -555,8 +738,9 @@ class ALegacyMergeForwardIsNotSilentlyDropped(unittest.TestCase):
     loses it before the push, which no lease can see."""
 
     def setUp(self):
-        self.root = fixture()
-        self.addCleanup(lambda: run_bash('rm -rf "$R"', R=self.root))
+        self.root = temp_root(self)
+        built = run_bash(FIXTURE, TEMPLATE=template(), root=self.root)
+        self.assertEqual(0, built.returncode, built.stderr)
         self.work = self.root + "/work"
 
     def at(self, script):
@@ -581,6 +765,103 @@ class ALegacyMergeForwardIsNotSilentlyDropped(unittest.TestCase):
         self.assertEqual(10, result.returncode, result.stderr)
         self.assertEqual(before, self.at("git rev-parse HEAD").stdout.strip(), "nothing was replayed")
         self.assertEqual("only-here\n", self.at("cat resolved-by-hand.txt").stdout)
+        # The refusal teaches the route that works, not only that this one failed.
+        self.assertIn("never merge main forward", result.stderr)
+        self.assertIn("resolve it in the replayed commit", result.stderr)
+
+    def test_a_merge_that_kept_one_side_against_a_clean_change_stops_the_run(self):
+        # Every file matches one parent, so `--cc` shows nothing, and the
+        # replay onto main would bring d.txt back.
+        self.at('git checkout -q main && echo later > d.txt && git add -A '
+                '&& git commit -qm "main moved again" && git push -q origin main '
+                '&& git checkout -q feat/x && git merge --no-commit -q main; git rm -qf d.txt '
+                '&& git commit -qm "merge main, keeping the branch side" && git push -q -f origin feat/x')
+        self.assertEqual("", self.at("git log --merges --cc --format= origin/main..HEAD").stdout,
+                         "the fixture is one `--cc` can see, so it tests nothing new")
+        before = self.at("git rev-parse HEAD").stdout.strip()
+
+        result = self.helper()
+        self.assertEqual(10, result.returncode, result.stderr)
+        self.assertIn(f"where it differs from a clean merge:\n{before} d.txt\n", result.stderr,
+                      "the file the merge kept apart is not named")
+        self.assertEqual(before, self.at("git rev-parse HEAD").stdout.strip(), "nothing was replayed")
+
+    def test_a_side_taken_whole_over_a_clean_hunk_in_a_conflicted_file_stops_the_run(self):
+        # Main edits lines 1 and 50 of m.txt and the branch line 50, and the
+        # merge takes the branch's m.txt whole. It equals one parent, so `--cc`
+        # is empty, and the replay would bring main's line 1 back.
+        self.at('git checkout -q main && seq 1 60 > m.txt && git add -A && git commit -qm "m.txt" '
+                '&& git push -q origin main && git checkout -q feat/x && git rebase -q main '
+                '&& git push -q -f origin feat/x '
+                '&& git checkout -q main && sed -i "1s/.*/main-one/;50s/.*/main-fifty/" m.txt '
+                '&& git commit -qam "main edits m.txt" && git push -q origin main '
+                '&& git checkout -q feat/x && sed -i "50s/.*/branch-fifty/" m.txt '
+                '&& git commit -qam "the branch edits m.txt" '
+                '&& { git merge -q main || true; } && git checkout -q --ours m.txt && git add m.txt '
+                '&& git commit -q --no-edit && git push -q -f origin feat/x')
+        self.assertEqual("", self.at("git log --merges --cc --format= origin/main..HEAD").stdout,
+                         "the fixture is one `--cc` can see, so it tests nothing new")
+        before = self.at("git rev-parse HEAD").stdout.strip()
+
+        result = self.helper()
+        self.assertEqual(10, result.returncode, result.stderr)
+        self.assertIn(f"where it differs from a clean merge:\n{before} m.txt\n", result.stderr,
+                      "the conflicted file that dropped a clean hunk is not named")
+        self.assertEqual(before, self.at("git rev-parse HEAD").stdout.strip(), "nothing was replayed")
+
+    def test_a_non_ascii_name_is_read_rather_than_passed_as_clean(self):
+        # git quotes such a name by default, and a quoted name is one rev-parse cannot read.
+        self.at('git checkout -q main && seq 1 60 > café.txt && git add -A && git commit -qm "café.txt" '
+                '&& git push -q origin main && git checkout -q feat/x && git rebase -q main '
+                '&& git push -q -f origin feat/x '
+                '&& git checkout -q main && sed -i "1s/.*/main-one/;50s/.*/main-fifty/" café.txt '
+                '&& git commit -qam "main edits café.txt" && git push -q origin main '
+                '&& git checkout -q feat/x && sed -i "50s/.*/branch-fifty/" café.txt '
+                '&& git commit -qam "the branch edits café.txt" '
+                '&& { git merge -q main || true; } && git checkout -q --ours café.txt && git add café.txt '
+                '&& git commit -q --no-edit && git push -q -f origin feat/x')
+        before = self.at("git rev-parse HEAD").stdout.strip()
+
+        result = self.helper()
+        self.assertEqual(10, result.returncode, result.stderr)
+        # Matched loosely around the é, which the runner may decode in another code page; quoted it would open "caf\.
+        self.assertRegex(result.stderr, rf"{before} caf\S+\.txt\n", "the conflicted file is not named")
+        self.assertNotIn('"caf\\', result.stderr, "the name reached the check still quoted")
+
+    def test_a_binary_file_taken_whole_is_left_to_the_replay(self):
+        # A binary has no clean hunk to drop, and merge-file refuses one, which must not stop every rebase.
+        self.binary_taken_whole("a\\0base", "a\\0main", "a\\0branch")
+
+    def test_a_file_whose_base_alone_is_binary_is_left_to_the_replay(self):
+        # merge-file refuses a binary base as it does a binary side.
+        self.binary_taken_whole("a\\0base", "main", "branch")
+
+    def binary_taken_whole(self, base, on_main, on_branch):
+        self.at(f'git checkout -q main && printf "{base}\\n" > b.bin && git add -A && git commit -qm "b.bin" '
+                '&& git push -q origin main && git checkout -q feat/x && git rebase -q main '
+                '&& git push -q -f origin feat/x '
+                f'&& git checkout -q main && printf "{on_main}\\n" > b.bin && git commit -qam "main edits b.bin" '
+                f'&& git push -q origin main && git checkout -q feat/x && printf "{on_branch}\\n" > b.bin '
+                '&& git commit -qam "the branch edits b.bin" '
+                '&& { git merge -q main || true; } && git checkout -q --ours b.bin && git add b.bin '
+                '&& git commit -q --no-edit && git push -q -f origin feat/x')
+        self.assertEqual("", self.at("git status --porcelain").stdout, "the merge was not committed")
+        self.addCleanup(lambda: self.at("git rebase --abort"))
+
+        result = self.helper()
+        self.assertNotIn("cannot replay the clean hunks", result.stderr)
+        self.assertEqual(8, result.returncode, result.stderr)
+
+    def test_a_conflict_the_merge_resolved_to_one_side_is_left_to_the_replay(self):
+        # A side taken whole that drops none of the other's clean hunks passes,
+        # and here the replay meets the same conflict.
+        self.at(CONFLICT + 'git merge -q main; echo theirs > a.txt && git add a.txt '
+                '&& git commit -q --no-edit && git push -q -f origin feat/x')
+        self.assertEqual("", self.at("git status --porcelain").stdout, "the merge was not committed")
+        self.addCleanup(lambda: self.at("git rebase --abort"))
+        result = self.helper()
+        self.assertEqual(8, result.returncode, result.stderr)
+        self.assertIn("which is the point", result.stderr)
 
     def test_an_ordinary_merge_forward_is_flattened_without_complaint(self):
         # Its content is in its parents, so dropping it loses nothing.
@@ -595,8 +876,9 @@ class ALegacyMergeForwardIsNotSilentlyDropped(unittest.TestCase):
 class TheHelperPublishesWhatItRebased(unittest.TestCase):
 
     def setUp(self):
-        self.root = fixture()
-        self.addCleanup(lambda: run_bash('rm -rf "$R"', R=self.root))
+        self.root = temp_root(self)
+        built = run_bash(FIXTURE, TEMPLATE=template(), root=self.root)
+        self.assertEqual(0, built.returncode, built.stderr)
         self.work = self.root + "/work"
 
     def at(self, script):
@@ -605,6 +887,25 @@ class TheHelperPublishesWhatItRebased(unittest.TestCase):
     def helper(self, mode="start", branch="feat/x"):
         return run_bash('cd "$W" && bash "$H" "$B" "$M"',
                         W=self.work, H=str(HELPER), B=branch, M=mode)
+
+    def remote_tip(self):
+        return self.at("git rev-parse refs/remotes/origin/feat/x").stdout.strip()
+
+    def fail_the_push(self):
+        self.at(FAIL_PUSH)
+        self.assertNotEqual(0, self.helper().returncode, "the push must fail for this to mean anything")
+
+    def move_the_remote(self):
+        # Another session's push, which this checkout has not fetched: its
+        # remote-tracking ref still reads the leased tip.
+        stale = self.remote_tip()
+        moved = run_bash('git clone -q "$R/remote.git" "$R/second" && cd "$R/second" '
+                         '&& git config user.email t@e.invalid && git config user.name T '
+                         '&& git checkout -q feat/x && echo theirs > theirs.txt && git add -A '
+                         '&& git commit -qm "another session" && git push -q origin feat/x',
+                         R=self.root)
+        self.assertEqual(0, moved.returncode, moved.stderr)
+        self.assertEqual(stale, self.remote_tip(), "the tracking ref must still be stale")
 
     def test_a_clean_update_is_replayed_and_published(self):
         before = self.at("git rev-parse HEAD").stdout.strip()
@@ -615,138 +916,494 @@ class TheHelperPublishesWhatItRebased(unittest.TestCase):
         self.assertNotEqual(before, after, "a replay onto a moved base makes new SHAs")
         self.assertEqual("", self.at("git log --merges --format=%H origin/main..HEAD").stdout,
                          "a rebased branch carries no merge commit")
-        self.assertEqual(after, self.at("git rev-parse refs/remotes/origin/feat/x").stdout.strip())
+        self.assertEqual(after, self.remote_tip())
         self.assertEqual("", self.at("git log --oneline HEAD..origin/main").stdout,
                          "and the branch now holds everything main does")
 
     def test_configuration_cannot_change_what_the_replay_does(self):
-        # Every setting here is the caller's, and each breaks a stated
-        # guarantee: `rebaseMerges` keeps the merge commits this helper exists
-        # to be rid of, `updateRefs` force-updates other local branches' refs
-        # as a side effect, and `autoSquash` silently recombines a `fixup!`
-        # into the commit it names — and the result of all three is force
-        # pushed.
-        #
-        # **`updateRefs` needs a ref pointing INTO the replayed range to do
-        # anything**, and the fixture had none, so the case passed whether or
-        # not the script spelled `--no-update-refs`: the flag could be deleted
-        # and nothing here would go red. `side/marker` is that ref.
-        self.at("git config rebase.rebaseMerges true && git config rebase.updateRefs true "
-                "&& git config rebase.autoSquash true")
-        self.at("git branch side/marker feat/x")
-        marker = self.at("git rev-parse side/marker").stdout.strip()
-        self.at('echo squashed > e.txt && git add -A '
-                '&& git commit -qm "fixup! the branch work"')
+        # `rebase.rebaseMerges` would keep the merge commits this helper
+        # exists to be rid of.
+        self.at("git config rebase.rebaseMerges true")
         self.at('git checkout -q main && echo later > d.txt && git add -A '
                 '&& git commit -qm "main moved again" && git push -q origin main '
                 '&& git checkout -q feat/x && git merge --no-edit -q main '
                 '&& git push -q -f origin feat/x')
-        before = self.at("git log --format=%s origin/main..HEAD --no-merges").stdout
-
-        self.assertEqual(0, self.helper().returncode)
+        result = self.helper()
+        self.assertEqual(0, result.returncode, result.stderr)
         self.assertEqual("", self.at("git log --merges --format=%H origin/main..HEAD").stdout,
                          "rebase.rebaseMerges would have kept the merge")
-        self.assertEqual(marker, self.at("git rev-parse side/marker").stdout.strip(),
-                         "rebase.updateRefs would have moved a ref the caller never named")
-        self.assertIn("fixup! the branch work",
-                      self.at("git log --format=%s origin/main..HEAD").stdout,
-                      "rebase.autoSquash would have folded the fixup away")
-        self.assertEqual(
-            sorted(before.split("\n")),
-            sorted(self.at("git log --format=%s origin/main..HEAD --no-merges").stdout.split("\n")),
-            "the replay published a different set of commits than the branch had")
+
+    def test_a_branch_pointing_inside_the_replayed_range_is_not_moved(self):
+        # `rebase.updateRefs` only moves a ref inside the replayed range, so
+        # the case needs one there for `--no-update-refs` to be asserted.
+        self.at("git branch marker")
+        self.at('echo more > e.txt && git add -A && git commit -qm "a second commit" '
+                '&& git push -q -f origin feat/x')
+        self.at("git config rebase.updateRefs true")
+        before = self.at("git rev-parse marker").stdout.strip()
+        self.assertTrue(before, "the marker branch was not created")
+
+        result = self.helper()
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual(before, self.at("git rev-parse marker").stdout.strip(),
+                         "rebase.updateRefs force-moved a branch this helper does not own")
 
     def test_a_push_that_fails_leaves_a_retry_that_works(self):
         # The replay finishes and the push does not, taking the rebase state
-        # with it: `start` then reads the rewritten tip as non-ancestral and
-        # `continue` finds no rebase, so without the record nothing can reach
-        # the branch again.
-        # The remote refuses a non-fast-forward, because the fetch has to
-        # succeed for the replay to happen at all — a broken remote fails
-        # earlier and proves nothing. It is a setting of the REMOTE and not a
-        # `pre-push` hook here, which the helper now ignores along with the
-        # rest of the host's.
-        self.at('git --git-dir=../remote.git config receive.denyNonFastForwards true')
-        self.assertNotEqual(0, self.helper().returncode, "the push must fail for this to mean anything")
+        # with it: without the record nothing can reach the branch again.
+        self.fail_the_push()
         rewritten = self.at("git rev-parse HEAD").stdout.strip()
         self.assertEqual("", self.at("git log --oneline HEAD..origin/main").stdout,
                          "the replay did finish; only the push did not")
 
-        blocked = self.helper("start")
-        self.assertEqual(9, blocked.returncode, "start refuses while a replay waits")
-        self.assertIn("waiting to be published", blocked.stderr)
-        self.at('git --git-dir=../remote.git config --unset receive.denyNonFastForwards')
+        waiting = self.helper("start")
+        self.assertEqual(9, waiting.returncode, waiting.stderr)
+        self.assertIn("a replay of feat/x is waiting to be published", waiting.stderr)
+        self.at(ALLOW_PUSH)
         result = self.helper("publish")
         self.assertEqual(0, result.returncode, result.stderr)
-        self.assertEqual(rewritten, self.at("git rev-parse refs/remotes/origin/feat/x").stdout.strip())
+        self.assertEqual(rewritten, self.remote_tip())
 
-    def failed_push(self):
-        """Leave the branch replayed, unpublished, and a record waiting."""
-        self.at('git --git-dir=../remote.git config receive.denyNonFastForwards true')
-        self.assertNotEqual(0, self.helper().returncode, "the push must fail for this to mean anything")
-        self.at('git --git-dir=../remote.git config --unset receive.denyNonFastForwards')
+    def test_a_scoped_branch_name_is_replayed_and_published(self):
+        # `/branch` names a branch `type(scope)/kebab`, and the helpers that
+        # fork one, switch to one and look one up all admit the parentheses.
+        scoped = "feat(scope)/x"
+        renamed = run_bash('cd "$W" && git branch -m "$B" && git push -q -u origin "$B"',
+                           W=self.work, B=scoped)
+        self.assertEqual(0, renamed.returncode, renamed.stderr)
 
-    def test_publish_refuses_a_head_that_is_not_what_the_replay_produced(self):
-        # `continue` refuses a rebase this helper did not start, and by the
-        # time `publish` runs the rebase state is gone, so the recorded head is
-        # the only thing left that says HEAD is the replay's work rather than
-        # somebody's. Without it the retry forces a hand-rewritten head over
-        # the branch's published commits with every other guard green.
-        self.failed_push()
-        published = self.at("git rev-parse refs/remotes/origin/feat/x").stdout.strip()
-        self.at("git reset --hard -q HEAD~1")
+        result = self.helper(branch=scoped)
+        self.assertEqual(0, result.returncode, result.stderr)
+        published = run_bash('cd "$W" && git rev-parse "refs/remotes/origin/$B"',
+                             W=self.work, B=scoped).stdout.strip()
+        self.assertEqual(self.at("git rev-parse HEAD").stdout.strip(), published)
+        self.assertEqual("", self.at("git log --oneline HEAD..origin/main").stdout,
+                         "and the branch now holds everything main does")
+
+    def test_publish_refuses_a_record_whose_replay_never_ran(self):
+        # A conflicted rebase undone by hand leaves the two-field record, and
+        # without a head `publish` would force whatever HEAD has since become.
+        self.at(CONFLICT)
+        self.assertEqual(8, self.helper().returncode, "the start must conflict")
+        self.at("git rebase --abort")
+        published = self.remote_tip()
+        self.at('echo unrelated > later.txt && git add -A && git commit -qm "not a replay"')
 
         result = self.helper("publish")
         self.assertEqual(9, result.returncode, result.stderr)
-        self.assertIn("no longer the commit that replay produced", result.stderr)
-        self.assertEqual(published, self.at("git rev-parse refs/remotes/origin/feat/x").stdout.strip(),
-                         "the branch's published work was forced over")
+        self.assertIn("never finished", result.stderr)
+        self.assertEqual(published, self.remote_tip(), "the remote still carries what it had")
 
-    def test_abort_refuses_to_strand_a_replay_that_only_failed_to_push(self):
-        # In this state the branch IS the rewritten history and the remote
-        # holds what it replaced, so there is nothing to put back. Clearing
-        # the record strands it: `start` reads the rewritten tip as
-        # non-ancestral, `continue` finds no rebase, and the raw force push
-        # that would recover it is denied.
-        self.failed_push()
-        rewritten = self.at("git rev-parse HEAD").stdout.strip()
+    def test_a_commit_on_top_of_the_replay_is_published_with_it(self):
+        # Refusing it strands the branch: `abort` then clears the record and
+        # `start` reads the rewritten history as another session's commits.
+        self.fail_the_push()
+        self.at('echo extra > extra.txt && git add -A && git commit -qm "after the replay"')
+        refused = self.helper("abort")
+        self.assertEqual(9, refused.returncode, refused.stderr)
+        self.assertIn("commits sit on the replay of feat/x", refused.stderr)
+
+        self.at(ALLOW_PUSH)
+        result = self.helper("publish")
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual(self.at("git rev-parse HEAD").stdout.strip(), self.remote_tip(),
+                         "the replay and the commit on it are what origin carries")
+
+    def test_a_retry_keeps_the_replayed_head_it_was_given(self):
+        # A retry that failed with a commit on top must not record that commit
+        # as the replay, or dropping it strands the replay the record named.
+        self.fail_the_push()
+        replayed = self.at("git rev-parse HEAD").stdout.strip()
+        self.at('echo extra > extra.txt && git add -A && git commit -qm "after the replay"')
+        self.assertNotEqual(0, self.helper("publish").returncode, "the retry must fail too")
+        self.at("git reset -q --hard " + replayed)
+
+        self.at(ALLOW_PUSH)
+        result = self.helper("publish")
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual(replayed, self.remote_tip())
+
+    def test_abort_clears_a_record_it_cannot_keep_without_asking_origin(self):
+        # HEAD no longer descends from the replay, so the answer is decided
+        # locally, and an origin that cannot be reached does not hold it up.
+        self.fail_the_push()
+        self.at('echo amended > amended.txt && git add -A && git commit -q --amend --no-edit '
+                '&& git remote set-url origin "$(pwd)/../nowhere.git"')
+        result = self.helper("abort")
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertIn("cleared the waiting replay", result.stdout)
+
+    def test_publish_refuses_a_head_that_does_not_descend_from_the_replay(self):
+        # An amended replay is a rewrite this helper did not make.
+        self.fail_the_push()
+        published = self.remote_tip()
+        self.at('echo extra > extra.txt && git add -A && git commit -q --amend --no-edit')
+        self.at(ALLOW_PUSH)
+
+        result = self.helper("publish")
+        self.assertEqual(9, result.returncode, result.stderr)
+        self.assertIn("does not descend from", result.stderr)
+        self.assertIn("'abort' only clears the", result.stderr, "abort is offered as a way out it is not")
+        self.assertEqual(published, self.remote_tip(),
+                         "the amended commit was forced over the published one")
+
+    def test_publish_refuses_a_record_naming_another_branch(self):
+        self.fail_the_push()
+        result = self.helper("publish", branch="feat/other")
+        self.assertEqual(4, result.returncode, result.stderr)
+        self.assertIn("the waiting replay is feat/x, not feat/other", result.stderr)
+
+    def test_publish_refuses_a_remote_that_moved_since_the_lease(self):
+        # Asked of origin, not of the tracking ref, which still reads the lease:
+        # read stale, the push is rejected on every retry.
+        self.fail_the_push()
+        self.move_the_remote()
+        self.at(ALLOW_PUSH)
+        result = self.helper("publish")
+        self.assertEqual(7, result.returncode, result.stderr)
+        self.assertIn("has moved since the replay was approved", result.stderr)
+
+    def test_a_push_that_landed_unannounced_is_not_called_a_move(self):
+        # The server took the push and the answer was lost: origin already
+        # holds HEAD, which is the one move that needs nothing further.
+        self.fail_the_push()
+        self.at(ALLOW_PUSH)
+        self.at('git push -q -f origin feat/x')
+        result = self.helper("publish")
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertIn("origin already has feat/x", result.stdout)
+        self.assertEqual(
+            "", self.at('cat "$(git rev-parse --git-path claude-rebase-pending)" 2>/dev/null').stdout,
+            "the record outlived the push it was kept for")
+
+    def test_publish_refuses_when_origin_cannot_be_asked(self):
+        self.fail_the_push()
+        self.at('git remote set-url origin "$(pwd)/../nowhere.git"')
+        result = self.helper("publish")
+        self.assertEqual(12, result.returncode, result.stderr)
+        self.assertIn("cannot ask origin where feat/x is", result.stderr)
+
+    def test_publish_refuses_a_replay_that_ended_on_no_branch(self):
+        # `publish` mode's own branch check, which comes before any read of the
+        # replay. `publish()`'s checks behind it, on the branch and on an
+        # empty lease, are defensive and have no case: every granted path
+        # checks the branch first, and no mode writes a head without a lease.
+        self.fail_the_push()
+        self.at("git checkout -q --detach HEAD")
+        result = self.helper("publish")
+        self.assertEqual(4, result.returncode, result.stderr)
+        self.assertIn("on a detached HEAD, not feat/x", result.stderr)
+
+    def test_an_unreadable_waiting_record_is_refused(self):
+        # Refused with a message and an assigned code, in the path that exists
+        # to recover from a failed run.
+        self.fail_the_push()
+        self.at('printf "\\n" > "$(git rev-parse --git-path claude-rebase-pending)"')
+        result = self.helper("publish")
+        self.assertEqual(9, result.returncode, result.stderr)
+        self.assertIn("the waiting record is unreadable", result.stderr)
+
+    def test_abort_clears_an_unreadable_record(self):
+        # The one way past it: left, it refuses every mode on every branch.
+        self.fail_the_push()
+        self.at('printf "\\n" > "$(git rev-parse --git-path claude-rebase-pending)"')
+        refused = self.helper("start")
+        self.assertEqual(9, refused.returncode, refused.stderr)
+        self.assertIn("run 'abort' to clear it", refused.stderr)
 
         result = self.helper("abort")
-        self.assertEqual(9, result.returncode, result.stderr)
-        self.assertIn("already rewrote", result.stderr)
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertIn("cleared an unreadable waiting record", result.stdout)
         self.assertEqual(
-            "present",
-            self.at('test -f "$(git rev-parse --git-path claude-rebase-pending)" '
-                    '&& echo present || echo absent').stdout.strip(),
-            "the record is the only route left and abort deleted it")
+            "", self.at('cat "$(git rev-parse --git-path claude-rebase-pending)" 2>/dev/null').stdout,
+            "the unreadable record is still there")
 
-        retry = self.helper("publish")
-        self.assertEqual(0, retry.returncode, retry.stderr)
-        self.assertEqual(rewritten, self.at("git rev-parse refs/remotes/origin/feat/x").stdout.strip())
+    def test_a_rebase_that_never_started_leaves_no_record(self):
+        # Nothing was replayed, so there is no tip for a record to protect,
+        # and one left behind refuses every later `start` on any branch.
+        self.at(LOCK_INDEX)
+        self.assertEqual(11, self.helper().returncode, "the rebase must not start")
+        self.assertEqual(
+            "", self.at('cat "$(git rev-parse --git-path claude-rebase-pending)" 2>/dev/null').stdout,
+            "a record was left for a replay that never happened")
+        self.at(UNLOCK_INDEX)
+        self.assertEqual(0, self.helper().returncode, "a stale record refused the next start")
 
-    def test_abort_will_not_clear_a_record_belonging_to_another_branch(self):
-        # The record is per git directory, not per branch, and every other arm
-        # compares it to the branch it was given. This one did not, so
-        # `abort feat/other` destroyed feat/x's only recovery record and
-        # reported that feat/other had been cleared.
-        self.failed_push()
+    def test_abort_says_so_when_a_record_names_no_tip_to_put_back(self):
+        # A three-field record, as an earlier version wrote: nothing sits on
+        # the replay, so the refusal must not claim that anything does.
+        self.fail_the_push()
+        self.at('f="$(git rev-parse --git-path claude-rebase-pending)"; read -r b l h o < "$f"; '
+                'echo "$b $l $h" > "$f"')
+        result = self.helper("abort")
+        self.assertEqual(9, result.returncode, result.stderr)
+        self.assertIn("names no tip from before the replay", result.stderr)
+        self.assertNotIn("commits sit on the replay", result.stderr)
+
+    def test_abort_gives_a_replay_up_by_putting_the_branch_back(self):
+        # A push origin keeps refusing would otherwise hold the record for
+        # ever: clearing it strands the rewritten branch, and keeping it
+        # refuses every later `start`. The pre-replay tip is neither.
+        before = self.at("git rev-parse HEAD").stdout.strip()
+        published = self.remote_tip()
+        self.fail_the_push()
+        self.assertNotEqual(before, self.at("git rev-parse HEAD").stdout.strip(), "nothing was replayed")
+
+        result = self.helper("abort")
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertIn("put feat/x back at " + before, result.stdout)
+        self.assertEqual(before, self.at("git rev-parse HEAD").stdout.strip())
+        self.assertEqual(published, self.remote_tip(), "something was published")
+
+        self.at(ALLOW_PUSH)
+        again = self.helper()
+        self.assertEqual(0, again.returncode, again.stderr)
+        self.assertEqual(self.at("git rev-parse HEAD").stdout.strip(), self.remote_tip(),
+                         "the branch put back could not be replayed and published afresh")
+
+    def test_abort_clears_a_record_publish_can_no_longer_finish(self):
+        # `publish` sends a moved remote to `abort`, so `abort` has to take it
+        # or each mode names the other and the record is reachable by neither.
+        self.fail_the_push()
+        self.move_the_remote()
+        self.assertEqual(7, self.helper("publish").returncode)
+        result = self.helper("abort")
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertIn("cleared the waiting replay", result.stdout)
+
+    def test_abort_clears_a_record_whose_remote_branch_is_gone(self):
+        # Gone from origin while the tracking ref still names it.
+        self.fail_the_push()
+        run_bash('git -C "$R/remote.git" update-ref -d refs/heads/feat/x', R=self.root)
+        gone = self.helper("publish")
+        self.assertEqual(6, gone.returncode, gone.stderr)
+        self.assertIn("origin has no feat/x any more", gone.stderr)
+        result = self.helper("abort")
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertIn("cleared the waiting replay", result.stdout)
+
+    def test_abort_refuses_a_waiting_replay_belonging_to_another_branch(self):
+        # The name passed and the branch in hand are two ways to reach the
+        # wrong record, and clearing it strands a tip nothing else publishes.
+        self.fail_the_push()
         self.at("git checkout -qb feat/other")
 
-        result = self.helper("abort", branch="feat/other")
-        self.assertEqual(4, result.returncode, result.stderr)
-        self.assertIn("the waiting replay is feat/x", result.stderr)
-        self.assertEqual(
-            "present",
-            self.at('test -f "$(git rev-parse --git-path claude-rebase-pending)" '
-                    '&& echo present || echo absent').stdout.strip())
+        named = self.helper("abort", branch="feat/other")
+        self.assertEqual(4, named.returncode, named.stderr)
+        self.assertIn("the waiting replay is feat/x, not feat/other", named.stderr)
+
+        elsewhere = self.helper("abort", branch="feat/x")
+        self.assertEqual(4, elsewhere.returncode, elsewhere.stderr)
+        self.assertIn("only ever touches the current branch", elsewhere.stderr)
+
+        self.at("git checkout -q feat/x")
+        self.at(ALLOW_PUSH)
+        self.assertEqual(0, self.helper("publish").returncode,
+                         "the record did not survive both refusals")
 
     def test_a_second_run_changes_nothing_and_does_not_force(self):
-        self.assertEqual(0, self.helper().returncode)
+        first = self.helper()
+        self.assertEqual(0, first.returncode, first.stderr)
         settled = self.at("git rev-parse HEAD").stdout.strip()
         again = self.helper()
         self.assertEqual(0, again.returncode, again.stderr)
         self.assertIn("nothing to force", again.stdout)
         self.assertEqual(settled, self.at("git rev-parse HEAD").stdout.strip())
+
+
+class TheApplyBackendIsNeverTheOneThatRuns(unittest.TestCase):
+    """`rebase.backend=apply` is the caller's setting, and `start` spells
+    `--merge` over it: the apply backend leaves a commit it never applied
+    looking exactly like one a resolution emptied, so nothing could tell a
+    drop that loses nothing from one that loses a commit.
+    """
+
+    def setUp(self):
+        self.root = temp_root(self)
+        built = run_bash(FIXTURE, TEMPLATE=template(), root=self.root)
+        self.assertEqual(0, built.returncode, built.stderr)
+        self.work = self.root + "/work"
+        self.at("git config rebase.backend apply")
+        self.at(CONFLICT)
+
+    def at(self, script):
+        return run_bash('cd "$W" && ' + script, W=self.work)
+
+    def helper(self, mode="start", branch="feat/x"):
+        return run_bash('cd "$W" && bash "$H" "$B" "$M"',
+                        W=self.work, H=str(HELPER), B=branch, M=mode)
+
+    def state(self):
+        return self.at('for d in rebase-merge rebase-apply; do '
+                       'test -d "$(git rev-parse --git-path $d)" && echo $d; done').stdout.strip()
+
+    def test_the_setting_does_not_choose_the_backend(self):
+        result = self.helper("start")
+        self.assertEqual(8, result.returncode, result.stderr)
+        self.assertIn("which is the point:\na.txt", result.stderr)
+        self.assertEqual("rebase-merge", self.state(), "the caller's setting chose the backend")
+
+    def test_an_empty_resolution_is_dropped_by_git_and_published(self):
+        # Taking origin/main's side verbatim empties the commit, which the
+        # merge backend drops by itself rather than asking for `--skip`.
+        self.assertEqual(8, self.helper("start").returncode)
+        self.at("echo mine > a.txt && git add a.txt")
+        result = self.helper("continue")
+
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual("", self.state(), "the replay is still wedged in progress")
+        self.assertEqual("mine\n", self.at("cat a.txt").stdout)
+        self.assertEqual("work\n", self.at("cat b.txt").stdout,
+                         "the branch's own commit was dropped along with the empty one")
+        self.assertEqual(self.at("git rev-parse HEAD").stdout.strip(),
+                         self.at("git rev-parse refs/remotes/origin/feat/x").stdout.strip(),
+                         "the remote carries what was replayed")
+
+    def test_a_conflict_after_an_emptied_commit_is_reported(self):
+        self.at('echo theirs-again > a.txt && git add -A '
+                '&& git commit -qm "the branch edits a.txt again" '
+                '&& git push -q -f origin feat/x')
+        self.assertEqual(8, self.helper("start").returncode)
+        self.at("echo mine > a.txt && git add a.txt")
+
+        result = self.helper("continue")
+        self.assertEqual(8, result.returncode, result.stderr)
+        self.assertIn("which is the point:\na.txt", result.stderr,
+                      "the conflict after the dropped commit was not reported")
+        self.assertEqual("rebase-merge", self.state(),
+                         "the replay was not left in progress for the caller")
+
+    def test_a_commit_an_untracked_file_blocks_is_applied_once_it_is_moved(self):
+        # The case the apply backend lost a whole commit in: a file standing
+        # where the next commit adds one. Refused, named, and then applied.
+        self.at('echo added > new.txt && git add -A && git commit -qm "the branch adds new.txt" '
+                '&& git push -q -f origin feat/x')
+        self.assertEqual(8, self.helper("start").returncode)
+        self.at("echo resolved > a.txt && git add a.txt && echo stray > new.txt")
+
+        blocked = self.helper("continue")
+        self.assertEqual(14, blocked.returncode, blocked.stderr)
+        self.assertIn("stopped with nothing unmerged", blocked.stderr)
+        self.assertIn("new.txt", blocked.stderr, "the caller is told what is in the way")
+        self.assertEqual("stray\n", self.at("cat new.txt").stdout, "the untracked file was overwritten")
+
+        self.at("rm new.txt")
+        result = self.helper("continue")
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual("added\n", self.at("cat new.txt").stdout,
+                         "the commit the file blocked was dropped rather than applied")
+        self.assertEqual(self.at("git rev-parse HEAD").stdout.strip(),
+                         self.at("git rev-parse refs/remotes/origin/feat/x").stdout.strip())
+
+    def test_unstaged_work_survives_the_continue(self):
+        # Nothing here resets the tree, so an edit made while resolving is
+        # still there whatever the run then says.
+        self.assertEqual(8, self.helper("start").returncode)
+        self.at("echo mine > a.txt && git add a.txt")
+        self.at("echo precious >> b.txt")
+        self.helper("continue")
+        self.assertEqual("work\nprecious\n", self.at("cat b.txt").stdout,
+                         "the unstaged edit was reset away")
+
+
+class AStoppedReplayIsNotAlwaysAConflict(unittest.TestCase):
+    """A replay can stop with nothing unmerged and a real change staged — a
+    commit git would not make for a reason of its own. It is reported as
+    itself and left in progress, because nothing here may drop a commit."""
+
+    def setUp(self):
+        self.root = temp_root(self)
+        built = run_bash(FIXTURE, TEMPLATE=template(), root=self.root)
+        self.assertEqual(0, built.returncode, built.stderr)
+        self.work = self.root + "/work"
+        self.at(CONFLICT)
+
+    def at(self, script):
+        return run_bash('cd "$W" && ' + script, W=self.work)
+
+    def helper(self, mode="start", branch="feat/x"):
+        return run_bash('cd "$W" && bash "$H" "$B" "$M"',
+                        W=self.work, H=str(HELPER), B=branch, M=mode)
+
+    def test_a_replay_that_stopped_for_another_reason_is_reported_as_itself(self):
+        self.assertEqual(8, self.helper("start").returncode)
+        self.at("echo different > a.txt && git add a.txt")
+        # An identity git will not commit under.
+        self.at('git config user.name "" && git config user.email ""')
+
+        result = self.helper("continue")
+        self.assertEqual(14, result.returncode, result.stderr)
+        self.assertIn("stopped with nothing unmerged", result.stderr)
+        self.assertNotIn("resolve these", result.stderr,
+                         "the caller is sent to resolve files that are named nowhere")
+        self.assertEqual("yes", self.at(REBASE_RUNNING).stdout.strip(),
+                         "the replay was thrown away rather than left to be answered")
+        self.assertEqual("different\n", self.at("git show :a.txt").stdout,
+                         "the staged change was dropped")
+
+    def test_the_merge_backend_drops_an_empty_replay_on_its_own(self):
+        # The reason no skip is needed: this backend drops an emptied commit
+        # itself, without leaving a stop for the helper to judge.
+        self.assertEqual(8, self.helper("start").returncode)
+        self.at("echo mine > a.txt && git add a.txt")
+        result = self.helper("continue")
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual("mine\n", self.at("cat a.txt").stdout)
+        self.assertEqual(self.at("git rev-parse HEAD").stdout.strip(),
+                         self.at("git rev-parse refs/remotes/origin/feat/x").stdout.strip())
+
+
+class EveryFixtureSaysItWasBuilt(unittest.TestCase):
+    """With a failed fixture `self.work` is a directory that does not exist, so
+    every `cd` fails and the assertions are satisfied by the failed `cd`.
+
+    Read from the AST: a comment is not in it, and an assertion inside a lambda
+    or a branch is not a top-level statement of `setUp`."""
+
+    @staticmethod
+    def builds_the_fixture(function):
+        return any(isinstance(node, ast.Name) and node.id == "FIXTURE"
+                   for node in ast.walk(function))
+
+    @staticmethod
+    def asserts_its_build(function):
+        for statement in function.body:
+            if not isinstance(statement, ast.Expr):
+                continue
+            call = statement.value
+            if not (isinstance(call, ast.Call)
+                    and isinstance(call.func, ast.Attribute)
+                    and call.func.attr == "assertEqual"
+                    and isinstance(call.func.value, ast.Name)
+                    and call.func.value.id == "self"):
+                continue
+            if any(isinstance(subject, ast.Attribute) and subject.attr == "returncode"
+                   for subject in call.args):
+                return True
+        return False
+
+    def test_every_class_that_builds_the_fixture_says_it_was_built(self):
+        watched = []
+        for node in ast.parse(Path(__file__).read_text(encoding="utf-8")).body:
+            if not isinstance(node, ast.ClassDef):
+                continue
+            for member in node.body:
+                if not isinstance(member, ast.FunctionDef) or member.name != "setUp":
+                    continue
+                if not self.builds_the_fixture(member):
+                    continue
+                watched.append(node.name)
+                self.assertTrue(
+                    self.asserts_its_build(member),
+                    f"{node.name} builds the fixture and never says whether it "
+                    "worked: a failed one leaves no self.work and every "
+                    "assertion under it vacuous")
+        # Exact, so a class the recogniser sees cannot arrive without this
+        # number moving in the same edit, which is the moment to check it.
+        self.assertEqual(7, len(watched),
+                         f"this gate is watching {watched}: a fixture class was "
+                         "added or renamed. Check that each one asserts its build, "
+                         "then move this number deliberately")
 
 
 if __name__ == "__main__":

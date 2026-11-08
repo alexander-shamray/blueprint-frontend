@@ -2,7 +2,6 @@
 # Revert one pull request on the current branch: the commits on origin/main whose `PR: #<n>` trailer names it,
 # newest first, each as its own `git revert` carrying `Reverts: #<n>`. The trailer is read by git, so a line quoted in
 # a body does not select a commit. History from before the trailer began has none, and is reverted by hand.
-# Ported from blueprint-backend's helper of the same name (#207).
 set -euo pipefail
 
 [ "$#" -eq 1 ] || { echo "usage: git-revert-pr.sh <pr-number>" >&2; exit 2; }

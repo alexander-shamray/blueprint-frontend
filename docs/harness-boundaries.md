@@ -1,38 +1,64 @@
 # Harness boundaries
 
+## Index
+
+**Read the section you need, not the file**: each is under 3.5k tokens and
+the whole is about 31k. `Grep -n "^## <title>"` gives its first line.
+
+| Section | What it covers |
+|---|---|
+| Purpose and provenance of this file | Why the section left backend's CLAUDE.md, the four edits made in the move, and the two passages since moved to backend's residuals. |
+| Edit denies and agent self-protection | Edit-only file rules, the denied .claude trees, and why the skill and index-wrapper grants need guarding. |
+| Index refresh and worktree seeding | The PostToolUse refresh hook, seeding worktree indexes, carrying MCP approval into forks, and the SessionStart refresh. |
+| Index hint hooks and hook wiring | Query, search and MCP-root hooks, MCP_TIMEOUT, and why hook commands run without a shell. |
+| Settings self-lock and permission root | The settings.json self-lock and its delay, settings.local.json, how EnterWorktree moves rules, and the hooks deny. |
+| Grant semantics | allowed-tools as auto-approval rather than whitelist, and a deny as the only refusal; where the external reviewers' machinery went. |
+| Prefix grants and wildcard denies | Table of over-wide git grants, the reset-grant lesson, mid-pattern deny wildcards, the quoting bypass and the helper argv guard. |
+| The guards' threat model | What the guard hooks are written against, which guard findings are filed, and which are recorded as out of scope. |
+| The guard launcher | run-guard.sh starting the five guards on any host's Python 3.12, exit 2 on every failure, the mark that skips the probe, run-guard.py's proof, and the residuals. |
+| Destructive classes | One table of what the harness refuses, the layer that refuses each, and the test that holds the table to the deny list and the hooks. |
+| Git argv guard hook | How guard-git-argv.py resolves the executed argv, its successive bypasses, git -c and stated residuals. |
+| The ext transport and pinned grants | Why ext:: cannot be written as a rule, hook coverage, and fetch and pull grant pinning. |
+| Grant inventory and push helpers | Frontmatter grants, the numbered inventory, /ship's closed entries, sweep helpers, the three lease-bound force-push helpers, the branch-drop helper and the sync-PR reader. |
+| Pull request reads and the locality verdict | Fixed-field PR helpers, the gh allow-list gate, #150, and pr-locality.sh's contract. |
+| Sweep push denies and chained commands | Push denies in the sweeps, and why a command /ship runs before it pushes never denies push. |
+| Output deny and shell-expansion residuals | The --output entry closed by the hook, expansion readings, locale quotes, process substitution, crashes and pipes. |
+| Agent-type and push entries | Agent-type deny enumeration and the inverted push check. |
+| The edit-target guard | The symbolic-link premise and guard-edit-target.py refusing spelling mismatches. |
+| Edit guard path resolution | Link anchors, case folding, checkout-root anchors, UNC and device prefixes, and short-name aliases. |
+| Normalisation, residuals and the sweeps | Unicode and per-directory traits, the .. admission, out-of-tree residual, how the sweeps share worktrees, and their slice lists and ref. |
+| The sed line-ending guard | guard-sed-crlf.py refusing `sed -i` on a tracked CRLF file: what it reads, what a crafted path makes it run, where it fails open, and its residuals. |
+| Headless dispatched sessions | Unattended `claude -p` executors, what holds them, why no grant was added, and the night's residuals: a refusal read in the morning, and the weekly stop. |
+| Managed files | Which paths blueprint-harness owns and where they are changed, the `local` paths a repository keeps, and the drift gate that holds them. |
+
+## Purpose and provenance of this file
+
 **What the agent harness grants this repository's commands, what it refuses
 them, and every place a grant is wider than the operation it was added for.**
-This was `CLAUDE.md`'s *What cuts across them* section until it outgrew a
-primer. It is load-bearing whenever you touch `.claude/` — a command's
-frontmatter, a helper script, `settings.json`, a hook, a subagent profile — and
-inert for every other kind of change, which is what earns it a file rather than
-a permanent seat in every session's context.
+This was the *What cuts across them* section of backend's `CLAUDE.md` until
+it reached 582 lines. It is load-bearing whenever you touch `.claude/` — a
+command's frontmatter, a helper script, `settings.json`, a hook, a subagent
+profile — and inert for every other kind of change, which is what earns it a
+file rather than a permanent seat in every session's context.
 
-**This file and the machinery it describes were ported from
-`alexander-shamray/blueprint-backend`**, where `.claude/` was built, and
-the arguments are kept verbatim for one reason: a summary of an argument is
-how a rule gets "corrected" back. Two consequences follow and both are
-load-bearing. **A bare `#NN` anywhere under `.claude/` or in this file is an
-issue in THAT repository, not one here** — chase it there or not at all.
-And where a paragraph below argues from something measured over there — an
-`Exec` in an auto-imported MSBuild file, a grant withdrawn from a command
-this repository does not have — the measurement stands and the toolchain in
-it does not; the same paragraph names this repository's equivalent.
-
-**The content is otherwise verbatim in its arguments**, and for the same
-reason it was when it was extracted from `CLAUDE.md` there. Four edits were made on the
+**The content is verbatim in its arguments**, on
+backend's PR decision log's terms and for its reason: a summary
+of an argument is how a rule gets "corrected" back. Four edits were made on the
 way out, and naming them is cheaper than a claim that does not survive a grep.
 The `### What cuts across them` heading became this file's title. One paragraph
-arrived from `CLAUDE.md`'s *The commands* section — the one recording that
-#150's suppression clause moved three grants along before it stuck — because
-its subject is a grant and not a command; its opening was rebased from "That
-last clause", which pointed at a paragraph that did not travel with it. And
-**two self-references** were rebased the same way: the grant inventory's count
-of rotted totals said "in this file" of `CLAUDE.md` and named two siblings that
-now live in two other files, and the sandbox residual said the commands cite
-"this file" — true while it sat in `CLAUDE.md`, and a contradiction of the
+arrived from the *The commands* section of that `CLAUDE.md` — the one recording
+that #150's suppression clause moved three grants along before it stuck —
+because its subject is a grant and not a command; its opening was rebased from
+"That last clause", which pointed at a paragraph that did not travel with it.
+And **two self-references** were rebased the same way: the grant inventory's
+count of rotted totals said "in this file" of `CLAUDE.md` and named two siblings
+that now live in two other files, and the sandbox residual said the commands
+cite "this file" — true while it sat in `CLAUDE.md`, and a contradiction of the
 paragraph below the moment it moved. Not one argument was shortened, and no
-paragraph was dropped.
+paragraph was dropped. Two were later moved out when the file became the
+harness's, because only backend's own commands make them true: the callout
+on what backend's link and blueprint checks read, and the paragraph on its
+mutation sweep. They are backend's residuals now.
 
 **The second of those was found by review rather than by the move**, which is
 worth recording where the edits are listed: a self-reference that stays *true
@@ -40,67 +66,14 @@ of its old home* reads correctly in isolation and only contradicts something
 two screens away. Grep for "this file" after extracting prose, not just for
 links.
 
-**Headings were introduced later, and the index below is why**
-(blueprint-frontend#170). The file was one long run of bold-led paragraphs, and
-the earlier version of this note refused to add headings because deciding where
-the topic boundaries are is an edit to the argument. That refusal stood while
-the file was a quarter of its size and every session was told to read it whole.
-The headings now only mark where a paragraph's subject changes; **no paragraph
-moved and none was shortened**, so a bold lead-in is still the way to find an
-argument, and a citation of this file by name still lands.
+**No headings were introduced.** The section is one long run of bold-led
+paragraphs and it stays that way — inventing headings would mean deciding where
+the topic boundaries are, which is an edit to the argument wearing a
+navigation aid's clothes. Grep the bold lead-ins; they are the index.
 
-**Read the section the work needs, not the file.** The sizes are bytes over
-four when the headings were added, rounded, and are not kept current.
-
-| Section | About tokens | Read it when |
-|---|---|---|
-| *The `Edit` denies and the lock on `settings.json`* | 1.5 k | Adding or lifting an `Edit` deny, or changing `settings.json` itself |
-| *What a command can write past the `Edit` denies* | 2.8 k | A command redirects or writes, or the Bash guard's redirection rules change |
-| *The external reviewers, archived* | 0.3 k | A question about Grok or Copilot review machinery |
-| *A grant is not a whitelist: allows, denies and helpers* | 1.4 k | Writing or auditing any `allowed-tools` or `disallowed-tools` line |
-| *The guards' threat model* | 0.2 k | Deciding whether a guard finding is filed |
-| *The git argv guard and its launcher* | 1.5 k | Touching `guard-git-argv.py` or `run-guard.sh` |
-| *The guard's residuals, and the bound on what has been looked for* | 2.5 k | Claiming the guard closes something |
-| *The inventory of grants wider than their operation* | 6.8 k | Adding a grant, or asking what a granted helper can still do |
-| *Suppression, auto mode and how the guard fails* | 3.0 k | A refused push, an auto-mode denial, or a guard crash |
-| *Entries seven to ten: agent pinning, the push deny-list, the build grant, the review-grok pair* | 1.6 k | Pinning a command to a subagent type, the push deny-list, a build grant |
-| *The edit-target guard: anchors and path resolution* | 3.6 k | Touching `guard-edit-target.py` or a path spelling it reads |
-| *The eleventh entry and the history-rewriting helpers* | 2.1 k | `git-rebase-onto-main.sh`, `git-trailer-pr.sh`, a force push |
-| *The two sweeps* | 0.4 k | `/security-sweep` or `/bug-sweep` frontmatter |
-| *The index-refresh hook* | 6.8 k | `index-refresh.py`, the worker, the lock, the seed |
-| *The skill's route, the helpers' copies and the MCP server's start* | 2.1 k | `run-index`, `mcp-launch.mjs`, a helper run from a worktree |
-| *The index hints and the root guard* | 1.6 k | The query or search hint, the MCP root guard |
-| *The twelfth entry: `/ship`'s review dispatch* | 1.7 k | `branch-reviewer`, the review inputs, `Agent(...)` grants |
-
-The two callouts below hold for every section, and are the only text here to
-read before any other.
-
-**Both sweeps cite `CLAUDE.md` as where the consequences of their grants are
-recorded, and those citations were deliberately left alone.** `CLAUDE.md`
-keeps an *Under `.claude/`* section (it was *What cuts across them* until
-#170) that forwards here, so a command's
-reference lands one hop from what it names — where rewriting each citation to
-point at a new path would be a chance to get it wrong, in files the harness
-denies this session an edit to anyway. **A new residual is stated here**, and
-`CLAUDE.md` carries the pointer rather than a second copy. `/ship` cited it
-too, from a grants callout that argued for the external reviewers' launcher;
-the callout left with that machinery (blueprint-frontend#117), and `/ship`
-now names no such citation.
-
-**The files are named rather than counted, and two drafts of this paragraph are
-why.** The first said "nine command files" — wrong on both halves, since the
-files were `ship.md`, `security-sweep.md` and `bug-sweep.md`, and they carried
-several mentions each of which only some were the sandbox residual. The second
-tried to repair that with a command a reader could run,
-`grep -l 'CLAUDE.md' .claude/commands/` — which returns most of the
-directory, because commands mention `CLAUDE.md` for reasons that have nothing
-to do with this residual. The number that stood here was itself stale by the
-time it was ported, in the paragraph arguing against hard-coded counts, which
-Copilot enjoyed pointing out and was right to. **A check offered as the fix for a miscount, that counts
-something else, is the miscount with a shell prompt in front of it.** Both were
-caught by review. What a reader can check is the names above; naming a small
-fixed set is not a total, and it goes stale only when one of those files
-loses its citation — which is how `ship.md` left it.
+**`/ship` and both sweeps cite this file for the harness's boundaries and their
+residuals.** **A new residual is stated here**, and `CLAUDE.md` carries the
+pointer rather than a second copy.
 
 > **A grant is not a whitelist, and that is the trap under everything below.**
 > If you read one paragraph here, read the one beginning *A grant is not a
@@ -108,27 +81,9 @@ loses its citation — which is how `ship.md` left it.
 > a command's frontmatter withholds nothing. Refusing a capability takes a
 > **deny**.
 
-> **Nothing structural catches this file's drift.** The two commands that
-> audited documents over there — `/validate-blueprint` and `/check-links` —
-> read a blueprint tree this repository does not have and were not ported, so
-> no command here reads this file at all. The one rule in `CLAUDE.md` covers
-> it, and that is all that does. That is a gap rather than a decision, and it
-> is the reason the paragraph below insists the description beats a list.
->
-> **The siblings are described rather than listed on purpose.** Three copies of
-> this callout named three different sets the moment two new files arrived,
-> which is what a list with no code to check it against does.
->
-> **A predicate is only better than a list if it is true.** These callouts
-> first said this file is in no index “like every document under `docs/`
-> that is not the blueprint tree”, which was false twice over in the
-> repository that wrote it. Scope is the durable fact and being unindexed
-> never was — a false predicate is a stale list with an argument in front of
-> it.
-
 ---
 
-## The `Edit` denies and the lock on `settings.json`
+## Edit denies and agent self-protection
 
 **File permission rules take `Edit(...)`, never `Write(...)`.** `Edit(path)`
 covers every file-editing tool, `Write` included; a `Write(path)` rule matches
@@ -146,30 +101,508 @@ it broke startup. **A reviewer who has not run the harness cannot see this;
 check a permission claim against the harness before acting on it.**
 
 **The `Edit` denies bind the agent's own tooling**, in both spellings each:
-`.claude/scripts/**`, `.claude/commands/**`, `.claude/agents/**`,
-`.claude/hooks/**`, `.claude/skills/**`, `.claude/settings.json` and
-`.claude/settings.local.json`. Read the list, do not count it here — it has
+`.claude/scripts/**`, `.claude/commands/**`,
+`.claude/agents/**`, `.claude/hooks/**`, `.claude/skills/**`,
+`.claude/settings.json` and `.claude/settings.local.json`.
+Read the list in `.claude/settings.json`, do not count it here — it has
 already grown twice, once inside the pull request that introduced it. The
-commands grant those helpers by name, so a session that could rewrite one
-before invoking it would make every fixed endpoint a fiction.
+commands grant those helpers by name, so a session that could rewrite
+one before invoking it would make every fixed endpoint a fiction.
 
 **Three of them arrived with #33 — `commands/`, `agents/` and `settings.json` —
 and the argument for them is the helpers' applied one level up.** They are the
-files that *grant* what `scripts/**` protects. Several commands carry an
-unrestricted `Edit` or `Write`, and the ones that read untrusted input by
-design are among them, so a single applied edit could append a grant to a
-command's
-`allowed-tools`, remove a line from this deny list, or rewrite
-`.claude/agents/security-auditor.md` — whose read-only guarantee is precisely
-its `Read, Grep, Glob` tool list, as `/security-sweep` says outright: read-only
-there "is a property of the agent's tool grant, not a word in its prompt".
+files that *grant* what `scripts/**` protects. Commands carry an unrestricted
+`Edit` or `Write` and some read untrusted input by design, so a single applied
+edit could append a grant to a command's `allowed-tools`, remove a line from
+this deny list, or rewrite `.claude/agents/security-auditor.md` — whose
+read-only guarantee is precisely its `Read, Grep, Glob` tool list, as
+`/security-sweep` says outright: read-only there "is a property of the agent's
+tool grant, not a word in its prompt".
 
-**`branch-reviewer` rests on the same property.** It reads the diff, the
-locality verdict and the method the parent wrote under `artifacts/review/` —
-inside the checkout, where its reads stay — and returns JSON the parent
-verifies before acting on any of it. The residual is the parent's: it holds
-the shell the reviewer was denied, so a finding written to steer an edit is
-caught by that verification or not at all.
+**`branch-reviewer` rests on the same property.** It reads the diff the parent
+wrote under `artifacts/review/`, inside the checkout, and returns JSON the
+parent verifies before acting on any of it. Its reads stay in the checkout by
+its prompt, not its tools — the sweeps' residual for the same tool set. The rest
+is the parent's: it holds the shell the reviewer was denied, so a finding
+written to steer an edit is caught by that verification or not at all.
+
+**The residual is that the chain has no outside reader, and no grant expresses
+it.** What reviews a branch before it merges is the same model family that
+wrote it, with its own context and its own blind spots, and `/ship` merges
+unattended. Nothing in the harness can close that: independence of judgement is
+not a tool grant. It is accepted, the external reviewers being archived (*Grant
+semantics* says where they are held; blueprint-frontend recorded the decision
+in its #117), and the control is procedural and stated: a full pass, a recheck
+of every fix with a full pass again after a `bug`-severity or large one, a
+seventh-round ceiling whose open findings are filed as issues rather than
+dropped, and CI, which judges the branch by rules the model did not choose. It
+is recorded because a reader who learns only that the reviewer is read-only has
+been told the safe half. Restoring an outside reader starts from
+`archive/external-reviewers`.
+
+**`team-peer` rests on it too, over a wider input.** `/team`'s peers hold
+the same three tools and read a board other peers wrote, so a line planted
+in the code can reach a second peer as a claim. The residual is that
+`team_board.py` checks only that a claim's evidence exists, never that it
+supports the claim; the owner's decision at the end, made with the shell
+the peers were denied, is the only check of that
+([`docs/commands/team.md`](commands/team.md)).
+
+**`.claude/skills/**` is the same argument one directory over.** A skill's
+`allowed-tools` is auto-approval, so a session that can rewrite `SKILL.md`
+widens the next invocation's Bash surface. The deny list in
+`.claude/settings.json` is the owner of the paths; this paragraph is the
+reason `skills/` is on it.
+
+**The index skill's prefix grants are the same speed bump as `git *--output*`.**
+`Bash(bash .claude/skills/codebase-index/scripts/cbx search:*)` matches the
+typed string; the shell still runs `$(…)` and a second command on that line.
+`.claude/hooks/guard-index-argv.py` is the argv-level guard: substitutions,
+extra command runs, write redirections, and `graph` / `clean` / `init` /
+`watch` are refused.
+The `cbx` wrapper is the other half — whitelist and
+`CBX_NO_SKILL_AUTO_UPDATE=1` — and is not a substitute for the hook.
+`cbx.ps1` runs in its caller's process, so the two variables it sets
+(`CBX_NO_SKILL_AUTO_UPDATE` and `PYTHONSAFEPATH`) are put back in a `finally`,
+and the one `exit` after it is the only way out: left set, `PYTHONSAFEPATH`
+takes the script's directory off `sys.path` for every later `python` the
+session starts. `test_cbx.py` runs it with `&`, in a session that reports its
+environment afterwards, and skips where PowerShell is not installed.
+
+**`CBX_NO_SKILL_AUTO_UPDATE=1` is also in `.claude/settings.json`'s `env`,
+because the wrapper is not the only way the CLI runs.** A bare
+`codebase-index` call from a checkout, which the argv guard admits, replaced
+the tracked skill with the package's stock copy, measured on 2026-10-06:
+seven files, the wrappers' `-P` and `PYTHONSAFEPATH` among what went. The
+`env` block reaches every command a session runs **when the session applies
+it**, and a cloud session's shell on 2026-10-08 did not have it: one
+`codebase-index --help` there rewrote the same seven files and widened the
+skill's grants to `Bash(cbx *)` (backend's token-usage log, 2026-10-08). So a
+run outside the wrapper and the hooks sets the variable itself.
+
+## Index refresh and worktree seeding
+
+**`PostToolUse` runs `.claude/hooks/refresh-index.py` after every edit and
+every shell call**, over the checkout the **edited path** belongs to, resolved
+before it is walked. `cwd` answers when the event names no file,
+`CLAUDE_PROJECT_DIR` when it names neither, and the working directory last,
+and they differ exactly when it matters: an edit is admitted against the
+session's tree or the one it forked from, so only the file's own path says
+which of them changed. The hook spawns the CLI detached, discards both streams
+and always returns 0: it runs on every call, so it may not make one wait, and
+an index that cannot refresh is not a reason to fail the call that provoked
+it. The exit status is the one thing it does keep, and a request whose update
+failed goes back rather than counting as served: contention is what fails
+here, the streams that would have said so are gone, and the loser may be the
+run carrying the newest edit. A marker the worker cannot remove, a directory
+in its place or a file Windows has open, is not an absent one: read as absent,
+the worker took the lock and looked again for ever. It lets go of the lock,
+waits briefly and tries a bounded number of times, then leaves the marker for
+the next edit. The worker runs from the system temp directory,
+outside every checkout, and only the CLI inside the checkout: Windows will not
+delete a live process's working directory and `/ship` removes a worktree
+moments after its last call, and Windows looks in the starting process's own
+directory for a program named bare, so a checkout's parent, or for a worktree
+a directory of the main checkout, would let a merged file stand in for the
+CLI, which is started by the full path a PATH-only lookup found instead. The
+CLI's own run still holds files in the checkout while it lasts, and the worker
+holds the lock for that whole run, which is why `/ship`'s
+`git-worktree-remove.sh` takes the lock before it removes. The lock covers a
+worker and not the survivor its record names after a kill, which the helper
+does not wait for: on Windows such a removal can leave part of the tree, and
+the helper's exit 4 reports that. The worker is
+started in a session of its own on POSIX, and on Windows with
+`CREATE_NO_WINDOW` and a new process group, never `DETACHED_PROCESS`: a worker
+started with that flag was measured to exit 0 without its child ever running,
+and the hook discards every stream, so nothing said so while the index went
+stale. `test_refresh_index.py` holds the set, because a run only passes on a
+machine that tolerates the wrong one.
+
+**The lock and the marker are the hook's own writes, so they live in the git
+directory and not in the tree.** Each checkout has a pair under
+`<git directory>/index-refresh/`, named for the checkout's device and inode so
+that two spellings of one path share it. A branch can track a link at any
+component of `.claude/cache/codebase-index/`, and `open` follows a link there
+and truncates what it finds, so a state kept in the tree would be written
+wherever the branch aimed it. Git tracks nothing under its own directory. The
+directory is the one the hook file's own checkout reports, never the target's,
+and where it, or the state directory in it, is itself a link there is no
+state and so no refresh. Only those two names are looked at, so a link higher
+up the path to the git directory is not seen. `git-worktree-remove.sh`
+computes the same name from the worktree it removes, and
+`test_git_worktree_remove.py` takes the hook's own for the lock it holds, so a
+name that drifts in either fails there. It takes the name while the path still
+stats and deletes the pair once the removal succeeded, because the inode a
+later worktree is given would inherit the file and the pid in it; a file that
+will not go does not change the helper's exit, and a worktree that never had a
+pair is not given one.
+
+**The hook refreshes a checkout of its own repository that holds an index,
+and nothing else.** The repository is the one the hook file's own checkout
+belongs to, compared by git directory, so a checkout of another repository,
+or a submodule, that holds a cache directory is not this hook's to write
+into. An index is a file past SQLite's 100-byte header: a cache directory
+alone is not one, and an `update` there is a build, which the hook never
+starts. An event that names a file the hook cannot place, a relative path
+with no `cwd` or one the system cannot resolve, refreshes nothing, and is
+never answered with the `cwd`, which names a tree the edit did not touch. The
+worker is handed its root as an argument and runs for as long as edits keep
+arriving, so it judges the root again at its entry and before every update.
+
+**The lock is the worker's, and the indexer it starts is not.** A worker
+killed mid-update frees the lock while the indexer goes on writing the cache,
+and the next edit would start a second beside it. So the worker writes its own
+pid into the lock file, through the handle that holds the lock, before it
+starts the CLI, the CLI's once it exists, and nothing once the CLI is known to
+be gone: reaped after a kill, not merely asked to end. A worker that takes the
+lock and finds a live process recorded leaves the tree to it, and the marker
+stays for the next edit. Whether a pid is live is asked of the system without
+starting anything, `kill(pid, 0)` on POSIX and `OpenProcess` with the exit
+code on Windows, where `os.kill` would end the process. Where it cannot be
+told, the process counts as running: one skipped refresh, never two indexers.
+The look is made before every attempt, a retry included, since an attempt
+overwrites the record. The record is read with its age, the file's
+modification time, so that a pid something else now holds cannot hold workers
+off for ever: past 630 seconds, `REFRESH_TIMEOUT` plus `REAP_TIMEOUT`, a record
+names nothing. A worker that finds its indexer outliving the kill writes the
+record again, so the bound runs from that moment and not from the start of an
+update that has already used it up. The cost is a residual: nothing kills the
+orphan of a killed worker, so once its record is that old a worker may start an
+update beside it.
+
+**The CLI is found on `PATH` alone, and the answer is a full path, so the
+operating system searches nothing.** A `PATH` entry naming a checkout is the
+bare name's hole by another route, so the lookup takes absolute entries only,
+none of them the working directory, and no candidate inside this checkout or
+the main checkout it was forked from, a link's target included. On Windows
+only an `.exe` or a `.com` counts, never `PATHEXT`'s `.bat` or `.cmd`: those
+run through `cmd.exe` in the checkout, which looks there first for every
+command the script names, so a shim found safely would reopen the search this
+closes. pip writes the console script as an `.exe`. The worker runs that
+script, then the module through its own interpreter: `py -3.12 -m pip` is a
+supported install that leaves the script in a directory that need not be on
+`PATH`, so both `cbx` wrappers fall back the same way, and a pipx install has
+no module this interpreter can import, so the script is not dropped for it.
+`CBX_NO_SKILL_AUTO_UPDATE` keeps an unpinned package from rewriting the
+tracked skill, and `-P` keeps a checkout's own `codebase_index.py` off the
+import path. The hook sets `NoDefaultCurrentDirectoryInExePath` for everything
+it starts, the worker and the CLI, and does not leave it to its launcher: the
+CLI runs in the checkout, where a branch can plant a program that Windows
+would otherwise find first for any name the CLI starts bare.
+
+**Both shell tools are in the matcher, `Bash` and `PowerShell`, because
+agents write through them more than through any edit tool** — a commit, a
+pull, a rebase, a formatter, an edit script — and each left the index
+describing the tree it replaced while it reported itself fresh. A shell call
+names no file, so its `cwd` decides, and that field follows the shell into a
+worktree. It is not gated on the command, which would
+miss every helper and script: a call that wrote nothing costs one `update`
+that changes nothing, measured at about a second on this corpus, detached and
+behind the lock's coalescing. A commit changes no file, and that same `update`
+is what moves the index's recorded HEAD.
+
+**A linked worktree with no index is seeded from its main checkout's, and
+nothing is ever built.** `.claude/cache/codebase-index/` is ignored, so every
+`/branch` worktree starts without one, and the first query there used to run
+a full `index` inside the agent's turn: 230 s here, where copying the main
+checkout's `index.sqlite` took 0.4 s and the `update` after it 5 s. The
+worker seeds under the refresh lock before it updates, through SQLite's
+backup rather than a file copy, because the main checkout's index may be
+mid-`update` and a copied file can tear. The copy is made beside the index
+under a name for the worker's process and renamed in only once its header
+says WAL, the mode the package's readers need, and the next seed, which holds
+the same lock, removes the partial and the files SQLite opened beside it that
+a killed worker left. Only `index.sqlite` crosses — the
+main checkout's memory and configuration are its own state — and only from a
+regular file at the main checkout's own index path. The worktree is told
+from the files git writes, a `gitdir:` pointer whose `commondir` leads to a
+`.git` directory, so a submodule and a bare repository are not worktrees. A
+main checkout with no index leaves the worktree with none, and any other
+checkout with no index is left alone, because unindexed is not stale.
+`git-worktree-fork.sh` runs the new worktree's own hook once, because
+`/branch` enters it mid-session, where no `SessionStart` fires.
+
+**A checkout's `.git` is a claim it makes about itself, so the hook takes
+only a checkout git made.** A directory whose `.git` file names one of this
+repository's admin directories reports this repository's common directory
+without git having made it, and its tree would be indexed with this
+checkout's tooling. So a `.git` directory must be the repository's own, and a
+`.git` file must be no link, have one name, and name an admin directory under
+`<common>/worktrees/` whose `gitdir` names that file back. A hard link shares
+the real file's inode and so its backlink, which is why a second name is
+refused; while one exists the real worktree is refused too, a denial of
+refresh by someone who can already write beside the repository rather than a
+tree of theirs being indexed. The main checkout a worktree is seeded from is
+judged the same way. A checkout named `secsweep-…`, in any case and as it
+resolves through a link, is refused outright: both sweeps detach their
+worktrees under that prefix, and the tree one holds is audit input.
+
+**An index is opened only at rest, in WAL mode, and with no link on its
+path.** A branch can force-track any file under
+`.claude/cache/codebase-index/`, the first connection to a rollback-mode
+database replays a `-journal` it finds beside it, and SQLite opens each
+sidecar by name, so a link at one aims its write where the branch chose.
+`index_openable` refuses a link at any component of the cache path, at the
+database or at its `-wal`, `-shm` or `-journal`, a journal at all, and a
+header that is not WAL; a root with no index, or one shorter than a header,
+is admitted, since nothing in it can be replayed. It is asked of the target,
+of the seed's source and target, before every update, and before and after a
+compaction. A `-wal` is admitted: every open reader keeps one. The cost of a
+refusal is a stale index, never a write.
+
+**A seed lands only where git ignores the index path.** It leaves the main
+checkout's indexed text at a path only `.gitignore` keeps out of a commit,
+and a branch checked out in the worktree can drop that line, which would put
+that text in front of an unscoped `/commit`. `git check-ignore` is asked
+last, only where a seed could otherwise happen, so a checkout with no index
+and nothing to seed it from costs no git call; it is asked once per root and
+process, with `GIT_DIR` and its kin removed and a three-second git budget,
+and a yes or a no git gave is kept; an answer
+git did not give is a no, and is asked again later. Nothing is seeded over
+anything already at the index path, a placeholder a branch tracks included.
+
+**The worker compacts what it refreshed, because the package never does.**
+Each `update` leaves full-text segments and free pages behind, and with
+`auto_vacuum` off the file only grows. Past half the file in free pages, or
+ten segment rows per chunk, a successful update is followed, under the same
+lock, by FTS `optimize` and `VACUUM`, never in place: the index is read
+through an immutable read-only connection, which takes no lock, reads no log
+and replays no journal, copied into the state directory, compacted there on
+a connection that distrusts the file's schema and has its triggers off, and
+renamed over the index. Only a file whose tables are the package's shape is
+touched. Nothing is done while a `-wal`, `-shm` or `-journal` exists, since a
+log beside a replaced database is replayed into it; that, the file's size and
+modification time are asked again just before the rename, and a statement or
+a copy step past the update's timeout is interrupted. Every failure leaves the
+index as it was. Two residuals stand: the state directory and the index must
+share a volume, or every rename fails; and a connection that opens the index
+between the last look and the rename would have its log replayed into the new
+file.
+
+**`cbx` asks the same judgement before it starts the CLI.** `gate.sh` runs
+`gate-index.py`, which loads this hook and asks `index_openable` of the
+working directory and of the checkout git puts it in; exit 3 is a refusal,
+and no Python 3.12 is exit 4 rather than a pass, since the CLI would open an
+index nobody judged. `cbx.ps1` runs no gate: the skill neither grants nor
+teaches it, so a session reaches it only through a prompt, and the window
+between the gate's look and the CLI's own open is the one every check here
+leaves.
+
+**The approval of `.mcp.json`'s servers belongs to a directory, so the fork
+carries it.** A session started in a worktree reads that worktree's own
+`.claude/settings.local.json`, untracked and so absent, and `claude mcp list`
+there reports `codebase-index` pending approval while every plugin server
+connects; one that enters the worktree mid-session keeps the main checkout's
+approval. The same keys in the tracked `.claude/settings.json` were measured
+to leave the server pending, so of the project's two settings files only the
+local one carries them. `git-worktree-fork.sh` writes the worktree a
+`settings.local.json` holding one key, `enabledMcpjsonServers`, naming the
+servers the main checkout approves and does not disable, with an
+`enableAllProjectMcpServers` expanded to the servers `.mcp.json` defines at
+the fork, and nothing else. The rest of that file is the main checkout's own
+`permissions` rows, and copying it would widen every worktree by them; the
+approve-all itself would approve servers defined after the fork. `.mcp.json`
+is gitignored and not copied: the session finds the main checkout's by
+walking up, because the helper forks only under `.claude/worktrees/` and the
+worktree has none of its own. Two residuals stand. The helper writes a file
+the session's `Edit` is denied, and what it writes is one key read from a
+file the session is denied too, or, under an approve-all, from `.mcp.json`,
+which the session may edit but whose servers the main checkout's approve-all
+already approves. And the approval names servers rather than
+definitions, so a `.mcp.json` that reaches a worktree through git,
+force-added past the ignore, is found before the main checkout's and
+approved under the same name without a prompt. The fork writes nothing at a
+`settings.local.json` the branch already carries, a dangling link included,
+and the locality gate refuses a pull request that leaves an ignored path in
+the tree, so neither file reaches `main`; a branch checked out before its
+pull request is judged still can carry a `.mcp.json`.
+
+**`SessionStart` runs the same script, for the moves no tool call makes.** A
+merge, a switch or a pull made outside the session rewrites the tree with no
+tool event behind it, so a session opening onto one of those reads an index
+describing the tree it replaced. The event names no file, which is what the
+`cwd` fallback above is for, and the spawn is the same detached one, so a
+session start waits for nothing. What is left to a query's stale report is a
+tree that someone other than the agent moves mid-session, and that is the one
+a person is present for.
+
+## Index hint hooks and hook wiring
+
+**`UserPromptSubmit` runs `.claude/hooks/index-query-hint.py`, because keeping
+the index current never got it read.** The skill's `description` says to
+query it, and from the transcripts no session here did after the day the
+skill was tuned. A prompt that reads as a locate, explain, references, impact
+or named-symbol question gets one line of `additionalContext`: the MCP tool
+that asks it, or the skill and the route-table row for that question, and
+the session-tag rule. Every other prompt gets nothing, and so does every
+slash command but `/ship` and `/branch`, whose arguments are read as the task
+they carry. **It names the skill and not only the command** because the
+skill's `allowed-tools` is the only grant for the `cbx` wrapper, and it holds
+only while the skill is loaded; **it names the tool's full name** because
+Claude Code lists an MCP tool by name only, and a session must load it with
+ToolSearch before the first call, while Grep is always loaded. It reads only
+the decoded `prompt` string, never the payload's paths, writes nothing,
+spawns nothing and leaves with 0 whatever happened: exit 2 under this event
+blocks the prompt and erases it, which is also why it is started the way the
+paragraph on hook commands below says. `test_index_query_hint.py` holds
+every command it emits to a row of the route table and a prefix the skill
+approves. **The term in each command is single-quoted**, here, in the skill's
+table and references, and in the search hint's refusal: inside double quotes
+bash still runs a `$(…)`, a backtick or a `$VAR` the term carries, and a term
+copied from a log or a branch's file can carry one. `guard-index-argv.py`
+refuses the first two and not the third, so `cbx refs "$event"` asks about
+nothing and says so to no one. A single quote inside a term is written
+`'\''`, and `test_index_query_hint.py` holds every `cbx` line of the skill's
+markdown free of a double quote.
+
+**`PreToolUse` runs `.claude/hooks/index-search-hint.py` before `Grep` and
+both shell tools, because the prompt is not where the code questions are.**
+A task prompt — `/ship` and an issue — asks none of them; they come up inside
+the turn, where a prompt hook never runs, and from the transcripts not one of
+the sessions here that searched code in the week to 2026-10-06 made a lookup.
+A session's first search of the tree for a named symbol — the Grep tool, or a
+recursive `grep`, an `rg` or a `git grep` whose pattern is an identifier or
+an alternation of them — is refused once, while the session has asked the
+index nothing, and the reason is the lookup that answers it: `find_refs` for
+what uses each name and `find_symbol` for where it is defined. The rerun goes
+through, and so does every later search.
+
+**It asks before the search because a hint after it changed nothing.** The
+first version spoke after the call, on the first search and every fifth, and
+in the first `/ship` session that ran it the agent read both hints and
+grepped on, ending with no lookup (#564): by then the grep had answered, and
+asking the index meant redoing a search that had worked. A refusal is the one
+form the agent cannot read past, so it is spent once, on the search the index
+answers better. A symbol is an identifier that mixes cases or carries an
+underscore and does not end in a lowercase extension; **anything else is
+text and is never refused**: a word in one case, `timeout` or `TODO`, a file
+name with an extension, `CLAUDE.md` or `settings.json`, a message, a regular
+expression or a phrase is a search for every occurrence, which grep lists
+completely and a ranked top three does not, and so is a search confined to
+`docs/` or to Markdown, of one file, or of a pipe.
+
+**Once is a file, and the transcript says the rest.** The refusal is recorded
+by creating a file named after the session under the temporary directory,
+which only one call can create, so a parallel batch is refused once and a
+session whose file cannot be made is never refused, since the rerun would be
+refused too. A lookup made by any route — an MCP tool or the CLI, through
+either shell — lets every search through, and the hook reads that from the
+session's transcript, parsing a call's line only when it names the index
+and a result's only when it answers a lookup, and stopping at the first
+lookup that ran: on a 62 MB transcript the whole read took 0.1 s. A call a
+guard refused, or a tool's error, asked the index nothing and is not a
+lookup; a shell command naming the CLI that exited non-zero counts as one,
+though a chain can fail before the CLI runs. A subagent is never refused:
+its profile may hold neither the MCP tools nor a shell.
+
+**It names one route, the one that answers from this tree.** The MCP server
+starts with `--root .` in the directory the session started in, and
+`EnterWorktree` does not restart it, so after the move its answers describe
+the main checkout's index and not the branch's edits (#563); `cbx`, run from
+the worktree, reads the worktree's own seeded index. So in a `/branch`
+worktree the reason names the skill and the CLI alone, each command alone on
+its line because `guard-index-argv.py` refuses a shared one, and elsewhere
+the MCP tools alone, with the ToolSearch spelling that loads them. A server
+that follows the session is not something `.mcp.json` can say.
+`test_index_search_hint.py` holds the wiring, what is refused and when, and
+the commands it emits to prefixes the skill approves;
+`test_index_query_hint.py` holds the two hooks to one map from question to
+tool.
+
+**`PreToolUse` runs `.claude/hooks/index-mcp-root.py` before every
+`codebase-index` MCP tool, because naming the CLI did not stop the MCP
+call.** The server reads `CBX_ROOT` on every call but sets it once from
+`--root`, and never asks the client for its roots, so no session can move
+it (#563). The hook knows both ends: `CLAUDE_PROJECT_DIR` is the directory
+the session started in, which is the one `--root .` resolved against, and
+the event's `cwd` follows the session into a worktree. When the two lie in
+different checkouts the call is refused, and the reason names the `cbx`
+command to run alone from the session's checkout: the whole line, arguments
+quoted for the shell, where it can carry every argument the call holds, and
+otherwise the subcommand alone, since a line that dropped an option such as
+a depth or a limit would answer another question. `healthcheck` is never
+refused, since its `root` is how a session sees which tree the server reads,
+and a session started in a worktree is let through, since its server reads
+that worktree. `test_index_mcp_root.py` holds the wiring, the map from tool
+to command against `index-query-hint.py`'s and the wrapper's whitelist, and
+every command it emits to `guard-index-argv.py`.
+
+**The two hint hooks run under `.claude/hooks/hint-bound.sh`, because a hook
+the harness kills leaves nothing to say it did not run.** Raising their
+timeout to 15 s narrowed the window a slow `py` launcher start can fall
+into and could not close it: the harness discards the output of a hook it
+times out, so a hint that stalled looked exactly like a hint that did not
+apply. The wrapper runs the hook under `HINT_BOUND_SECONDS`, 10 s and below
+the settings timeout, and on a stall, or any non-zero exit, prints one
+`additionalContext` line naming the hook that did not run. It leaves with 0
+either way, since exit 2 under these events blocks the prompt or the call,
+and it writes the hook's output to a file and not a pipe, so a launcher's
+orphaned child cannot hold it past the bound. **It wraps the two hints and
+no other hook**: the guards fail closed on their own and carry no timeout,
+and `index-mcp-root` and `refresh-index` print nothing a session reads as
+advice. Two residuals are accepted, because neither can be reported from
+inside the hook and neither has been seen: the wrapper's own start, where
+`bash` stalling past the settings timeout is a case no hook can report, and
+a machine without Git Bash, where the paragraph on hook commands needing no
+shell says why the hint is dropped. A fresh `bash -c true` on the owner's
+workstation, read 2026-10-13, took 0.1 s to 3.3 s over six starts, so the
+cold start that stalls a `py` launcher stays far below the settings
+timeout. A `shell` field with an invocation that needs no `bash` would
+close the second, and is not taken: it would run a hint hook the wrapper
+cannot bound.
+`test_hint_bound.py` runs the wrapper against a launcher that never answers,
+one that fails and one that answers, and holds `settings.json` to routing
+both hints through it with a timeout above the bound.
+
+**`MCP_TIMEOUT` is raised in `.claude/settings.json`'s `env`.** The plugin
+servers started through `npx` — `playwright` and `chrome-devtools` — failed
+their first start often enough to drop out of sessions, and Claude Code
+caches such a failure for 15 minutes in the user-level
+`~/.claude/mcp-needs-auth-cache.json`, so every session on the machine then
+started without them. This repository's logs on the owner's workstation, read
+2026-10-05: of the plugin starts under the 30 s default that logged an
+outcome, 104 connected and 28 timed out, and the connected ones reached
+29.7 s with a 95th percentile of 28.3 s and a median of 3.8 s, so the tail
+runs into the limit rather than stopping short of it. Under the raised limit
+none has timed out yet, and three `claude mcp list` runs started at once each
+connected every plugin server within 6 s. It is set high because a long limit
+only delays the report on a server that is truly broken, and the session does
+not wait on it. It covers sessions started here, while the cache is
+user-wide, so the same key in the user's own `settings.json` `env` is what
+closes it everywhere; the owner's already carries it. No failure was a tool
+call, so `MCP_TOOL_TIMEOUT` stays at its default. `.mcp.json`'s
+`codebase-index` is not a plugin, and its failures are never cached.
+
+**A hook command needs no shell, and that is a constraint rather than a
+preference.** An env-var prefix — `VAR=1 cmd` — is POSIX syntax that `cmd`
+and PowerShell do not run, and a bare `bash` is whatever `PATH` resolves
+first, which on Windows may be Git Bash or the WSL launcher: different
+programs, with different filesystems. Either way the failure lands in the
+redirect and reports nothing. So each index hook here is `py -3.12` and
+its arguments, with no env-var prefix and no bare `bash`. **The two hint
+hooks and the guards are the exceptions**, started as
+`bash …/hint-bound.sh` and `sh …/run-guard.sh`: Claude Code passes a hook's
+command to Git Bash on Windows, so the `bash` and `sh` inside it are Git's
+own and never the WSL launcher. A machine without Git Bash falls back to
+PowerShell, where neither wrapper runs: the hint is dropped, as it was before
+the wrapper existed, and the guards' residual is *The guard launcher*'s. The
+index hooks are
+started through `runpy` from `-c` rather than as a file argument, because
+Python exits 2 on a file it cannot open, as when a worktree is emptied under
+a session still running in it: under `UserPromptSubmit` that erases every
+prompt, and under `PostToolUse` it reports an error after every call, where
+through `runpy` the failure exits 1 and only reports. They read
+`CLAUDE_PROJECT_DIR` from the environment rather than having it spliced into
+the program, which a path holding a quote would break. The refresh hook sets
+its own environment — `CBX_NO_SKILL_AUTO_UPDATE=1`, which it owes because it
+calls the CLI rather than the `cbx` wrapper that would have set it.
+
+`examples/hooks/settings.json` carries the same block. It sits under
+`examples/`, which Claude Code does not read, so it documents the wiring
+rather than being it — and a second spelling there would be the copy that
+stops agreeing with the file that runs.
+
+## Settings self-lock and permission root
 
 **`settings.json`'s own entry self-locks, and that is a working constraint, not
 a curiosity.** Once it denies itself, the session cannot edit it again —
@@ -207,183 +640,23 @@ A test pins both halves: every loaded settings file denied, and the
 worktree root never denied.
 
 **Every rule here anchors at the session's permission root, and
-`EnterWorktree` moves it.** Measured in blueprint-backend with nested
-`claude -p` sessions: once a session has entered `.claude/worktrees/<slug>`,
-`Edit(.claude/commands/**)` and `Edit(.claude/hooks/**)` refuse the
-worktree's own `.claude/` and `docs/` stays writable. From the main checkout
-the same paths sit under `.claude/worktrees/<slug>/.claude/`, which no rule
-here names. Two things refuse them there instead. `guard-edit-target.py` finds
-the linked worktree whatever encloses it, and refuses its `.claude/` — and,
-from a session not standing in it, its `package.json`, `.github/` and `.git`.
-Claude Code's own sensitive-file check measured every `.claude/` target inside
-a nested worktree — hooks, scripts, commands, agents, settings — as a refusal
-under `acceptEdits` and a prompt otherwise. **One refusal is wider than it was**:
-`guard-git-argv.py` refuses a redirect, `cp`, `tee` or `mv` target with a
-`.claude` component, and every absolute path into a nested worktree has one,
-so from inside a worktree such a target must be spelled relative. It fails
-closed, and no chain step writes one.
+`EnterWorktree` moves it.** Measured with nested `claude -p` sessions: once a
+session has entered `.claude/worktrees/<slug>`, `Edit(.claude/commands/**)`
+and `Edit(.claude/hooks/**)` refuse the worktree's own `.claude/` and `docs/`
+stays writable. From the main checkout the same paths sit under
+`.claude/worktrees/<slug>/.claude/`, which no rule here names; what refuses
+them there is the edit guard, which judges a worktree the session has not
+entered by this target's own denies (*The edit-target guard*), and behind it
+Claude Code's own sensitive-file check, which measured every `.claude/`
+target inside a nested worktree — hooks, scripts, commands, agents, settings
+— as a refusal under `acceptEdits` and a prompt otherwise. The residual is a
+path there that no deny names, which that check alone prompts for, as it
+does for a path outside the project.
 
 Changing any of them is a human's edit, made with the deny lifted. Like the
-push denies it is defence in depth — `Bash` redirection can still write a file
-— but it removes the quiet path.
-
-## What a command can write past the `Edit` denies
-
-**The `Edit` denies do not bound what a command can WRITE, and this paragraph
-is here because four commands read as though they did.** A redirection on any
-granted `Bash` command writes what `Edit(...)` refuses. Measured on this
-repository's own hook rather than reasoned about: `ls > .claude/settings.json`,
-`wc -l README.md > package.json` and even `git log --oneline > package.json` are
-all admitted, and the file is overwritten. `guard-git-argv.py` strips
-redirections in order to judge the argv and never refuses the write one
-performs; `guard-edit-target.py` is registered on
-`Edit|Write|NotebookEdit|MultiEdit` and never sees a `Bash` call.
-
-**This was known for one command and never generalised**, which is this
-repository's most-repeated failure wearing its usual clothes.
-`.claude/commands/review-grok.md`, now archived, argued the case in full — "a
-redirection on any granted `Bash` command writes what `Edit(...)` refuses, so
-`ls … > .claude/…` was a path into the machinery a record could steer" — and
-answered it by denying `Bash` whole, which is why that command was immune and
-why its own tree denies were called defence in depth there. `/pr`, `/ship`,
-`/review-copilot` and `/style-pass` inherited neither half until Copilot
-raised it against PR #13. The survivors carry the path denies; none of them
-can deny `Bash`, because fixed helpers are their API.
-
-**So the honest statement of the boundary was narrower than the deny list
-looked**, and the paragraphs above are kept in the past tense they were written
-in rather than rewritten, because a residual's history is how the next reader
-knows what the fix was for. What held was that every granted `Bash` entry names
-a fixed helper or a read-only git verb, so a redirect had to be appended by the
-model rather than supplied by anything it read; and that the editing tools
-themselves are path-scoped and target-resolved. What did not hold was "this
-command cannot write there".
-
-**It is closed now, in the place the paragraph above named (#20).**
-`guard-git-argv.py` already parsed redirections in order to strip them — #183's
-work — so the targets were in hand and what was missing was a rule about them.
-It has one: `redirection_spans` carries the operator and the target word with
-each span, and a redirection that OPENS its target refuses a path naming the
-machinery trees or a toolchain root file. Read redirections are untouched,
-since reading the machinery is what half these commands are for. **The
-application trees any command denies — `src`, `docs`, `e2e`, `public`,
-`tools`, which `/review-branch` refuses its editing tools — are refused too**,
-matched only as
-the first folder under the checkout the target lands in, so a `docs` directory
-in scratch stays writable. A hook cannot see which command is running, so it
-protects the union, and the suite reads every command's frontmatter to keep
-that union complete. A relative target is placed against the event's `cwd`,
-so **a relative write target in a command that can change directory — `cd`,
-`pushd`, `popd`, anywhere in it — is refused** rather than modelled; name the
-path absolutely or run the `cd` on its own. An unquoted leading `~` or `~+`
-is expanded from the home and working directories the hook shares with the
-session and judged as that path; `~-` and `~user` are refused. The names
-are compared case-folded, and a target inside a checkout is judged again where
-it resolves, from the hook event's `cwd`, so a branch's `docs/out ->
-../.claude/settings.json` link does not make the write an unprotected one.
-
-**`grok-review.sh` was refused in the same hook, and `grok-ledger.sh` admitted
-only as `<pr> count` or `<pr> status`, spelled literally, until both were
-archived with the external reviewers.** The lesson outlived them: the
-`settings.json` denies are substrings of the typed command, so a verb split by
-empty quotes spells nothing they match, and a list of write verbs judged after
-quote removal still missed one built by a substitution, which bash hands the
-helper while the token holds no verb at all. An allow-list of the reads was
-what that left, and a helper handed to a shell on stdin was refused beside it,
-since the shell then runs it past the allow-list.
-
-**`gh` inside a command, backtick or process substitution is refused
-wherever it stands.** A substitution runs while bash is still building the
-argv of the command that holds it, so `bash gh-pr-merge.sh 1 $(gh pr merge
-42 --admin)` merges under the helper's prefix grant before the helper checks
-a single argument — and the same holds on a globally approved `ls`. No
-command here runs `gh` inside one. **And a substitution may run only an
-allow-list** — `SUBSTITUTION_PROGRAMS`: `git`, `echo`, `printf`, `cat`, `jq`,
-`date` and a few more, each by bare name — because a deny-list of interpreters
-was walked around by a branch-controlled `ls "$(./tools/run)"`, which names
-nothing on any list. A word with a `/` is refused whatever its basename, and
-before it is compared with a wrapper's name, so `./tools/env` is not taken
-for `env`; a wrapper there may carry no option, and nothing may be assigned
-in front of the program (blueprint-frontend#125, #130).
-**A name on that list is judged by its name alone, so it holds only programs
-with no option that executes, or writes as an unprivileged user** — `date -s`
-and `hostname <name>` stay, since both need a privilege the session does not
-hold (blueprint-frontend#130) — and `rg`, `sort` and `uniq` are not on
-it, for `--pre`, `-o` and `--compress-program`, and an output operand, and `git`
-stays on it held to the reading subcommands in `SUBSTITUTION_GIT_SUBCOMMANDS`,
-since the hook judges a `git` word for `push` and a handful of flags, not for
-writing (blueprint-frontend#122). **That hold is narrower than it reads**,
-and the routes past it are listed once, in the paragraph on what runs before
-a helper checks anything, below. `awk`
-and `sed` no longer count as reading commands either, since `system()` and
-`e` run a shell. A relative write after `source`, `.` or `eval`
-is refused like one after `cd`. The one helper that takes no argument,
-`gh-pr-create.sh`, is also granted exactly rather than by prefix. A run led by
-a reader — `grep`, `git`, `cat` and the rest of `READING_COMMANDS` — is
-inspecting those files rather than running them, and is admitted.
-
-Three things about that rule are worth stating here rather than only in the
-hook. **A hook is handed a command and never the frontmatter that granted it**,
-so the protected set cannot be derived at run time the way
-`test_harness_helpers.py` derives the frontmatter denies from the frontmatter;
-what stands instead is a case whose subject is the list, asserting it covers
-`MACHINERY_TREES` and every tracked root file. **A target built by a command
-substitution is refused rather than guessed at**, and **a parameter expansion
-is expanded or refused**: `CLAUDE_PROJECT_DIR`, `HOME`, `TEMP`, `TMP` and
-`TMPDIR` are read from the hook's own environment, which the session shares,
-and judged as the path they produce, unless the same command assigns or reads
-into that name; any other expansion is refused. It had been admitted as a
-residual, and `F=.claude/settings.json; ls > $F` on a globally approved `ls`
-wrote the settings file. And **a redirection
-is not the only way a command writes**: `tee`, `cp`, `sed -i` and an
-interpreter all do, and none is judged. What made the redirection the case
-worth closing is that it rides on a command that is already approved and needs
-no grant of its own; everything else in that list has to be granted first, and
-none of it is.
-
-**That last sentence was false, and it was false outside this repository
-(#26).** It assumed a permission mode in which an un-granted `Bash` command
-prompts, and nothing here sets one: a user-level `"defaultMode": "auto"`
-approves a `cp` with no rule at all. So a redirection onto `src/…` was refused
-and `cp <scratch>/new.ts src/…` — the same bytes onto the same path — was
-admitted and landed. It is the shape the `.claude/hooks/**` lesson below
-records: a condition that stopped being true where nobody re-reads it, and
-this time in a file the repository cannot read.
-
-**The writing verbs are judged now, by the same rules as a redirection's
-target.** `WRITING_VERBS` in `guard-git-argv.py` gives each verb an operand
-model — the destination of `cp`, `install` and `ln`, including a `-t` or
-`--target-directory`; every operand of `mv`, `tee`, `rm`, `rmdir`, `unlink`,
-`shred`, `truncate` and `touch`; the files of `sed -i` and `perl -i`; the
-`of=` of `dd` — and `destination_offence`, lifted out of the redirection
-check, judges each destination: protected trees and root files, application
-trees, links, globs, `~`, expansions and a relative path after `cd`. The verb
-is found anywhere in its run, behind `sudo`, `env` or `find -exec`, unless a
-reader or a printer leads the run. **`xargs` in front of a verb is refused**,
-because its names arrive on stdin, and so is an operand the guard cannot read
-where it could be an option moving the destination. The suite drives every
-name on the list through its model, so a verb added without one fails.
-
-**Three shapes the first model missed, raised by Copilot on PR #30.** A hard
-link — `ln` without `-s`, and `cp -l` — makes a protected source writable
-under an admitted name, so its sources are judged too; a symbolic link needs
-nothing extra, because a write through it is judged where it resolves. The
-`-i` of `sed` and `perl` writes a backup named by its suffix, so each file is
-judged again with the suffix appended, and a suffix carrying `*` or a path
-separator is refused. And `env -S` runs a command line held in a single word,
-so that string is judged as a command in its own right, the way a `bash -c`
-script is. It had been hiding a `git push` from the push grammar as well.
-
-**What stands is the rest of the programs that write, and it is not
-closed.** An interpreter — `python -c`, `node -e`, `python <script>`, an `awk`
-or `sed` script using its own `w` — writes wherever its code says, and the code
-is data this hook does not model. So does every writer not on the list: `curl
--o`, `rsync`, `tar -x`, `unzip`, `patch`, `find -delete`, and whatever a
-branch-controlled executable does. **Under `auto` mode none of them needs a
-grant**, so the boundary against them is the classifier and the review of what
-the model chose to run, not this hook; a startup warning about the mode was
-considered and not built, because it would need a `settings.json` hook entry
-and would warn rather than refuse.
+push denies it is defence in depth — a redirection or a writing verb is judged
+by the git guard (*Git argv guard hook*), and any other program can still
+write a file — but it removes the quiet path.
 
 **`.claude/hooks/**` joined the list when the first hook landed, and the way it
 joined is the lesson.** It had been excluded on a stated condition — "no hook is
@@ -392,28 +665,19 @@ expires without anyone noticing, because nothing re-reads the condition when
 the fact changes. #30's argv guard made it false. A hook is the sharpest case
 on the list: it grants nothing, but it **runs on every Bash call**, so a session
 able to rewrite one could delete its own guard and then act. `settings.json`
-denies it, and a case in `test_harness_helpers.py` asserts the deny, so the next
+denies it, and a case in `test_harness_denies.py` asserts the deny, so the next
 hook arrives behind a control rather than behind a sentence that used to be
 true.
 
-## The external reviewers, archived
+## Grant semantics
 
-**The external reviewers are archived, not deleted.** Grok's container review
-and Copilot's loop — their commands, the triager and adjudicator profiles and
-their hooks, the helpers, their suites and the sandbox image with its egress
-proxy — left the tree when the owner decided blueprint-frontend#117 on
-2026-10-15, porting blueprint-backend#596. The tag
-`archive/external-reviewers` holds them, and
+**The external reviewers are archived, not deleted.** Grok's container
+review and Copilot's loop, their commands, agents, helpers, hooks and
+suites, and the sandbox image left backend's tree with its token plan's
+step 4; the tag `archive/external-reviewers` holds them, and
 `git checkout archive/external-reviewers -- <paths>` restores them. The
-sandbox's residuals left with it — the x.ai credential that crossed into the
-container, and the image built from the branch it was about to review — since
-nothing here runs a container any more. The paragraphs below keep the
-residuals those tools raised where the grant or the guard they shaped still
-stands, in the past tense where the tool is gone. What the decision costs —
-no reader outside the model family that wrote the branch — is the twelfth
-entry's, below, and accepted there.
-
-## A grant is not a whitelist: allows, denies and helpers
+sections below keep the residuals those tools raised where the grant or the
+guard they shaped still stands.
 
 **A grant is not a whitelist, and this is the trap under every row below.**
 `allowed-tools` is an **auto-approval list**: the harness documents that it
@@ -431,6 +695,8 @@ Measured, not read: a `general-purpose` subagent spawned fine under
 `--disallowedTools "Agent(general-purpose)"` with `Agent type 'general-purpose'
 has been denied by permission rule 'Agent(general-purpose)' from cliArg` — and
 again, from a command's own frontmatter, `from command`.
+
+## Prefix grants and wildcard denies
 
 **A helper is the answer whenever a git grant is wider than the operation it
 buys**, because **an allow rule is a prefix and cannot exclude a flag**. Each
@@ -493,17 +759,263 @@ the earlier probe was refused by the classifier layer — a second net worth
 noting and not evidence. It is evidence now, and it says the deny was genuinely
 defeatable rather than theoretically so.
 
+**The helper grants have the index grants' gap, and a guard of their own.**
+`Bash(py -3.12 .claude/scripts/dispatch_board.py:*)` matches the typed string
+too, and takes text a model composes from issue titles, where a backticked
+name is the house style; a pull request's title is the same text. So the text
+stays off the command line, in the files `/dispatch` *Issue text stays off the
+command line* names, and in the title file `gh-pr-create.sh` reads, which
+withdrew the raw `gh pr create` grant (*Grant inventory and push helpers*).
+`.claude/hooks/guard-helper-argv.py` is what holds when a session spells it
+otherwise: it refuses a command substitution anywhere in a command that runs a
+`.py` under `.claude/scripts/` or `gh pr create`, as `guard-index-argv.py` does
+for its own. So `oid=$(git rev-parse HEAD)` and a helper line beneath it are
+refused though that line is clean: a heredoc's substitution runs for the
+helper's stdin on no helper line, so the whole command is what is judged, and
+such a value is read in a call of its own. It leaves the `.sh` helpers, whose
+arguments are numbers and names, and it judges substitutions alone: a second
+command is the grant's own matching.
+
 ## The guards' threat model
 
-**The guards catch honest mistakes, not a session that sets out to defeat
-them.** Which guard findings are filed is
-`alexander-shamray/blueprint-backend`'s `docs/harness-boundaries.md`,
-*The guards' threat model*, and it holds here unchanged: a spelling an agent
-types in ordinary work, a guard failing open on good-faith input, or a false
-refusal is a finding; a spelling built only to hide a command from the hook is recorded
-as out of scope, never filed.
+**The guard hooks catch an agent's honest mistakes; they are not a sandbox
+against a session that sets out to defeat them.** `guard-git-argv.py`,
+`guard-edit-target.py`, `guard-index-argv.py`, `guard-helper-argv.py` and
+`guard-sed-crlf.py` are written against a session that types a dangerous
+command by accident or by a plausible shortcut — a forced push, a write
+into a denied tree, a removal of a parent of the checkout, a `sed -i` over
+a CRLF file — in any spelling
+a shell user writes in ordinary work: quoting, `-C` and `--work-tree`,
+environment prefixes, `cd` chains, the launchers and wrappers, heredocs,
+pipes into a shell. A guard that judges a file the command names, as
+`guard-sed-crlf.py` does, is held to that list where the command's text
+holds the name; a file list another program computes is its stated
+residual (*The sed line-ending guard*).
 
-## The git argv guard and its launcher
+They are not written against a session that builds a command so the hook
+cannot read it. A reader that runs before expansion can always be
+out-spelled: prompt and indirect expansion (`${x@P}`, `${!x}`), an escape
+placed to split a token or hide a pipe, text assembled and then evaluated,
+another interpreter's string arithmetic, a file redirection into a group
+that launches a second shell, input sized to outrun the hook's timeout. Each
+such spelling found and closed exposed another — the run in blueprint-admin
+from #297 to #461 is the record — and none of them is how an agent doing
+ordinary work goes wrong. What bounds a session that sets out to do harm is
+elsewhere: the permission deny list, auto mode's classifier, `main`'s branch
+protection (no direct push, no force push, required checks), and the owner's
+review of every merged pull request.
+
+**A finding against a guard is in scope, and filed, when one of these
+holds:**
+
+1. the spelling is one an agent types while doing ordinary work: it appears
+   in a transcript, a runbook or a helper, or it is a routine shell idiom;
+2. the guard fails open on input given in good faith, by a crash, a decode
+   error or a timeout on ordinary input, because then it admits the honest
+   mistake it exists to stop;
+3. the guard refuses a command it should allow, because a false refusal
+   blocks work and teaches sessions to route around the hook.
+
+**Out of scope, and not filed:** a spelling whose only purpose is to hide a
+command from the hook. A review or a sweep that finds one records it in its
+summary as outside the guards' threat model and moves on; an issue already
+open for one is closed as not planned, with a link to this section. This
+section is the owner for all three repositories; blueprint-admin and
+blueprint-frontend cite it rather than restate it.
+
+## The guard launcher
+
+**Each guard's hook command is
+`sh "${CLAUDE_PROJECT_DIR}/.claude/hooks/run-guard.sh" <guard>.py`, and the
+launcher leaves with 2 on every way it can fail.** A `PreToolUse` hook blocks
+on exit 2 alone; any other status is a non-blocking error, and the tool runs
+unguarded. A raw `py -3.12 <guard>` that cannot start exits 127, and `py` is
+the Windows launcher, absent from a standard macOS or Linux Python, so there
+every call ran with no guard at all. The launcher came from
+blueprint-frontend, where that happened, and is in the payload because
+`render_settings` only adds hooks: a target cannot replace a base hook
+command through its config. It runs the five guards and nothing else.
+
+- **A closed set**, as every helper's: `guard-git-argv.py`,
+  `guard-index-argv.py`, `guard-helper-argv.py`, `guard-sed-crlf.py` and
+  `guard-edit-target.py`. Any other argument, a path included, exits 2, so
+  the hook wiring cannot run an arbitrary script, and a guard name missing
+  from the set refuses every call rather than passing it unguarded.
+- **Each candidate is run before it is chosen**, `py -3.12`, `py -3`,
+  `python3` and `python` in that order, with a probe that exits non-zero
+  below 3.12: a name on PATH is not a working interpreter, and on Windows
+  `python3` is the Store alias, which is why `py` comes first. One `exec`
+  then runs the guard. A `||` chain would run it twice whenever the first
+  refused, judging the event a second time. No candidate passing exits 2.
+- **The probe is paid once per checkout.** The first call that finds the
+  first candidate working leaves an empty directory,
+  `.claude/cache/run-guard.<candidate>`, beside the launcher of the checkout
+  `CLAUDE_PROJECT_DIR` names, and a later call that finds it skips the probe;
+  a session started in a new worktree pays its own first probe. The mark is
+  never opened: a session can make one, so it holds nothing that could name
+  a program, and a forged one buys a skipped probe of
+  the program the probe would have run. Only the candidate probed first is
+  remembered, so a host whose first candidate fails pays the probe every call.
+- **A remembered candidate runs `run-guard.py`, as a child, and is believed
+  on three statuses only.** An `exec` cannot notice an interpreter
+  uninstalled or repointed below the floor since the mark was made; it exits
+  49, 103 or 127 and the tool runs. `run-guard.py` checks the floor in the
+  interpreter about to judge, runs the guard as `__main__` from its source,
+  and answers 91, 92 or 93 for the guard's 0, 2 and anything else, which the
+  launcher turns back into 0, 2 and 1. Every other status, 0 included, is the
+  call refused and the mark removed, so the next call probes again. A mark
+  something was put inside cannot be removed, and refuses every call until
+  somebody removes it, saying so.
+
+The hints keep `hint-bound.sh`, which bounds them and leaves with 0, and the
+index hooks keep `runpy`, which leaves with 1 on a file it cannot open
+(*Index hint hooks and hook wiring*): neither guards anything, and the
+launcher's exit 2 would erase a prompt or block every call.
+
+**Residuals.** A machine without Git Bash runs a hook command under
+PowerShell, which has no `sh`: the command fails with a status that is not
+2, and the guards do not run. Claude Code wants Git Bash on Windows and the
+owner's machines have it, so this is accepted rather than closed. A host
+changing under a mark costs one refused call. A signal sent to the launcher
+from outside ends it as it would end the guard. `test_run_guard.py` holds
+the launcher, its mark and its proof; each guard's suite holds its wiring to
+the launcher, and the launcher and `run-guard.py` to the 3.12 floor.
+
+## Destructive classes
+
+**One table of what the harness refuses, the layer that refuses it, and a
+test that holds the table to both.** Every class of operation here is
+destructive on the repositories or on the machine, and each is stopped by
+a layer that can be named: a permission deny in `.harness/settings.base.json`,
+`guard-git-argv.py`, `guard-edit-target.py` or `guard-sed-crlf.py`, the `main`
+ruleset on the server, or a granted helper's own refusal of `main`. A reader
+asking whether `git push origin +HEAD:main` is stopped, and by what, finds the
+row; a base deny added without one is a failing test, not a paragraph that
+went stale.
+`.claude/scripts/test_destructive_classes.py` reads the table and checks it
+five ways: every `permissions.deny` entry of the rendered root's
+`settings.base.json` is matched by some `deny` row's example, every row's
+example is refused by the layer it names, every non-`ruleset` row's *Test*
+names a suite file that exists, the push, trailer and drop helpers each have a
+`helper` row, and the table parses to at least fifteen rows, so a renamed
+heading cannot leave the other four vacuous. Its root is the directory two
+above it: the rendered root in a target, `payload/` in the harness repository,
+which has the same layout.
+
+**The columns.** *Class* is the operation, *Example* one spelling of it,
+*Refused by* the layer the example exercises, and *Test* the suite file that
+holds the row, which the suite checks exists (a `ruleset` row names
+`ruleset-check`, and a `helper` row a suite and a test, as below).
+*Refused by* takes six values, and the test accepts no other:
+
+- `deny` — the example matches an entry of the base deny list. A `Bash`
+  entry follows Claude Code's prefix reading: `Bash(x:*)` matches `x` and
+  `x …`, and a `*` inside a rule matches any run. An `Edit` entry is
+  matched by an example spelled `Edit(<path>)`, with the `./` stripped from
+  both sides, so one row holds a rule and its `./`-prefixed twin.
+- `guard-git-argv` — the example is a command, fed to
+  `.claude/hooks/guard-git-argv.py` as the JSON a PreToolUse call carries.
+  The hook exits 0 and its stdout holds `permissionDecision` `deny`.
+- `guard-edit-target` — the example is spelled `Edit(<path>)`, and the test
+  feeds the hook an `Edit` of that path in a scratch checkout in which
+  `linked/<name>` is a link to each denied tree (`scripts`, `commands`,
+  `agents`, `hooks`, `skills`, `remember`, and `claude` for the
+  directory holding `settings.json`). The hook refuses a path whose spelling
+  is inside an allowed tree and whose resolution is not, so the example
+  spells its way in through a link.
+- `guard-sed-crlf` — the example is a command, read by
+  `.claude/hooks/guard-sed-crlf.py` from a scratch git checkout tracking
+  `crlf.txt`, which holds CRLF endings. The test calls the hook's `offence`
+  with `strips_cr=True` rather than running it, since the hook judges on
+  Windows alone (*The sed line-ending guard*) and CI runs this suite on
+  Linux.
+- `ruleset` — the server-side backstop on `main`, and its test is
+  `ruleset-check`, which the table names and the suite does not run. It is
+  blueprint-harness's `py -3.12 -m harness_sync ruleset-check`, which asks
+  GitHub and is run by that repository's `rulesets` workflow against every
+  target's `main` ruleset, so it is not in the target this file renders into.
+- `helper` — a granted helper's refusal of `main`, which is what bounds the
+  force push or the branch deletion it relaxes (*Grant inventory and push
+  helpers*). The example invokes the helper, `bash .claude/scripts/<helper>.sh
+  …`, and the *Test* is that helper's suite and test, spelled
+  `test_<helper>.py::test_main_is_refused_however_it_is_spelled` with the
+  helper's hyphens as underscores. The suite does not run it: it checks that
+  the helper and its suite exist and that the suite defines the test, which
+  is run where every other payload suite is.
+
+Where a class is refused by more than one layer, the row names the layer its
+example exercises, and the server-side backstop has rows of its own. A guard
+row is therefore a spelling the deny list does not match.
+
+| Class | Example | Refused by | Test |
+|---|---|---|---|
+| Push to `main`, bare | `git push origin main` | `deny` | `test_destructive_classes.py` |
+| Push to `main` with upstream | `git push -u origin main` | `deny` | `test_destructive_classes.py` |
+| Push to `main`, `HEAD` refspec | `git push origin HEAD:main` | `deny` | `test_destructive_classes.py` |
+| Push to `main`, `HEAD` refspec with upstream | `git push -u origin HEAD:main` | `deny` | `test_destructive_classes.py` |
+| Push to `main`, full ref name | `git push origin HEAD:refs/heads/main` | `guard-git-argv` | `test_destructive_classes.py` |
+| Push to `main`, from another branch | `git push origin feature:main` | `guard-git-argv` | `test_destructive_classes.py` |
+| Push to `main`, long upstream option | `git push --set-upstream origin HEAD:main` | `guard-git-argv` | `test_destructive_classes.py` |
+| Push to `main`, forced refspec | `git push origin +HEAD:main` | `guard-git-argv` | `test_destructive_classes.py` |
+| Force push, long option | `git push --force origin feature` | `deny` | `test_destructive_classes.py` |
+| Force push, lease | `git push --force-with-lease origin feature` | `deny` | `test_destructive_classes.py` |
+| Force push, short option | `git push -f origin feature` | `deny` | `test_destructive_classes.py` |
+| Force push, combined short options | `git push -fu origin feature` | `guard-git-argv` | `test_destructive_classes.py` |
+| Force push, lease with a value | `git push --force-with-lease=feature origin feature` | `guard-git-argv` | `test_destructive_classes.py` |
+| Force push, `+` refspec | `git push origin +feature` | `guard-git-argv` | `test_destructive_classes.py` |
+| Remote branch deletion, option first | `git push --delete origin feature` | `deny` | `test_destructive_classes.py` |
+| Remote branch deletion, option last | `git push origin --delete feature` | `guard-git-argv` | `test_destructive_classes.py` |
+| Remote branch deletion, `:branch` refspec | `git push origin :feature` | `guard-git-argv` | `test_destructive_classes.py` |
+| Soft reset to a remote-tracking ref | `git reset --soft origin/main` | `guard-git-argv` | `test_destructive_classes.py` |
+| Direct push to `main` | `git push origin HEAD:refs/heads/main` | `ruleset` | `ruleset-check` |
+| Direct commit to `main`, landing through a push | `git push origin main` | `ruleset` | `ruleset-check` |
+| Force push to `main` | `git push --force origin main` | `ruleset` | `ruleset-check` |
+| Deletion of `main` | `git push origin :main` | `ruleset` | `ruleset-check` |
+| Merge commit onto `main` | `git push origin HEAD:main` | `ruleset` | `ruleset-check` |
+| Rebase and force-push `main` through the rebase helper | `bash .claude/scripts/git-rebase-onto-main.sh main start` | `helper` | `test_git_rebase_onto_main.py::test_main_is_refused_however_it_is_spelled` |
+| Force-push `main` through the push helper, `main` checked out | `bash .claude/scripts/git-push-force.sh` | `helper` | `test_git_push_force.py::test_main_is_refused_however_it_is_spelled` |
+| Rewrite and force-push `main` through the trailer helper, `main` checked out | `bash .claude/scripts/git-trailer-pr.sh 7` | `helper` | `test_git_trailer_pr.py::test_main_is_refused_however_it_is_spelled` |
+| Delete local `main` through the drop helper | `bash .claude/scripts/git-branch-drop.sh main` | `helper` | `test_git_branch_drop.py::test_main_is_refused_however_it_is_spelled` |
+| Discard the working tree and index | `git reset --hard origin/main` | `deny` | `test_destructive_classes.py` |
+| Delete untracked files | `git clean -fdx` | `deny` | `test_destructive_classes.py` |
+| Delete a branch | `git branch -d feature` | `deny` | `test_destructive_classes.py` |
+| Delete a branch, forced | `git branch -D feature` | `deny` | `test_destructive_classes.py` |
+| Delete a branch, long option | `git branch --delete feature` | `deny` | `test_destructive_classes.py` |
+| Rename a branch | `git branch -m feature other` | `deny` | `test_destructive_classes.py` |
+| Rename a branch, forced | `git branch -M feature other` | `deny` | `test_destructive_classes.py` |
+| Rename a branch, long option | `git branch --move feature other` | `deny` | `test_destructive_classes.py` |
+| Move a branch over another | `git branch --force feature HEAD~1` | `deny` | `test_destructive_classes.py` |
+| Remove a worktree, discarding its work | `git worktree remove -f .claude/worktrees/x` | `deny` | `test_destructive_classes.py` |
+| Merge a pull request past its checks | `gh pr merge 7 --rebase --admin` | `deny` | `test_destructive_classes.py` |
+| Write a file through a read-only command | `git log --output=out.txt` | `deny` | `test_destructive_classes.py` |
+| Run a program through `--upload-pack` | `git fetch --upload-pack=prog origin` | `deny` | `test_destructive_classes.py` |
+| Run a program through `--receive-pack` | `git push --receive-pack=prog origin feature` | `deny` | `test_destructive_classes.py` |
+| Run a program through `--exec` | `git fetch --exec=prog origin` | `deny` | `test_destructive_classes.py` |
+| Edit the agent notes | `Edit(.remember/notes.md)` | `deny` | `test_destructive_classes.py` |
+| Edit the helper scripts | `Edit(.claude/scripts/helper.sh)` | `deny` | `test_destructive_classes.py` |
+| Edit the commands | `Edit(.claude/commands/ship.md)` | `deny` | `test_destructive_classes.py` |
+| Edit the subagent profiles | `Edit(.claude/agents/branch-reviewer.md)` | `deny` | `test_destructive_classes.py` |
+| Edit the hooks | `Edit(.claude/hooks/guard-git-argv.py)` | `deny` | `test_destructive_classes.py` |
+| Edit the skills | `Edit(.claude/skills/codebase-index/SKILL.md)` | `deny` | `test_destructive_classes.py` |
+| Edit the settings | `Edit(.claude/settings.json)` | `deny` | `test_destructive_classes.py` |
+| Edit the local settings | `Edit(.claude/settings.local.json)` | `deny` | `test_destructive_classes.py` |
+| Edit inside the git directory | `Edit(.git/config)` | `deny` | `test_destructive_classes.py` |
+| Edit the git directory itself | `Edit(.git)` | `deny` | `test_destructive_classes.py` |
+| Edit the MCP server definitions | `Edit(.mcp.json)` | `deny` | `test_destructive_classes.py` |
+| Edit the index's ignore list | `Edit(.codeindexignore)` | `deny` | `test_destructive_classes.py` |
+| Edit a hook through a link | `Edit(linked/hooks/guard-git-argv.py)` | `guard-edit-target` | `test_destructive_classes.py` |
+| Edit the settings through a link | `Edit(linked/claude/settings.json)` | `guard-edit-target` | `test_destructive_classes.py` |
+| Edit the agent notes through a link | `Edit(linked/remember/notes.md)` | `guard-edit-target` | `test_destructive_classes.py` |
+| Rewrite a tracked CRLF file with LF endings | `sed -i s/one/uno/ crlf.txt` | `guard-sed-crlf` | `test_destructive_classes.py` |
+
+**Adding a row.** A deny entry added to `settings.base.json` needs a `deny`
+row in the same pull request, or the suite names it. A new *Refused by* value
+is one more entry in the suite's `REFUSERS` table and one more bullet above.
+A row whose example the layer admits fails the suite, which is the point: a
+refusal that quietly stopped covering its class is the harness's most
+repeated failure.
+
+## Git argv guard hook
 
 **What closed it is the second of the two things named here as owed: a rule
 over the executed argv rather than the typed string.**
@@ -518,87 +1030,10 @@ the harness waves through as promptless built-ins, where no allow or deny rule
 is consulted at all. Measured, not read — the docs do not say so, and a
 `git log --out''put=` probe was refused by the hook with no file written.
 
-**Both hooks were invoked as `py -3.12`, and that wiring was Windows-only.**
-`py` is the Windows Python launcher. A standard 3.12 on macOS or Linux
-provides `python3` and no `py` at all, so on those hosts **every**
-`PreToolUse` call failed before the guard ran — `Bash`, `Edit` and `Write`
-alike. **Both now go through `.claude/hooks/run-guard.sh`**, which probes
-`py -3.12`, then `py -3`, then `python3`, then `python`, and `exec`s the
-first that actually runs 3.12 or newer, exactly once — each candidate is tried
-with a `-c` version check first, because a name on `PATH` can be a `py` with no
-3.12 registered or the Store alias. `py` goes first because on Windows `python3` is
-the Store alias, present on `PATH` and not Python; `python` goes last because
-`docs/testing.md` lets a host expose 3.12 under either name. The floor is
-pinned only where the launcher can pin it: `python3` and `python` are whatever
-the host provides.
-
-**It hands the interpreter a Windows path where there is one
-(alexander-shamray/blueprint-frontend#143).** Under Git for Windows `pwd`
-prints `/c/dev/...`, and MSYS converts that for a native program only when the
-argument holds no apostrophe. In a checkout under `O'Brien` Python received the
-unconverted path, read it as `C:\c\dev\O'Brien\...` and could not open it, so
-every guard exited 2 and refused every `Bash`, `Edit` and `Write` call: loud,
-and fail-closed, but total. The launcher asks `pwd -W`, which prints
-`C:/dev/...` and needs no conversion; `dash` and the bash of a POSIX host
-reject the option and `pwd` answers there. `test_harness_helpers.py` runs a
-hook from a path holding an apostrophe under `sh` and `bash`, on every platform
-of the matrix.
-
-**It runs each candidate before choosing one, and remembers only that the
-first of them passed (blueprint-admin#44, ported for blueprint-frontend#62).**
-The probe was a second interpreter start on every `Bash`, `Edit` and `Write`
-call for an answer that is a property of the host. The mark is an empty
-directory under `.claude/cache/`, named for that candidate, and the launcher
-never opens it: it holds nothing to choose a program with, nothing to write
-through, and nothing to block on — a file there could be a FIFO, or a
-newline-free file for `read` to sit in, and a hook that hangs is timed out,
-which does not block the tool. No `Edit(...)` deny covers the directory and
-none has to: the most a session can leave there is a skipped probe of the
-program the probe would have run, or a mark it cannot remove, which refuses
-every call until somebody does. **A remembered interpreter is never
-`exec`ed**, because an `exec` that fails exits non-zero and not 2, and the
-tool then runs unguarded. It runs `.claude/hooks/run-guard.py` as a child
-instead, which checks the floor in the interpreter that is about to judge and
-answers with a status nothing else is known to produce; on any other status
-the call is refused, the mark is removed and the next call probes. **The
-residual is that one refused call**, where the probe used to move on to the
-next candidate unnoticed, and a host whose first candidate is not its working
-one is never remembered at all. `TheLauncherProvesWhatItRemembers` and
-`ARememberedGuardAnswersAsAProbedOne` in `test_harness_helpers.py` hold the
-launcher to each of those.
-
-**Two things differ from blueprint-admin, where the design was built.** The
-index refresh goes through this launcher here, so the remembered path runs it
-too, and a refused call there is a refresh skipped rather than a tool held.
-And `.gitignore` ignores only `.claude/cache/codebase-index/`, not the whole
-of `.claude/cache/`. An empty mark is invisible to git all the same. A mark
-something was put inside is the state that refuses every call, and git need
-not show it: an empty directory inside it, a name another rule ignores such
-as `__pycache__/`, or a file a branch committed there all leave `git status`
-clean. What does find it is the refusal, which names the mark's path.
-
-**The failure mode is loud and total, which is the good kind** — a host with
-none of the three gets `exit 2` and a message, and exit 2 is the only code a
-`PreToolUse` hook blocks with: any other non-zero exit is reported and the
-tool runs unguarded, which is what an unprobed last `exec` failing with 127
-would have done. #23 stays open for the part no
-suite here can show: the launcher running as the harness's hook on a
-non-Windows host.
-
-**CI does not cover it, and the shape of the gap is worth naming.**
-`ci.yml`'s `harness` job runs the suite across Ubuntu, Windows and macOS
-with `setup-python` 3.12 — so the hooks' *modules* are exercised on three
-platforms, and their *wiring through `settings.json`* is exercised on
-none. A green matrix says the guards are correct, not that they run. That
-distinction is the same one this file makes about every other gate, and it
-took a review round to notice it applied here too.
-
 The deny stays beside it as defence in depth. **A substring deny over a shell
 command string can never be more than a speed bump**, which is still the
 generalisation worth carrying past this one flag — what changed is that the
 speed bump is no longer the only thing there.
-
-## The guard's residuals, and the bound on what has been looked for
 
 **The hook's own residual, stated rather than left to be found:** `shlex`
 resolves quoting and not expansion, so a flag assembled at run time —
@@ -634,16 +1069,6 @@ things — `expandable_regions`, over the quote-and-comment-aware scanner the
 heredoc opener already used — rather than a second model per function. Command
 substitution is now judged wherever bash would perform it and nowhere else.
 
-**The lexer's blanks were not bash's either.** `shlex` also splits on a
-carriage return, which bash keeps inside a word, so `x=1<CR>echo {git,push}
-origin +HEAD:main` was a run led by `echo` to the hook and an assignment and a
-force push to bash. Both tokenisers, and the splits of a here-string and of a
-redirection target, now split on space, tab and newline alone
-(blueprint-frontend#187). A backslash that ends the command is a literal to
-bash and an error to `shlex`, which handed the line to the substring fallback
-with every check after the tokeniser off; it is now doubled first, and the
-fallback refuses a line that runs `git` and may assign (PR #190's review).
-
 **And then the bound was wrong for a fourth reason, which had nothing to do
 with the shell at all.** Every version of this paragraph has named the residual
 in shell terms — quoting, then expansion — while `git -c` sat one layer up:
@@ -659,25 +1084,105 @@ already refuses twice over.
 
 **So state the bound as what has been looked for, not as what is left.** The
 residual named today is what the shell **computes** rather than what a caller
-writes, and it has one measured shape left: an ARGUMENT or flag assembled
-from a variable (`F=--output=x; git log $F`). Two more shapes were named here
-and are refused now — a command WORD taken from a variable
-(`F='git push origin +HEAD:main'; $F`), and a substitution whose output
-becomes the command line (`sh -c "$(echo 'git push origin +HEAD:main')"`) —
-because a computed word in program position, or right after a launcher such
-as `bash`, can name any program at all, and `computed_program_offence` in
-`guard-git-argv.py` refuses it wherever it stands. That refusal was first
-written to keep the Grok helpers from being named that way; it outlived them
-in generic form when they were archived (blueprint-frontend#117). Closing
-the remaining shape
-needs the argv after expansion, which no hook is given. It is pinned as
-**admitted** in the suite, on the same argument as the degraded-check case:
-a residual nobody can run is one the next reader assumes was closed.
+writes, and it has two measured shapes: a flag or command assembled from a
+variable (`F=--output=x; git log $F`), and a substitution whose OUTPUT becomes
+the command line (`sh -c "$(echo 'git push origin +HEAD:main')"`). Closing
+either needs the argv after expansion, which no hook is given. Both are pinned
+as **admitted** in the suite, because a residual nobody can run is one the next
+reader assumes was closed.
 
 Three earlier versions of that sentence were each falsified by a spelling
 nobody had gone looking for, and the pattern is that the bound gets narrower
 every time somebody probes rather than reasons. **It is a claim about the last
 search, not a proof.**
+
+**Three ways round it had nothing to do with git's grammar.** The hook read its
+event as text, and Python reads a Windows pipe in the ANSI code page, so a
+command carrying a character whose UTF-8 bytes include one cp1252 leaves
+undefined raised before anything was judged, and landed in the branch that
+admits a malformed event. Both argv guards now decode the bytes as UTF-8, as
+the other hooks do, and refuse an event that is not UTF-8; an event that is
+UTF-8 but not JSON is still admitted, the one argued fail-open. The hook was
+registered on `Bash` alone, so git through the PowerShell tool was judged by
+nothing here: a second registration sends PowerShell calls to the git guard,
+which parses Bash's grammar and not PowerShell's, so it admits a PowerShell
+command only as one of a few read-only cmdlets over plain words that do not
+name `git`. A quote, an escape, a variable, a call, a separator, a wildcard, a
+backslash or any other first word refuses it, because each is a way another
+interpreter, an encoded command or a computed name could run git unseen, and a
+list of launchers would trail PowerShell's. The index guard stays on
+`Bash`, because the skill's prefix grants are `Bash(...)` rules and a
+PowerShell call is prompted like any other.
+And a heredoc with no closing line, whose body then fails to tokenise, is
+refused outright, as an undecodable delimiter is, and the untokenised
+fallback now refuses whatever reaches it, because a line is easy to make
+untokenisable on purpose, bash runs the lines before the one that breaks, and
+no crude check reads git's options or sees a name that case, a glob or an
+expansion builds. The cost is a rephrased command where bash would have run
+one `shlex` cannot read.
+
+**An `Edit(...)` deny binds the editing tools, and `Bash(ls:*)` is granted, so
+the guard judges the same write past them.** A redirection and a writing verb
+(`cp`, `mv`, `rm`, `tee`, `sed -i` and the rest of `WRITING_VERBS`) are held to
+this target's own denies, read from `.claude/settings.json`, so `.github` is
+protected only where a target denies it. A path is anchored at the root of the
+checkout that holds it and folded for case, which leaves `payload/.claude/…`,
+`staging/.claude/…`, `.claude/worktrees/` and `.claude/cache` writable, and a
+link is judged where it lands. A verb that takes a tree whole, `rm`, `mv`,
+`rmdir`, `shred` or a copy into a directory, is refused a directory below the
+checkout root that holds what a deny names as well, so `rm -rf .claude` is
+refused and `.claude/worktrees/x` and the root itself, `rm -rf .`, are not. What
+a copy or a move puts into a directory is judged by the name it lands under, so
+`cp notes.md .claude/` is admitted and `cp -r /tmp/hooks .claude/` is not; a
+glob or brace source has no known name, and `-T` lands on the directory itself,
+so each is judged as the whole directory.
+`~` and the variables this process shares with the session are expanded and
+judged, and a literal `cd` is followed, through a subshell's end as well.
+
+**What it cannot read it admits, and that is the narrowing, not a gap.** An
+unknown variable, a computed operand, or a relative target after a `cd` nothing
+can read is admitted: `> "$var…"` was typed 523 times, `cd x && … > y` 736 and
+`cp "$a" "$b"` 107, so refusing them is the false refusal *The guards' threat
+model* files. An expansion's readings, which exist to find a hidden program,
+place no file. The list of verbs trails the programs that write: `curl -o`,
+`rsync`, `tar -x`, `patch` and an interpreter's own writes are not on it, and
+that is a residual. A worktree removed from disk is still judged as one by its
+place under `.claude/worktrees/`, and a checkout under the temp root that the
+session is not standing in is not this target's: mutation proofs write there,
+which the replay of backend's transcripts found.
+
+**Five lists reach what the flag check above did not.** The short spellings of
+the flags that run a command, keyed by subcommand because a letter means
+something else on another; `bisect run` and `submodule foreach`, which run
+their operand; `--strategy` and `--template`, per subcommand; `--ext-diff`,
+`--textconv`, `--extcmd` and `--open-files-in-pager`, with `--text` read as the
+option it is; and `filter-branch`, `send-email`, `instaweb`, `daemon`,
+`http-backend` and `web--browse` refused whole. Those are lists and not an
+allow-list of subcommands, which would refuse `git ls-remote`, `git config` and
+`git stash`, typed hundreds of times. `xargs` is refused only in front of a
+push, whose destination it supplies unseen; a fetch is refused its `-f`, `-u`
+and a `+` refspec onto a branch, which discard local commits under a read's
+grant, and `git pull --ff-only` any option that overrides it.
+
+**Three refusals are traps, not attacks**: the command does what it says,
+and what it says loses work. They are the honest mistakes *The guards'
+threat model* above is scoped to, and its criterion 3 holds for them as for
+any check, so a false refusal by one is filed. A
+`git push` whose output is piped and whose pipeline is then chained by `&&`
+or `||` with no `set -o pipefail` first runs what follows on a failed push;
+`git update-index --cacheinfo` with a literal mode drops or adds an
+executable bit unseen on Windows, refused unless the command carries
+`--add`, which stages a path the index lacks and is admitted because the
+guard cannot see whether the index holds the path; and
+`git reset --soft` to a remote-tracking ref recommits over whatever another
+session's fetch moved in. Each is refused
+because the guard can see it from the command's text, and each message names
+the form that works, so the remedy arrives at the refusal rather than in a
+memory (`docs/harness/pitfalls.md` holds the traps no guard can see). The
+refusal of a heredoc handed to a shell names the same kind of remedy: a
+script's input goes through `< <path>`, written with `Write`.
+
+## The ext transport and pinned grants
 
 **The `::` in a value collides with the `:*` suffix syntax, and the collision
 fails silent in one direction and loud in the other.** `Bash(git *ext::*)`
@@ -705,23 +1210,22 @@ argument below about which grant pins what remains worth reading, because a
 hook is one file and defence in depth is the reason the allow side was narrowed
 in the first place.
 
-`Bash(git fetch origin:*)` **pinned the remote**: a literal remote name occupied
-the repository position, so a URL never reached it. That was the control the
-sentence described, and it was real; `git-fetch-origin.sh` (#114) replaced the
-grant, and the paragraph below says why.
+`Bash(git fetch origin:*)` **pins the remote**: a literal remote name occupies
+the repository position, so a URL never reaches it. That is the control the
+sentence describes, and it is real.
 
-`Bash(git pull --ff-only)` pinned **nothing** — no remote name appeared in it
-at all. What it did was drop the `:*`, so the grant was the documented
-no-argument invocation and nothing else. Whether that closed
+`Bash(git pull --ff-only)` pins **nothing** — no remote name appears in it at
+all. What it does is drop the `:*`, so the grant is the documented
+no-argument invocation and nothing else. Whether that closes
 `git pull --ff-only ext::<cmd>` turns on the prefix-match rule stated in the
 reset-grant paragraph above — **an allow rule is a prefix match** — which has
 never been measured for the no-wildcard case. (Named rather than counted: a
 numbered offset inside a section still being edited is how this repository's
 callout totals used to rot.) If that holds for a grant without `:*` as well, the
 pull side is still open and belongs in the residual inventory rather than in
-this paragraph. Nobody ran the probe, and the pull grant stood as *narrowed,
-not proven* — the two words this repository keeps having to tell apart — until
-the paragraph below withdrew it.
+this paragraph. Nobody has run the probe. Until someone does, treat the pull
+grant as *narrowed, not proven* — the two words this repository keeps having to
+tell apart.
 
 **The probe that would settle it is not available from inside a session, and
 that is a property of the question rather than a lack of trying.** Every exact
@@ -735,29 +1239,7 @@ harness does not already wave through, which means adding a rule to a file the
 session reads at startup — so it cannot be arranged from within the session it
 would govern.
 
-**Blueprint-frontend#114 retired the question without answering it, and
-blueprint-frontend#225 leaves it unanswered on purpose.** `Bash(git pull
---ff-only)` is withdrawn from `ship.md` for `git-pull-ff-only.sh`, granted
-**exactly**, which takes no argument at all (anything else exits 2 before git
-runs), spells `origin` and `--ff-only` itself, and names the branch from the
-checkout. Whether an allow rule without `:*` is an exact match therefore no
-longer decides anything for this operation: a trailing `ext::<cmd>` reaches a
-script that refuses it, and a substitution in the tail is the hook's, which
-holds a granted helper's arguments to plain words (blueprint-frontend#179).
-`gh-pr-create.sh`'s exact grant is the same shape: the helper takes no argument
-and exits 2 on any, before it reads a file, so whether its grant is an exact
-match decides nothing there either.
-
-**The measurement is not owed, and a run on 2026-10-17 is why.**
-`git-pull-ff-only.sh "$(true)"` was refused by that hook before any grant was
-consulted. So even where a probe could be arranged, the grant alone cannot be
-observed from an ordinary session: the guard fires first, whichever way the
-grant would have answered. What the two grants rest on is the helper refusing
-an argument and the hook refusing a `$`. That an allow rule without `:*` is
-read as exact is neither measured nor relied on, and a reader who finds it
-relied on has found a defect.
-
-## The inventory of grants wider than their operation
+## Grant inventory and push helpers
 
 **A command's frontmatter is a grant like any other, and it is the one nobody
 reads twice.** The first five rows above were all found in command frontmatter,
@@ -776,293 +1258,44 @@ and it went stale the moment a branch pinned that file's fetch grant.
 **The entries are numbered and the numbering is stable; the headline count that
 used to open this paragraph is gone on purpose.** It read "six" and was made
 false by #56 closing the fourth, which is the third time a restated total in
-this repository's guidance has rotted — `CLAUDE.md`'s callout totals and
-`docs/testing.md`'s test count went the same way,
+this repository's guidance has rotted — backend's `CLAUDE.md` callout totals
+and its testing document's test count went the same way,
 and the fix that held there was to drop the number and keep the named entries.
 Ordinals are kept even where an entry is closed, so a cross-reference to "the
 fourth" still lands, and each entry says its own state. Read the entries; do
 not count them here.
 
-The first **was** two of `/ship`'s, and #16 narrowed both.
+Two are `/ship`'s, and both are closed:
 `Bash(git worktree remove:*)` admitted the `-f` that discards work, and
-`Bash(gh pr merge --merge:*)` admitted a trailing `--admin` that merges past
-failing checks. Until someone with the `Edit(.claude/scripts/**)` deny lifted
-wrote the helpers, `/ship` carried both by reporting its literal invocations,
-flags and all. **The helpers exist now and the raw grants are withdrawn**:
-`git-worktree-remove.sh` takes `.claude/worktrees/<name>` and the branch the
-fork wrote there, refuses any other path and a worktree holding any other
-branch, and has no `--force`; `gh-pr-merge.sh` takes a number and a full head
-oid, spells `--rebase --match-head-commit` itself, and refuses a pull request
-that is not the checked-out branch's own, from this repository, into `main`.
-Neither raw form is in any command's frontmatter —
-`test_no_command_grants_the_raw_form` in `.claude/scripts/test_harness_helpers.py`
-asserts that over every command — though both are still quoted as history.
+`Bash(gh pr merge --rebase:*)` admitted a trailing `--admin` that merges past
+failing checks. Both are withdrawn, and the base denies both raw forms,
+`Bash(git worktree remove:*)` and `Bash(gh pr merge:*)`, so no target's
+config or session grant brings the flag back: a deny judges the typed
+command and never one a script runs, so the helpers are untouched by it.
+`gh-pr-merge.sh` takes a number and a
+head oid, spells `--rebase --match-head-commit` itself, and refuses a pull
+request that is not the checked-out branch's own, from this repository, into
+`main`. `git-worktree-remove.sh` takes a `.claude/worktrees/<name>` path and
+the branch forked there, run from the main checkout. It refuses `main` as that
+branch, a directory that is not a linked worktree of this repository, and one
+that does not hold the branch, a detached one included. It spells
+`git worktree remove` with no flag, under `core.longpaths` so that a file past
+Windows' 260 characters is deleted too rather than left in a directory git has
+already unregistered; it first waits, to a bound it declares, for the
+worktree's code-index refresh lock, because Windows will not delete a file a
+running refresh holds (#516).
 
-**Withdrawing an allow refused nothing, so both raw forms are now denied.**
-An allow is auto-approval and only a deny refuses, the argument the sweeps
-made when they withdrew `gh issue create` and denied it by name: with the
-allows gone, a directly typed `gh pr merge <n> --admin` or
-`git worktree remove -f <path>` met no rule in the tracked settings and no
-hook, and an allow in the local or user-level settings, which the tree does
-not carry, could approve it outright. `.claude/settings.json`
-denies `Bash(gh pr merge:*)` and `Bash(git worktree remove:*)` in every turn,
-which the helpers do not meet — a deny judges the typed command, never the
-commands inside a script. The deny sits there rather than in `ship.md`'s
-`disallowed-tools` for two reasons: a frontmatter deny lasts only the turn
-that loaded it, and the test above reads a command's whole frontmatter, so a
-deny there would fail it. **What it does not close is the substitution
-route below**: a deny matches the typed command's prefix, not a `$(…)` inside
-another grant's tail. The hook narrows that route instead: it refuses a `gh`
-word in a substitution, and holds a plain `git` there to its reading
-subcommands (blueprint-frontend#122). The routes past that hold which
-blueprint-frontend#125 named are closed, and the substitution paragraph below
-says why the route is narrowed rather than shut. Nor does it
-reach `gh api`'s merge endpoint, which no rule denies, so it meets what any
-un-granted command meets: a prompt, or the classifier under the user-level
-`auto` mode the #26 paragraph above records. **And the deny names the
-canonical spelling**: a global option before the subcommand — `git`'s `-C`,
-`--git-dir` or `--work-tree` — escapes it. A leading environment assignment,
-a wrapper word such as `env` or `command`, an option of `gh`'s placed before
-`merge` and another spelling of either executable may escape it too, and are
-unmeasured. `guard-git-argv.py` has no `worktree` rule to catch the first, so
-a wider pattern is a `settings.json` change, for its owner to make. A verb
-split by empty quotes, `gh pr me''rge` or `git worktree re''move`, escapes
-both denies as well: a `:*` deny matches a typed command that begins with
-its text, and that spelling begins with neither — the quote removal the
-`grok-review.sh` paragraph above records — while no hook rule judges either
-verb at the top level. So does
-the same command handed to an interpreter — `bash -c '…'`, a script file run
-with `bash` — or reached through a `gh` or `git` alias, since the typed command
-then starts with the interpreter or the alias, and the hook refuses `gh` only
-inside a substitution.
-Both denies are also `Bash` rules and the hook is registered for `Bash` only,
-so a PowerShell tool, if a session has one, meets neither — unmeasured, and a
-harness-wide gap rather than one of these two. **The
-third raw form #16 withdrew, `gh pr create`, is withdrawn and not denied**:
-the same argument reaches it, and no rule refuses a typed
-`gh pr create --repo …`; denying it is that same owner's change. Nor does any
-test pin these denies — `test_no_command_grants_the_raw_form` reads command
-frontmatter, not `settings.json` — so deleting one leaves the suite green.
-
-**A helper granted by prefix still leaves a free tail, and these two are
-granted by prefix** — unlike `gh-pr-create.sh`, which the hook paragraph above
-records as granted exactly, without the `:*`. That form closes the tail only
-if a rule with no wildcard matches exactly rather than as a prefix, which the
-`git pull` paragraph above records as never measured, so it is narrowed, not
-proven. `Bash(bash .claude/scripts/gh-pr-merge.sh:*)`
-admits whatever follows the name, so the tail is bounded by each script's own
-arity and shape checks rather than by the rule — both refuse anything but
-their two arguments, and neither argument may begin with `-`.
-
-**What runs *before* the script checks anything is outside it.** A
-substitution in the tail runs while bash builds the argv, and the hook
-paragraph on `gh` inside a substitution closes that route for `gh` and for
-anything off its allow-list. Inside one, a plain `git` is held to the reading
-subcommands in `SUBSTITUTION_GIT_SUBCOMMANDS`, and `rg`, `sort` and `uniq` are
-not on the list (blueprint-frontend#122). Wherever they stand, the hook refuses
-the operand forms in `EXECUTING_FORMS` (`git bisect run`, `git submodule …
-foreach`), the short flags in `EXECUTING_SHORT_FLAGS` (`git rebase -x`,
-`git difftool -x`, `--upload-pack`'s and `--output`'s short spellings) and
-`--extcmd`. It holds what `xargs` launches to the readers in `XARGS_PROGRAMS`
-and its options to `XARGS_FLAGS`, since `xargs` hands its program a
-subcommand, flags or a whole command line the typed argv does not carry, and
-a replace string, a bundle or an abbreviation can make a value pass for that
-program (`xargs_offence`); where a program is launched it matches `git` and
-`xargs` as the patterns and brace expansions bash would make them, `[^…]`,
-`[:class:]` and a pattern over the `.exe` suffix included (`names_program`);
-inside a substitution it holds a string `env -S` splits and runs to the same
-reads; and it reads `--shallow-file` as taking a value, so that option cannot
-hide the subcommand it skips to.
-**The three routes blueprint-frontend#125 named are closed, and it is a
-standing residual still, because the hook is an allow-list over a grammar it
-reads only in part.** Inside a substitution a wrapper may carry no option,
-nothing may be assigned in front of a program or by `printf -v`, `$[…]`,
-`$((…))`, `((…))`, `${NAME:=…}`, `test -v` or the arithmetic in a `${…}`
-subscript or offset, and `git`
-takes no global option but `-C .`. A body is split into words as bash
-splits it — after quote removal, on space, tab and newline alone — so a
-quoted blank, a Unicode space or a dash-led command word cannot put a listed
-program in front of a branch path (blueprint-frontend#187). The same
-arithmetic is refused wherever it stands, and so is an assignment, an `env
-NAME=…` operand, a `for`, a `read` or a `printf -v` naming a variable git
-reads — `PATH`, `HOME`, a `GIT_*` name and the rest of
-`ASSIGNMENT_SENSITIVE_NAMES` — or a name bash computes, and every builtin
-whose target no check can read, `trap`, `eval`, `mapfile -C`, `set -k` and
-`set -a` among them (blueprint-frontend#185). **That holds on a line that
-runs no `git` as well** (blueprint-frontend#188), since `ls ${x[PATH=5]}; ls`
-re-resolves the `ls` after it as a file a branch can carry; there
-`export`, `readonly`, `unset` and `declare` are read by their operands
-instead of refused, so `CI=true npm test` and `export CI=true` stay ordinary;
-`declare -n` is refused there, since a nameref hides its target in the value.
-A prompt expansion `${x@P}` and an indirection `${!x}` evaluate a variable's
-value as code — the first runs a substitution held in it — so both are
-refused on every line. **On a line that runs `git` the name list is
-inverted** (blueprint-frontend#191): only the names in
-`ASSIGNMENT_ALLOWED_NAMES` — `LC_ALL`, `TZ`, `CI` and the like — or, as the
-target of a `for` or a `read`, a plain lowercase word may be assigned, so a
-variable nobody listed, `PERL5OPT` or `LESSKEY`, is refused without being
-named. A lowercase word as an assignment word is refused too, because Windows
-reads `perl5opt` as `PERL5OPT`. **A line that runs any other granted program
-is judged as a `git` line is** (blueprint-frontend#205): `GRANTED_WORD` names
-the prefixes the grants hold — `bash`, `npm`, `npx`, `py`, `python`, `node`,
-`gh`, `ls`, `wc`, `sleep`, `mktemp`, `cygpath` and `rm`, which is granted for
-`suggestions.md` alone — and a variable nobody
-listed, `NODE_REPL_EXTERNAL_MODULE`, `PYTHONINSPECT` or `RUBYGEMS_GEMDEPS`,
-is refused there without being named. A pass over the commands found
-`CI=true npm test` the only assignment any of them makes; `NODE_ENV` and
-`PYTHONUTF8` join the allowed names beside it. A line that runs only
-programs nothing grants — `cat`, `grep`, `echo` — **keeps the list, which is
-an enumeration still and fails open on a variable nobody listed**, for the
-reason that nothing is granted there for a variable to redirect. The
-program is matched as a word anywhere in the line, as `git` is, so a line
-that merely names one is judged by the stricter rule: `S=…; py "$S/x"` and
-`declare -r y=1; ls` are refused now, and an assignment goes on a line of its
-own.
-The scanner still miscounts a parenthesis inside `${…}`, `$[…]` or a heredoc
-body within `$(…)`, in both directions, and both are refused rather than
-read past: an opener it cannot close, and a body holding one of those
-constructs. In a run led by a wrapper with operands of its own — `timeout
-5`, `nice -n 5`, `winpty` and the rest of `ARGUMENT_RUNNERS` — every later
-word counts as launched, so a computed or pattern `git` behind one is
-judged; a reserved word in front — `!`, `if`, `then`, `do`, `coproc` and
-the rest — is grammar and leads nothing, so the word after it is the
-command; and a comma brace expansion the shell would perform in any run
-that names `git` and that a reader or a printer does not lead is refused
-rather than read as one word (blueprint-frontend#129) — launched or not,
-since the launch test is the one that knew no wrapper outside the list
-(blueprint-frontend#186). **That list is an enumeration, so it fails open on
-a wrapper nobody named**, for a computed `git` behind one; a pattern `git`
-is read behind any wrapper that no reader leads, however little of the name
-the pattern spells (`patterned`), so `ssh-agent gi[t] push origin
-+HEAD:main` and `ssh-agent g* push origin +HEAD:main` are judged
-(blueprint-frontend#189); `ssh-agent ls src/*` yields a segment with
-nothing in it, which nothing refuses. Inverting the list for a computed word
-was rejected because a computed argument is ordinary traffic. A value
-assembled at run time is the residual the `F=--output=x` paragraphs record.
-
-**A helper's arguments are held to plain words, and a `git` option that
-runs something is refused at the top level.** The first is
-blueprint-frontend#179: a `bash .claude/scripts/*.sh` handed a command or
-process substitution, a backtick, a `$` that is not a variable on its own, or
-a glob or brace outside any quote is refused (`helper_argument_offence`),
-because bash computes each before the helper checks a word. It reads the raw
-words, since the quoting that decides whether a `*` expands is what `shlex`
-removes. **Quoting is read rather than refused**, which departs from the
-issue's list: a quoted word is the word the helper receives, and single
-quotes hold every construct inert. **A variable is admitted**, quoted or
-not, for the same reason the suite already admitted `$MODE`: expanding it
-runs nothing, and the sweeps pass `"$pinned"` to two helpers. The second is
-blueprint-frontend#133: `--open-files-in-pager` and `grep -O` are in the
-flag lists, `--template` is refused on `clone` and `init`, and
-`filter-branch`, `send-email`, `instaweb`, `daemon`, `http-backend` and
-`web--browse` are refused whole. **Those are deny-lists and trail git**; the
-`--*-cmd` and `--*-filter` options are reached through their subcommand
-rather than named. blueprint-frontend#209 is the change that stops the
-trailing: `ALLOWED_SUBCOMMANDS` names the subcommands this repository's
-commands run and git's read-only plumbing, and a `git` whose subcommand is
-anything else is refused, so `mergetool`, `difftool --tool`, `gui`, `citool`,
-`help --web` and an alias a configuration defines need no line of their own.
-The word is matched as typed, so `git LOG`, `git log.` and `git log.exe` are
-not `log`; `config`, `merge`, `cherry-pick`, `clone`, `init`, `submodule`,
-`stash` and `help` are left off on purpose, each setting a key git runs,
-naming a strategy program or running what it is handed, and a `-s` or
-`--strategy` on `pull` and `rebase` (`git-merge-<name>` from the exec path or
-`PATH`) is refused beside the other executing options. **The allow-list is
-judged where a program is launched**, so `grep -rn git src/app` and `apt
-install git curl` are not read as git invocations. **A line the guard cannot
-tokenise reaches it crudely**, as the push check does: the first word after
-each `git`, past any option, must be on the list, which also over-refuses a
-sentence that merely mentions git. **The gaps #209 left are closed by
-blueprint-frontend#211:** a computed subcommand (`git $SUB`) is refused
-whole, since no reading rewrites a bare variable, and so is a computed value
-after a global option (`git -C $work log`, or attached, `git -C$work log`),
-because an unset unquoted variable is removed, `-C` takes `log` and the word
-after it runs, or a glob there, which expands to as many names as match; a
-wrapper the guard has not named (`ssh-agent git mergetool`)
-is read, every run no printer, reader or
-`NAMES_GIT_AS_DATA` program (`apt`, `which` and the like) leads being
-judged, so a program missing from that list is over-refused and never
-admitted; and the untokenisable-line reading skips a global option's value
-and refuses a first word that is no name at all. **One over-refusal stays on
-purpose:** an unquoted `git -C $(pwd) commit -m msg` is refused, because a
-substitution that prints nothing removes its word and bash then hands `-C`
-the value `commit`, so `git -C $(true) log mergetool` runs `mergetool`.
-Skipping the judgement when the value was removed, as the issue suggested,
-would admit that; spell the value literally. **A bare pattern for `git` behind a
-wrapper nobody named** (`ssh-agent gi[t] mergetool`), **or one that leaves the
-checkout** (`ssh-agent /usr/bin/gi[t] mergetool`), **is judged** (#214); a
-pattern under a relative directory (`src/*`) is not, since it expands to a file
-inside the checkout, so `cp src/* dest` passes while `cp * dest` and `cp /tmp/*
-dest` are over-refused, because the tokens keep no quoting. **Unless that
-directory is itself a link out of the checkout** (`src/gi[t]` under `src ->
-/usr/bin`), **or a match is** (`src/git -> /usr/bin/git`): the directory part
-and the whole pattern both go through `escapes_checkout` (#216), so `cp src/*
-dest` is refused there and still passes for a real `src`.
-**The glob is resolved in bash's dialect** (#218): `escapes_checkout`
-reads `[^` as the negation bash accepts beside `[!`, which Python's
-`glob` does not, and refuses a pattern holding a POSIX class, an
-equivalence class, a collating symbol (`[[:alpha:]]`, `[[=g=]]`,
-`[[.g.]]`) or an extglob opener (`@(`, `+(`, `*(`, `?(`, `!(`), which
-`glob` does not model at all. **Not modelled:** an archive program or
-interpreter module missing from `ARCHIVE_UNPACKERS` and `ARCHIVE_MODULES`,
-and a copier or mover other than `cp` and `gcp` (`rsync -a`, `mv`, `xcopy`,
-`robocopy`, `Copy-Item`), which carries a link to a name that does not exist
-yet exactly as `cp -a` does but is far too common beside `git` to refuse.
-The suggested allow-list of programs beside git was not taken, because it
-over-refuses every `git` after a program nobody listed; the lists stay
-fail-closed on the names they hold.
-**A link made earlier on the same line**
-(`ln -s /etc/hosts out && git diff out README.md`)
-cannot be seen by `escapes_checkout` and `linked_protected_path`, which judge
-the filesystem when the hook runs, so a line that makes a link (`ln`, `mklink`,
-`junction`, `link`, `fsutil`, `New-Item`, `gln`, a `cp` or `gcp` that makes
-or carries a link (`-s`, `-a`, `-d`, `-P`, `-R`, `-r`, `--symbolic-link`,
-`--archive`, `--no-dereference`, `--recursive`, `--preserve=links` or
-`=all`, and any abbreviation `cp` accepts such as `--sym` or `--l`),
-`python -m tarfile` or `zipfile` (a dotted name such as
-`tarfile.__main__` included), a script naming `tarfile`, `zipfile`,
-`unpack_archive` or `extractall`, an archive program on
-`ARCHIVE_UNPACKERS` (`tar`, `unzip`, `7z`, `cpio`, `jar`, `ditto` and the
-rest, extracting or not), anywhere in a run no reader leads, or in the text of
-a script handed to a shell or to one of the interpreters in `SCRIPT_RUNNERS`,
-which now holds `osascript`, `wsl`, `cscript`, `wscript`, `mshta` and `env`)
-and runs git is refused (#213, #216). `busybox ln` and a link maker behind a
-substitution were already read, and a test holds each. **Not modelled, and no
-stateless reading can model it:** an interpreter missing from those lists, and
-a link made by a program no list names; each needs a link or a planted file
-the hook would judge as its own command, and the subcommands off the allow-list
-are not granted.
-`git diff` reads the files it names
-without `--no-index` when one is outside the working tree
-(blueprint-frontend#132, `git diff ~/.gitconfig /dev/null` printed the
-file), so its operands are read: an absolute path, `~`, a drive, a `..`
-component, a `$` or a backtick is refused, as are `-C`, `--git-dir` and
-`--work-tree` in front of it, two operands after a `cd`, and a working
-directory under no repository. **A link a branch carries** (`docs/out ->
-/etc/hosts`, named as `docs/out`), which a lexical check cannot see, is
-closed by blueprint-frontend#208: each operand that names an existing path
-(a glob is expanded, and one with more than 256 matches is refused rather
-than truncated) is resolved through the filesystem and refused when it lands
-outside the real root of the checkout the command runs in. That root comes
-from the event's directory and never from the operand, because a root found
-from the operand takes a link to a directory holding its own `.git` for the
-checkout. A path that does not exist is left to the lexical rules. **The
-read through such a link was not reproduced on the host this was built on**:
-it withholds the privilege a symbolic link needs, and git did not follow a
-directory junction, so the case is held by the suite's own link (a symbolic
-link where one can be made, a junction on Windows) and skips where neither
-can.
-
-**And the script run is the checkout's copy, which `Edit(.claude/scripts/**)`
-protects from neither a branch nor the session.** A branch can carry an
-edited one — the class blueprint-frontend#115 records for a method read from
-the tree under review — and the deny binds the editing tools only, so a
-write run inside a substitution in the tail can replace it before bash opens
-it. A plain `git`
-there is now held to reads, and the routes past that hold which
-blueprint-frontend#125 named are closed.
-What the worktree helper's branch binding still leaves is stated in
-`git-worktree-remove.sh`'s own header, which owns it.
+Another, shared by `/pr` and `/ship`, is closed the same way:
+`Bash(gh pr create:*)` admitted a trailing `--repo`, `--head`, `--base` or
+`--body-file`, which choose a repository, a branch, a base and a body the
+command never derived, and the last publishes any file it can read. It is
+withdrawn for `gh-pr-create.sh`, taken from blueprint-frontend. It takes two
+paths, the title's and the body's, reads the repository and the head from the
+checkout and spells the base `main`, and refuses an input that is not a file
+git ignores under the checkout's `artifacts/`, is a symbolic link itself, or
+resolves outside `artifacts/`: an ignored file is untracked, so the branch
+under review never writes its own pull request, and every target already
+ignores `artifacts/`.
 
 **Two more sat in the sweep command files rather than in this paragraph, and
 both are now closed — which is worth recording because they were closed the
@@ -1073,59 +1306,279 @@ it, and both sweeps dropped the grant. `Bash(gh label create:*)` was
 create-*or-overwrite* — `--force` updates an existing label's colour and
 description, and `-R` put that write in any repository — and it was held as two
 prose rules; `gh-label-ensure.sh` leaves no free parameter, taking one name out
-of a fixed six-entry case and resolving the repository from the checkout. **The
+of a fixed case and resolving the repository from the checkout. **The
 root cause both shared is the one that generalises**: each was documented by the
 operation it was added for rather than by what its prefix admits, and reading
 the tool's own `--help` found something every time it was done. That they were
 inventoried in a command file and not here is the same drift this paragraph
 warns about, running the other way.
 
-The third **was** `Bash(git fetch origin:*)`, which no longer admitted a URL
-but still admitted a trailing flag; `--upload-pack`, `--receive-pack` and
-`--exec` were denied by name, so what was left was the flag nobody had
-enumerated yet. **Blueprint-frontend#114 closed it** with the helper the
-transport issue asked for: `git-fetch-origin.sh` takes one branch name and
-nothing else, spells `origin` itself, and refuses a leading `-`, a `..`, and
-every character outside `[A-Za-z0-9._/-]` — so a flag, a refspec (`:`, `+`) or
-a transport (`ext::`) has no position to occupy. The raw grant is withdrawn
-from `ship.md` and `branch.md`. **What stood behind the raw grant, stated so
-the residual is read as what was left after the hook and not before it**:
-`guard-git-argv.py` refuses `ext::` in the repository position of a
-repository-taking subcommand, the three flags above by name and by
-abbreviation (`--upl=`, `--upload-p=`), and a `-c` carrying `core.sshCommand`,
-`core.hooksPath` or `credential.helper`. The helper does not depend on any of
-that.
+**A fifth was opened deliberately rather than found**: the force push, which
+three lease-bound helpers carry and nothing else does. Branch updates are
+rebases, so a branch's published commits are rewritten, and
+`.claude/settings.json` denies `git push --force` and `--force-with-lease`
+alike. **That deny is untouched**, for every raw spelling: the helpers relax
+the client's policy and the deny list does not move. What lets the client
+relax at all is the `main` ruleset on the server, read back green for every
+target, so a helper that got its guards wrong still cannot rewrite or delete
+`main` (*Destructive classes*). `git-rebase-onto-main.sh` carries the flags
+itself, runs none of the target's hooks (`core.hooksPath` is an empty
+directory for the run, as in `git-trailer-pr.sh`), spells over every
+`rebase.*` key that changes a replay (`--no-rebase-merges` and
+`--no-update-refs` answer settings that act today; `--no-autosquash`,
+`--no-fork-point` and `--no-autostash` are defensive, since git limits
+`rebase.autoSquash` to interactive mode, takes no fork point when an upstream
+is named and the start refuses a dirty tree; `--merge` keeps the apply backend
+out, which leaves a commit it never applied looking like one a resolution
+emptied), takes one branch name that has to equal the one checked out, refuses
+`main` by name before it reads the checkout at all, refuses a remote holding
+commits this checkout lacks, and leases the push against the commit the same
+run read. **A rule could have bought none of that**: a permission pattern
+matches the text of a command, and every guard in that list is a fact about
+the checkout. Which is the general form — where the safety is a property of
+the state rather than of the words, the grant has to be a helper.
+
+**A second helper rewrites published commits, and is a second force push.**
+`git-trailer-pr.sh` adds `PR: #<n>` to the commits of the branch checked out,
+which changes their SHAs, so it leases its push as the rebase helper does.
+It takes one number and spells the `git rebase -x` command itself, so no
+`-x` grant stands beside it. It refuses `main` checked out in any spelling,
+folded as the rebase helper folds it, a pull request that is not an open,
+same-repository one into `main` for this branch, a dirty tree, a remote that
+differs from the checkout in either direction, a merge commit, and a commit
+that already names another pull request. Its residual is a push that fails
+after the rewrite: the local branch then carries the trailers and origin's
+does not, and a rerun finishes it, because a commit that has the trailer is
+skipped. `git-revert-pr.sh` writes no remote; it reads trailers off
+`origin/main` and reverts on the current branch, so its grant is a plain one.
+
+**A third helper is the force push for every other rewrite.** A branch amended
+or reworded for a reason neither helper above covers had no route but the
+deny. `git-push-force.sh` publishes the branch checked out and takes no
+argument, so no name a caller passes can point it at another. It refuses
+`main` in any spelling, folded as the rebase helper folds it; a detached
+`HEAD`; and a branch origin lacks, asked of origin itself rather than of a
+tracking ref a deleted branch leaves behind. It fetches the branch fresh and
+leases the push against the tip it fetched, so a push landing in between is
+git's to refuse. And it refuses a remote tip the branch's own reflog does not
+hold, because a lease is not consent: once another session's commits have been
+fetched they satisfy it, and they would be discarded. That is the rebase
+helper's `require_remote_carries_nothing_new` for a rewrite with no fork point
+to measure from. Its residual is the reflog itself. An entry `git gc` has
+expired, or a branch made with no reflog, fails closed; and a branch that
+holds origin's tip only because it was rebased onto it is refused as well,
+where `git push origin <branch>` needs no force.
+
+Its exit codes are the rebase helper's, those it can reach: 0 published, or
+nothing to force because origin already holds `HEAD`; 2 usage, an argument
+given; 3 the branch is `main`, however it is spelled; 4 a detached `HEAD`; 6
+origin has no such branch, so push it normally; 7 origin carries commits this
+checkout never held; 12 origin could not be asked where the branch is, or
+fetched from. A push origin refuses, a lease that no longer holds among them,
+exits with git's own status, as the rebase helper's does.
+
+**One more helper relaxes a deny, and it deletes rather than pushes.** `git
+branch -d`, `-D` and `--delete` stay denied. `git-branch-drop.sh <branch>`
+refuses `main` in any spelling, a name that could be read as a flag, a
+symbolic ref, which `rev-parse` would follow to its target's tip, and a branch
+checked out in any worktree, this one included, being rebased or bisected in
+one, or to be moved there by a `rebase --update-refs`. The last three `git
+worktree list` reports only as a detached HEAD, so the name is read from each
+git dir's rebase, bisect and `update-refs` state, where `git branch -D` looks
+too from git 2.38. It deletes only when `pr-for-branch.sh` reports a pull
+request for the branch `MERGED` into `main` whose head is the branch's tip,
+which is `/ship` step 0's finished predicate: a commit added after the merge
+is work no merge holds, and keeps the branch, and the helper reads only this
+repository's rows, so a fork's same-named pull request lands nothing. The
+delete is `git update-ref --no-deref -d` against the tip that was checked, a
+compare-and-swap, rather than `git branch -D`, which deletes whatever the
+branch holds when it runs: the read of the pull requests takes seconds, and a
+commit landing in that window would go with the branch. The worktree check
+runs last, because `update-ref` does not make it, and the branch's
+configuration section, which `update-ref` leaves, is removed after the delete.
+The check and the delete are two steps, so the check runs again after it: a
+worktree that took the branch between them, or a second read that fails, puts
+the branch back at the tip and exits 4 or 12 as the first read would have. Its
+residual is a commit made in that worktree in the instant the branch is gone,
+which recreates the ref, so the putting back fails: the helper then exits 4 and
+names the tip, and the `git branch` line that restores it if it is still absent.
+
+Its exit codes, in the rebase helper's meanings where one fits: 0 dropped; 2
+usage, or a name it will not take, a symbolic ref among them; 3 the branch is
+`main`, however it is spelled; 4 the branch is checked out in a worktree, this
+one included, or is being rebased or bisected in one; 6 no local branch of
+that name, so nothing to drop; 7 it has not landed, with no `MERGED` row into
+`main` at its tip, or the tip moved after it was checked; 12 its pull requests
+or its worktrees could not be read, so whether it landed or is in use is
+unknown.
+
+**A reader of pull requests is granted by its whole command line.** `Bash(py
+-3.12 .claude/scripts/sync_pr.py:*)` admits `list`, `verify <n>`, `review-diff
+<n> <out>` and `local-suites`, and nothing in it writes to GitHub: its `gh`
+calls are `pr list` with a fixed field set and `gh api` reads of the harness
+repository's `git/trees` and `compare`, which it spells itself, so no caller
+chooses a field, a repository or a method. A pull request's body is text anyone
+can post, so `list` reads only whether its last line is the sync footer and
+never passes the body on. `verify` is what a branch name is not: it fetches the
+listed head and fails closed on anything it could not read, a truncated tree, a
+`gh` failure or timeout, a manifest it cannot parse, or a head whose oid is not
+the listed one. `--head <oid>`, 40 lowercase hex or exit 2 with nothing read, on
+`verify` or `review-diff` also requires the listed and the fetched head to be
+that oid, so a session binds its proof to the head it checked out and a push
+after it is refused as moved. It proves six things: the pull request is a
+`list` row; the manifest's `harness_commit` is on the harness's `main` and not
+older than the commit `main`'s own manifest names, so a rollback fails; every
+manifest path but `.claude/settings.json` has the payload's blob id there, mode
+aside; the head's `.claude/settings.json` is what the drift gate would render,
+CRLF folded, since `run` starts an executor on that file before CI has judged
+it; the manifest lists each payload file the config neither excludes nor keeps
+local, and lists no path it does; and the head changes only manifest paths,
+old-manifest paths and the manifest, with `.harness/config.json` and every
+`local` path untouched. The settings proof executes code from the head: its
+`.harness/render.py`, read by oid and never from a tree, runs only once that
+commit is on the harness's `main` and the renderer and
+`.harness/settings.base.json` are manifest paths whose blobs are the payload's
+there, and it renders from those and the base commit's config. A difference, a
+missing file, a renderer that raises or one not trusted is a failure line.
+`review-diff` proves all of it first, on the head it then reads, and refuses
+with those lines. Its one write is a `.diff` under `artifacts/review/`. Not
+proved: the manifest's hashes. Residual: blob ids are compared exactly where
+apply and the gate fold CRLF, so a target whose stored blob holds CRLF is
+refused every sync; that fails closed.
+
+**A worktree on a sync branch is granted by its whole command line.**
+`Bash(bash .claude/scripts/git-worktree-sync.sh:*)` admits `<path> <branch>`
+and nothing else. A prefix grant on `git worktree add` also buys `-B`, which
+resets an existing branch past the `git branch --force` deny, so the helper
+spells `git fetch origin <branch>` and `git worktree add --track -b <branch>
+<path> origin/<branch>` itself. The branch must match `SYNC_HEAD` in full,
+`main` included, and a harness test holds the helper's pattern to `pr.py`'s;
+the path and root checks are `git-worktree-fork.sh`'s; a branch that exists
+locally, or that origin lacks, is refused. A name that matches is not a proved
+sync, which is `sync_pr.py verify`'s to say, and `/ship` and `/dispatch` run it
+before the helper. Residual: called directly, the helper opens any branch named
+like a sync, which it checks out and runs nothing in.
+
+**`Bash(py -3.12 -m unittest discover:*)` runs the code of whatever tree it is
+pointed at, and is `/ship`'s alone.** A sync's step 2 runs the target-local
+suites with it, and a prefix grant cannot pin `-s`, so what bounds it is where
+it runs: only in a worktree whose `HEAD` equals the proved oid and whose `git
+status --short` is empty, which the sync section requires before anything in the
+tree runs, and which `dispatch_board.py sync-launch` and `run` compare before a
+`--dispatched` run starts in it. The settings do not allow it, so no other
+command reaches it. Residual: a `/ship` run that skips the comparison runs the
+head's own tests, which is the code the comparison exists to vouch for.
+
+**`gh-issue-harness.sh` files in the harness from a target, and only /ship holds
+it.** `<bug|test-gap|enhancement> <critical|high|medium|low>
+<harness|harness,test|documentation|code|code,test>`, with the stdin shape of
+`gh-issue-create.sh` and the hand route's last line (an enhancement's is the
+request route's), for the sync row, which finds payload defects from a target
+whose checkout is another repository. The repository is a literal in the helper
+and no word selects it: a word `gh-issue-create.sh` took would be the caller's
+to declare, which is why no command is granted that helper. So
+the grant is the boundary: `/ship`'s frontmatter names the helper, the settings
+do not allow it, and both sweeps deny it by the same key as the force-push
+helpers, for the day someone allows it globally. It first searches the open
+issues for that exact title and comments on a match instead of creating, every
+`gh` call under a timeout, and a failed search files nothing. It skips the label
+sibling, which resolves the checkout's repository, so a label the harness lacks
+fails the create rather than being made. Residual: `/ship` can file any text in
+the harness with it, which is its whole use.
+
+**The issue route is the entry point a command is granted, never an argument.**
+`gh-issue-create.sh` takes the route as its fourth word and so lets whoever
+holds a prefix grant on it claim any route's last line, among them the sweep
+route's sentence that a second read-only auditor verified the finding. So no
+command is granted it. `gh-issue-sweep.sh <kind> <severity> <area>` fixes the
+`sweep` route and is the sweeps' only filing grant; `gh-issue-hand.sh` fixes
+`hand` and is `/ship`'s, `/team`'s and `/dispatch`'s;
+`gh-issue-mutation.sh <severity> <area>` fixes `mutation` and the kind
+`test-gap`, the one its sentence is true of, and is for a target's local
+mutation sweep, so no payload command holds it. Each execs
+`gh-issue-create.sh` with the route spelled, so the kind, severity, area, stdin
+and trailer checks stay in one place. A grant on one entry point withholds
+nothing from another, so each command denies the entries it does not hold by
+name, and `gh-issue-create.sh` besides; `/ship` denies agent types and no tool a
+command it chains uses, because a deny on one of those outlasts the step.
+`test_command_grants.py` walks every command in the tree it runs in, a target's
+local ones too, so whether a route needs an entry point is a question about
+every target, not the payload.
+The `request` route has none, since no command in any target files under it; it
+stays reachable by calling `gh-issue-create.sh` directly, and a command that
+comes to need it gets its own entry point of the same shape. Residual: a prefix
+grant on a helper lets its holder choose that helper's own arguments, which here
+are the severity, the area and, on every entry but the mutation one, the kind,
+all in closed sets.
+
+**The replay's provenance and its divergence baseline are files under `.git`,
+and that is a stated limit.** The helper keeps a record in the git directory
+(`claude-rebase-pending`, naming the branch, the lease and the replayed
+commit), writes a marker into the rebase state (`started-by-this-helper`), and
+reads git's own `orig-head` for where a replay began. `continue` takes the
+marker as proof that the helper started the rebase and `publish` forces over
+the lease the record names, so anything able to write there could steer a
+publish: a forged marker passes `continue`, a rewritten record moves the lease.
+What stands in the way is partial: the base settings deny `Edit` on `.git` in
+both spellings for every session, and `guard-helper-argv.py` refuses a command
+substitution in a command that runs a helper. Neither reaches a `Bash` command
+that writes there by another route. It is accepted, not guarded, because the
+same files exist in every target that runs the helper; this repository measured
+nothing about it, and the limit is written down so a reader does not take the
+helper's own checks for protection of the files they read.
+
+**Some of the rebase helper's edges are accepted rather than guarded.** A replay
+amended after a failed push no longer descends from the commit `publish`
+recorded, so `publish` refuses it and names the tip to reset the branch to by
+hand: resetting it for the caller would discard the amend, which is the work.
+And `abort` mid-replay discards uncommitted edits as `git rebase --abort` does,
+because discarding the stop's work is what an abort is for; the helper lists
+them before it aborts. And a two-parent merge on the branch is held to git's own
+merge of its parents in the files that merged cleanly, and in a conflicted file
+it took whole from one side, which must still carry the other side's clean
+hunks. The rest is left to `--cc`, which cannot see a clean hunk dropped inside
+a file: every file of an octopus, a conflicted file resolved by hand, a binary
+one, and one whose parents have no single merge base or whose base lacks it. A
+conflicted name git quotes even with `core.quotePath` off stops the run, because
+a name the check cannot read is not one it may pass.
+
+The third is `Bash(git fetch origin:*)`, which no longer admits a URL but still
+admits a trailing flag; `--upload-pack`, `--receive-pack` and `--exec` are
+denied by name, so what is left is the flag nobody has enumerated yet. The
+honest fix is the helper the transport issue asked for — a
+`git-fetch-origin.sh` taking a branch name and nothing else.
+
+## Pull request reads and the locality verdict
 
 The fourth **was** a pull request's comment feeds read unfiltered, and #56
 closed it. A review body, an inline comment and an issue comment are text
 anyone can post, and a command holding `Edit` that reads one holds an
-injection vector. `/review-copilot`'s filtered feed helpers were the fix, and
-they are archived with it; what survives is the rule they were the first
-instance of. **No command grants `Bash(gh pr view:*)` or `Bash(gh pr list:*)`
-any more**: `ship.md` reads state through `pr-state.sh`, `pr.md` reads
-GitHub's own closing-issue parse through `pr-closure-input.sh` — for a
-comparison a person makes here, the gate that consumed it having not been
-ported — every command that needs a branch's PR resolves it through
-`pr-for-branch.sh` — the test that pins the helper lists them — and
-`review-branch.md` and `ship.md` judge a PR's changed paths against the
-body's `| Class |` and `| Touch set |` rows through `pr-locality.sh`, which
-prints a verdict per path and never the rows. `git-trailer-pr.sh` (#207) makes
-one read of its own, `state`, `headRefName`, `baseRefName` and
-`isCrossRepository`, and its suite holds that to the one `gh` line and to no
-`reviews`, `comments` or `body`. Every one fixes its field set,
-because a caller that chooses fields can choose `reviews`. `settings.json`
-carries no `gh` allow, so no tracked rule approves a raw call: it prompts, or,
-under the user-level `auto` mode the #26 paragraph records, goes to the
-classifier.
+injection vector. **No command grants `Bash(gh pr view:*)` or
+`Bash(gh pr list:*)` any more**: `ship.md` reads state through
+`pr-state.sh`, `pr.md` feeds the closure gate through
+`pr-closure-input.sh`, every command that needs a branch's PR resolves it
+through `pr-for-branch.sh`, and `ship.md` judges a PR's changed paths
+through `pr-locality.sh`. Every one fixes its field set,
+because a caller that chooses fields can choose `reviews`. **`gh pr list`
+was the door found last**: `--json reviews,comments` returns every pull
+request's review bodies at once, and three commands kept it for the
+harmless job of finding a branch's PR.
 
-**One file was not enough, and `gh pr view` was not the only door.**
-`allowed-tools` entries are cumulative auto-approvals rather than a
-whitelist, so a grant removed in a chained command and kept in its caller
-withholds nothing on the unattended path. And `gh pr list --json
-reviews,comments` returns every pull request's review bodies at once —
-measured here, a 2,457-character review body out of `gh pr list --state all
---limit 1 --json number,reviews` — and three commands had kept that grant for
-the harmless job of finding a branch's pull request.
+**`pr-for-branch.sh` answers three questions before its caller reads a row.**
+Its listing asks `gh` for `--limit 1000`, because the default page of 30 is cut
+before the fork filter and the landed row can vanish; a response of exactly the
+limit may be a prefix and is refused with exit 4. Only rows into `main` are
+listed, since every pull request this chain opens targets `main`, and a newer
+one into another base would otherwise mask it. A `MERGED` row is dropped when
+the row's merge commit is an ancestor of the local branch: that branch was
+recreated from a `main` holding the merge, so the row is an earlier
+incarnation of a reused name. A branch with commits added after its merge does
+not carry the merge commit, and keeps the row. With no local branch, or a merge
+commit not fetched, the row stays, since stopping is the answer when the drop
+cannot be shown. The merge commit is requested and not published. Residual: a
+landing that leaves the branch on the merge commit itself, such as a
+fast-forward, loses its row, which keeps a workspace standing rather than
+removing one.
 
 **The gate that pins this is an ALLOW-list of `gh` subcommands, and it is the
 second one in this repository to be rewritten that way.** Its first version
@@ -1149,7 +1602,7 @@ earlier, and the rule nobody re-read was not.
 
 **The set itself is deliberately not written here**, which is the fix rather
 than an omission — it is `GH_GRANTS_THAT_CANNOT_REACH_A_FEED` in
-`test_harness_helpers.py`, beside the assertion that reads it, and a copy in this
+`test_pr_helpers.py`, beside the assertion that reads it, and a copy in this
 file is what went stale. This paragraph carries the argument for why a
 subcommand joins or leaves that set; the set carries the membership.
 
@@ -1157,8 +1610,6 @@ subcommand joins or leaves that set; the set carries the membership.
 issue named two commands; the case whose subject is *every* command's
 frontmatter caught the third. That is the gate-coverage lesson paying for
 itself inside the change that added the gate.
-
-## Suppression, auto mode and how the guard fails
 
 **#150's suppression clause moved three times in one branch, each time one
 grant along from the one just closed, and it is the clearest instance of #56
@@ -1172,85 +1623,120 @@ grant rather than on the instruction line**, because a listing line naming four
 fields is a rule a reader follows and a prefix grant beside it is what the
 session can actually run.
 
+**`pr-locality.sh` prints a verdict and never the cell it judges.** It
+reads `body` from the pull request, with any carriage return removed, and
+`filename` and a rename's `previous_filename` from the files endpoint, so both
+ends of a move are judged as the CI gate judges them. It prints one `class`
+line whose value is letters it validated, then one line per changed path,
+where the path is the diff's own and the word is the script's:
+`outside-class` when the class's tree set does not admit it, whatever the
+touch set says, since no row may declare what its class does not admit;
+otherwise `outside` when the touch set does not, and `inside` when both
+do. The tree set is read from this checkout's
+`.github/locality-gate/classes.yml`, where the CI gate reads the map out of
+the base branch's tip, so the round's verdict is the gate's only while this
+branch's map and this helper match that tip's: a pull request that edits
+either, or a branch behind a base whose map has since moved, is judged here
+by its own copies and in CI by the base's, which is how the gate stops a
+pull request widening its own class. #1545's review rounds read `inside` for a
+runbook that a Class C PR's widened row admitted and its class did not, and
+CI was the first to refuse it. A pull request author is not a
+trusted party, and a path grammar cannot keep prose out of a cell —
+`Ignore_all_previous_instructions.md` is a path — so the cell is consumed
+there and only the verdict leaves. A changed path is the author's text too,
+since git permits a newline in a name, so each arrives JSON-encoded and is
+printed only if it decodes to a plain path: no escape, path characters
+only, a `/` or a `.` in it, no `..` segment. Any other name refuses the
+whole run, because a verdict list with one line withheld reads as complete.
+
+**Its grammar refuses rather than guesses.** A body carrying neither row
+prints nothing, and the caller skips its touch-set check and says so; one
+row without the other is refused, because each caller reads the pair. A
+class cell is one letter A–E, two distinct letters joined by `+`, or
+`A+D+E`; a touch-set cell is a comma-separated list of path tokens, bare or
+in balanced backticks, of path and glob characters, each carrying a `/` or a
+`.` and each repository-relative — no leading `/`, no `./`, no `..`, brace
+alternatives included. A token may hold `@` and `+` as a changed path may,
+the `+` read as a character and not as a quantifier, in the class map's items
+as in a row; an empty brace alternative is refused, because GNU and BSD `grep`
+read an empty alternative differently and one set would judge a path `inside`
+on one machine and `outside` on another. The verdicts come from one `grep`
+per pattern over every changed path, and a path is checked by `case`, so no
+process is spawned per path: on Windows a spawn per path and pattern made
+the helper look hung. A row that fails its grammar exits 3 naming the row
+and not its content, and so does a class map that is absent, names a class
+twice, leaves one without items, or holds a line or a token outside its
+grammar: a verdict half-read from a map the helper refuses would be one no
+gate gives. **The verdict narrows
+and grants nothing**: the caller's deny list and the class's tree set hold
+authority, an `outside` or `outside-class` line is a finding, and an
+`inside` line is not a licence for anything the caller's grant refuses.
+`test_pr_helpers.py` pins all of it.
+
+**Residual: the helper's token grammar is the wider one a frontend-style
+tree needs.** It admits `@` and `+`, as a changed path may. A target's own
+locality gate is that target's file and must be widened in step, and a gate
+that is not refuses them: until it is, a row naming `@` or `+` reads `inside`
+here and is refused in CI. Backend's gate is such a one today. A token both
+admit is held to one answer by the target's own suite, not by this one.
+
+**Every `gh` read these helpers make is bounded, because one that stalls
+holds every step chained behind it.** #603 was `pr-locality.sh` printing
+nothing for minutes in a review round, the round's locality file left empty,
+and a rerun a minute later answering in seconds. Each `pr-*.sh` sources
+`gh-read-bound.sh` and reads through its `gh_read`, which ends a read still
+running at `GH_READ_BOUND_SECONDS` with `timeout`'s exit 124 and a line on
+stderr naming the call. A stall then fails as loudly as a refused login
+does, rather than looking like a slow API. `test_pr_helpers.py` runs every
+`pr-*.sh` against a `gh` that never answers, so a helper added later is held
+to the bound by the glob rather than by someone remembering it.
+
+## Sweep push denies and chained commands
+
 The fifth is **`git push` under the two sweeps**, and it is the one that looks
 closed and is not. Both commands state a read-only boundary, and both used to
 close it with "no `git push` is granted either, so the branch cannot move" —
-which reads an *absence* as a control, the exact rule the sentence beside it
-had just retired. `.claude/settings.json` **allows** `Bash(git push origin:*)`
-and `Bash(git push -u origin:*)` globally, so under those rules alone a push of
-the current branch does not prompt at all — which `auto` mode made false, below;
-only force-pushes and pushes to `main` are denied. Naming
-`git push` in each sweep's `disallowed-tools` was the obvious fix and stayed
-**unverified** for a while: that key's `Bash(...)` form had never been
-measured here — the `Agent(...)` form is what was — and a nested `claude -p`
-probe could not separate a rejected pattern from a command that failed to
-load. **It is measured now**, by a throwaway command in a detached worktree
-carrying `Bash(git diff:*)` in both keys: the diff was refused with the
-harness's own "has been denied" text while a `Bash(wc:*)` in the same session
-ran, which separates the two exactly. Both sweeps deny `git push origin`,
-its `-u` form and the raw `gh issue create` by name, and the deny wins over
-the global allow because precedence is deny first.
-
-**"Does not prompt at all" was false under the mode this repository is run in
-(#33)**, and it is the same shape as the writing verbs above: the sentence
-assumed the allow rule decides the push, and a user-level `"defaultMode":
-"auto"` is a file this repository cannot read. On three branches in a row —
-`fix/tabs-teardown-race`, `fix/late-browser-finished` and
-`fix/cart-line-validation` — `git push -u origin <branch>` was refused with
-the harness's "has been denied" text and no hook reason, while
-`guard-git-argv.py`, run on the same event, allowed it. The documentation
-says the opposite should happen: auto mode drops only broad allow rules on
-entry and keeps a narrow one like this, which resolves before the classifier
-is consulted
-([permission modes](https://code.claude.com/docs/en/permission-modes.md)).
-**So the cause is not established.** The standing inference is the classifier
-reading an `autoMode.environment` block that names only the backend's remote
-as trusted source control; it explains why `gh-pr-create.sh`, whose text
-names no remote, ran unattended in the same sessions, and nothing has
-measured it. What is established is the outcome: **under that setup the
-project grant does not deliver an unattended push**, `/pr` and `/ship` name a
-refused push as a stop with the manual line, and the remedy that does not
-route around a refusal is a user-level one — naming this repository and its
-`origin` as trusted source control in `autoMode.environment`.
-
-**The sweeps' push deny does not depend on that answer.** Deny rules, a
-command's `disallowed-tools` included, are evaluated before the classifier and
-refuse whatever it would have said
-([auto mode configuration](https://code.claude.com/docs/en/auto-mode-config.md)),
-so the measurement above still decides the sweeps' case: a push the global
-allow may or may not admit is one they refuse either way. That is documented
-precedence, not a second measurement under `auto`.
+which reads an *absence* as a control, the exact rule the sentence beside it had
+just retired. `.claude/settings.json` **allows** `Bash(git push origin:*)` and
+`Bash(git push -u origin:*)` globally, so a push of the current branch does not
+prompt at all; only force-pushes and pushes to `main` are denied. Naming `git
+push` in each sweep's `disallowed-tools` was the obvious fix and stayed
+**unverified** for a while: that key's `Bash(...)` form had never been measured
+here — the `Agent(...)` form is what was — and a nested `claude -p` probe could
+not separate a rejected pattern from a command that failed to load. **It is
+measured now**, by a throwaway command in a detached worktree carrying `Bash(git
+diff:*)` in both keys: the diff was refused with the harness's own "has been
+denied" text while a `Bash(wc:*)` in the same session ran, which separates the
+two exactly. Both sweeps deny `git push origin`, its `-u` form, the raw `gh
+issue create` by name and every `gh` command (`Bash(gh:*)`, for `gh issue new`
+and `gh api`), and the deny wins over the global allow because precedence is
+deny first. The base settings also grant `git-push-force.sh` and
+`git-branch-drop.sh` globally, so both sweeps deny those two helpers by the same
+key: a terminal read-only command has no branch to force-push or drop. They deny
+`gh-issue-harness.sh` beside them though no setting allows it, so a later global
+allow cannot reach them.
 
 **A frontmatter deny holds for the rest of the user turn, not for the command
-that states it, and that is a cause the paragraph above did not have
-(blueprint-admin#17).** Measured there: `/ship` ran `/commit` and then pushed
-in the same turn, and the push came back "has been denied" in under a second
-with no hook reason, every time, while the identical push after a new user
-message ran — and a classifier refusal is slower and names itself. So
-`Bash(git push:*)` on `/branch` or `/commit` refused `/ship`'s own push a step
-later. **A command `/ship` runs before it pushes never denies push. Do not put
-it back.** It reads as hardening and is not: `/branch` and `/commit` leave the
-push to `/pr`, and the git-argv hook and `settings.json` refuse `main`, force
-and delete whoever asks. `CHAINED_BEFORE_A_PUSH` in `test_harness_helpers.py`
-names the chained commands and fails if one denies push again. A terminal,
-read-only command — the two sweeps — keeps its deny, because nothing pushes
-after it. Whether the three refusals above were this rather than the
-classifier was not re-examined, so the user-level remedy stands beside this
-one, not replaced by it.
+that states it (blueprint-admin#17).** Measured there: `/ship` ran `/commit`,
+which denied `Bash(git push:*)`, and then pushed in the same turn, and the push
+came back "has been denied" in under a second with no hook reason, every time,
+while the identical push after a new user message ran. No command `/ship` chains
+here carries that deny, and the rule is that none gains one: **a command `/ship`
+runs before it pushes never denies push.** It reads as hardening and is not —
+`/branch` and `/commit` leave the push to `/pr`, and the git-argv hook and
+`settings.json` refuse `main`, force and delete whoever asks.
+`NothingShipChainsDeniesPush` in `test_command_grants.py` names the commands and
+fails if one denies push. A terminal, read-only command — the two sweeps — keeps
+its deny, because nothing pushes after it. A target whose *Ship checks* run a
+command of its own names it in `CHAINED_BEFORE_A_PUSH` in a `local_commands.py`
+of its own beside the suites, listed under `local`: that case holds it to
+denying no push, and `ACommandThatDoesNotPublishCannotPush` stops asking it to
+deny one. A subclass in the target's own suite could do the first and not the
+second: `unittest discover` still runs the payload's
+`ACommandThatDoesNotPublishCannotPush` as written, which asks every command it
+does not exempt to deny push.
 
-**`/review-grok` was the one chained command that could not follow that rule,
-and it left with the external reviewers.** Its bare `Bash` deny was its
-boundary — it read an untrusted review holding `Edit` — so `/ship` ran it
-inside a `review-grok-triager` profile with no `Bash`, two `PreToolUse` hooks
-of its own (`guard-triager-dispatch.py`, `guard-triager-edit.py`) and one
-measurement still owed. The local review that replaced it holds no writing
-agent: `branch-reviewer` reads and returns data, and the fixes are this
-session's own, made under the deny list and the hooks every session meets.
-What that profile's history established still stands for any future writing
-agent (blueprint-admin#19, #23, #27): a command loaded inside an agent can
-discard its own frontmatter deny, a type list inside a subagent's `Agent`
-grant is ignored, and a command's `disallowed-tools` lasts only the turn that
-loaded it, so a boundary an agent must keep across turns lives on its profile.
+## Output deny and shell-expansion residuals
 
 The sixth **was** the `--output` deny itself — the inventory's one entry that
 is a *deny* rather than an allow, listed because a deny over a command string
@@ -1274,9 +1760,7 @@ paragraph named as the admitted case.
 **What survives is the run-time half alone**: a value the shell is *told*
 rather than one written where the guard can read it — `F=--output=x; git log
 $F`, or `N=2; git log -${N}`. Closing that needs the argv after expansion,
-which no hook is given. **It is accepted, because no mechanism available to a
-hook or a rule can close it (blueprint-frontend#116)**: a hook is handed the
-typed command and a rule matches its text, and the value arrives after both.
+which no hook is given.
 
 **One construct puts that residual inside a word a caller types literally, and
 it is refused for exactly that reason.** `$"…"` is a *translated*
@@ -1336,27 +1820,39 @@ it does not deserve. That shape needs a printer writing a push into a pipeline
 whose far end merely mentions a shell; it has never been typed here, and the
 alternative fails open on a wrapper nobody listed.
 
-## Entries seven to ten: agent pinning, the push deny-list, the build grant, the review-grok pair
+## Agent-type and push entries
 
 **A seventh thing is a gap in the mechanism rather than in a grant.** Pinning a
 command to one subagent type is a **deny list of every other type**, because
-the harness has no "only this type" allow — so every command that grants an
-agent by exact type enumerates the registered types it does not grant, and
-**a newly added agent under `.claude/agents/` is admitted by default** until
-someone adds it to each list. That is the shape this repository already knows
-rots; it is taken here because the alternative on offer is prose. **It rotted
-once already on the day a third agent arrived**: `review-adjudicator` was
-added for #149 and every command then holding a list had to name it, which is
-the enumeration's cost paid in the change that proves it.
+the harness has no "only this type" allow — so `security-sweep.md`,
+`bug-sweep.md`, `team.md` and `ship.md` each deny every registered type but the
+one they grant (`ship.md` also leaves `general-purpose`, which step 2
+dispatches its audits as), and **a newly added agent under `.claude/agents/` is
+admitted by default** until someone adds it to every list;
+`test_command_grants.py` fails a granting command that does not. That is the
+shape this repository already knows rots; it is taken here because the
+alternative on offer is prose. **It rotted once already on the day a third
+agent arrived**: `review-adjudicator` was added for #149 and every command then
+holding a list had to name it, which is the enumeration's cost paid in the
+change that proves it.
 
-**Its disposition is half accepted and half pinned (blueprint-frontend#116).**
-The admission at run time is accepted, because no mechanism available to a
-hook or a rule can close it: the harness offers no "only this type" allow,
-and a dispatch hook cannot tell which command granted the call. The drift is
-pinned: `test_every_exact_agent_grant_denies_every_other_type` reads every
-profile's `name:` out of `.claude/agents/` on each run and fails any granting
-command that does not deny it, so a new profile goes red in the `harness` job
-before it can be admitted anywhere a person did not decide.
+**A command that does not publish denies `git push`, and one that holds `Edit`
+or `Write` is held off the repository's machinery by the settings.** The
+settings allow `git push origin`, so a command that neither grants nor denies
+push reaches it; `ACommandThatDoesNotPublishCannotPush` in
+`test_command_grants.py` derives the commands from their frontmatter, so a new
+one fails until it decides. `branch.md` and `commit.md` are the exemption:
+`/ship` runs them before it pushes, and a frontmatter deny outlasts the step.
+`Edit` and `Write` carry no path scope, so `.git`, `.mcp.json` and
+`.codeindexignore` are denied in the base settings in both spellings, for
+every command at once, because the grant is per command and a new editing
+command should arrive behind the deny; `test_harness_denies.py` checks it
+against each command that holds either tool. No payload command edits any of
+the three, so the deny costs none. A target whose own command must edit one
+changes the base in `blueprint-harness`, because a deny beats every allow.
+Residual, as for the rest of the list: the git guard judges a redirection and
+the writing verbs (*Git argv guard hook*), and any other program still writes
+what `Edit` refuses.
 
 **The eighth was the push deny-list (#23), and it closed the way the sixth
 did.** Two broad allows — `Bash(git push origin:*)` and the `-u` form — paired
@@ -1376,53 +1872,44 @@ at all. That is the deny-list trailing the grammar in parser form. **The
 question is inverted now**: a push is refused unless every part of it is
 recognised, so the spelling nobody has listed is refused for being
 unrecognised rather than admitted for being unlisted. Its suite carries the
-six the issue listed and six it did not, plus the three pushes `/ship`
-actually makes, because over-reach here breaks the delivery chain and would
-be found at the worst moment.
+six the issue listed and the spellings it did not, plus the three pushes
+`/ship` actually makes, because over-reach here breaks the delivery chain and
+would be found at the worst moment. **One spelling still got through**: git
+matches a destination that is not fully qualified against `refs/%s`, so
+`HEAD:heads/main` is `refs/heads/main`, and the parser stripped only the
+longer prefix (#1154). It strips either now, once, so `refs/heads/heads/main`
+stays the branch it names.
 
-**The ninth is `/review-branch`'s build grant, and what makes it worth its own
-entry is that the enumeration guarding it could never have worked.** That
-command holds `Write`; its `disallowed-tools` denies every tracked root file,
-read from `git ls-files` by a test so a new one is a red build. But a build
-reads files nobody asked it to, and the dangerous one is the file that does
-**not** exist yet — so it is on no list read from what exists, and no care
-about that test could have put it there. Write it, run the build the command
-already had, and it executes. Measured over there, in a scratch tree: an
-`Exec` in an auto-imported MSBuild targets file fires and the build reports
-success. Raised in review.
+**The ninth was a build tool's grants in backend's branch-review command**,
+and it is that repository's to keep, under *Residuals* in its
+`docs/harness-local.md`: a file the build imports by name that does not exist
+yet is on no list read from what exists, so a deny enumerated from the tree
+cannot cover it.
 
-**The same shape is sharper in this toolchain, not milder.** `eslint.config.js`
-and a `vitest.config.ts` are JavaScript that is executed in order to be
-loaded; `.npmrc` can set `script-shell`; a `pre`/`post` entry in
-`package.json` runs on every `npm` invocation. And the grant that would have
-bought it — `Bash(npm run:*)` — admits any script the manifest names,
-including one the command has just written, while `npm test -- --config
-<path>` admits a file Vitest executes to read, `suggestions.md` among them.
-None of those is granted: the executor is `npm-checks.sh`, whose only
-variable is one word out of a closed set, and `test_harness_helpers.py` asserts
-that no command's frontmatter carries `Bash(npm `, `Bash(npx `, `Bash(node `,
-`Bash(ng `, `Bash(yarn ` or `Bash(pnpm `.
-**The helper closes the executor and not the manifest**, so the auto-load
-names are denied as well, in the one command that states editing boundaries
-— the artefact outlives the command that writes it.
+**A boundary an agent must keep across turns lives on its profile.** It was
+measured in blueprint-admin (its #19, #23 and #27) and blueprint-backend (its
+#52 and #149) while a writing agent still ran in the chain, and this repository
+has not re-measured it. A command loaded inside an agent can discard its own
+frontmatter deny; a type list inside a subagent's `Agent` grant is ignored; a
+command's `disallowed-tools` lasts only the turn that loaded it, so a deny a
+later step must still meet cannot be put there. A command's `disallowed-tools`
+propagate to the subagents it spawns, and a path deny reaches a `Bash` command
+naming the path; the harness offers no deny that reaches the parent and not the
+child. The local review holds no writing agent, so none of this binds a
+boundary today, and it binds the first one added: `branch-reviewer`,
+`bug-auditor`, `security-auditor` and `team-peer` hold `Read`, `Grep` and
+`Glob` on their profiles for that reason.
 
-**Which half is measured is recorded rather than rounded up.** The exact
-filenames are the spelling the file already used and the suite reads. The
-`**/*.config.js`-style globs beside them are the documented gitignore syntax
-and are **not** measured in a `disallowed-tools` value — belt to the names' braces,
-and not the control.
+## The edit-target guard
 
 **The tenth was `/review-grok`'s `Edit` and `Write` beside an untrusted
 review (#52, #149)**, closed by splitting the reading from the writing and
-now archived with it. A command's `disallowed-tools` propagate to the
-subagents it spawns, and a path deny reaches a `Bash` command naming the
-path, both measured on that split, and the harness offers no deny that
-reaches the parent and not the child. What outlived it is the premise its
-writing step rested on — the helper suite fails on any tracked mode `120000`,
-so `main` carries no symbolic link — but a premise about `main` was never one
-about the branch being edited, which introduces files before CI judges them
-(#181). `.claude/hooks/guard-edit-target.py` is the check that premise stood
-in for — the second hook in this repository, and the argument for it is one
+now archived with it. What outlived it is the premise its writing step rested
+on — the helper suite fails on any tracked mode `120000`, so `main` carries
+no symbolic link — but a premise about `main` was never one about the
+branch being edited, which introduces files before CI judges them (#181).
+`.claude/hooks/guard-edit-target.py` is the check that premise stood in for
+— the second hook in this repository, and the argument for it is one
 sentence: **an edit target must be the file its path spells.** It resolves
 the target of every `Edit`, `Write`, `NotebookEdit` and `MultiEdit` — the
 matcher, the hook's own `EDITING_TOOLS` and the registration case all name
@@ -1432,16 +1919,43 @@ resolved checkout root, and refuses the call when the two disagree — into a
 denied tree, or out of the checkout. The premise stays as defence in depth
 and its gate stays green.
 
-## The edit-target guard: anchors and path resolution
-
 **That guard holds no copy of any deny list, and refusing to write one is
 the whole of why it is safe to run on every write this repository makes.**
-A path deny is *correct* when the spelling is true of the file, so the hook
-judges only the disagreement and leaves every list — `.claude/settings.json`'s
-and both commands' frontmatter — to say what may be edited. Nothing here goes
+A path deny is *correct* when the spelling is true of the file, so inside a
+checkout the session stands in the hook judges only the disagreement and
+leaves every list — `.claude/settings.json`'s and both commands' frontmatter —
+to say what may be edited; where no rule reaches it reads that list rather
+than copying it, as the next paragraph says. Nothing here goes
 stale as those change, and the PR that lifts a deny to edit a helper is not
 refused by the guard on its way past. A test pins that control: a denied tree
 spelled as itself is **admitted** here.
+
+**Two things a path deny cannot reach are judged here all the same, and
+neither takes a copy of a list.** Every rule anchors at the session's
+permission root, so a worktree of this repository that the session has not
+entered, the main checkout seen from a linked one included, is reached by none
+of them: its `.claude/scripts/x` and its `.git`
+are judged by this target's own `Edit(...)` denies, read from
+`.claude/settings.json` through `guard-git-argv.py`'s `denied_path`, anchored at
+that worktree's root and folded for case, and a link inside it is judged as in
+any checkout. `.github` there is refused only where a target denies it, and
+the worktree the session stands in is the project, not this rule. A worktree is
+one only if git's backlink agrees, so a `.git` file alone makes none, and a
+checkout of another repository is not one, because this target's denies say
+nothing about what it protects.
+
+**Outside every checkout the guard refuses by name and admits the rest.**
+`~/.ssh`, the shell profiles and `~/.gitconfig` run at login under every
+session, and `~/.claude`'s credentials, settings, hooks, commands, agents,
+plugins, scripts, skills and sandbox apply to every project, judged on the
+first component only, so a name below `projects` is a session's own state. An
+allow-list of roots is the stronger form and it was measured against what
+sessions write: it refuses sibling checkouts, `run-locally.md` and the task
+list, a false refusal under *The guards' threat model*. `~/.claude/CLAUDE.md`
+stays writable because it is the owner's rules rather than a grant, and a
+change to `~/.claude/settings.json` is the owner's to run from a script.
+
+## Edit guard path resolution
 
 **Two properties of the resolution are load-bearing and were each found by
 running it rather than by reasoning about it.** The anchor is resolved as
@@ -1462,6 +1976,15 @@ disagree about `..` after a link — POSIX resolves it against the link's
 target, Windows collapses it before the filesystem sees it — and the guard
 follows each rather than picking one, measured both ways in
 `.claude/scripts/test_edit_target_guard.py`.
+
+**That suite's link cases run against a real link, on every primitive the
+platform grants**: a symbolic link where the session may make one, and a
+directory junction on Windows, which is all an unprivileged process gets
+there. Neither is a skip, because a skip on a missing capability reports a
+pass, so a platform that grants no primitive fails the module. `..` after a
+link, case folding and the link primitives are asserted as the platform's or
+filesystem's own answer, because the guard follows each, so the verdict is the
+host's rather than a hard-coded expectation.
 
 **What an anchor is, and why it is two rules rather than one, is the part
 that shipped wrong.** An anchor excuses exactly one link traversal: the one
@@ -1521,6 +2044,8 @@ recognise its spelling is refused, whatever alphabet the spelling is in.
 Measured against the commit that shipped it — admitted there, refused after —
 and the control is the worktree case, where a session standing in the aliased
 directory makes it a root of its own and the spelling is recognised again.
+
+## Normalisation, residuals and the sweeps
 
 **Unicode normalisation is the same shape on a different platform, and it took
 two rounds because the first fix argued its way past the probe.** A
@@ -1584,193 +2109,26 @@ traffic. Raised by Copilot, and the premise is the half that failed; a passing
 case pins the verdict and names what to invert if the harness ever stops
 normalising.
 
-**Its residual was the half the harness itself needs, and the sentence naming
-what was owed is what got paid (#21).** The subject is a target spelled
-*inside* a checkout the session is standing in; a path spelled entirely
-outside one was not judged, because the session's memory and scratch state are
-written that way by absolute path and refusing them would take both with it.
-That was argued against the wrong threat: it reads as though the alternative
-were refusing everything, when what was owed — this paragraph said so — is "a
-rule about which out-of-tree paths are legitimate". Meanwhile `/review-branch`
-holds an unrestricted `Write`, consumes untrusted branch text and runs
-unattended inside `/ship`, so an injected diff could name a shell profile, an
-SSH key or a credential, and the fallback allowed it.
-
-**It is an allow-list now: the platform temp directory the scratchpad is
-created under, and `~/.claude`.** Within that second root the harness's own
-control surface is refused as well — `settings.json`, `.credentials.json`,
-`hooks/`, `commands/`, `agents/`, `plugins/` — because the root is admitted for
-STATE and a credential is not state, which is this repository's own argument
-about its `.claude/` applied one level up where the grant is wider. Each root
-is matched in both its spelled and resolved forms, since macOS reaches `TMPDIR`
-through a link and comparing against the spelling alone would refuse the
-scratchpad on every macOS host. The control-surface names are that second
-root's exclusion only: under the temp root a folder called `scripts` is
-scratch. What the temp root refuses instead is a checkout's machinery — the
-sweeps' detached worktrees live there, so a target inside a checkout under it
-is judged against the protected inventory relative to that checkout. **What is
-left**: the rest of the temp root is admitted rather than the session's own
-subdirectory within it, because no environment variable names the scratchpad
-and deriving it would be a guess the hook cannot check.
-
-**Nothing of the fall-through itself is left (blueprint-frontend#116).** A
-target under no anchor now reaches `outside_offence` and is refused unless one
-of the two roots or the task list below admits it; no branch of the guard
-admits by falling through. The temp-root breadth above is the one residual
-that replaced it, and it is accepted, because no mechanism available to a
-hook or a rule can close it: neither is told which subdirectory is the
-session's.
-
-**One file outside every anchor is admitted by name: the task list,
-`.todo/blueprint-frontend.md` in the main checkout's parent directory
-(blueprint-frontend#362).** `docs/change-locality.md` §6 puts it there and
-tells every session to write it from wherever it stands. It replaced the main
-checkout's `TODO.md`, which this guard admitted from a linked worktree
-(blueprint-frontend#45) and which Claude Code's own isolation refused anyway to
-a session moved into the worktree with `EnterWorktree` — *"Edit the worktree
-copy of this file instead of the shared-checkout path"* — because the
-isolation refuses every main-checkout path outside the worktree and admits one
-no checkout contains. **The guard owns the other layer**: a path outside every
-anchor fell to the allow-list above and was refused, so moving the file alone
-would have swapped one refusal for another, measured on blueprint-frontend#362
-before the guard changed. The hook names the file from the repository the guard
-itself belongs to — its own checkout's `.git`, through `commondir` for a linked
-worktree — so neither the event's `cwd` nor `CLAUDE_PROJECT_DIR` can name
-another repository's list, and no anchor enters the answer. It admits that one
-path when its spelling and its resolution are both it, the spelled parent
-compared resolved: a list that is a link, or a `.todo` that is one, is judged
-by where it lands and refused. A `TODO.md` at the main checkout's root that
-links to the list is refused one rule earlier, as a target inside a checkout
-that resolves out of it. The file is in no checkout, so nothing any commit,
-review or build reads can change through it; the residual is that any session
-of this repository can rewrite the user's task list, which is the write the
-rule asks for.
-
-## The eleventh entry and the history-rewriting helpers
-
-**The eleventh was opened deliberately rather than found**, and until
-`git-trailer-pr.sh` (below) it was the only force push in this repository.
-Branch updates are rebases now (#57), so a
-branch's published commits are rewritten, and `.claude/settings.json` denies
-`git push --force`, `--force-with-lease` and `-f` alike. **Those denies are
-untouched**, and the eighth entry's parser judges a push exactly as it did
-before. `git-rebase-onto-main.sh` carries the flags itself, takes one branch
-name that has to equal the one checked out, refuses `main` by name before it
-reads the checkout at all, refuses a remote holding commits this checkout did
-not start from, and leases the push against the commit the same run read rather
-than against whatever a fetch has since made of the remote-tracking ref. **A
-rule could have bought none of that**: a permission pattern matches the text of
-a command, and every guard in that list is a fact about the checkout. Which is
-the general form — where the safety is a property of the state rather than of
-the words, the grant has to be a helper.
-
-**Two residuals stand with it, and an entry that named neither would be the
-thing this paragraph exists to refuse.** The grant is a **prefix** grant, so
-nothing in the rule constrains the text after the script path — which is the
-class recorded further up for every `bash .claude/scripts/*.sh:*` grant,
-spent here on the one operation that rewrites published history. **The hook
-holds the arguments to plain words now** (blueprint-frontend#179), so a
-substitution, a backtick or an unquoted glob there is refused before it runs;
-what stays is a plain word that is wrong. And "carries the flags itself"
-means the five
-`rebase.*` keys that decide which commits are replayed; the repository's own
-`pre-rebase` and `post-rewrite` hooks **were** the host's, which granting a
-rebase at all granted, and blueprint-frontend#180 closed that (below). A third
-is smaller and is written down for the same
-reason: the replay's provenance and its divergence baseline are files under
-`.git` — the marker the helper writes, the record it keeps and git's own
-`orig-head` — so anything able to write there could steer a publish. What
-stands in the way is partial: `guard-git-argv.py` holds `.git` among its
-protected trees for redirections and the writing verbs it models, every
-command file denies `Edit(.git/**)`, and no grant's own operation creates
-files there. None of that reaches a substitution in this grant's tail, which
-the first entry records as a standing residual: a `git` subcommand or a
-writing option run there can write under `.git` before the helper checks
-anything.
-
-**Each of the three has a disposition (blueprint-frontend#116).** The free
-tail is not accepted, because a hook can close it: `guard-git-argv.py` sees
-the typed command before bash builds the argv, so it can refuse any argument
-to a granted `.claude/scripts/` helper that is not a plain word, and
-blueprint-frontend#179 is that fix. The host's `pre-rebase` and
-`post-rewrite` hooks are not accepted either, because the helper can spell
-them away as it spells the `rebase.*` keys — `-c core.hooksPath=` pointing at
-an empty directory — and blueprint-frontend#180 did. The helper sets it through
-`GIT_CONFIG_COUNT` once, before any git runs, rather than as a `-c` on each
-command, so every git it starts and every git those start — the sequencer's
-included — inherits it, and a caller's own injected entries are kept.
-`TheHostsHooksNeverRunInAReplay` plants a failing `pre-rebase`, `post-rewrite`,
-`pre-push` and `reference-transaction` hook and shows `start` and `continue`
-run none of them. The cases that used a failing hook to make a rebase or a
-push fail now hold an `index.lock` and use a remote that refuses a
-non-fast-forward, because a hook is no longer a way to do it. (A file where git
-wants its `rebase-merge` directory was tried first and fails the rebase on
-Windows only.) The `.git` files are reachable only through the
-substitution route, so their fix was blueprint-frontend#125's, which closed
-the routes past the substitution hold that its review found; nothing granted
-writes under `.git` through one of those.
-
-**It is granted to `/ship` alone, and it was ported rather than written here.**
-The helper and its suite came from `alexander-shamray/blueprint-backend`, which
-built and reviewed them; what that review added and the first draft lacked is
-the `publish` mode — the replay finishes, the push fails, and the rebase state
-goes with it, so without a recorded lease neither `start` nor `continue` can
-reach the branch again, and the only granted way to publish is shut.
-
-**One guard in it is this repository's rather than the backend's, and the
-difference is step 0.** A rebase drops merge commits, and a merge can carry
-content that is in neither parent — a conflict resolved while merging. Over
-there `/ship` step 0 reads the same thing for its own reasons; here it reads
-**identity**, the tip against the pull request's `headRefOid`, and argues at
-length against reading content at all. So nothing downstream would see the
-loss, and the check that refuses such a merge sits in the script that would
-otherwise have done the dropping, before it replays anything.
-
-**A second helper rewrites published commits, and is a second force push
-(#207).** `git-trailer-pr.sh` adds `PR: #<n>` to the commits of the branch
-checked out, which changes their SHAs, so it leases its push as the rebase
-helper does, and for the same reason keeps the repository's own hooks and the
-five `rebase.*` keys out of the replay (#180): it sets `core.hooksPath` to an
-empty directory through the environment once, before any git runs, and spells
-`--no-rebase-merges --no-update-refs --no-autosquash --no-fork-point
---no-autostash`. The backend's helper of the same name does neither, and the
-difference is deliberate: the suite plants a `post-rewrite` hook, shows it
-fires on a plain amend, and shows the helper runs none. It takes one number and
-spells the `git rebase -x` command itself, so no `-x` grant stands beside it,
-and it refuses a pull request that is not an open, same-repository one into
-`main` for this branch, a dirty tree, a remote that differs from the checkout
-in either direction, a merge commit, and a commit that already names another
-pull request. Its residual is a push that fails after the rewrite: the local
-branch then carries the trailers and origin's does not, and a rerun finishes
-it, because a commit that has the trailer is skipped. It is granted to `/pr`
-and `/ship`, with the arguments held to plain words like every helper's.
-`git-revert-pr.sh` writes no remote: it reads trailers off `origin/main` and
-reverts on the current branch, and no command grants it; it is run by hand.
-
-**The sweeps' item 5 (#75) closed by the tenth entry's shape** — a second read-only
-dispatch returns a verdict, the parent opens nothing in `$work`, and the issue
-helper leaves `gh issue create` with no free parameter — so
+**Its residual is the half the harness itself needs, stated rather than
+rounded up.** The subject is a target spelled *inside* a checkout the session
+is standing in; a path spelled entirely outside one is judged only where no
+rule reaches it, a linked worktree of this repository by this target's denies
+and the home directory by its named files (*The edit-target guard*), because
+the session's memory and scratch state are written that way by absolute path
+and an allow-list would take both with it. The residual is a passing test,
+not a paragraph alone.
+**The sweeps' item 5 (#75) closed by the same shape** — a second read-only
+dispatch returns a verdict, the parent opens nothing in `$work`, and
+`gh-issue-create.sh` leaves `gh issue create` with no free parameter — so
 the two residuals #149 named as one class went in one change, and the raw
 `Bash(gh issue create:*)` is denied by name in both sweeps now that the
-fifth entry's measurement exists.
-
-**One parameter escaped that reasoning for a while, and it was the one
-asserting the finding had been checked (#19).** The route — `sweep` or `hand` —
-decides the fixed trailer the body must end with, and both sweeps held a prefix
-grant on the script, so the model chose it along with the kind and the
-severity. A hand-filed or injected finding claiming `sweep` asserts a
-verification that did not happen, which is the same shape as a gate that passes
-vacuously, in the sentence a triager reads to decide whether anybody looked.
-The filing logic is now a sourced library with two entry points that each pass
-a constant — `gh-sweep-issue-create.sh` and `gh-issue-create.sh` — and the
-sweeps grant the first while **denying the second by name**, since a grant is
-auto-approval and only a deny refuses. **The residual**: nothing stops a
-session invoking the sweep entry point by hand, because no rule in
-`.claude/settings.json` names it and it is a `bash` invocation like any other.
-What the split removes is the case that runs unattended over a tree that is
-prompt-injection input.
-
-## The two sweeps
+fifth entry's measurement exists. `Bash(gh:*)` is denied beside it for the
+aliases, `gh issue new` and `gh api` (#1287). The residual: a spelling of the
+command word other than the literal `gh`, such as an env-prefixed,
+path-qualified or `gh.exe` call, or one wrapped in a shell, matches neither
+rule and nothing in the tree refuses it. The default mode prompts for such a
+call; in a mode that skips prompts, only the helper being the sweeps' one
+granted route stands in the way.
 
 **The two sweeps are one shape asking two questions**, split by what makes a
 finding rather than by where they look. `/security-sweep` files what an
@@ -1779,11 +2137,9 @@ fork a detached worktree, verify every subagent claim before filing,
 de-duplicate against the whole issue set, never fail open, and file without
 fixing. Three things differ: the threshold, the fan-out cut, and what
 confirmation can mean — **`/bug-sweep` executes none of the snapshot it
-audits**, because building a tree executes it — `npm ci` runs any
-`preinstall`/`postinstall` script in the manifest or in a dependency,
-`angular.json` names builders that are JavaScript, `eslint.config.js` and the
-Vitest config are executed in order to be loaded, and `npm test` runs the
-tree's own test code — and the audited repository is prompt-injection input. So a defect claim there is
+audits**, because building a tree executes it (build targets, source
+generators, analysers, and under a test run the tree's own test code) and
+the audited repository is prompt-injection input. So a defect claim there is
 confirmed by reading, and the class of bug only execution catches is named as
 the residual.
 
@@ -1792,768 +2148,247 @@ borrowing. `git-worktree-detach.sh` and `git-worktree-drop.sh` refuse any path
 that is not `secsweep-` plus six characters under the canonical temp root —
 the shape check that stops a poisoned finding from naming a PR worktree
 and having it deleted. Renaming the prefix would have to move in both helpers
-and both callers at once, so it stands; what is lost is attribution.
+and every caller at once, so it stands; what is lost is attribution.
 
-**A sweep's start also drops what an interrupted sweep left** (#356, ported
-from the backend). Before it forks, `git-worktree-detach.sh` hands each
-sweep-shaped worktree this repository has registered, and that is over a day
-old, to `git-worktree-drop.sh`, then runs `git worktree prune`, which forgets
-every unlocked registration of the repository whose directory has gone, a
-sweep's or a PR's, deleting its metadata under `.git/worktrees/` and no
-working-tree file. The candidates come from git's own list, never from the
-tree or an argument, so a poisoned finding cannot add one; the drop
-helper's shape checks and git's refusal of a tree holding anything modified or
+**A sweep's start also drops what an interrupted sweep left.** Before it
+forks, `git-worktree-detach.sh` hands each sweep-shaped worktree this
+repository has registered, and that is over a day old, to
+`git-worktree-drop.sh`, then runs `git worktree prune`, which forgets every
+registration of the repository whose directory has gone, a sweep's or a PR's,
+and deletes no file. The candidates come from git's own list, never from the
+tree or an argument, so a poisoned finding cannot add one; the drop helper's
+shape checks and git's refusal of a tree holding anything modified or
 untracked still decide, so a worktree a refused teardown left for inspection
 stays. The day stands in for "no sweep still runs there", which no helper can
-ask; a sweep running that long would lose its worktree mid-round. A harness
-suite that forks a sweep worktree of this checkout to test the helpers is a
-sweep start too, and drops and prunes the same way. Those tests keep the shared
-temp root on purpose: one a stopped run leaves there is then a worktree the
-next sweep's start can drop.
+ask; a sweep running that long would lose its worktree mid-round.
+A harness suite that forks a sweep worktree of this checkout to test the
+helpers is a sweep start too, and drops and prunes the same way. Those tests
+keep the shared temp root on purpose: one a stopped run leaves there is then
+a worktree the next sweep's start can drop.
 
-**Both sweeps now write two things besides their issues and their worktree**
-(blueprint-frontend#172, ported from the backend). `sweep-slices.sh` writes its
-slice lists to the worktree's path plus `.slices`, a name it derives from the
-same checked shape rather than takes, and `git-worktree-drop.sh` removes that
-directory once git has removed the worktree. `sweep-mark.sh` moves
-`refs/sweeps/bug` or `refs/sweeps/security` to a commit, and only to an
-existing one by its full SHA. The ref is local and a missing one means a full
-sweep, so the write can make a later sweep read less only by pointing at a
-commit that really was swept clean; a poisoned tree cannot reach it, because
-the parent runs it once, on a clean end, with `$pinned`. **Both helpers are
-granted by prefix**, a free tail each, and both close it the way
-`git-worktree-drop.sh` does: a closed kind, a path or a SHA of one fixed shape,
-and a refusal before anything is written. The slicing helper is written for
-bash 3.2, which macOS ships, and a case in `test_sweep_slices.py` fails the
-build on a bash 4 construct.
+**Both sweeps now write two things besides their issues and their worktree.**
+`sweep-slices.sh` writes its slice lists to the worktree's path plus
+`.slices`, a name it derives from the same checked shape rather than takes,
+and `git-worktree-drop.sh` removes that directory once git has removed the
+worktree. `sweep-mark.sh` moves `refs/sweeps/bug` or `refs/sweeps/security`
+to a commit, and only to an existing one by its full SHA. The ref is local
+and a missing one means a full sweep, so the write can make a later sweep
+read less only by pointing at a commit that really was swept clean; a
+poisoned tree cannot reach it, because the parent runs it once, on a clean
+end, with `$pinned`.
 
-## The index-refresh hook
+## The sed line-ending guard
 
-**The index-refresh hook is the first that runs code a session could edit,
-and it arrived without the controls the guards have
-(alexander-shamray/blueprint-frontend#44 — this repository's, not the
-backend's).** A `PostToolUse` entry on `Edit|Write|MultiEdit|NotebookEdit`
-backgrounds `run-index update` after every edit, so the index stops going stale
-mid-session. It first landed on the branch lacking two things the
-`PreToolUse` guards have; both were written here as residuals, raised again
-by Copilot as mandatory, and closed by a human's edit before the merge,
-because `settings.json` is edit-denied to the session that found them:
+**Under Git Bash, `sed -i` drops the CR from every line it writes**, so a
+file the checkout holds with CRLF endings comes back LF: a C# file that
+`.gitattributes` forces to `eol=crlf` then fails a whitespace analyser at
+lines nobody edited, and a file whose index holds CRLF changes every line
+of its diff; under `core.autocrlf`, whose index holds LF, the diff shows
+only the edited lines, and the cost is a working copy left LF for an
+analyser or an editorconfig check to find. Measured with GNU sed 4.9
+under Git Bash: `one\r\ntwo\r\n` through `sed -i 's/one/uno/'` comes back
+`uno\ntwo\n`, and through `sed --binary -i` keeps both CRs. `grep -c` cannot
+confirm it, since MSYS grep strips the CR before matching (#37).
 
-- **Its path was relative.** The guards are spelt
-  `"${CLAUDE_PROJECT_DIR}/.claude/hooks/run-guard.sh"`; the refresh was
-  `bash .claude/skills/codebase-index/scripts/run-index`, resolved against
-  whatever directory the session stood in. From a subdirectory that failed
-  silently; from another checkout — a sweep's throwaway worktree, whose tree
-  this file calls prompt-injection input — it ran **that** tree's
-  `run-index`, with no prompt, on the next edit. The command then opened with
-  `cd "${CLAUDE_PROJECT_DIR}"`, which anchored both the wrapper and the tree
-  `update` indexes — the second half is what #48, below, undid.
-- **Its target was not edit-denied.** `.claude/skills/**` was on neither the
-  deny list nor `guard-edit-target.py`'s refusal for the repository's own
-  tree — a probe `Edit` of the wrapper exited 0 with no verdict. Before this
-  hook an edited `run-index` ran when a `Bash` call or the next session's MCP
-  start reached it; with the hook, the next edit in the same session would
-  have run it, and no permission rule is consulted for a hook. Both
-  `Edit(.claude/skills/**)` spellings now sit beside the other control
-  directories. **The cost is that no session can edit the skill at all**,
-  including the one that would have refreshed it; that is a human's edit now,
-  like every other file a hook or a grant executes.
+`.claude/hooks/guard-sed-crlf.py` is a `PreToolUse` hook on `Bash` that
+reads the file a `sed -i` names, because nothing in the command's text says
+what line endings that file holds. It reads the command's lines as bash
+does, continuations joined and comments and heredoc bodies dropped, splits
+them into simple commands with `shlex`, follows a plain `cd <dir>` within
+its subshell, finds `sed` behind the prefix words and the `env`, `nice`,
+`timeout` and `stdbuf` wrappers, judges what a shell runs — its `-c` line,
+or a heredoc, a here-string, or an `echo` or a `cat` piped into one reading
+its input —
+as a command of its own, and reads sed's options as `getopt_long` does:
+clusters, `-i<suffix>`, `--in-place=`, unique prefixes of long names, and
+the first operand as the script when no `-e` or `-f` names one. It refuses
+when an operand, globbed as bash would, is a regular file whose first 4 MiB
+hold a CRLF and which `git ls-files --error-unmatch` finds in its
+checkout's index. The refusal names the forms that keep the endings: the
+Edit tool, a Python script that opens the file with `newline=""`, or
+`sed --binary -i`, which is admitted. **It judges on Windows alone**: GNU
+sed on Linux and macOS keeps the CR as an ordinary character, so a refusal
+there would block a harmless edit, the false refusal *The guards' threat
+model* files.
 
-`test_the_project_refreshes_the_index_after_every_edit` asserts the entry, its
-matcher, the anchor and the deny together — the example under the skill was
-the only thing the suite read before, and Claude Code never reads it. What no
-test here can show is the hook firing: the command is asynchronous and
-discards its output, so a failure is invisible when it happens, and CI runs
-the suite rather than the harness.
+**The line reader is one scan that tracks quotes**, because each of its
+three jobs turns on whether a character sits inside one: a backslash-newline
+inside single quotes is kept, a `#` starts a comment only where it begins a
+word, and a `<<` opens a heredoc only outside quotes. `shlex` knows none of
+this, so an indented continuation would reach it as a newline token, read
+as a separator, and an apostrophe in a comment as an unbalanced quote.
 
-**The anchor refreshed the checkout the session started in, and after `/branch`
-that is not the one being edited (alexander-shamray/blueprint-frontend#48).**
-`/branch` moves the session into a worktree under `.claude/worktrees/`, the
-event's `cwd` then differs from `CLAUDE_PROJECT_DIR` (`guard-edit-target.py`'s
-`anchors` says so), and the refresh indexed a tree the edit never touched. The
-entry now runs `.claude/hooks/index-refresh.py` through `run-guard.sh`, which
-splits the two things the anchor had fused:
+**What it reads, and what a crafted path makes it run.** Only a regular
+file is opened, read-only, and nothing read leaves the hook but a path: the
+one the command spelled, or the file in its directory that a glob of it
+matched. So a device, a FIFO or a directory is never opened,
+and a path outside the checkout costs a read the session could `cat`
+anyway. The one thing a path can make it run is git in that path's
+directory, whose checkout may be foreign: the call switches
+`core.fsmonitor` off, since `ls-files` would otherwise run the command a
+hostile config names, and sets `GIT_OPTIONAL_LOCKS=0` so the read writes no
+index. Each git call is bounded at 5 seconds, and a command at 200 files.
 
-- **The wrapper still comes from `CLAUDE_PROJECT_DIR`**, where
-  `.claude/hooks/**` and `.claude/skills/**` are edit-denied, so no tree the
-  session stands in chooses the code that runs.
-- **The root comes from the edited file, or from the event's `cwd` when it
-  names none** (alexander-shamray/blueprint-frontend#137), walked up to its
-  checkout and passed as `--root`. `cwd` alone missed a session that stays in
-  the main checkout and edits a worktree's file by absolute path; a relative
-  path is resolved against `cwd` before it is walked, and an event naming a
-  file that cannot be placed refreshes nothing rather than `cwd`'s tree. The
-  root is accepted only when its `git rev-parse --git-common-dir`
-  is this repository's **and git made it**: a `.git` file must be one its
-  admin directory points back at, from under this repository's
-  `<common>/worktrees/`; a `.git` directory is only ever the repository's
-  main checkout, whose `.git` is the common directory itself, even when the
-  session started in a linked worktree; and a `.git` that is a link, a
-  junction or a hard link to another name is refused, because a
-  forged `.git` reports the same common directory. The hard-link refusal
-  has a cost, accepted: the link raises the count on both names, so the
-  real worktree stops being refreshed while the forgery exists, a stale
-  index rather than a foreign tree indexed, and it needs a shell to make. A directory starting
-  `secsweep-`, in any case, is refused by name, because a
-  sweep's tree is prompt-injection input and indexing it reads that tree's
-  `.codeindexignore`. Anything else refreshes nothing.
+**Which git it runs.** The first on `PATH` by the hook's own search, the
+rule *Index refresh and worktree seeding* gives its console script but for
+the main checkout, which it does not fence, and never
+`shutil.which`: on Windows that looks in the current directory first, where
+a merged change could plant a `git.cmd` to run inside this hook, and only
+`NoDefaultCurrentDirectoryInExePath`, which a hook cannot rely on, turns
+that off. Only absolute entries count, and nothing at or below the hook's
+working directory, the event's `cwd` or `CLAUDE_PROJECT_DIR`. On Windows
+only an `.exe` or a `.com` counts, never a `.cmd` or a `.bat`: those run
+through `cmd.exe`, which reads an `&` in the file name the command gave as
+its own. So a git installed under one of those directories, as under a
+session started in the home directory or at a drive root, and a git that is
+only a `.cmd`, read as no git on `PATH`.
 
-**`SessionStart` runs the same script, for the moves no edit makes
-(alexander-shamray/blueprint-backend#270, ported).** A merge, a branch switch
-or a pull rewrites the tree with no tool event behind it, so a session opening
-onto one of those reads an index describing the tree it replaced — and this
-checkout is where that bites hardest, because `/branch` ships every PR from a
-forked worktree and `main` here moves only by a merge nobody was editing
-through. The event names no file and carries a `cwd` like any other, which is
-the whole of what the bullet above asks of it, and the spawn is the same
-detached one — so the *indexing* is not what a session start waits for. The
-hook's own validation is: the same `target_root` walk and the same lock and
-marker an edit pays for, inside the five seconds `settings.json` allows it and
-the one git budget below. Raised by Copilot, which read the earlier claim here
-that a session start waits for nothing.
+**Where it fails open, by design rather than by crash.** An operand holding
+an expansion (`"$FILE"`, `$(git ls-files)`), a `cd` it cannot follow, a file
+that does not exist or cannot be read, a command `shlex` cannot tokenise, no
+git on `PATH`, or a git that cannot answer: each is admitted, because a
+guard that refuses what it cannot resolve blocks ordinary work for want of
+a resolution. An unreadable event is admitted, as in the other guards.
 
-**Only the events that overlap a running worker are coalesced**, which is less
-than the marker and the lock look like they promise. `start` spawns a worker
-whenever the lock is free, so a `clear` an hour into a session buys another
-`update` rather than a marker — it is a second `SessionStart` and the tree may
-well have moved since the first. What the marker buys is that two events
-inside one refresh cost one more between them, not that the second is free.
-Raised by Copilot.
+**Its residuals, stated rather than left to be found, and pinned in its
+suite as what the hook returns.** The launchers and wrappers *The guards'
+threat model* names reach this guard only where the command's text holds
+the file list: a `sed` behind `xargs` or `find -exec` takes its files from
+another program's output, which no hook is given, so neither is judged,
+however routine the idiom; nor is a `sed` through the PowerShell tool, or
+an untracked CRLF file, whose endings are not yet the checkout's. A
+`printf` piped into a shell is read as its words rather than its format's
+expansion, so it is refused where the format holds the `sed` and its
+arguments carry the file, and admitted where an argument carries the whole
+line. A quoted
+glob is expanded although bash would pass it literally, which can only
+refuse more.
 
-**A tree that moved mid-session through `Bash` was the residual the second
-trigger left, and it is closed (alexander-shamray/blueprint-frontend#136).**
-This paragraph used to leave it, on the ground that firing on every command to
-catch the few that rewrite the tree cost too much. Measured, it was not the
-few: commits, pulls, rebases and edit scripts made up dozens of calls a day,
-and each left the index answering from the old text while its recorded commit
-lagged HEAD. `PostToolUse` now matches `Bash` beside the four edit tools. A
-Bash event names no file, so its `cwd` decides, and that follows the shell
-into a worktree. A call that wrote nothing costs one detached `update` that
-changes nothing, coalesced behind the lock below, and a checkout with no index
-and none to seed starts no worker at all. **The matcher names the PowerShell
-tool beside Bash (alexander-shamray/blueprint-frontend#142).** A commit or a
-pull run through it fired no refresh, so the index described the replaced tree
-while reporting itself fresh. The name was the open question, because an
-alternative naming no real tool is silently inert and the registration tests
-pass on it: 112 calls recorded in this workstation's transcripts carry
-`PowerShell` as the tool name, the search hint's `PreToolUse` entry already
-matches it, and blueprint-backend#515 settled the same name. Every shell call
-is a refresh trigger; the hook needs no code change, since a shell event names
-no file and its `cwd` decides.
+## Headless dispatched sessions
 
-**Every git call one event makes shares one deadline**, because the hook
-is synchronous and `settings.json` gives it five seconds: validation and
-the state directory each taking their own three-second budget could
-together outlast that and be killed before anything was scheduled.
+Up to `--pairs` headless `claude -p` sessions, a number the owner sets at
+launch (its ceiling is `docs/superpowers/specs/2026-11-01-dispatch-design.md`
+§3), run `/ship --dispatched` at night, each in its own worktree and each to
+a merge, with nobody to answer a prompt. `.claude/commands/dispatch.md`
+starts them; [`docs/commands/dispatch.md`](commands/dispatch.md) argues it.
 
-**A fresh worktree has no index, and it is seeded rather than built
-(alexander-shamray/blueprint-frontend#127).** `update` there does nothing, so
-the hook used to run a full `index` on the first edit. On this repository
-that build measured about five seconds, detached; on blueprint-backend's
-larger tree the same build measured 230 s, against 0.1 s to copy the main
-checkout's index and 5.1 s for the `update` after it. A build's cost grows
-with the corpus and a seed's with what the branch changed, which is why the
-seed is the shape that holds as either grows. The worker now copies the main
-checkout's `index.sqlite` in through SQLite's backup, which reads one
-consistent snapshot where a file copy can tear; refuses the copy unless it
-carries the WAL header a backup of a WAL database does, since
-`index_openable` would refuse it next; renames it over
-the index path, so `update` never opens a partial file; and then runs
-`update`. The source is judged as a root's own index is, and only
-`index.sqlite` crosses. A checkout with no index and none to seed — the main
-checkout itself, or a worktree whose main checkout has none — is left alone,
-and nothing is ever built. `git-worktree-fork.sh` starts the refresh for the
-new worktree, because `/branch` enters it mid-session, where no
-`SessionStart` fires — through the main checkout's own launcher and hook,
-with an event whose `cwd` is the worktree, so the wrapper still comes from
-the checkout the session started in. It first ran the worktree's own copy,
-which made the worktree the hook's owner and its `run-index` the code that
-ran, the exact thing the bullet above rules out; the in-house review's first
-round raised it. **A seeded index whose `update` keeps failing stays in
-place**: it is a consistent copy of the main checkout's, so the worktree
-answers from `main`'s state until an `update` succeeds. **One
-worker runs per root**: every edit leaves a marker beside the index, and the
-worker holding the root's lock refreshes for as long as it finds one, so
-edits made during a run cost one more `update` between them. A detached
-refresh per edit raced two full builds against one SQLite cache inside a
-first build's five seconds, when the hook still built one. The lock is an OS
-advisory lock held on an open handle
-(`flock`, `msvcrt.locking`) for the worker's lifetime and released by the
-kernel when the worker exits, crashed or not. A lock *file* whose existence
-was the lock needed an age, then a token, then a renewal, and each still
-left a check-then-act a takeover could slip between.
-`test_index_refresh.py` judges the root against real linked worktrees and
-forged ones, the lock from a second handle and from a second process that
-dies holding it, and the detached child end to end against a stub wrapper.
+**What holds them.** The permission mode is the settings' own: the launcher
+passes no skip flag and the command denies `claude` as a shell word, so
+`dispatch_board.py run` is the only way in. Every guard hook runs in an
+executor as in any session. Beyond the stops `/ship` names, `--dispatched`
+hands a change back unmerged in three cases: an edit under `.claude/`, a
+resource only the owner has, and a decision the issue leaves to the owner.
+`/dispatch --berserk` lifts the third for one run and releases rows that wait
+on the owner or reach `.claude/`; it lifts no deny, guard or stop.
+It also changes the executor: it never tears down its workspace, step 6 runs
+only lines 1 and 8, step 0's finished teardown is skipped, and it never
+writes the task list, not even for an issue it files or closes, which goes
+only in its result's `filed`. The dispatcher grants no agent type and
+denies every one, because it spawns sessions.
 
-**The seed is made only where git ignores the index path
-(alexander-shamray/blueprint-frontend#148).** `.gitignore` is what keeps the
-copy out of a commit, and a branch checked out in the worktree can drop that
-line. The copy would then sit there as an untracked, unignored file that an
-unscoped `/commit` or a hand-run `git add -A` commits and `/pr` pushes,
-carrying the main checkout's indexed text and any chunks its free pages kept
-from before a compaction. `seed_source` asks `git check-ignore` and seeds only
-on a yes; an answer git did not give is a no, and is not remembered. The worker
-asks before the event's git budget is spent and remembers the answer for its
-life, so a branch that drops the line while a worker runs is met by the next
-worker. The seed already refused any file at the path, which closes the
-force-tracked case; this is the other half. The in-house review of
-alexander-shamray/blueprint-frontend#144 raised it in its third round.
+**No grant was added for this.** Both spikes, one on docs and one on code,
+ran with `permission_denials` empty
+(`docs/superpowers/plans/2026-11-01-dispatch-spike.md`). The
+reason is the owner's user settings: `defaultMode` is `auto`, a `claude -p`
+session inherits it, and `/ship`'s frontmatter grants auto-approve its
+helpers. This repository's settings set no mode, so the executor depends on
+a setting outside the repository; on a machine without it the first prompt
+hands every executor back.
 
-**A marker the worker cannot remove is retried, not abandoned
-(alexander-shamray/blueprint-frontend#149).** On Windows `os.remove` fails on a
-file another process holds open, and the hook holds the marker open while it
-creates it. The worker used to return from inside the lock on that failure, so
-its look after letting go never ran: an edit whose `held` probe saw the lock
-held started no worker and was served by none. The pass now ends instead, the
-lock is released, and the worker tries again after `MARKER_WAIT`, at most
-`MARKER_RETRIES` times; a marker that never goes still ends the worker, and
-the next edit serves it. The fifth round of that review raised it, against
-code older than the branch.
+**The dispatcher writes the task list alone.** It writes only through
+`dispatch_board.py tasks`, with no `Edit` grant on the file. Every `tasks`
+action refuses a run with no `state.json`, `tasks rewrite` refuses any
+change to the *In progress* section, and `done` and `back` touch only the
+rows the run's own move recorded, `done` only once `verify` has passed.
+After `verify`, the dispatcher pulls with `--ff-only`, checks
+containment with `git merge-base --is-ancestor`, runs `tasks done` and
+removes the worktree with `git-worktree-remove.sh`.
 
-**The worker compacts what it refreshed, because the package never does
-(alexander-shamray/blueprint-frontend#128).** `codebase-index` deletes and
-reinserts a changed file's chunks on every `update`; FTS5 records each delete
-as a new segment, and SQLite puts the freed pages on a freelist that nothing
-returns while `auto_vacuum` is off; the issue owns how large the main
-checkout's index grew, and what compacting a copy of it did. After a
-`run-index` that exited 0, and while the worker still holds the root's lock,
-the hook runs FTS `optimize` and then `VACUUM` when free pages pass
-`FREE_SHARE` of the file or the full-text table passes `ROWS_PER_CHUNK` segment
-rows per chunk, both in `index-refresh.py`; a lean index is read and left as
-it was. A branch can force-track a crafted `index.sqlite`, so `index_openable`
-judges it before each open the hook makes: no link on the cache path, the
-file and the `-wal`, `-shm` and `-journal` sidecars SQLite opens beside it
-included, no rollback journal beside it, and a header in WAL mode. A
-`-journal` or a header that is not WAL refuses the root, because the first
-connection to a rollback-mode database replays the journal it finds, and that
-replay acts on what a branch wrote; a WAL-mode index never makes one. The
-journal refusal is the control; the header check is depth behind it, since
-SQLite may take the first page from a `-wal` rather than the file the check
-read. A `-wal` is admitted, and so is an index with no header to read; the
-function's docstring owns the argument. `index_openable` runs in
-`target_root`, again in `refresh` before every start of the wrapper, and again
-in `compact`, because the package's own `update` opens the file first, and a
-worker judges its root once and then refreshes for as long as edits keep
-coming. Each check still precedes SQLite's opens, and a checkout that puts a
-link, an ordinary `-journal` or a rollback-mode database on the path in
-between is left as a residual for the wrapper's open
-(alexander-shamray/blueprint-frontend#139); the seed's copy is judged the
-same way, before it opens the main checkout's index and again after it
-renames its copy in. `nofollow` is not used: SQLite applies it to the
-database alone, and the sidecars are where the window is. **The compaction no
-longer has that window.**
+**An issue is a work order only from the repository owner.** The repositories
+are public, so anyone can open an issue, and a row the night launches merges
+with nobody watching. `dispatch_board.py` takes `gh-issue-owned.sh`'s numbers in
+code, never from the session: `board`, `wake` and `report` hold back a row whose
+issue is not among them, `launch` refuses one, `--berserk` lifts neither, and a
+failed read refuses rather than reading as empty. The test is authorship, as
+`gh-issue-suppresses.sh`'s is, and not a label: a label stays on an issue its
+author then rewrites. Work the owner wants from such an issue is filed as their
+own, in their words, which the interview offers.
 
-**The compaction works on a copy the hook owns, and renames it over the
-index (alexander-shamray/blueprint-frontend#139).** `compact` opens the index
-only through an immutable, read-only URI, which takes no lock, reads no `-wal`
-and replays no journal, so nothing the branch put beside the file can make
-SQLite write. It copies with SQLite's backup into `<common>/index-refresh/`,
-which no branch can write, compacts the copy there, and renames the result over
-the index. The rename replaces the entry at the path rather than following it,
-and it is the one write that reaches the branch's directory. The copy's
-connection distrusts schema functions and switches triggers off, reading each
-setting back, so none the file carries runs whatever its names' case, and the
-index is refused unless its tables are the package's shape, judged from the
-parsed schema with names folded as SQLite folds them, ASCII only, any other
-name refused, which refuses a view at every name it reads. Both connections
-interrupt their statements at `COMPACT_TIMEOUT`, and the copy, a page copy in C
-that the progress handler never reaches, runs in steps of 1024 pages with the
-deadline asked between them. A SQLite that cannot do all of this compacts
-nothing.
+**What an executor reports is not trusted.** A prompt-injected body, which is
+now text an owner's issue quotes, reaches an executor as it reaches any
+`/ship`. Its result file is checked
+against `dispatch_run.py`'s schema by `result`, and a claimed merge is read
+from GitHub by `verify` before it counts; a missing or mis-shaped file is a
+crash, never a success.
 
-**The index has to be at rest, and that was measured, not assumed.** With a
-`-wal` of 400 rows laid beside a database replaced by one of 50, 400 and 900
-rows, SQLite opened the replacement and showed the log's 400 rows each time:
-it recovers a `-wal` by its own header's salts and checksums, not by which
-database file sits beside it. A control (the log beside its own database)
-replayed the same 400. So `compact` does nothing while a `-wal`, `-shm` or
-`-journal` exists, and asks again immediately before the rename. SQLite
-removes the sidecars when the last connection closes, which was also measured,
-and this checkout's own index had none while this session's MCP server was
-running, so the common case is an index at rest. Windows refuses the rename
-over a file a reader has open (measured), which skips the round, and a
-`PermissionError` on any platform does the same. An immutable connection
-ignores locks, so a write during the copy is caught by the file's size and
-modification time moving; a `run-index update` run by hand that finishes
-inside that window is lost, which costs nothing lasting because the index is
-derived. Neither measurement used a POSIX host, where a rename over an open
-file succeeds and leaves the reader on the old inode; the sidecar check is
-what stands there.
+**Residuals.**
 
-**Two residuals.** The copy and the index must share a volume: a worktree
-added on another one makes the rename raise, which is a skipped round every
-time and shows nowhere else. And a connection that opens the index and writes
-a `-wal` between the last look for sidecars and the rename would have that
-log replayed into the new file, as the measurement shows; the window is the
-width of two calls and needs a writer inside it, and nothing narrows it
-further. The remaining half of the original issue, the wrapper's own
-open, needs the package to open its index with no-follow and journal refusal
-itself, which is upstream.
+- A refusal at night is a hand-back. `result` classifies it, the morning
+  report shows it, and the grant is never widened to get past it (the
+  spec's §2, its last anti-goal).
+- No script reads the weekly figure. Token Weather's pause notice in the
+  dispatcher's own session ends the night (spec §8). Whether that pause
+  reaches a headless executor is untested
+  (`docs/superpowers/plans/2026-11-01-dispatch-spike.md`), so an executor
+  may run on past the limit.
+- The `Edit(artifacts/dispatch/**)` grant also reaches the helper-owned
+  `state.json`. No step edits it, so an honest mistake does not reach it,
+  and a session setting out to defeat the helper's checks is what *The
+  guards' threat model* puts outside what the guards defend.
+- A stranger's issue still reaches the dispatcher as data: its row is added
+  and held, and the rebuild and the interview read its text. A collaborator's
+  is held like a stranger's, and under a repository an organisation owns every
+  row is, since no author is the organisation's login: the cautious side.
 
-**The skill's direct route is judged by the same function
-(alexander-shamray/blueprint-frontend#138).** `run-index` and `cbx` source
-`.claude/skills/codebase-index/scripts/gate.sh` and run `gate-index.py` before
-they start the CLI. It loads `index-refresh.py` and asks `index_openable` of
-the working directory and of the checkout git reports for it, so the judgement
-has one owner, and a refusal exits 3 with the CLI never started. The
-interpreter is the first of `py -3.12`, `python3` and `python` that meets the
-hooks' own 3.12 floor, probed as `run-guard.sh` probes it; **no interpreter is
-a refusal (exit 4), not a pass**, because the CLI would otherwise open an index
-nobody judged. That is a behaviour change for a host with only a standalone
-`codebase-index` binary and no Python 3.12, which the harness could not run on
-anyway. The check precedes the CLI's own open and is subject to the same
-window as the hook's (#139).
+## Managed files
 
-**The MCP server starts through a Node launcher that asks the same question
-(alexander-shamray/blueprint-frontend#138).** Claude Code starts a stdio server
-from `.mcp.json` with the Windows PATH and not inside Git Bash, where the first
-`bash` is WSL's launcher (#134), so there was no seam to put a check in while
-the server was the CLI itself. `.mcp.json` now runs
-`node .claude/skills/codebase-index/scripts/mcp-launch.mjs`. The launcher
-probes `py -3.12`, `python3` and `python` as `run-guard.sh` does, runs
-`gate-index.py` with the first that meets the floor, and starts the server only
-if that exits 0: the binary on `PATH`, then `python -m codebase_index`, the
-order `run-index` uses, with the auto-update disabled in its environment and
-its exit status passed on. It judges nothing itself, so the rule keeps one
-owner. **A refusal exits 3 and no Python 3.12 exits 4, both with the reason on
-stderr and nothing on stdout**, which is the protocol; `/mcp` shows the server
-as failed rather than the session running on an index nobody judged. Node is
-not a new prerequisite for the project (`.nvmrc`), but it is one for the
-harness suite, which `docs/testing.md` lists. A real `initialize` handshake
-through the launcher answered on a clean root and was refused on a root with a
-planted journal, before any case was written.
+This section holds from a repository's first sync, which writes the
+manifest, the base settings and the renderer; before it,
+`.claude/settings.json` is the repository's own and `.harness/config.json`
+renders nothing.
 
-What it does not cover is stated: an index a branch changes after the server
-started, and the instant between the gate's look and the server's own open,
-which is the window every check here has (#139). `index-mcp-root.py` below is
-a separate control, refusing calls from another checkout. The lasting fix is
-still the package opening its index only after checking for a journal and for
-links.
-`compact`'s docstring owns what a failed compaction leaves behind.
-`trusted_schema` is kept beside the shape check because it governs what the
-statements only this hook runs may call, which nothing the package does
-protects. Settings against a corrupt file were
-declined, for the opposite reason: the package parses the same file with its
-defaults on every `update` and query, so hardening the parser on this one
-connection would narrow nothing. `package-lock.json` is in
-`.codeindexignore` under the same issue, which measured its share of the
-chunks: a code lookup never wants it, and `update` drops a path the walk
-stops yielding, so no rebuild is needed to remove it. **The residual is
-upstream**: the package should compact its own index, and this hook's copy
-goes once it does.
+**A path `.harness/manifest.json` lists is owned by `blueprint-harness`, and
+is changed there.** A sync from that
+repository wrote the file, and the manifest records the harness commit and
+the file's hash. A change is made in that repository's `payload/` and reaches
+each target as the sync pull request opened on the next merge to its `main`;
+an edit to a target's copy is red until the next sync reverts it.
+`.claude/settings.json` is among them: it is rendered from
+`.harness/settings.base.json` plus the `settings` in `.harness/config.json`,
+so a rule only one repository needs goes in that config, which is the
+repository's own file and never in the manifest. That is the one change a
+target makes to a managed path itself: a pull request that changes the
+config carries the re-rendered `.claude/settings.json` and
+`.harness/manifest.json`, rendered at the commit the manifest already names
+(the drift gate's README, *Changing this repository's config*).
 
-**The lock and the marker live in the repository's git directory**, at
-`<common>/index-refresh/`, named by a hash of the target's filesystem
-identity — its device and inode, not a spelling, so two spellings of one
-worktree on a case-insensitive volume cannot take two locks and run two
-indexers. They
-sat first under the target's `.claude/cache/` and then under the owner's,
-and a branch can force-track a symlink at either: `makedirs` and `open`
-follow it, and the lock's own write truncates what it finds. The git
-directory holds no tracked file, so no branch can aim anything there. A
-checkout whose git directory cannot be found, or is reached through a
-link, gets no refresh rather than one through somebody's redirection.
+**A path the config lists under `local` is the repository's own**, even
+inside a managed directory: a sync neither writes nor deletes it.
 
-**A target whose own cache path is redirected is refused too**, because the
-indexer writes into the tree it indexes: `.claude/cache/codebase-index`
-under the root. Every component below the root is checked without being
-followed, and a link anywhere along it means no refresh. A sweep's
-worktree reached through an alias is refused on the same principle — the
-reserved prefix is read from the resolved path as well as the reported
-one.
+**The drift gate holds it**, delivered by the first sync with the manifest:
+`.github/harness-drift/`, run on every pull request by
+`.github/workflows/harness-drift.yml`. Its README owns what the
+gate refuses, how a config change re-renders the settings, and what to do
+when it is red.
 
-**The hook never looks in the working directory for a program or a Python
-module.** The module half first: `run-index` falls back to
-`python -m codebase_index` when the CLI is not on `PATH`, and the worker
-starts it from the owner checkout's root, which a session can write; `-m` and
-`-c` put that directory first on `sys.path`, so a `codebase_index.py` there
-would have been imported in the package's place on every refresh. The worker
-passes `PYTHONSAFEPATH=1` to the wrapper, which Python 3.11 and later honour,
-and the round-5 review of alexander-shamray/blueprint-frontend#144 raised it.
-**The wrappers export it themselves now**, `run-index`, `cbx` and `cbx.ps1`
-alike, so the skill's own route and its example hook have it too, and each
-probe holds its interpreter to the hooks' 3.12 floor before it imports
-anything, since an older one ignores the variable and would import from the
-directory after all (alexander-shamray/blueprint-frontend#151).
-Then the program half. On Windows,
-`shutil.which` and CreateProcess both search the current directory before
-`PATH` for a bare name, and the hook runs `bash`, `git` and `tasklist` by bare
-name. The worker runs from the owner checkout's root, where a session can
-write a `bash.cmd`; the hook itself runs in whatever directory it was started
-in, which after `/branch` may be the branch's own worktree, where a tracked
-`git.exe` would sit. Either would run in place of the real program, with no
-prompt.
-Measured here: with `NoDefaultCurrentDirectoryInExePath` unset,
-`shutil.which("bash")` answered a planted `.\bash.CMD` and a planted
-`git.exe` ran in place of git. Claude Code passes the variable down, which is
-why it had not happened; `index-refresh.py` now sets it itself, so the hook
-does not depend on its launcher for it, and the worker inherits it. The
-in-house review's third round on alexander-shamray/blueprint-frontend#144
-raised it, against code older than that branch.
+**`docs/harness-local.md` is the one document every target writes for the
+payload**, and the payload cites it rather than any target document by path:
+the commands run in repositories with different products, so where one
+names a target's document or check it names the row of this file that does.
+It is the repository's own file, never in the manifest, and holds four
+headings, fixed so a citation of one lands in every target:
 
-**The worker records its indexer's pid in the lock file**, because the lock
-is the worker's and not the child's: a worker killed mid-run leaves
-`run-index` behind, and the next edit would otherwise start a second one
-against the same cache. A worker that takes the lock and finds that child
-still running stands off and leaves the tree to it. The worker claims the
-record with its own pid before starting the child and reaps the child
-before clearing it, so neither the gap before the child is named nor the
-one after a kill lets a second indexer in. The window that remains is the
-instant between the child existing and its pid being written.
-
-**A timed-out `update` is stopped through its process tree on Windows
-(alexander-shamray/blueprint-frontend#153).** The child there is Git Bash's
-`bash.exe`, and `run-index` ends in `exec codebase-index "$@"`, which the MSYS
-runtime cannot turn into a replacement of the process. Measured on this
-workstation, `bash -c 'exec python …'` left `bash.exe` as the pid `Popen`
-returned with `python.exe` beneath it, and `kill` ended the first and left the
-second running: the record was cleared, and the next worker started a second
-indexer against the same cache. `stop` now runs `taskkill /T /F` on the child
-first, and `refresh` clears the record only once the child has been reaped, so
-one that survives the kill keeps its pid there and the next worker stands off.
-The same worker stands off too: it asks again before every marker, not once
-per lock. POSIX `exec` keeps the pid, and needs no such call. The sixth round
-of that review raised it, the one that spent the loop's ceiling.
-
-**A record left by a killed worker names a pid the system may reuse**, and
-that is the second residual. The record is cleared on every ordinary path,
-so only a killed worker leaves one; until the number is reused, a stale
-record names a dead process and costs nothing, and once it is reused the
-refresh stands off from a stranger and the worktree stays stale until that
-process exits. Telling the two apart needs each process's start time, which
-neither `os` nor `tasklist` offers without a new dependency — more than a
-best-effort cache refresh earns, and the same judgement as the window
-below. Raised by Copilot, and answered here.
-
-**A worker that crashes mid-refresh leaves the index stale until the next
-edit, and that is the residual rather than a gap to supervise.** The worker
-consumes a marker before its refresh, so a crash after that point leaves no
-request behind. Nothing is lost, though: `update` is incremental, so the
-next refresh re-indexes everything the crashed one missed, and the next
-edit starts one. A durable marker would not recover sooner, because only
-the next edit would ever act on it, and a process supervising a best-effort
-cache is out of proportion to it. The failure mode is the old hook's own,
-a refresh that failed, and the indexer run itself is bounded by the hook's
-`RUN_TIMEOUT`. Raised by Copilot, and answered here.
-
-## The skill's route, the helpers' copies and the MCP server's start
-
-**The example under the skill does not follow.** It ships alone, so it keeps
-the self-contained `cd "${CLAUDE_PROJECT_DIR}" && run-index update` form:
-anchored and denied, but refreshing the startup checkout. A copy that named
-`run-guard.sh` and `index-refresh.py` would fail on every edit in a project
-without them.
-
-**The MCP server does not follow, and that is the decision rather than a
-residual left over.** `.mcp.json` starts it once, with `--root .`, in the
-directory the session launched from, and nothing restarts it when `/branch`
-moves the session — so after `/branch`, **MCP queries read the startup
-checkout's index**, which is `main` as the fork left it. The skill's own
-route, `bash .claude/skills/codebase-index/scripts/run-index <subcommand>`,
-resolves its root from the working directory and so reads the worktree's
-index, which the hook now keeps fresh. Inside a worktree, query through the
-skill; a session launched *in* the worktree gets an MCP server rooted there.
-**That route runs the worktree's own `run-index`, unprompted**, because the
-path is relative and the skill's `allowed-tools` approves it, so it does not
-hold the rule the hook keeps — that no tree the session stands in chooses the
-code that runs. The query hint points sessions at it more often than they
-went before.
-
-**So `guard-git-argv.py` holds the copy a command reaches to its own
-(alexander-shamray/blueprint-frontend#146).** Anchoring the route to
-`CLAUDE_PROJECT_DIR` was the issue's fix and cannot be written: the Bash
-tool's environment does not carry the variable — measured empty in a session
-here — so the anchored path would read `/.claude/…`. The guard does run from
-the startup checkout, so a
-`bash .claude/skills/codebase-index/scripts/run-index` whose `run-index`,
-`gate.sh`, `gate-index.py` or the `index-refresh.py` that judge imports under
-the event's directory is not byte-identical to that checkout's is refused —
-the hook added after the automated security review of
-alexander-shamray/blueprint-frontend#254 found the list stopping short of
-it — and so is one in a command that can change directory, since the copy
-bash reaches is then unknown. **A file reached through a link below the root
-is refused whatever it holds**: `gate-index.py` climbs `../../..` from its
-own directory to the hook, which the kernel resolves after following a link,
-so a tracked `scripts` link would have the gate load a hook the comparison
-never opened (the same review). A worktree whose branch changed the wrapper
-therefore gets no index route at all, and
-Grep and Read in its place; that is the cost, taken deliberately.
-
-**The `.claude/scripts/` helpers had the same residual, and are asked about
-rather than refused (alexander-shamray/blueprint-frontend#255).** Every
-`Bash(bash .claude/scripts/…)` grant is relative, so `/ship` ran a worktree's
-own `gh-pr-merge.sh`, `git-rebase-onto-main.sh` and `npm-checks.sh` — the
-copies the branch checked out there — with no prompt. The guard now compares
-every helper under the event's directory, every file under `.claude/hooks/`
-— the chain `git-worktree-fork.sh` starts runs from there, and the launcher
-starts Python with no `-P`, so a `json.py` added beside the hooks is the
-`json` they import — and the index wrapper's route `index-refresh.py` runs,
-with the startup checkout's, the union of both sets so an added or deleted
-file counts, and
-answers a difference — a link below the root, or a command that can change
-directory — with **`ask`, not `deny`**. A hook's `ask` stands over the grant,
-so the person approves the branch's copy or does not. A refusal was the
-rejected option: a pull request that changes a helper could not then run it
-from its own worktree, which `/ship` does on that pull request. The whole
-directory is compared rather than the helper named, because a helper runs its
-siblings through `$(dirname "${BASH_SOURCE[0]}")` and a list per helper would
-fall behind the files. **What it costs**: a worktree cut from an `origin/main`
-newer than the startup checkout's `main` asks too, until that checkout is
-pulled. **What stays open**: an in-place branch's helpers run from the startup
-checkout itself, where the hook is the branch's own as well; and
-`npm-checks.sh` runs the branch's `package.json` scripts by design.
-**`.claude/hooks/__pycache__/` is not compared as a directory**, because each
-checkout writes its own as its hooks run, but Python loads a hash-based `.pyc`
-there without comparing the source beside it, unchecked or not
-(alexander-shamray/blueprint-frontend#265). So the guard names every hash-based
-`.pyc` under the checkout's hooks (the names folded to lower case, as a
-case-insensitive filesystem opens them), any linked directory below the hooks,
-and any file whose header it cannot read, and compares each with the hooks' own
-checkout, which holds none: a force-added one is refused on the wrapper's route
-and asked about on the helpers'. **A timestamp `.pyc` is not named**: Python
-compares its recorded mtime with the source's, a checkout sets the source's to
-the time it ran, and so a committed one is recompiled over. **What stays
-open**: a timestamp `.pyc` whose recorded mtime a branch could predict, and
-bytecode written between the guard's reading and the route's run.
-
-**The route's term is single-quoted**
-(alexander-shamray/blueprint-frontend#145), in the skill's markdown and in the
-query hint's routes alike, because inside double quotes bash still runs a
-`$(…)`, a backtick or a `$VAR` a copied term carries. The guard already
-refused those handed to a granted helper
-(alexander-shamray/blueprint-frontend#179); the quoting stops them reaching
-it.
-
-**The server is started as the `codebase-index` CLI itself, never through a
-shell (alexander-shamray/blueprint-frontend#134).** `.mcp.json` used to start
-it as `bash .claude/skills/codebase-index/scripts/run-index mcp`. Claude Code
-starts a stdio server with the Windows `PATH`, not inside Git Bash, and the
-first `bash` there is `C:\Windows\System32\bash.exe`, WSL's launcher, which
-exits at once on a host with no distribution: every session here ran without
-the server, which is why no session had ever called its tools. The wrapper's
-`CBX_NO_SKILL_AUTO_UPDATE=1` was already in the server's own `env`, and stays
-there. What is lost is the wrapper's fallback to `py -3.12 -m codebase_index`,
-so a host without the CLI on `PATH` gets no server — the state every Windows
-host was in before. The skill's Bash route keeps the wrapper, because the Bash
-tool does run inside Git Bash. `test_the_mcp_server_starts_without_a_shell`
-refuses a stdio server whose command is `bash` or `sh`. **A bare command name
-is resolved by the launcher, and on Windows that searches the working
-directory before `PATH`**, so a branch that commits a `codebase-index.exe` at
-the root of the checkout a session starts in would be run in the CLI's place.
-That is a residual, and not a new one: the entry it replaces was the bare
-name `bash`, open to the same lookup, and it then ran
-`.claude/skills/codebase-index/scripts/run-index`, a tracked script any
-branch can edit. An absolute path would close it and cannot be committed,
-because the CLI's install location is the host's; what stands in its place
-is Claude Code's approval of a project's MCP servers before it starts them,
-and a planted binary being a tracked file a diff shows.
-
-**`settings.json` raises `MCP_TIMEOUT` for this repository's sessions
-(alexander-shamray/blueprint-frontend#141).** A server that runs past the
-startup timeout fails, and Claude Code caches the failure for 15 minutes
-user-wide, so one slow start emptied every session opened in that window of
-its `playwright` and `chrome-devtools` servers. blueprint-backend measured the
-starts on this workstation: 28 of 132 timed out under the 30 s default, the
-starts that connected reached 29.7 s with a 95th percentile of 28.3 s, and
-three `claude mcp list` runs started at once each connected every server
-within 6 s. **The key covers sessions started here only**: the failure cache
-is user-wide, so the same key in the user's own settings is what closes it
-everywhere, and the owner's carries it.
-
-## The index hints and the root guard
-
-**A prompt that asks where something is, how it works, who calls it or what
-breaks gets one line pointing at the index
-(alexander-shamray/blueprint-frontend#126).** No session here had run the
-skill since the day it was tuned: the hooks refreshed the index, and whether
-to query it was left to the skill's `description`. `index-query-hint.py` runs
-on `UserPromptSubmit` and answers a matching prompt with `additionalContext`
-naming the route-table row for it and the session-tag rule; every other
-prompt, and every slash command but `/ship` and `/branch`, gets nothing. It
-reads the `prompt` string alone and starts nothing, and
-`test_index_query_hint.py` holds every command it names to a row of the
-skill's route table and a prefix its `allowed-tools` approves. **Its command
-ends `|| :`, and that is the one hook here allowed to swallow a status.**
-`run-guard.sh` leaves with 2 whenever it cannot prove it ran the hook, which
-blocks a tool under `PreToolUse` and under `UserPromptSubmit` erases the
-prompt, so a missing interpreter or a hook file gone from a worktree would
-otherwise eat every prompt typed. A hint that fails says nothing, which is the
-failure it is allowed. **What no test can show is a session taking the hint**:
-it is advice in the context, and the issue's measure is `cbx stats` over a
-week of use.
-
-**A session's first search for a named symbol is refused once, because a hint
-after the search was read and ignored
-(alexander-shamray/blueprint-frontend#166, #167).** 31 sessions here searched
-code in a week and none asked the index; the prompt hint above never fires on
-a task prompt such as `/ship`'s, and the MCP tools are deferred, so Grep and
-Bash win every time the agent does not stop to think. blueprint-backend built
-the obvious fix, a `PostToolUse` hint after the search, and in its first
-`/ship` session the agent read two of them and grepped on: the answer was
-already in hand, and asking the index meant redoing it. So
-`index-search-hint.py` runs on `PreToolUse` for `Grep`, `Bash` and
-`PowerShell` and **refuses the first recursive search for an identifier, or an
-alternation of them, with the lookup that answers it as the reason**:
-`find_refs` and `find_symbol`, one per name up to three. It spends one refusal
-per `session_id`, recorded by an exclusive create under the temporary
-directory so a parallel batch is refused once, and the same search rerun
-passes. Text, a message, a pattern, a single file, prose under `docs/` or
-`*.md`, a pipe and a path outside the checkout are never refused: grep lists
-those whole and the index ranks. A session whose transcript already holds a
-lookup that ran, an MCP call or `run-index` and its relatives, is not
-refused, and neither is a subagent, whose profile may hold neither the tools
-nor a shell. **It fails open everywhere it cannot judge**: unreadable input,
-an id that cannot name a record, a transcript it cannot read. Its command ends
-`|| :`, for the reason the query hint's does, and under `PreToolUse` the
-cost of the 2 is every Grep and shell call of the session. **It names the MCP
-tools for every checkout**, and the route to a worktree is
-`index-mcp-root.py`'s job below (alexander-shamray/blueprint-frontend#195).
-It used to send a linked worktree to the CLI unasked, because the server
-serves the checkout the session started in and the hook could not tell a
-session launched in the worktree, whose server is rooted there, from one that
-entered it. `test_index_search_hint.py` holds the refusal to the one route, in
-a main checkout, a worktree and a submodule alike. **What no test can show is a
-session taking the refusal**; the measure is the share of code-searching
-sessions with a lookup, which was zero.
-
-**A code-index MCP call made from another checkout than the one the server
-reads is refused, with the CLI line that reads this one as the reason
-(alexander-shamray/blueprint-frontend#195, ported from blueprint-backend's
-guard for its #563).** `EnterWorktree`, which `/branch` ends in, does not
-restart MCP servers, so every lookup after the move answered from the main
-checkout's index and described the tree before the branch's edits as current.
-`index-mcp-root.py` runs on `PreToolUse` for `mcp__codebase-index__.*`,
-compares the checkout holding the call's `cwd` with the one holding
-`CLAUDE_PROJECT_DIR`, which is where the session started and so where the
-server reads, and on a mismatch denies with the `run-index` line asking what
-the call asked: subcommand, positional arguments in the CLI's order, and the
-options its `--help` lists a flag for. A call carrying an argument the line
-cannot carry gets the bare form rather than a line that answers another
-question. `healthcheck` is never refused, because its `root` is how a session
-sees the mismatch. **It fails open everywhere it cannot judge** (unreadable
-input, no `cwd`, no `CLAUDE_PROJECT_DIR`), its command ends `|| :` for the
-reason the search hint's does, and a session launched in the worktree is not
-refused, since both directories name the worktree. It does not judge the
-served root's index: the launcher above does that, once, at start. The refusal
-text is the part no test shows a session taking; `test_index_mcp_root.py` holds
-every subcommand it names to a prefix the skill's `allowed-tools` approves.
-
-**A session started in a `/branch` worktree had no index tools, because the
-main checkout's approval of `.mcp.json` did not reach it
-(alexander-shamray/blueprint-frontend#165).** The approval lives in the main
-checkout's untracked `.claude/settings.local.json`, and a session launched in
-the worktree reads that directory's own, so Claude Code listed the server as
-pending approval and the session fell back to Grep. `git-worktree-fork.sh`
-now writes the worktree a settings file holding `enabledMcpjsonServers` and
-nothing else: the names the main checkout approves, an approve-all expanded to
-the servers `.mcp.json` defines now, and without any the main checkout
-disables. **No `permissions` row crosses**, because those are the main
-checkout's own grants. It writes only where the worktree has nothing at that
-path, and not through a link the branch carries, whose target would otherwise
-be written; the Python that reads the approval runs with `-I`, so an untracked
-`json.py` at the checkout root is not imported. A file it cannot read forks
-the worktree anyway and says on stderr that the servers stay unapproved.
-`.claude/settings.json` cannot hold the approval: a scratch repository with
-the keys there still listed the server as pending.
-
-## The twelfth entry: `/ship`'s review dispatch
-
-**The twelfth is `/ship`'s review dispatch, and calling it narrow would be
-the comfortable half of the truth.** Step 5's local review grants
-`Agent(branch-reviewer)` and nothing broader, one agent per round. What bounds
-it is the thing a permission rule cannot state: that profile is `Read`, `Grep`
-and `Glob` and nothing else, so the grant buys a reader and no new way to
-*act*. **Which type does the review is bound by the command's prose and
-nothing else**: `allowed-tools` grants the one and restricts no other, and
-`disallowed-tools` names the broad built-in types only for the turn it holds.
-The suite case that reads `branch-reviewer`'s `tools:` line is what keeps the
-profile half true — because the property lives in a file the grant does not
-name, and a grant whose safety is a property of another file is the eleventh
-entry's general form exactly.
-
-**"No new way to act" is the profile half, and stating it alone would be a
-boundary claimed where none exists.** The reviewer also *reports*, and its
-JSON lands in `/ship`'s own session — the context holding `git commit`,
-`git push` and `gh-pr-merge.sh`, which also decides whether the round was
-clean and makes every fix itself. **That session holds two more things than
-those three**: `Write`, over every tree only `ship.md`'s frontmatter denies
-it, and `npm-checks.sh`, which runs `package.json`'s scripts and the
-JavaScript configuration on the host. Those denies — `.github/**`,
-`package.json`, `.npmrc`, `angular.json`, `tsconfig*.json`, the
-`*.config.{cjs,mjs,ts,mts}` files and `node_modules/**` — were the command's,
-which this file records above as holding for the turn that loaded it, so a
-session steered by a report could write a script and then be told to run the
-checks. **They are now also in `.claude/settings.json`**, where they hold every
-turn (blueprint-frontend#115, item 1), and `TheEditDeniesTheChecksRunOnAreInSettingsToo`
-pins both the rules and their pairing with the frontmatter. **Two things stay
-outside it, and each is a decision rather than an oversight.**
-`eslint.config.js` and `.prettierrc` are not in the shared list, because
-`/style-pass` edits both as its job and a deny in `settings.json` beats a
-command's own allowance; `ship.md`'s frontmatter still denies them for its own
-turn and no longer than that, and `eslint.config.js` is JavaScript the checks
-run, so it is the residual. **It is accepted, as blueprint-frontend#224's
-decision (2026-10-17).** Closing it would take a way for `/style-pass` to write
-these two files that no other command can, and a flat deny list cannot say
-"this command only"; a second mechanism for one residual costs more than the
-residual does. The residual needs a session already steered into editing the
-linter's configuration and then a `/ship` run that executes
-`npm-checks.sh lint`, and the edit would sit in the diff the reviewer reads.
-It is revisited if `/style-pass` gains another way to record a rule, which is
-what would make the two denies free to join the shared list.
-**And the denies bind every session, not `/ship` alone**: an
-edit to `package.json`, a `tsconfig`, `capacitor.config.ts` or
-`playwright.config.ts` now takes the owner's hand, as an edit to `.claude/**`
-does. **`src/app/app.config.ts`, the composition root, does not**
-(blueprint-frontend#227): the list names the build configs that execute —
-`vitest`, `vite`, `playwright` and `capacitor`, each as `**/<name>.config.ts`
-— and not the `.ts` extension, which had matched the root as it matches a
-Vitest config. The cost is the one a named list always has: a `.config.ts` for
-a tool nobody has added yet is editable until someone names it.
-**A finding is untrusted data, and the
-verification is the only filter on it**: each finding's `defect` and `fix`
-are sentences the reviewer wrote over branch-controlled text, so `/ship`
-traces each to its file and line and acts on what the tree shows, never on
-what the finding asks. That is a discipline and not a mechanism, and naming
-it is what keeps a later reader from checking the profile, finding it
-read-only, and concluding the path is shut.
-
-**The residual is that the chain no longer has an outside reader, and no grant
-expresses it.** What reviews a branch before it merges is the same model
-family that wrote it, with its own context and its own blind spots. Nothing in
-the harness can close that: independence of judgement is not a tool grant.
-**It is accepted, as blueprint-frontend#117's decision** — the owner chose on
-2026-10-15 to archive the external reviewers rather than restore one — and
-the control is procedural and stated: a full pass, a recheck of every fix
-with a full pass again after a deep or large one, a seventh-round ceiling
-whose open findings are filed as issues rather than dropped, and CI, which
-judges the branch by rules the model did not choose. It is recorded here
-because `/ship` merges unattended, and a reader who learns only that the
-reviewer is read-only has been told the safe half. Restoring an outside
-reader starts from `archive/external-reviewers`.
-
-**Methods come out of the branch under review at two places, and only one
-was moved.** `branch-reviewer` takes its bar from `review-branch.md` as
-`origin/main` carries it — `/ship` writes that copy under `artifacts/review/`
-— because a branch that can edit that command chooses the bar it is judged
-against. **Its profile was not moved**: a profile is a tracked file read from
-the checkout, its `tools:` line and its rules with it, and the suite case
-that pins the tool list reads the branch's copy in CI, which step 6 waits on
-after step 5 has already dispatched it — so a branch that edits the profile
-is reviewed by that edit. What bounds it is not a mechanism in the loop:
-`.claude/settings.json` denies a session `Edit` on `.claude/agents/**` and
-`.claude/commands/**`, so the edit takes a change made with that deny lifted,
-or made outside the session's tools. **The writer's method and the guard that
-read its rules from the tree left with the triager** — the second and third
-of blueprint-frontend#115's four items — because nothing in the local review
-applies a fix but the session itself.
-
-**The review's verdict keys on what the reviewer chose to report, and only
-the ceiling remembers it.** A round with nothing open ends the review, and
-branch text can argue a reviewer down as it can argue it into anything; a
-finding refused by this session stays in the report and nowhere else. What
-outlives the run is the seventh round's filing: each finding that holds and
-stays open at the ceiling becomes an issue before step 6 merges, so the
-review that ran out of budget leaves a record on the repository rather than
-in one session's context. **`ship.md` cites this record**, and the record is
-written here for that reason.
+- *Documents*: one row per role, each a path in the repository or `none` —
+  the change contract (the classes, the touch set and their class map), the
+  style guide, the testing document, the product specification, the
+  roadmap, the closed records a reviewer greps rather than reads, and the
+  measurements `docs/harness/token-rules.md`'s reasons rest on.
+- *Ship checks*: the checks `/ship` step 2 runs here, each with the change
+  that selects it and the passes it dispatches, each pass's scope and
+  method as its brief, or `none`; and the required checks, the CI check
+  names `/ship` step 6's wait requires on the pushed head, never `none`.
+- *Residuals*: what this file's arguments leave open only in this
+  repository, beside the residuals stated above.
+- *Review examples*: the kinds of finding this repository's surface
+  produces, read beside `docs/harness/working-rules.md`'s *What counts as a
+  finding*.

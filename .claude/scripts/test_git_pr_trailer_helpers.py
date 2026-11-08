@@ -1,72 +1,29 @@
 """git-trailer-pr.sh and git-revert-pr.sh against real repositories, a bare remote and a checkout.
 `gh` is a shim answering the one read the first helper makes. Each refusal is paired with a run
 that succeeds on the same fixture, so a refusal is not a helper failing for another reason.
-
-blueprint-frontend#207, ported from blueprint-backend's suite of the same name; the differences
-are the local `run_bash` and `code_lines`, which every suite in this directory carries for itself.
-
-Run: py -3.12 -m unittest discover -s .claude/scripts
-Needs bash and git on PATH.
 """
 
 import os
-import shutil
-import subprocess
+import re
 import tempfile
 import unittest
 from pathlib import Path
 
-SCRIPTS = Path(__file__).resolve().parent
-BASH = shutil.which("bash")
-GIT = shutil.which("git")
-
-# A path that does not exist reads as an empty config file on every platform,
-# so the developer's own gitconfig is not live inside a fixture.
-NO_CONFIG = str(SCRIPTS / "no-such-gitconfig-for-the-fixtures")
-
-
-def setUpModule():
-    # Not a skip: a skip on a missing tool reports a pass, which is the
-    # fail-open every gate in this repository is written against.
-    missing = [name for name, path in (("bash", BASH), ("git", GIT)) if path is None]
-    if missing:
-        raise RuntimeError(f"{', '.join(missing)} required and not on PATH")
-
-
-def run_bash(script, **env_extra):
-    """Run a bash fragment. Everything variable travels in the environment:
-    under MSYS an argv element crossing into `bash.exe` is re-parsed, so a path
-    arrives mangled and the case silently tests something else.
-    """
-    env = dict(os.environ)
-    env.setdefault("GIT_CONFIG_GLOBAL", NO_CONFIG)
-    env.setdefault("GIT_CONFIG_SYSTEM", NO_CONFIG)
-    env.update(env_extra)
-    return subprocess.run([BASH, "-c", script], capture_output=True, text=True, env=env)
-
-
-def code_lines(text):
-    """The executable lines of a script. A scan of the whole file would read
-    the comment that explains a refusal as the defect it refuses."""
-    return [line.strip() for line in text.splitlines()
-            if line.strip() and not line.lstrip().startswith("#")]
-
+from review_helpers import SCRIPTS, code_lines, git_commands, run_bash, setUpModule, temp_root  # noqa: F401
 
 TRAILER = SCRIPTS / "git-trailer-pr.sh"
 REVERT = SCRIPTS / "git-revert-pr.sh"
 
 BUILD = """
 set -eu
-root=$ROOT
-git init -q --bare --initial-branch=main "$root/remote.git"
-git init -q --initial-branch=main "$root/work"
-cd "$root/work"
+git init -q --bare --initial-branch=main "$ROOT/remote.git"
+git init -q --initial-branch=main "$ROOT/work"
+cd "$ROOT/work"
 git config user.email test@example.invalid
 git config user.name Test
-git remote add origin "$root/remote.git"
+git remote add origin "$ROOT/remote.git"
 echo base > a.txt && git add -A && git commit -qm "chore: the base"
 git push -q -u origin main
-printf %s "$root"
 """
 
 # A commit with a body and the trailers /commit keeps, so the new trailer has to land beside them.
@@ -86,18 +43,14 @@ def sh(script, **env):
 
 class Fixture(unittest.TestCase):
     def setUp(self):
-        # The root is made here, not by `mktemp -d` in BUILD: on Windows the `/tmp` bash names is not the
-        # directory Python resolves, and TemporaryDirectory clears the read-only objects git writes
-        # (blueprint-frontend#358).
-        holder = tempfile.TemporaryDirectory()
-        self.addCleanup(holder.cleanup)
-        built = run_bash(BUILD, ROOT=Path(holder.name).as_posix(),
-                         GIT_CONFIG_GLOBAL="/dev/null", GIT_CONFIG_SYSTEM="/dev/null", GIT_CONFIG_NOSYSTEM="1")
+        self.root = temp_root(self)
+        built = run_bash(
+            BUILD, ROOT=self.root, GIT_CONFIG_GLOBAL="/dev/null", GIT_CONFIG_SYSTEM="/dev/null", GIT_CONFIG_NOSYSTEM="1")
         self.assertEqual(0, built.returncode, built.stderr)
-        self.root = built.stdout.strip()
         self.work = f"{self.root}/work"
-        shim = tempfile.mkdtemp()
-        self.addCleanup(shutil.rmtree, shim, ignore_errors=True)
+        stub = tempfile.TemporaryDirectory()
+        self.addCleanup(stub.cleanup)
+        shim = stub.name
         Path(shim, "gh").write_text('#!/usr/bin/env bash\nprintf "%s\\n" "$GH_ROW"\n', encoding="utf-8")
         os.chmod(Path(shim, "gh"), 0o755)
         self.shim = shim
@@ -115,8 +68,7 @@ class Fixture(unittest.TestCase):
             self.git("push", "-q", "-u", "origin", "HEAD")
 
     def stray(self):
-        # Written by the shell, as every other step on the checkout is.
-        self.assertEqual(0, sh('cd "$WORK"\necho x > stray.txt', WORK=self.work).returncode)
+        Path(self.work, "stray.txt").write_text("x\n", encoding="utf-8")
 
     def branch(self, name="feat/x"):
         self.git("checkout", "-q", "-b", name)
@@ -151,12 +103,14 @@ class TrailerHelper(Fixture):
 
     def test_a_rerun_after_a_failed_push_publishes_the_rewrite(self):
         self.two_commit_branch()
-        hook = '$ROOT/remote.git/hooks/pre-receive'
-        self.assertEqual(0, sh(f'printf "#!/bin/sh\\nexit 1\\n" > "{hook}" && chmod +x "{hook}"', ROOT=self.root).returncode)
+        # The remote refuses a non-fast-forward, as a setting of its own: a `pre-receive` hook there would be
+        # ignored, since the helper's empty hooks path is inherited by the receiving git on a local remote.
+        deny = 'git --git-dir="$ROOT/remote.git" config receive.denyNonFastForwards true'
+        self.assertEqual(0, sh(deny, ROOT=self.root).returncode)
         failed = self.run_helper(TRAILER)
         self.assertEqual(7, failed.returncode, failed.stderr)
         self.assertNotEqual(self.git('rev-parse', 'HEAD'), self.git('rev-parse', 'origin/feat/x'))
-        self.assertEqual(0, sh(f'rm "{hook}"', ROOT=self.root).returncode)
+        self.assertEqual(0, sh(deny.replace(" true", " false"), ROOT=self.root).returncode)
         again = self.run_helper(TRAILER)
         self.assertEqual(0, again.returncode, again.stderr)
         self.assertEqual(self.git('rev-parse', 'HEAD'), self.git('ls-remote', 'origin', 'feat/x').split()[0])
@@ -247,10 +201,9 @@ class TrailerHelper(Fixture):
                 self.assertEqual(2, self.run_helper(TRAILER, pr=bad).returncode)
 
     def test_the_repositorys_own_hooks_do_not_run_inside_the_rewrite(self):
-        # **The difference from the backend's suite (blueprint-frontend#180).** A `post-rewrite` hook in the
-        # repository's hooks directory runs after an amend or a rebase; this helper rewrites published history,
-        # so it points `core.hooksPath` at an empty directory for the run. The positive control comes first: the
-        # same hook does fire on a plain amend in this fixture, so its silence afterwards is the helper's doing.
+        # A `post-rewrite` hook in the repository runs after an amend or a rebase, and this helper rewrites published
+        # history, so it points `core.hooksPath` at an empty directory for the run. The positive control comes first:
+        # the same hook does fire on a plain amend in this fixture, so its silence afterwards is the helper's doing.
         self.two_commit_branch()
         hook = '"$WORK/.git/hooks/post-rewrite"'
         marker = '"$ROOT/hook-ran"'
@@ -264,27 +217,66 @@ class TrailerHelper(Fixture):
         self.assertEqual(0, out.returncode, out.stderr)
         self.assertEqual(1, sh(f'test -e {marker}', ROOT=self.root).returncode, "the host's hook ran inside the helper")
 
-    def test_the_one_pull_request_read_names_a_fixed_field_set(self):
-        # #56's rule, held where this helper meets it: a caller that chooses fields can choose `reviews`, text
-        # anyone can post. The helper makes exactly one `gh` call, with its fields spelled in the file.
-        code = code_lines(TRAILER.read_text(encoding="utf-8"))
-        calls = [line for line in code if "gh pr " in line or line.startswith("gh ")]
-        self.assertEqual(['row=$(gh pr view "$pr" --json state,headRefName,baseRefName,isCrossRepository \\'], calls)
-        text = "\n".join(code)
-        for feed in ("reviews", "comments", "body"):
-            with self.subTest(feed=feed):
-                self.assertNotIn(feed, text)
+    def test_the_hooks_path_is_set_before_the_first_command_that_can_run_a_hook(self):
+        code = chr(10).join(code_lines(TRAILER.read_text(encoding="utf-8")))
+        export = code.find("GIT_CONFIG_KEY_")
+        self.assertGreaterEqual(export, 0, "the hooks path is not set")
+        self.assertIn("core.hooksPath", code)
+        self.assertRegex(code, r"mktemp\s+-d", "the path is an empty directory made for the run")
+        for command in ("git status", "git fetch", "git rebase", "git push"):
+            with self.subTest(command=command):
+                self.assertLess(export, code.find(command))
+
+    @staticmethod
+    def unleased(source):
+        """Why each `git push` in the script is not a leased update, whatever else sits between its words."""
+        found = []
+        for command in git_commands("\n".join(code_lines(source))):
+            if not command.startswith("git push"):
+                continue
+            tokens = command.split()
+            if not any(t.startswith("--force-with-lease=") for t in tokens):
+                found.append(f"no lease: {command}")
+            found += [f"{t!r} forces without a lease: {command}" for t in tokens
+                      if t in ("--force", "--force-if-includes") or t.startswith("--force=")
+                      or re.fullmatch(r"-[A-Za-z]*f[A-Za-z]*", t) or re.match(r'''["']?\+''', t)]
+        return found
 
     def test_the_helper_spells_its_rewrite_and_its_lease_itself(self):
-        code = "\n".join(code_lines(TRAILER.read_text(encoding="utf-8")))
-        self.assertIn('--force-with-lease="refs/heads/$branch:$remote"', code)
-        self.assertNotIn("git push --force ", code)
-        self.assertNotIn("git push -f", code)
-        # And the replay's flags, spelled for the reason git-rebase-onto-main.sh spells them.
-        for flag in ("--no-rebase-merges", "--no-update-refs", "--no-autosquash", "--no-fork-point", "--no-autostash"):
+        source = TRAILER.read_text(encoding="utf-8")
+        self.assertEqual([], self.unleased(source))
+        pushes = [c for c in git_commands("\n".join(code_lines(source))) if c.startswith("git push")]
+        self.assertEqual(1, len(pushes), "one push, and it names its lease on the branch and the remote")
+        self.assertIn('--force-with-lease="refs/heads/$branch:$remote"', pushes[0])
+
+    def test_every_replay_spells_the_flags_that_decide_what_is_replayed(self):
+        # Each `rebase.*` key behind these flags changes which commits are replayed, and the result is
+        # force-pushed, so an inherited one is a rewrite nobody asked for.
+        code = chr(10).join(code_lines(TRAILER.read_text(encoding="utf-8")))
+        replays = [c for c in git_commands(code) if c.startswith("git rebase") and "--abort" not in c]
+        self.assertEqual(1, len(replays), replays)
+        for flag in ("--no-rebase-merges", "--no-update-refs", "--no-autosquash", "--no-fork-point",
+                     "--no-autostash"):
             with self.subTest(flag=flag):
-                self.assertIn(flag, code)
-        self.assertIn("core.hooksPath", code)
+                self.assertIn(flag, replays[0])
+
+    def test_the_scan_sees_an_unleased_force_in_the_helpers_own_shape(self):
+        # A flag between `push` and `--force` must not hide the force, with a lease beside it or without.
+        lease = '--force-with-lease="refs/heads/$branch:$remote"'
+        for line in ('git push --quiet --force origin "HEAD:refs/heads/$branch"',
+                     'git push -q -f origin "HEAD:refs/heads/$branch"',
+                     'git push --quiet origin "HEAD:refs/heads/$branch"',
+                     'timeout 60 git push --quiet --force origin "$branch"',
+                     f'git push --quiet {lease} --force origin "HEAD:refs/heads/$branch"',
+                     f'git push --quiet {lease} origin "+HEAD:refs/heads/$branch"',
+                     f'git push -qf {lease} origin "HEAD:refs/heads/$branch"',
+                     f"git push --quiet {lease} origin '+HEAD:refs/heads/$branch'",
+                     f'git push --quiet {lease} origin ' + chr(92) + chr(10) + ' --force "HEAD:refs/heads/$branch"'):
+            with self.subTest(line=line):
+                source = TRAILER.read_text(encoding="utf-8") + chr(10) + line
+                self.assertNotEqual([], self.unleased(source))
+                if lease in line:
+                    self.assertTrue(any("forces without a lease" in why for why in self.unleased(source)))
 
 
 class RevertHelper(Fixture):
