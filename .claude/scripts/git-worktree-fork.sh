@@ -45,14 +45,14 @@ esac
   { echo "branch already exists: $branch" >&2; exit 3; }
 git show-ref --verify --quiet refs/remotes/origin/main ||
   { echo "no refs/remotes/origin/main — fetch first (step 1)" >&2; exit 4; }
-# `--no-track` is fixed because the start point is a remote-tracking ref, so
-# without it the new branch's upstream becomes origin/main and /pr never sets
-# the right one. origin/main is fixed because step 5 forks only from the
-# fetched base.
+# origin/main is fixed because step 5 forks only from the fetched base, and read
+# once because another session's fetch can move it: the branch is cut at the oid
+# the cleanup below compares. An oid names no branch to track, so it gets no
+# upstream, and /pr sets the right one.
 start=$(git rev-parse refs/remotes/origin/main)
 # Apart from the add, whose one exit cannot say which step failed: a name
 # another fork took after the check above stops here, its branch left alone.
-git branch --no-track "$branch" origin/main
+git branch "$branch" "$start"
 added=0
 git worktree add "$path" "$branch" || added=$?
 if [ "$added" -ne 0 ]; then
