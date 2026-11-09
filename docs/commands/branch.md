@@ -206,8 +206,8 @@ Step 1 fetched for the reason spelled out under the fork below — local
 `main` is whatever it was when it was last pulled — and that reason does not
 weaken because the branch is being made in place. The two rows that carry
 no worktree are still starting a PR from a base, and a stale one costs the
-same there as anywhere. `--no-track` travels with `origin/main` for the same
-reason it does on the fork: it is a remote-tracking ref, so without it the
+same there as anywhere. `--no-track` travels with `origin/main` in
+`git-branch-create.sh`: it is a remote-tracking ref, so without the flag the
 upstream lands on `origin/main` and `/pr` never sets the right one.
 
 The dirty and detached rows are the exception and stay on `HEAD`, because
@@ -217,7 +217,7 @@ tree. A base is not what they are short of.
 **`git-worktree-fork.sh` is the whole command, and it takes two arguments
 because everything else about it is fixed.** Its git commands that write, but
 for removing what they leave when the second fails, are
-`git branch --no-track <branch> origin/main` and
+`git branch <branch> <oid>`, the oid being `origin/main` read once, and
 `git worktree add <path> <branch>`, after which
 it starts the new worktree's index refresh — a `Bash(git worktree add:*)`
 grant would also buy `-B`, which does not create a branch but **resets**
@@ -226,19 +226,24 @@ an existing one, the operation
 a branch that already exists, which is what makes the missing `-B` harmless
 rather than merely unavailable.
 
-**`--no-track` inside it is load-bearing, not tidiness.** The start point is
-a remote-tracking ref, so without it git sets the new branch's upstream to
-`origin/main` — "branch '<name>' set up to track 'origin/main'". `/pr` then
-reads `git status -sb`, finds an upstream, classifies the branch as
-*tracking, ahead*, and pushes without `-u`, leaving the PR branch pointed at
-`origin/main` for every later status and resume read. With `--no-track` there
-is no upstream, `/pr` takes its **no upstream** row, and
-`git push -u origin <branch>` sets the right one.
+**The oid is load-bearing, not tidiness, and twice over.** Cut from the name
+`origin/main`, git would set the new branch's upstream to it — "branch
+'<name>' set up to track 'origin/main'". `/pr` then reads `git status -sb`,
+finds an upstream, classifies the branch as *tracking, ahead*, and pushes
+without `-u`, leaving the PR branch pointed at `origin/main` for every later
+status and resume read. An oid names no branch to track, so there is no
+upstream whatever `branch.autoSetupMerge` says, no `--no-track` is needed, `/pr`
+takes its **no upstream** row, and `git push -u origin <branch>` sets the right
+one. And a second read of the name would see another session's fetch: the
+branch would then sit past the oid a failed add's cleanup compares, so it would
+be kept, and `/branch` would stop on a branch nothing the session holds can
+remove.
 
 `origin/main` is the base rather than `HEAD`, for the reason step 1 fetched:
 local `main` here is whatever it was when it was last pulled, and a review
 diffed against a stale base reads changes the branch never made. Cutting the
-worktree from the remote-tracking ref is where that is cheapest to get right.
+worktree from what the remote-tracking ref holds is where that is cheapest to
+get right.
 
 Then switch the session into it with **`EnterWorktree`**, passing the new
 directory as `path` — the worktree exists and `git worktree list` reports
