@@ -1405,8 +1405,10 @@ forgets the count with the id it belonged to. A validation failure that lands
 with another attempt under the id still out sets the may-have-committed flag,
 and it stays set when that attempt later fails too, since holding an id is
 always safe. `onDropped()` sets it as well. `CheckoutPage`, `PublishPage` and
-`OwnProductsComponent`'s reprice and withdrawal send through `begin()`, and
-the two pages also drop a reply whose id has since been replaced, so that it is
+`OwnProductsComponent`'s reprice and withdrawal send through `begin()`, which
+`core/commands/command-sends.spec.ts` holds of every command in the tree, since
+a send that skipped it would get no error and read as nothing outstanding. The
+two pages also drop a reply whose id has since been replaced, so that it is
 never held against the one that replaced it. The button stays live: section 4's
 non-guard stands, and this entry narrows only what a 400 may prove. This entry
 supersedes that sentence of the entry above, which is left as written.

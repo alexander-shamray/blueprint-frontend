@@ -51,7 +51,8 @@ export class CommandIdentity {
    * A request is going out under the current id, which this returns. Every send
    * goes through here, because the buttons stay live while one is out
    * (client-architecture.md §4) and only this count can say that a validation
-   * refusal arrived with another attempt still unresolved.
+   * refusal arrived with another attempt still unresolved. A send that read
+   * `current()` instead would get no error, so `command-sends.spec.ts` refuses it.
    */
   begin(): string {
     this.outstanding++;
