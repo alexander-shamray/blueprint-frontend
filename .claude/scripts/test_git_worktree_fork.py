@@ -12,6 +12,7 @@ from pathlib import Path
 
 from review_helpers import (
     SCRIPTS,
+    code_lines,
     setUpModule,
     temp_root,
     run_bash,
@@ -86,6 +87,22 @@ class ForkShape(unittest.TestCase):
         # out of every `git status` the chain reads.
         status = run_bash('git -C "$C" status --porcelain', C=f"{root}/checkout")
         self.assertNotIn(".claude", status.stdout)
+
+    def test_no_auto_setup_setting_gives_the_fork_an_upstream(self):
+        # The start point is an oid, which names no branch to track, so the
+        # no-upstream row of /pr holds whatever the machine's git says.
+        for setting in ("always", "inherit"):
+            with self.subTest(setting=setting):
+                root = self.fixture()
+                configured = run_bash('git -C "$C" config branch.autoSetupMerge "$S"',
+                                      C=f"{root}/checkout", S=setting)
+                self.assertEqual(0, configured.returncode, configured.stderr)
+                result = self.fork(f"{root}/checkout", ".claude/worktrees/probe")
+                self.assertEqual(0, result.returncode, result.stderr)
+                upstream = run_bash(
+                    'git -C "$C" rev-parse --abbrev-ref feat/probe@{upstream}',
+                    C=f"{root}/checkout")
+                self.assertNotEqual(0, upstream.returncode, upstream.stdout)
 
     def test_the_new_worktree_runs_its_own_index_refresh(self):
         # /branch enters the worktree mid-session, where no `SessionStart`
@@ -260,7 +277,15 @@ RESTORE_BLOB = """
 git -C "$root/origin" cat-file blob HEAD:payload.txt | git -C "$root/checkout" hash-object -w --stdin
 """
 
-WORKTREE_ADD = '[ "$1" = worktree ] && [ "$2" = add ]'
+WORKTREE_ADD = '[ "$1" = -c ] && [ "$3" = worktree ] && [ "$4" = add ]'
+
+
+class TheAddAsksForLongPaths(unittest.TestCase):
+    def test_the_add_spells_core_longpaths_in_a_code_line(self):
+        # Only a Windows run can fail on a path past 260 characters, so the spelling is held on every platform,
+        # against code lines a comment cannot satisfy.
+        self.assertIn("git -c core.longpaths=true worktree add",
+                      "\n".join(code_lines(FORK.read_text(encoding="utf-8"))))
 
 
 class FailedFork(unittest.TestCase):
@@ -363,6 +388,28 @@ class FailedFork(unittest.TestCase):
         # What that fork does next: its add finds its branch and the path free.
         winner = run_bash('git -C "$root/checkout" worktree add .claude/worktrees/probe feat/probe', root=root)
         self.assertEqual(0, winner.returncode, winner.stderr)
+
+    def test_a_fetch_during_the_fork_leaves_no_branch_behind(self):
+        # Another session's fetch lands after the start point is read and before
+        # the branch is cut: the branch must sit where the cleanup compares it.
+        root = self.fixture()
+        moved = run_bash('git -C "$root/origin" -c user.name=t -c user.email=t@t '
+                         'commit -q --allow-empty -m moved', root=root)
+        self.assertEqual(0, moved.returncode, moved.stderr)
+        shim = self.stub(root, 'if [ "$1" = branch ]; then "$real" fetch -q origin; exec "$real" "$@"; fi',
+                         when=f'[ "$1" = branch ] || {{ {WORKTREE_ADD}; }}')
+        result = self.fork(root, shim)
+        self.assertEqual(128, result.returncode, result.stderr)
+        # The positive control: origin/main did move under the running fork.
+        heads = run_bash('git -C "$root/origin" rev-parse HEAD; '
+                         'git -C "$root/checkout" rev-parse origin/main', root=root)
+        self.assertEqual(0, heads.returncode, heads.stderr)
+        origin_head, tracked = heads.stdout.split()
+        self.assertEqual(origin_head, tracked)
+        self.assertIn("removed feat/probe", result.stderr)
+        self.assertEqual("", self.branch(root))
+        again = self.fork(root)
+        self.assertEqual(0, again.returncode, again.stderr)
 
     def test_git_failing_before_the_branch_exists_says_nothing_of_one(self):
         root = self.fixture()
