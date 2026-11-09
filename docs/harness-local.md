@@ -42,10 +42,11 @@ Selected by what the diff touched:
 - **A native change is covered by no local check**: a diff touching
   `capacitor.config.ts`, `android/**` or `ios/**` names the `android`,
   `ios-config` and `ios-build` jobs in the PR body, which run in CI.
-- **A change under `.claude/`** runs the harness's own suite,
-  `py -3.12 -m unittest discover -s .claude/scripts`, and the local suites
-  among it (`test_*_frontend.py`, `test_npm_checks.py`, `test_mcp_launch.py`,
-  `test_root_ignore_coverage.py`) whatever else it touched.
+- **A change under `.claude/`** runs the harness's own suite over
+  `.claude/scripts`, by the command `ship.md`'s `allowed-tools` grants for it,
+  and the local suites among it (`test_*_frontend.py`, `test_npm_checks.py`,
+  `test_mcp_launch.py`, `test_root_ignore_coverage.py`) whatever else it
+  touched.
 
 The checks `/ship` step 6's wait requires: `android`, `audit`, `closure-gate`,
 `commit-gate`, `commits`, `e2e`, `harness (macos-latest)`,
