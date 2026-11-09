@@ -509,6 +509,78 @@ describe('PublishPage', () => {
     await fixture.whenStable();
   });
 
+  it('holds the id through a second press’s validation refusal while the first is out (#425)', async () => {
+    const page = fixture.componentInstance;
+    page.publish();
+    const slow = controller.expectOne('http://localhost:5000/api/v1/catalog/products');
+    const firstId = slow.request.body.commandId;
+
+    page.form.controls.amount.setValue(1);
+    page.publish();
+    controller.expectOne('http://localhost:5000/api/v1/catalog/products').flush(
+      { status: 400, errors: { Amount: ["'Amount' must be greater than or equal to '0'."] } },
+      { status: 400, statusText: 'Bad Request' },
+    );
+    await fixture.whenStable();
+
+    page.form.controls.amount.setValue(2);
+    page.publish();
+    const third = controller.expectOne('http://localhost:5000/api/v1/catalog/products');
+    expect(third.request.body.commandId).toBe(firstId);
+
+    slow.flush({ title: 'Service Unavailable', status: 503 }, { status: 503, statusText: '' });
+    third.flush('55555555-5555-5555-5555-555555555555', { status: 200, statusText: 'OK' });
+    await fixture.whenStable();
+  });
+
+  it('holds the id through a dropped 503, so a later validation refusal does not release it', async () => {
+    const page = fixture.componentInstance;
+    page.publish();
+    const first = controller.expectOne('http://localhost:5000/api/v1/catalog/products');
+    const firstId = first.request.body.commandId;
+
+    user.set(null);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    first.flush({ title: 'Service Unavailable', status: 503 }, { status: 503, statusText: '' });
+    await fixture.whenStable();
+    user.set({ username: 'demo', subject: 'subject-demo', permissions: [], expiresAt: 1 });
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    page.publish();
+    controller.expectOne('http://localhost:5000/api/v1/catalog/products').flush(
+      { status: 400, errors: { Amount: ["'Amount' must be greater than or equal to '0'."] } },
+      { status: 400, statusText: 'Bad Request' },
+    );
+    await fixture.whenStable();
+
+    page.form.controls.amount.setValue(2);
+    page.publish();
+    const third = controller.expectOne('http://localhost:5000/api/v1/catalog/products');
+    expect(third.request.body.commandId).toBe(firstId);
+    third.flush('55555555-5555-5555-5555-555555555555', { status: 200, statusText: 'OK' });
+    await fixture.whenStable();
+  });
+
+  it('shows nothing of a reply that lands after its id has been spent by a success', async () => {
+    const page = fixture.componentInstance;
+    page.publish();
+    page.publish();
+    const [first, second] = controller.match('http://localhost:5000/api/v1/catalog/products');
+
+    first.flush('55555555-5555-5555-5555-555555555555', { status: 200, statusText: 'OK' });
+    await fixture.whenStable();
+    const fresh = page.identity.current();
+
+    second.flush({ title: 'Service Unavailable', status: 503 }, { status: 503, statusText: '' });
+    await fixture.whenStable();
+
+    expect(page.error()).toBeNull();
+    expect(page.publishedId()).toBe('55555555-5555-5555-5555-555555555555');
+    expect(page.identity.current()).toBe(fresh);
+  });
+
   it('does not loop when the replay is refused with another 401', async () => {
     fixture.componentInstance.publish();
     controller

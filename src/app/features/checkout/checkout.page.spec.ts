@@ -515,6 +515,107 @@ describe('CheckoutPage', () => {
     await fixture.whenStable();
   });
 
+  it('holds the id through a dropped 5xx, so a later validation refusal does not release it', async () => {
+    const page = fixture.componentInstance;
+    page.placeOrder();
+    const first = controller.expectOne('http://localhost:5000/api/v1/orders');
+    const firstId = first.request.body.commandId;
+
+    user.set(null);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    first.flush({ title: 'Server error', status: 500 }, { status: 500, statusText: 'Error' });
+    await fixture.whenStable();
+    user.set({ username: 'demo', subject: 'subject-demo', permissions: [], expiresAt: 1 });
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    page.form.controls.postalCode.setValue('refused');
+    page.placeOrder();
+    controller.expectOne('http://localhost:5000/api/v1/orders').flush(
+      { status: 400, errors: { 'ShippingAddress.PostalCode': ['Not a postal code.'] } },
+      { status: 400, statusText: 'Bad Request' },
+    );
+    await fixture.whenStable();
+
+    page.form.controls.postalCode.setValue('12345');
+    page.placeOrder();
+    const third = controller.expectOne('http://localhost:5000/api/v1/orders');
+    expect(third.request.body.commandId).toBe(firstId);
+    third.flush('44444444-4444-4444-4444-444444444444', { status: 200, statusText: 'OK' });
+    await fixture.whenStable();
+  });
+
+  describe('a second press while the first is out (#425)', () => {
+    const refuseWithValidation = async (): Promise<void> => {
+      fixture.componentInstance.placeOrder();
+      controller.expectOne('http://localhost:5000/api/v1/orders').flush(
+        { status: 400, errors: { 'ShippingAddress.PostalCode': ['Not a postal code.'] } },
+        { status: 400, statusText: 'Bad Request' },
+      );
+      await fixture.whenStable();
+    };
+
+    it('holds the id through the second press’s validation refusal and the edit after it', async () => {
+      const page = fixture.componentInstance;
+      page.placeOrder();
+      const slow = controller.expectOne('http://localhost:5000/api/v1/orders');
+      const firstId = slow.request.body.commandId;
+
+      page.form.controls.postalCode.setValue('refused');
+      await refuseWithValidation();
+
+      page.form.controls.postalCode.setValue('12345');
+      expect(page.identity.current()).toBe(firstId);
+      page.placeOrder();
+      const third = controller.expectOne('http://localhost:5000/api/v1/orders');
+      expect(third.request.body.commandId).toBe(firstId);
+
+      slow.flush('44444444-4444-4444-4444-444444444444', { status: 200, statusText: 'OK' });
+      third.flush('44444444-4444-4444-4444-444444444444', { status: 200, statusText: 'OK' });
+      await fixture.whenStable();
+    });
+
+    it('retries under the first id when the request that was out then fails', async () => {
+      const page = fixture.componentInstance;
+      page.placeOrder();
+      const slow = controller.expectOne('http://localhost:5000/api/v1/orders');
+      const firstId = slow.request.body.commandId;
+
+      page.form.controls.postalCode.setValue('refused');
+      await refuseWithValidation();
+      page.form.controls.postalCode.setValue('12345');
+
+      slow.flush({ title: 'Server error', status: 500 }, { status: 500, statusText: 'Error' });
+      await fixture.whenStable();
+
+      page.placeOrder();
+      const retry = controller.expectOne('http://localhost:5000/api/v1/orders');
+      expect(retry.request.body.commandId).toBe(firstId);
+      retry.flush('44444444-4444-4444-4444-444444444444', { status: 200, statusText: 'OK' });
+      await fixture.whenStable();
+    });
+
+    it('shows nothing of a reply that lands after its id has been spent by a success', async () => {
+      const page = fixture.componentInstance;
+      page.placeOrder();
+      page.placeOrder();
+      const [first, second] = controller.match('http://localhost:5000/api/v1/orders');
+
+      first.flush('44444444-4444-4444-4444-444444444444', { status: 200, statusText: 'OK' });
+      await fixture.whenStable();
+      const fresh = page.identity.current();
+
+      second.flush({ title: 'Server error', status: 500 }, { status: 500, statusText: 'Error' });
+      await fixture.whenStable();
+
+      expect(page.error()).toBeNull();
+      expect(page.submitting()).toBe(false);
+      expect(page.identity.current()).toBe(fresh);
+      expect(navigate).toHaveBeenCalledTimes(1);
+    });
+  });
+
   it("does not take another buyer's sign-in for a late 401's refused subject", async () => {
     const page = fixture.componentInstance;
     page.placeOrder();
