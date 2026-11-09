@@ -38,6 +38,35 @@ ROW_READ = "bash .claude/scripts/pr-for-branch.sh <branch>"
 RETIRED_READS = ("git log origin/main..HEAD", "git cherry", "git log --merges --cc")
 
 
+class TheConflictAndTheWorktreeTheRunbookNames(unittest.TestCase):
+    """Two places the runbook and what actually happens had parted."""
+
+    def setUp(self):
+        self.text = " ".join(SHIP.read_text(encoding="utf-8").split()).replace("`", "")
+
+    def test_a_conflict_takes_the_rebase_the_working_rule_gives_it(self):
+        rule = " ".join((ROOT / "docs" / "harness" / "working-rules.md").read_text(encoding="utf-8").split())
+        self.assertIn("only when GitHub reports it conflicting", rule)
+        # At any point: `main` can move during the checks wait, and that wait passes only on MERGEABLE.
+        self.assertIn("What resolves GitHub's, and a CONFLICTING read at any point, is a rebase:", self.text)
+        self.assertNotIn("Conflicts are the caller's tree", self.text)
+        # The route is the one a refused landing already takes, and the helper is what it runs.
+        at = self.text.index("a CONFLICTING read at any point")
+        self.assertLess(at, self.text.index("bash .claude/scripts/git-rebase-onto-main.sh <branch> start"))
+
+    def test_the_conflict_stop_is_left_only_for_the_update_having_answered(self):
+        self.assertIn("| CONFLICTING again on a head rebased onto the current origin/main |", self.text)
+        self.assertIn("Bash(git merge-base origin/main HEAD)", self.text)
+
+    def test_a_session_launched_in_its_worktree_is_told_what_is_left(self):
+        for words in ("**Launched inside the worktree**, line 2 answers that no session is active",
+                      "Run lines 4 to 8 by cd to the main checkout",
+                      "On Windows line 7 exits 4 on the directory this session holds, so no line 9",
+                      "the report gives the owner rmdir and the drop"):
+            with self.subTest(words=words):
+                self.assertIn(words, self.text)
+
+
 def setUpModule():
     # Not a skip: a skip on a missing tool reports a pass.
     if BASH is None:
