@@ -1,6 +1,6 @@
-// `$localize` is a global the application's entry point loads first; the unit
-// tests do not run that entry point, so they load it here (#103).
-import '@angular/localize/init';
+// `$localize` is not loaded here: the unit-test builder runs the build target's
+// `polyfills` before this file, and an import of the module here draws its
+// "Direct import of '@angular/localize/init'" warning on every run (#434).
 
 // Ionic's web components are custom elements; registering them once here keeps
 // every component test from doing it, and keeps a page test from silently
