@@ -409,7 +409,7 @@ export class OwnProductsComponent {
     this.setPending(product.productId, true);
     this.actionErrorSignal.set(null);
 
-    this.catalog.withdraw(product.productId, { commandId: identity.current() }).subscribe({
+    this.catalog.withdraw(product.productId, { commandId: identity.begin() }).subscribe({
       next: () => {
         if (this.subjectChanges !== changesAtIssue) return;
         this.setPending(product.productId, false);
@@ -550,7 +550,7 @@ export class OwnProductsComponent {
 
     this.catalog
       .changePrice(product.productId, {
-        commandId: identity.current(),
+        commandId: identity.begin(),
         amount,
         currency: product.currency,
       })

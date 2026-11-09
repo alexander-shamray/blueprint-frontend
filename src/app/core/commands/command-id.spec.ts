@@ -219,14 +219,117 @@ describe('CommandIdentity', () => {
     expect(identity.current()).not.toBe(fresh);
   });
 
-  it('mints after a run of validation failures with nothing uncertain before them', () => {
+  it('mints after a run of validation failures, each answered before the next went out', () => {
     const identity = new CommandIdentity();
-    const first = identity.current();
+    const first = identity.begin();
 
     identity.onFailure(failure('validation'));
+    identity.begin();
     identity.onFailure(failure('validation'));
     identity.onEdit();
 
     expect(identity.current()).not.toBe(first);
+  });
+
+  describe('while a request under the id is still out (#425)', () => {
+    it('hands out the id it holds, and keeps it', () => {
+      const identity = new CommandIdentity();
+      const first = identity.current();
+
+      expect(identity.begin()).toBe(first);
+      expect(identity.current()).toBe(first);
+    });
+
+    it('holds the id on an edit after a validation failure of a second press', () => {
+      const identity = new CommandIdentity();
+      const first = identity.begin();
+
+      identity.begin();
+      identity.onFailure(failure('validation'));
+      identity.onEdit();
+
+      expect(identity.current()).toBe(first);
+    });
+
+    it('still holds the id once the request that was out has failed too', () => {
+      // The record is kept rather than worked out again: holding an id is
+      // always safe, because the platform answers a held id for what it is.
+      const identity = new CommandIdentity();
+      const first = identity.begin();
+      identity.begin();
+
+      identity.onFailure(failure('validation'));
+      identity.onFailure(failure('validation'));
+      identity.onEdit();
+
+      expect(identity.current()).toBe(first);
+    });
+
+    it('does not release on an edit made after the next press went out', () => {
+      // The validation failure freed the id for an edit, and the press after it
+      // claimed the id again before the edit arrived.
+      const identity = new CommandIdentity();
+      const first = identity.begin();
+      identity.onFailure(failure('validation'));
+
+      identity.begin();
+      identity.onEdit();
+
+      expect(identity.current()).toBe(first);
+    });
+
+    it('forgets what was out under the old id once one is minted', () => {
+      const identity = new CommandIdentity();
+      identity.begin();
+      identity.begin();
+
+      identity.onSuccess();
+      const fresh = identity.begin();
+      identity.onFailure(failure('validation'));
+      identity.onEdit();
+
+      expect(identity.current()).not.toBe(fresh);
+    });
+  });
+
+  describe('when a reply is dropped unread', () => {
+    it('holds the id, since the dropped reply may have been a commit', () => {
+      const identity = new CommandIdentity();
+      const first = identity.begin();
+
+      identity.onDropped(first);
+      identity.begin();
+      identity.onFailure(failure('validation'));
+      identity.onEdit();
+
+      expect(identity.current()).toBe(first);
+    });
+
+    it('takes a dropped reply under an old id as nothing to do with the current one', () => {
+      const identity = new CommandIdentity();
+      const first = identity.begin();
+      identity.onSuccess();
+
+      identity.onDropped(first);
+      const fresh = identity.begin();
+      identity.onFailure(failure('validation'));
+      identity.onEdit();
+
+      expect(identity.current()).not.toBe(fresh);
+    });
+
+    it('does not count a dropped reply under an old id against a request out now', () => {
+      const identity = new CommandIdentity();
+      const first = identity.begin();
+      identity.onSuccess();
+      const fresh = identity.begin();
+      identity.begin();
+
+      identity.onDropped(first);
+      identity.onFailure(failure('validation'));
+      identity.onEdit();
+
+      expect(identity.current()).toBe(fresh);
+    });
   });
 });

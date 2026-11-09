@@ -458,7 +458,7 @@ export class CheckoutPage {
     const address = this.form.getRawValue();
 
     const command: PlaceOrderCommand = {
-      commandId: this.identity.current(),
+      commandId: this.identity.begin(),
       items: this.cart.lines().map((line) => ({
         productId: line.productId,
         quantity: line.quantity,
@@ -483,17 +483,24 @@ export class CheckoutPage {
     // its own. Anyone else would otherwise be taken to that buyer's order, or
     // have their own form replayed under the refused buyer's sign-in. A reply
     // dropped this way spends nothing: the id is held, so the owner's next
-    // Place order is a replay of the same order.
+    // Place order is a replay of the same order. Nor does it belong once its id
+    // has been replaced, by a new form entry or by the success of another press
+    // of this one: the reply is about a command the form has moved past, and
+    // read now it would be held against the id that replaced it (#425).
     const issuedFor = this.auth.user()()?.subject ?? null;
     const changesAtIssue = this.subjectChanges;
     const stillFor = (): boolean =>
       this.subjectChanges === changesAtIssue &&
+      this.identity.current() === command.commandId &&
       (this.auth.user()()?.subject ?? null) === issuedFor;
 
     this.ordering.place(command).subscribe({
       next: (orderId) => {
         this.inFlightState.update((count) => count - 1);
-        if (!stillFor()) return;
+        if (!stillFor()) {
+          this.identity.onDropped(command.commandId);
+          return;
+        }
         this.replayedAfterSignIn = false;
         this.errorState.set(null);
         this.fieldErrorsState.set({});
@@ -504,7 +511,10 @@ export class CheckoutPage {
       },
       error: (failure: HttpErrorResponse) => {
         this.inFlightState.update((count) => count - 1);
-        if (!stillFor()) return;
+        if (!stillFor()) {
+          this.identity.onDropped(command.commandId);
+          return;
+        }
         const displayed = mapError(failure, { permission: PERMISSIONS.ordersWrite });
         this.errorState.set(displayed);
         // Replaced, not merged: every response is the whole of what the

@@ -627,6 +627,35 @@ describe('OwnProductsComponent', () => {
       await settle();
     });
 
+    it('holds the id through a second press’s validation refusal while the first is out (#425)', async () => {
+      await listed(product('a'));
+
+      page().askToReprice(page().products()[0]);
+      type(5);
+      page().reprice(page().products()[0]);
+      const slow = controller.expectOne(priceOf('a'));
+      const firstId = slow.request.body.commandId;
+
+      type(-1);
+      page().reprice(page().products()[0]);
+      controller.expectOne(priceOf('a')).flush(
+        { status: 400, errors: { Amount: ['Must be at least 0.'] } },
+        { status: 400, statusText: 'Bad Request' },
+      );
+      await settle();
+
+      type(6);
+      page().reprice(page().products()[0]);
+      const third = controller.expectOne(priceOf('a'));
+      expect(third.request.body.commandId).toBe(firstId);
+
+      slow.flush({ title: 'Bad Gateway', status: 502 }, { status: 502, statusText: '' });
+      third.flush(null, { status: 204, statusText: 'No Content' });
+      await settle();
+      mine().flush({ items: [product('a')], nextCursor: null });
+      await settle();
+    });
+
     it('retries a failed reprice under the same id, since it may have committed', async () => {
       await listed(product('a'));
 

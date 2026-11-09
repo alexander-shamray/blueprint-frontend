@@ -1377,6 +1377,40 @@ pages holding an identity already handle. This entry supersedes that sentence
 of spec §5.3 and the release rule as section 4 states it; both are left as
 written.
 
+### A validation refusal says nothing about a request still out
+
+*The claim.* The entry above: "a validation failure releases the id on the next
+edit only when no such failure happened under the current id". Section 4 argues
+that a second press while one is out is harmless, because the platform answers
+it with `request.in_progress`.
+
+*What is true.* The platform answers that only if the second press gets as far
+as `IdempotencyBehavior`, and a press carrying a value only the server refuses
+does not: validation is the outer behaviour. A buyer whose first order is slow,
+who edits the postal code and presses again, is answered 400 while the first
+is still running, and nothing had failed under the id yet. Releasing it on the
+next edit sends the corrected form under a fresh id beside a request that may
+yet commit, and a 5xx on that first request would then be recorded against the
+new id, whose Retry is a second order (#425).
+
+Two ways round the same record were open as well. An edit made after a 400
+released the id even when the next press had already gone out under it. And a
+reply a page dropped, because its buyer had signed out, told the identity
+nothing: a dropped 5xx left no record, so a later 400 released an id whose
+first attempt may have committed.
+
+*Where it shows.* `CommandIdentity.begin()` counts each request as it goes out
+and hands over the id; `onFailure()` and `onDropped()` settle it, and a mint
+forgets the count with the id it belonged to. A validation failure that lands
+with another attempt under the id still out sets the may-have-committed flag,
+and it stays set when that attempt later fails too, since holding an id is
+always safe. `onDropped()` sets it as well. `CheckoutPage`, `PublishPage` and
+`OwnProductsComponent`'s reprice and withdrawal send through `begin()`, and
+the two pages also drop a reply whose id has since been replaced, so that it is
+never held against the one that replaced it. The button stays live: section 4's
+non-guard stands, and this entry narrows only what a 400 may prove. This entry
+supersedes that sentence of the entry above, which is left as written.
+
 ## 13. The bundle budget is set above the bundle, not at it
 
 `npm run build` was failing before this work could ship, and the failure was the

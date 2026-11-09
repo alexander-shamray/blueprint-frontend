@@ -517,7 +517,7 @@ export class PublishPage {
     const imageKey = this.imageKeyState();
 
     const command: PublishProductCommand = {
-      commandId: this.identity.current(),
+      commandId: this.identity.begin(),
       name: value.name,
       // Omitted rather than null for a product with no image, so the body
       // holds only what the seller chose (#175's keys test reads them).
@@ -529,17 +529,22 @@ export class PublishPage {
       currency: value.currency,
     };
 
-    // Held to the buyer who sent it, as `CheckoutPage.placeOrder()` holds its
-    // reply: anyone else signed in is shown nothing of it.
+    // Held to the buyer who sent it and to the id it went under, as
+    // `CheckoutPage.placeOrder()` holds its reply: anyone else signed in is shown
+    // nothing of it, and neither is a form that has moved past that id.
     const issuedFor = this.auth.user()()?.subject ?? null;
     const changesAtIssue = this.subjectChanges;
     const stillFor = (): boolean =>
       this.subjectChanges === changesAtIssue &&
+      this.identity.current() === command.commandId &&
       (this.auth.user()()?.subject ?? null) === issuedFor;
 
     this.catalog.publish(command).subscribe({
       next: (productId) => {
-        if (!stillFor()) return;
+        if (!stillFor()) {
+          this.identity.onDropped(command.commandId);
+          return;
+        }
         this.replayedAfterSignIn = false;
         this.errorState.set(null);
         this.publishedIdState.set(productId);
@@ -571,7 +576,10 @@ export class PublishPage {
       // never trusts the annotation either way — but it is still a claim
       // this call site cannot back, which is reason enough not to make it.
       error: (failure: unknown) => {
-        if (!stillFor()) return;
+        if (!stillFor()) {
+          this.identity.onDropped(command.commandId);
+          return;
+        }
         const displayed = mapError(failure, { permission: PERMISSIONS.catalogWrite });
         this.identity.onFailure(displayed);
 

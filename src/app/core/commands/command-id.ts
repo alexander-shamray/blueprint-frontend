@@ -29,6 +29,7 @@ export class CommandIdentity {
   private readonly spent = signal(false);
   private failedValidationOnly = false;
   private mayHaveCommitted = false;
+  private outstanding = 0;
 
   readonly current: Signal<string> = this.id.asReadonly();
 
@@ -46,7 +47,38 @@ export class CommandIdentity {
    */
   readonly isSpent: Signal<boolean> = this.spent.asReadonly();
 
+  /**
+   * A request is going out under the current id, which this returns. Every send
+   * goes through here, because the buttons stay live while one is out
+   * (client-architecture.md §4) and only this count can say that a validation
+   * refusal arrived with another attempt still unresolved.
+   */
+  begin(): string {
+    this.outstanding++;
+    // An edit from here on is not releasing the id the last failure freed: this
+    // request has claimed it, and minting now would leave it running under an
+    // id nothing holds any more.
+    this.failedValidationOnly = false;
+    return this.id();
+  }
+
+  /**
+   * The reply to a request under `commandId` landed and the page will not read
+   * it, as `CheckoutPage.placeOrder()` drops one that lands after its buyer
+   * signed out. It may have said the request committed, so the id is held as it
+   * is after a 5xx. A reply under an id already replaced says nothing about the
+   * current one, whose count holds only its own requests.
+   */
+  onDropped(commandId: string): void {
+    if (commandId !== this.id()) return;
+    this.settle();
+    this.mayHaveCommitted = true;
+    this.failedValidationOnly = false;
+  }
+
   onFailure(error: DisplayError): void {
+    this.settle();
+
     // A validation failure never reached a handler — the request was refused
     // before IdempotencyBehavior claimed anything — so the id is free to be
     // released once the user changes the form. Every other failure may have
@@ -54,8 +86,10 @@ export class CommandIdentity {
     // so a 400 under an id an earlier attempt committed says nothing about
     // that commit, and releasing the id on it would place a second order.
     // Only mint() clears it (client-architecture.md §12, *A validation refusal
-    // does not prove the id never committed*).
-    if (error.kind !== 'validation') this.mayHaveCommitted = true;
+    // does not prove the id never committed*). The same 400 says nothing either
+    // about an attempt still out, which may yet commit, so it holds the id as
+    // well (§12, *A validation refusal says nothing about a request still out*).
+    if (error.kind !== 'validation' || this.outstanding > 0) this.mayHaveCommitted = true;
     this.failedValidationOnly = error.kind === 'validation' && !this.mayHaveCommitted;
 
     // A reused id is spent for the same reason: its first command completed,
@@ -68,9 +102,10 @@ export class CommandIdentity {
 
   /**
    * An edit releases the id ONLY when every failure under it was a validation
-   * failure. After a network failure or a 5xx the submission may have
-   * committed, and resubmitting changed data under a fresh id is the duplicate
-   * the whole mechanism exists to prevent — a later validation 400 included.
+   * failure, with nothing else out when it landed and nothing sent since. After
+   * a network failure or a 5xx the submission may have committed, and
+   * resubmitting changed data under a fresh id is the duplicate the whole
+   * mechanism exists to prevent — a later validation 400 included.
    */
   onEdit(): void {
     // A spent id is permanent: the platform has told us this id committed, and
@@ -89,10 +124,17 @@ export class CommandIdentity {
     this.mint();
   }
 
+  private settle(): void {
+    if (this.outstanding > 0) this.outstanding--;
+  }
+
   private mint(): void {
     this.id.set(crypto.randomUUID());
     this.spent.set(false);
     this.failedValidationOnly = false;
     this.mayHaveCommitted = false;
+    // What is still out went under the old id, so it says nothing about this
+    // one. A page drops those replies rather than reporting them against it.
+    this.outstanding = 0;
   }
 }
