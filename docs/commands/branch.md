@@ -209,7 +209,8 @@ the whole point of those paths is to carry the state that is already in the
 tree. A base is not what they are short of.
 
 **`git-worktree-fork.sh` is the whole command, and it takes two arguments
-because everything else about it is fixed.** Its one git command that writes is
+because everything else about it is fixed.** Its one git command that writes,
+but for removing what that command leaves when it fails, is
 `git worktree add --no-track -b <branch> <path> origin/main`, after which
 it starts the new worktree's index refresh — a `Bash(git worktree add:*)`
 grant would also buy `-B`, which does not create a branch but **resets**
@@ -263,32 +264,32 @@ So: fall back only when the message establishes that the path could not be
 created for permission reasons. Anything else stops the command and is
 reported verbatim, unnamed rather than misnamed.
 
-**Then check whether the branch survived, because it usually does.**
-`git worktree add -b` creates the branch *before* it creates the directory,
-so a failure at the directory leaves the branch behind — against an
-unwritable directory it prints `fatal: could not create leading
-directories`, and the branch stays in `git branch --list`. A blind
-create there fails with *branch already exists* — `git-branch-create.sh`
-refuses it on purpose — which would turn a handled fallback into a stop.
-Both post-failure states are ordinary and each has one command, in the
-runbook's table.
+**The helper removes the branch a failed fork made, so the fallback can
+create it.** `git worktree add -b` creates the branch *before* it creates the
+directory or checks anything out, and git's cleanup of a failed add leaves it:
+against an unwritable directory it prints `fatal: could not create leading
+directories`, and the branch stays. Left there, it fails a retry with *branch
+already exists*, `git-branch-create.sh` refuses it on purpose, and
+`git-branch-drop.sh` refuses it as never landed, so nothing the session holds
+could remove it. The helper deletes it by compare-and-swap against the start
+point, so a branch that holds a commit stays, and only when no worktree holds
+it. One it keeps may be another session's, which is why the runbook's table
+stops there rather than adopting it.
 
 Every git write goes through a helper because a prefix grant buys more than
 its operation; the flags each raw grant would license — `git switch`,
 `git worktree add -B`, `git checkout -b … -f` — are owned by
 `docs/harness-boundaries.md`, *Prefix grants and wildcard denies*.
 `git-worktree-fork.sh` and `git-branch-create.sh` fix their commands the same
-way — every flag decided in the file, both arguments shape-checked, and
-creation only, so a name that already exists is refused rather than reset.
-`git-switch-existing.sh` takes one shape-checked argument, requires the branch
-to exist, and passes no flags to git at all. `git worktree list` stays a raw
-grant because it reads and nothing else.
+way — every flag decided in the file, both arguments shape-checked, and a
+name that already exists refused rather than reset.
+`git worktree list` stays a raw grant because it reads and nothing else.
 
-The post-failure table's second row spells the base out for the reason
+The post-failure table's first row spells the base out for the reason
 the clean-`main` rows give:
 this path starts from a clean `main`, so it takes the fetched
-`origin/main` rather than whatever local `main` happens to be. Either way
-the run continues on the branch, in place, exactly as the
+`origin/main` rather than whatever local `main` happens to be. The run then
+continues on the branch, in place, exactly as the
 dirty-`main` path does. Both no-worktree states then look the
 same to everything downstream, and there is only one of them to describe —
 **including step 1's consequence, which is this path's too**: the branch
@@ -309,6 +310,19 @@ group still sees the work while it runs, and under `/ship`'s `--dispatched` the
 write is skipped, because `/dispatch` is the list's one writer for the night and
 moved the row itself when it forked the worktree (`docs/commands/ship.md`,
 *Dispatched: the one token /dispatch passes*).
+
+**The step names the row's cells because `dispatch_board.py` refuses any
+others.** When it listed only what the row holds, sessions wrote a six-column
+header and a dash in the `#` cell; the board refuses both, `/dispatch` stops on
+that list, and *In progress* is never rebuilt, so a human had to repair it. The
+step therefore spells the five cells of `HEADERS`, with the branch and worktree
+sharing `Branch or PR`. `row_branch` reads the first name in backticks as the
+branch, so the branch comes first and each name has its own pair: a cell with no
+backticks, or one pair round both names with a comma between them, parses but
+names no branch, and `/dispatch` then leaves what that branch changed out of the
+row's claim, with nothing refused to say so. A row with no issue takes the
+spelling in `docs/harness/working-rules.md`, *Issues and the task list*, and a
+suite case holds the step's wording to `HEADERS` and `OWED`.
 
 **If the session cannot enter a worktree that was created, stop and report
 the path** — this is the other half and it fails the other way. Do

@@ -15,11 +15,12 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+from test_link_skips import skip_only_without_links
+
 SCRIPTS = Path(__file__).resolve().parent
 SKILL_SCRIPTS = SCRIPTS.parent / "skills" / "codebase-index" / "scripts"
 GATE = SKILL_SCRIPTS / "gate-index.py"
 CACHE = Path(".claude") / "cache" / "codebase-index"
-NO_LINK = frozenset({errno.EPERM, errno.ENOTSUP, errno.ENOSYS})
 
 
 def _bash():
@@ -45,13 +46,10 @@ def link_directory(link, destination):
     try:
         os.symlink(destination, link, target_is_directory=True)
     except (OSError, NotImplementedError) as refused:
-        if sys.platform == "win32":
-            subprocess.run(["cmd", "/c", "mklink", "/J", str(link), str(destination)],
-                           check=True, capture_output=True)
-        elif isinstance(refused, NotImplementedError) or refused.errno in NO_LINK:
-            raise unittest.SkipTest("this host grants no directory link") from refused
-        else:
-            raise
+        if sys.platform != "win32":
+            skip_only_without_links(refused, "directory link")
+        subprocess.run(["cmd", "/c", "mklink", "/J", str(link), str(destination)],
+                       check=True, capture_output=True)
 
 
 def git_environment():
