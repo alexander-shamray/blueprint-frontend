@@ -170,13 +170,13 @@ is the same one `/ship` ran before; what widened is when it may run. A
 per-command grant the payload could carry would close it, and that is the
 harness's to build.
 
-**A shell write is refused where an edit is denied, and nowhere else.** The
-git guard this repository had before the sync refused a redirection, `cp` or
-`rm` into its own tables of trees and root files. The payload's guard takes
-that list from the settings denies instead, so a shell write now reaches
-whatever the `Edit` tool already could. The paths that lost the refusal are
-those the settings never denied: `android`, `ios`, `.gitattributes`,
-`.gitignore`, `.editorconfig`, `.nvmrc`, `ionic.config.json`,
+**A shell write into a checkout's tree is refused where an edit is denied, and
+nowhere else.** The git guard this repository had before the sync refused a
+redirection, `cp` or `rm` into its own tables of trees and root files. The
+payload's guard takes that list from the settings denies instead, so a shell
+write now reaches whatever the `Edit` tool already could. The paths that lost
+the refusal are those the settings never denied: `android`, `ios`,
+`.gitattributes`, `.gitignore`, `.editorconfig`, `.nvmrc`, `ionic.config.json`,
 `eslint.config.js` and `.prettierrc`. Nothing became writable that was not,
 because `Edit` reached each of them already, and an auto-mode session uses it
 as readily as a redirection. `.vscode/**` was on that list and is now denied
@@ -186,7 +186,13 @@ open, and no command edits the tree as its job. The rest stay out on purpose.
 `eslint.config.js` and `.prettierrc` are what `/style-pass` edits; and nothing
 here executes `.gitignore`, `.gitattributes`, `.nvmrc` or `ionic.config.json`,
 so a deny would cost an owner's hand on routine edits and buy nothing. Naming
-one in `.harness/config.json` would restore both refusals at once.
+one in `.harness/config.json` would restore both refusals at once. Two refusals
+outside the tree are the guard's own and answer to no deny: `removal_offence`
+refuses removing the filesystem's root, the home directory and a strict parent
+of the checkout, and `home_target` refuses a shell write to
+`~/.claude/projects/` and `~/.claude/output-styles/`, which the edit guard
+admits (`docs/harness-boundaries.md`, *Git argv guard hook* and *The edit-target
+guard*).
 
 **The local suites' reasons live here, because the comment rule keeps them
 out of the files** (blueprint-frontend#383). `test_codebase_index_frontend.py`,
