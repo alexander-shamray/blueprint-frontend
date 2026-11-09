@@ -4,6 +4,7 @@
 A link inside an allowed tree is a write no path deny sees, so a target not the file it spells is refused. An unentered
 worktree is judged by the target's denies, and the home's keys and control files by name (*The edit-target guard*)."""
 
+import functools
 import importlib.util
 import json
 import os
@@ -21,21 +22,6 @@ EDITING_TOOLS = ("Edit", "Write", "NotebookEdit", "MultiEdit")
 # carrying neither is refused rather than waved through — a write whose target
 # this file cannot see is one it has established nothing about.
 PATH_KEYS = ("file_path", "notebook_path")
-
-# Named rather than bounded by an allow-list, which would refuse sibling
-# checkouts and the task list. `CLAUDE.md` and `AGENTS.md` stay out of the
-# control set: they are the owner's rules, not a grant.
-HOME_TREES = frozenset({".ssh"})
-HOME_FILES = frozenset({
-    ".bash_login", ".bash_logout", ".bash_profile", ".bashrc", ".gitconfig",
-    ".profile", ".zlogin", ".zprofile", ".zshenv", ".zshrc",
-})
-CONTROL_DIRECTORIES = frozenset({
-    "agents", "commands", "hooks", "plugins", "sandbox", "scripts", "skills",
-})
-CONTROL_FILES = frozenset({
-    ".credentials.json", "settings.json", "settings.local.json",
-})
 
 GIT_GUARD = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                          "guard-git-argv.py")
@@ -247,6 +233,32 @@ def common_git_dir(root):
     return common if os.path.isdir(common) else None
 
 
+def left_main_checkout(cwd, path):
+    """The checkout holding `path`, when `cwd` stands in a linked worktree of it.
+
+    `None` for a path in the worktree itself, and for one in any other checkout:
+    a sibling's own `.git` holds it first, and it is judged as a sibling.
+    """
+    standing = checkout_root(cwd)
+    gitdir = verified_gitdir(standing) if standing is not None else None
+    owner = checkout_root(path)
+    if gitdir is None or owner is None or under(path, standing, traits_of(standing)):
+        return None
+    marker = os.path.join(owner, ".git")
+    if not os.path.isdir(marker) or not under(gitdir, os.path.realpath(marker), traits_of(owner)):
+        return None
+    return owner
+
+
+@functools.lru_cache(maxsize=1)
+def git_guard():
+    """`guard-git-argv.py` as a module; it owns the denies and the home's names."""
+    spec = importlib.util.spec_from_file_location("guard_git_argv", GIT_GUARD)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def protected_in_worktree(path, root):
     """Which `Edit(...)` deny of this target holds `path` beneath `root`, or `None`.
 
@@ -258,10 +270,7 @@ def protected_in_worktree(path, root):
     except ValueError:
         return None
     try:
-        spec = importlib.util.spec_from_file_location("guard_git_argv", GIT_GUARD)
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-        return module.denied_path(relative)
+        return git_guard().denied_path(relative)
     except (OSError, ValueError, TypeError, AttributeError):
         return "this target's deny list, which cannot be read"
 
@@ -270,7 +279,7 @@ def home_offence(spelled, lexical, resolved):
     """The reason to refuse a target outside every checkout, or `None`.
 
     Spelling and resolution are both judged, so a link into `~/.ssh` is held.
-    Only `~/.claude`'s first component is control: below it is session state.
+    Only `~/.claude`'s first component is control. Unreadable names refuse.
     """
     home = os.path.abspath(os.path.expanduser("~"))
     traits = traits_of(home)
@@ -283,17 +292,22 @@ def home_offence(spelled, lexical, resolved):
             if not under(path, root, traits) or same(path, root, traits):
                 continue
             parts = os.path.relpath(path, root).replace("\\", "/").split("/")
-            if named(parts[0]) in HOME_TREES or (
-                    len(parts) == 1 and named(parts[0]) in HOME_FILES):
+            try:
+                place = git_guard().home_place([named(part) for part in parts])
+            except (OSError, ValueError, TypeError, AttributeError):
+                return (
+                    f"guard-edit-target: {spelled} is under the home directory, "
+                    "and the names that guard it cannot be read from "
+                    f"{GIT_GUARD} (docs/harness-boundaries.md)."
+                )
+            if place == "login":
                 return (
                     f"guard-edit-target: {spelled} resolves to {resolved}, "
                     "which is outside every checkout and is a key, a shell "
                     "profile or git's own configuration: what runs at login, "
                     "under every session (docs/harness-boundaries.md)."
                 )
-            if named(parts[0]) == ".claude" and len(parts) > 1 and (
-                    named(parts[1]) in CONTROL_DIRECTORIES
-                    or (len(parts) == 2 and named(parts[1]) in CONTROL_FILES)):
+            if place == "control":
                 return (
                     f"guard-edit-target: {spelled} resolves to {resolved}, "
                     f"inside the harness's own control surface: `{parts[1]}` "
@@ -415,6 +429,20 @@ def offence(event):
             )
         checkouts = checkouts + [
             (sibling, os.path.realpath(sibling), traits_of(sibling))]
+
+    # EnterWorktree moves the permission root and leaves the project at main,
+    # so main is an anchor here and no rule names its machinery any more.
+    main_checkout = left_main_checkout(cwd, lexical)
+    if main_checkout is not None:
+        machinery = protected_in_worktree(lexical, main_checkout)
+        if machinery is not None:
+            return (
+                f"guard-edit-target: {spelled} is held by {machinery} in the "
+                "main checkout, which this session has left for a worktree of "
+                "it, so none of its permission rules name the file. Change it "
+                "from the main checkout, or hand it to the owner "
+                "(docs/harness-boundaries.md)."
+            )
 
     # Every anchor containing the target must agree, so an extra anchor cannot
     # excuse what another refuses — the property `anchors` rests its trust in

@@ -530,34 +530,49 @@ class TheOrdinaryWriteIsNotDisturbed(GuardCase):
         # unconditionally would let a link to the same relative path under the
         # sibling compare equal to a path inside the checkout. Where the mount
         # equates the two names the sibling cannot exist, and the case says so.
+        guard = self.guard_module()
         name = "caf\u00e9"
-        checkout = os.path.join(self.outside,
-                                unicodedata.normalize("NFC", name))
-        sibling = os.path.join(self.outside,
-                               unicodedata.normalize("NFD", name))
-        os.makedirs(os.path.join(checkout, ".git"), exist_ok=True)
-        os.makedirs(os.path.join(sibling, "docs"), exist_ok=True)
-        self.write(os.path.join(sibling, "docs", "a.md"), "secret\n")
-        try:
-            here, there = os.stat(checkout), os.stat(sibling)
-            coexist = (here.st_dev, here.st_ino) != (there.st_dev, there.st_ino)
-        except OSError:
-            coexist = False
-        if not coexist:
-            print("this filesystem equates NFC and NFD, so the sibling cannot "
-                  "exist and this case has no subject here", file=sys.stderr)
-            return
-
         for linker in linkers():
             with self.subTest(link=linker):
-                link = os.path.join(checkout, f"docs-{linker}")
+                pair = os.path.join(self.outside, linker)
+                checkout = os.path.join(pair,
+                                        unicodedata.normalize("NFC", name))
+                sibling = os.path.join(pair,
+                                       unicodedata.normalize("NFD", name))
+                os.makedirs(os.path.join(checkout, ".git"), exist_ok=True)
+                os.makedirs(os.path.join(sibling, "docs"), exist_ok=True)
+                self.write(os.path.join(sibling, "docs", "a.md"), "secret\n")
+                try:
+                    here, there = os.stat(checkout), os.stat(sibling)
+                    coexist = ((here.st_dev, here.st_ino)
+                               != (there.st_dev, there.st_ino))
+                except OSError:
+                    coexist = False
+                if not coexist:
+                    print("this filesystem equates NFC and NFD, so the sibling "
+                          "cannot exist and this case has no subject here",
+                          file=sys.stderr)
+                    return
+
+                # The link sits at the relative path it points at, because only
+                # then does folding make the two paths one key; each linker
+                # takes its own pair, since one checkout has a single `docs`.
+                # Only the refusal's reason tells the two verdicts apart.
+                link = os.path.join(checkout, "docs")
                 if linker == "symlink":
                     os.symlink(os.path.join(sibling, "docs"), link,
                                target_is_directory=True)
                 else:
                     JUNCTIONS(os.path.join(sibling, "docs"), link)
-                self.assertRefused(os.path.join(link, "a.md"),
-                                   cwd=checkout, project=checkout)
+                through = os.path.join(link, "a.md")
+                self.assertTrue(
+                    guard.same(through, os.path.join(sibling, "docs", "a.md"),
+                               (False, True)),
+                    "the two paths are not one key under composing, so this "
+                    "case does not build the collision it names")
+                self.assertIn("resolves outside the checkout",
+                              self.assertRefused(through, cwd=checkout,
+                                                 project=checkout))
 
     def test_a_checkout_whose_name_has_no_letters_is_still_asked(self):
         # The basename is not always flippable: a checkout at `/Users/me/123`
@@ -675,6 +690,31 @@ class TheHomeDirectoryKeepsWhatRunsAtLogin(GuardCase):
             with self.subTest(target=target):
                 self.assertIn("control surface", self.assertRefused(target))
 
+    def test_names_that_cannot_be_read_refuse_the_home_and_nothing_else(self):
+        # They live in `guard-git-argv.py`, so a guard copied without it fails
+        # closed under the home directory and leaves the rest of the outside.
+        alone = os.path.join(self.outside, "lone", ".claude", "hooks")
+        home = os.path.join(self.outside, "home")
+        os.makedirs(alone)
+        os.makedirs(home)
+        guard = shutil.copy(HOOK, alone)
+        event = {"tool_name": "Write", "cwd": self.outside}
+        # A Windows runner's temp root is under its real home, so this one is set.
+        env = {key: value for key, value in os.environ.items() if key != "CLAUDE_PROJECT_DIR"}
+        env.update(HOME=home, USERPROFILE=home)
+        for target, reason in ((os.path.join(home, "notes.md"), "cannot be read"),
+                               (os.path.join(self.outside, "loot.txt"), None)):
+            with self.subTest(target=target):
+                result = subprocess.run(
+                    [sys.executable, guard],
+                    input=json.dumps({**event, "tool_input": {"file_path": target}}),
+                    capture_output=True, encoding="utf-8", env=env)
+                self.assertEqual(0, result.returncode, result.stderr)
+                if reason is None:
+                    self.assertEqual("", result.stdout.strip())
+                else:
+                    self.assertIn(reason, result.stdout)
+
     def test_the_harness_state_stays_admitted(self):
         # `~/.claude/CLAUDE.md` holds the owner's rules and was edited six
         # times; a control name below `projects` is session state.
@@ -772,6 +812,39 @@ class AWorktreeTheSessionHasNotEntered(GuardCase):
                            cwd=here, project=here)
         self.assertAdmitted(os.path.join(self.root, "docs", "note.md"),
                             cwd=here, project=here)
+
+    def test_the_main_checkout_is_judged_from_inside_a_linked_worktree(self):
+        # EnterWorktree moves the permission root and the project stays main:
+        # main is an anchor, and no rule names its machinery from here.
+        worktree = self.linked()
+        for parts in ((".git", "hooks", "pre-commit"), (".git", "config"),
+                      (".claude", "settings.json"), (".claude", "hooks", "x.py")):
+            with self.subTest(parts=parts):
+                reason = self.assertRefused(os.path.join(self.root, *parts), cwd=worktree)
+                self.assertIn("main checkout", reason)
+        for parts in (("docs", "note.md"), ("TODO.md",), ("artifacts", "x.md"),
+                      (".claude", "cache", "x")):
+            with self.subTest(parts=parts):
+                self.assertAdmitted(os.path.join(self.root, *parts), cwd=worktree)
+        self.assertAdmitted(os.path.join(worktree, "docs", "note.md"), cwd=worktree)
+        # The session standing in main is the permission rules' own case.
+        self.assertAdmitted(os.path.join(self.root, ".claude", "settings.json"))
+
+    def test_the_worktree_nested_inside_main_keeps_its_own_files_admitted(self):
+        # The production layout: its files are under main too.
+        beside = os.path.join(self.root, ".claude", "worktrees")
+        os.makedirs(beside, exist_ok=True)
+        worktree = self.linked("nested", beside=beside)
+        for parts in (("docs", "note.md"), (".claude", "hooks", "x.py")):
+            with self.subTest(parts=parts):
+                self.assertAdmitted(os.path.join(worktree, *parts), cwd=worktree)
+        self.assertRefused(os.path.join(self.root, ".claude", "settings.json"), cwd=worktree)
+
+    def test_a_directory_with_a_forged_git_file_judges_no_main_checkout(self):
+        forged = os.path.join(self.root, "docs", "forged")
+        os.makedirs(forged)
+        self.write(os.path.join(forged, ".git"), "gitdir: " + self.outside + "\n")
+        self.assertAdmitted(os.path.join(self.root, ".claude", "settings.json"), cwd=forged)
 
     def test_the_worktree_the_session_stands_in_is_not_this_rule(self):
         # There the permission rules apply, and a lifted deny is the owner's.
