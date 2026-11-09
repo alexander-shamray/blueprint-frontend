@@ -209,8 +209,11 @@ never runs is the target-local test or command a payload change can trip
 (`docs/harness/working-rules.md`). Each is run as CI runs it, with `discover -s
 <dir> -p <file>`, because it imports its siblings from its own directory and a
 dotted module name cannot be formed from `.claude/` or `.github/comment-gate/`.
-The command is granted in the frontmatter, since a dispatched run's reads must
-be named by its own grants. A failing suite has no ending of its own, since step
+`sync_pr.py run-local-suites <n> --head <oid>` runs each of them so, and the
+frontmatter's grant on `sync_pr.py` is what names it, since a dispatched run's
+reads must be named by its own grants; it takes no path, since a grant on
+`discover` itself ran a file written anywhere (`docs/harness-boundaries.md`). A
+failing suite has no ending of its own, since step
 2 otherwise says to fix what the checks find and a sync branch is never
 committed to: it is a target-local finding, filed in the target, and the sync
 ends unmerged or is handed back with no round run, because the code under test
@@ -560,8 +563,8 @@ shapes:
 **Neither branching from `HEAD` nor forking past the commits makes them
 safe, and neither is this chain's decision.** Commits sitting on `main`
 want pushing, moving to a branch, or dropping, and picking one of those is
-the caller's call in exactly the sense a merge conflict is. It is in the
-stop table for that reason and not because the run gave up.
+the caller's call. It is in the stop table for that reason and not because
+the run gave up.
 
 **It is also the one stop that fires before anything has happened**, which
 is the cheapest place a stop can be. Nothing is branched, committed,
@@ -633,15 +636,19 @@ deletes only a branch a pull request merged into `main` at its tip, which
 worktree whose removal was refused keeps its branch, because the branch is
 still checked out there and the helper would refuse it in any case; an
 exit 4, a directory that holds something or that a process holds, keeps it
-too. Leaving a
-landed branch behind costs a line in `git branch` per run, which no one reads
-and no one clears; the drop is cheap and keeps the list to live work.
+too. An exit 0 is also git failing only to delete the empty directory it had
+unregistered, which the helper then removed: the worktree is gone, so the drop
+runs. Leaving a landed branch behind costs a line in `git branch` per run, which
+no one reads and no one clears; the drop is cheap and keeps the list to live
+work.
 
 **A refused drop is reported and is not a stop.** The helper refuses a branch
 that has not landed, and keeping that branch is exactly right; the merge is
-done and stopping would strand a finished run. Exit 6 (no local branch) means
-there is nothing to drop, which a reader of the report wants to know and
-nothing more.
+done and stopping would strand a finished run, so on any non-zero exit the
+merge stands. The branch is kept too, but for a branch already gone and the one
+residual *Grant inventory and push helpers* gives, where the helper exits 4 and
+names the tip. Exit 6 (no local branch) means there is nothing to drop, which a
+reader of the report wants to know and nothing more.
 
 ## Step 1: /branch
 
@@ -946,10 +953,11 @@ upstream. That is why the fetch and a `git pull --ff-only` also run
 **before step 5**: reviewing the wrong tree is a wasted round.
 
 **A fast-forward that will not fast-forward is divergence**, which is another
-session's history against this one's, and it stops the chain for the reason an
-unmergeable PR does. The rebase helper, `git-rebase-onto-main.sh`, does not
-resolve it and is not meant to: it refuses a remote carrying commits this
-checkout lacks, which is exactly this case. A lease would be satisfied here —
+session's history against this one's, and it stops the chain because that
+history is not this run's to replace. The rebase helper,
+`git-rebase-onto-main.sh`, does not resolve it and is not meant to: it refuses
+a remote carrying commits this checkout lacks, which is exactly this case. A
+lease would be satisfied here —
 those commits have been fetched — and the other session's work would still be
 gone, so the refusal is the helper's own rather than git's.
 
@@ -997,9 +1005,55 @@ PR was mergeable, so that everything between that decision and the merge is
 something the merge can refuse.
 
 `mergeable` must be `MERGEABLE` and every check must pass. **A merge onto a
-red `main` is not a recommended option**, and a conflicted branch is a
-question about the caller's tree that this chain cannot answer. Either one
-stops here and is reported as what it is.
+red `main` is not a recommended option**, so a failed check stops here and is
+reported as what it is.
+
+**A conflicted branch is a branch update, not a stop.** This row used to call
+it a question about the caller's tree, while `docs/harness/working-rules.md`,
+*Pull requests*, has a session rebase a branch it owns when GitHub reports it
+conflicting, and the helper is granted. #265 met the difference when `main`
+moved during its checks wait and the pull request read `CONFLICTING` over one
+bullet (#269). The rule won, because a run already resolves a replay's conflict
+in the replayed commit when a landing is refused after `MERGEABLE`, and the
+answer to the opposite choice, handing back every branch `main` moved under, is
+a chain that stops on the ordinary course of two pull requests. So `CONFLICTING`
+takes that same route whenever it is read: before the wait, which on it has
+nothing to report, or after it, the wait passing only on `MERGEABLE`. What is
+left of the stop is `CONFLICTING` read again on a head replayed onto the
+`origin/main` still current: the update has answered and GitHub disagrees.
+
+**An open `main is red` issue is a red check, and the pull request's own
+checks cannot show it.** A `pull_request` run is pinned to the merge ref of the
+push that started it and nothing reruns it when `main` moves, so a pull request
+last pushed before `main` went red still reads green, and `--watch` exits 0 over
+it (blueprint-admin's #531). The signal that does move is the issue the target's
+CI files on a red push run, and `main-red-open.sh` reads it. It matches the bare
+title and `main is red: <workflow>`, because a target that keeps one issue per
+watched workflow suffixes the title, and a title the rule does not match would
+read green while `main` is red. A `main-red` job or workflow therefore writes
+one of those two, with the `bug` label the read filters on. Exit 3 names every
+open one and is the CI-not-green stop; 2 is a listing it could not take, cut or
+read, and a read that cannot say `main` is green has not said so.
+
+It runs after the checks wait rather than before it, because that wait lasts
+minutes and `main` can turn red inside it. Two residues are accepted: the
+seconds between this read and the merge, and the signal's own lag, since the
+issue opens only once the push run has finished, so a `main` a landing broke
+reads green for that run's length. The helper takes no argument and fixes its
+fields, so the grant reaches no issue body, the reason `gh-issue-list.sh` exists
+and a raw `gh issue list` grant would undo.
+
+**The run that answers the issue is the one exemption.** The issue closes only
+once `main` is green, and the revert or the fix forward that makes it so is
+itself a landing, so a gate with no exemption leaves a red `main` no way out
+through this command. A run started as `/ship #<n>` for the open issue's own
+number exists to answer it, and exit 3 naming that number and no other is not
+its stop: where two workflows are red, answering one does not license landing
+over the other. It is keyed on the argument rather than on a `Reverts:` trailer
+because a fix forward, such as an external drift no revert undoes, carries none.
+A resumed run that drops the argument stops, and is resumed with it. A
+dispatched run's leading tag is not that argument, so it stops too: which of a
+red `main`'s answers lands first is the owner's.
 
 **`MERGEABLE` is GitHub's answer about a merge commit, and the step below asks
 for a rebase**, which replays each commit and can conflict where merging the
@@ -1069,8 +1123,8 @@ for ever. Both states already have handling:
 **A loop that can only exit on success is not a poll, it is a wait**, and
 the difference only shows when the thing being waited on stops existing.
 
-**`UNKNOWN` is neither of those, and treating it as a conflict stops the
-run for a value that means *ask again*.** GitHub computes mergeability
+**`UNKNOWN` is neither of those, and treating it as a conflict rewrites a
+branch for a value that means *ask again*.** GitHub computes mergeability
 asynchronously, so a read taken shortly after a push — which is exactly
 where this one is taken, the review having just pushed a fix — finds
 the answer still being worked out. Poll while it reads `UNKNOWN`, and take
@@ -1078,7 +1132,7 @@ the answer still being worked out. Poll while it reads `UNKNOWN`, and take
 first: a run that captured the oid up front and then waited would bind the
 merge to a head that a push during the wait had already replaced, and the
 merge would fail on a branch that was fine. Only a *known* non-mergeable
-result stops the chain.
+result is acted on.
 
 **CI runs on the head commit, not on the PR**, so check the oid: a review
 round that pushed a fix invalidates the previous run, and `gh pr checks`
@@ -1088,10 +1142,10 @@ rather than reading whichever finished last.
 
 ## Step 6: the wait
 
-**The CI wait is the one place this chain sleeps, and a session that
-sleeps pays for its context at every wake.** A `/ship` main session's call
-sent about 274k tokens in backend's measurement of 2026-10-10, so what
-matters is how many times the wait wakes it.
+**The CI wait is where this chain sleeps, as a sync's step 2 does over its
+suites, and a session that sleeps pays for its context at every wake.** A
+`/ship` main session's call sent about 274k tokens in backend's measurement of
+2026-10-10, so what matters is how many times the wait wakes it.
 
 **The wait runs in this session as one background task.**
 `run_in_background` detaches `gh pr checks --watch`, nothing is sent while it
@@ -1234,6 +1288,19 @@ it there and the main checkout kept `main` — so a switch attempted here
 fails outright: git refuses to check out a branch another worktree already
 holds. `ExitWorktree` is what returns the session to the main checkout,
 which is why the runbook skips line 3 on this path.
+
+**A session launched inside the worktree has no such move.** It never called
+`EnterWorktree`, so `ExitWorktree` has nothing to undo and answers that no
+session is active, while the *Resume* rows send that session down the forked
+path all the same. Found shipping #214 from a session started in its worktree:
+the later lines ran from the main checkout by `cd`, and `git-worktree-remove.sh`
+exited 4, since the session's own working directory holds the emptied directory
+on Windows (#235). The run can still do everything but delete that directory:
+the removal unregisters the worktree, and the helper names an empty directory a
+process holds apart from one holding files, so the owner does not go looking
+for work. An exit 4 keeps its branch however it arose, because the drop's reason
+for waiting is the directory, so the drop goes in the owner's closing lines
+with the `rmdir`, run once the session has closed.
 
 **And the main checkout is not always on `main` when the session gets
 there.** `/branch` puts a branch in place there whenever `main` is dirty, so

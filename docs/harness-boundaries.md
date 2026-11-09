@@ -19,7 +19,7 @@ the whole is about 31k. `Grep -n "^## <title>"` gives its first line.
 | Destructive classes | One table of what the harness refuses, the layer that refuses each, and the test that holds the table to the deny list and the hooks. |
 | Git argv guard hook | How guard-git-argv.py resolves the executed argv, its successive bypasses, git -c and stated residuals. |
 | The ext transport and pinned grants | Why ext:: cannot be written as a rule, hook coverage, and fetch and pull grant pinning. |
-| Grant inventory and push helpers | Frontmatter grants, the numbered inventory, /ship's closed entries, sweep helpers, the three lease-bound force-push helpers, the branch-drop helper and the sync-PR reader. |
+| Grant inventory and push helpers | Frontmatter grants, the numbered inventory, /ship's closed entries, sweep helpers, the three lease-bound force-push helpers, the branch-drop and sync-head helpers and the sync-PR reader. |
 | Pull request reads and the locality verdict | Fixed-field PR helpers, the gh allow-list gate, #150, and pr-locality.sh's contract. |
 | Sweep push denies and chained commands | Push denies in the sweeps, and why a command /ship runs before it pushes never denies push. |
 | Output deny and shell-expansion residuals | The --output entry closed by the hook, expansion readings, locale quotes, process substitution, crashes and pipes. |
@@ -190,14 +190,14 @@ to require. **Measured in blueprint-admin** (its #291): on 2026-10-20, on
 Windows, in a turn whose `/ship` frontmatter was in force, a `Write` to each
 directory was refused with no prompt and one to `~/.claude/scratch/` succeeded,
 so the home-relative specifier binds the absolute path a tool is given. **The
-git guard does not back them (blueprint-harness#246):** `guard-git-argv.py`
-judges paths anchored at a checkout's root, so it admits a redirect, `rm`, `curl
--o` or `tar -x` writing under either directory, read at `99cc539` by running the
-guard over each. Whether the rule itself reaches such a command has not been
-measured in blueprint-harness; a path deny reaches a `Bash` command naming the
-path where it was (*A boundary an agent must keep across turns*), and a command
-that computes its path would not name it. Admit the shell as open until that is
-read.
+git guard backs them for a redirect and a writing verb, in every turn:**
+`guard-git-argv.py` refuses both under either directory, all but the removal of
+a named memory file (*The edit-target guard*). `curl -o`, `tar -x` and an
+interpreter are not on its list of verbs, so they stay open, the residual *Git
+argv guard hook* states. Whether a frontmatter deny reaches such a command has
+not been measured in blueprint-harness; a path deny reaches a `Bash` command
+naming the path where it was (*A boundary an agent must keep across turns*), and
+a command that computes its path would not name it.
 
 **The index skill's prefix grants are the same speed bump as `git *--output*`.**
 `Bash(bash .claude/skills/codebase-index/scripts/cbx search:*)` matches the
@@ -773,6 +773,7 @@ about it:
 | `Bash(git worktree add:*)` | `-B`, which resets an existing branch rather than creating one |
 | `Bash(git checkout -b:*)` | the trailing flag — `git checkout -b <name> -f origin/main` discards tracked modifications |
 | `Bash(git branch:*)` | `git branch -fd <name>` — force and delete behind a spelling the `-d`/`-D`/`--delete` denies do not match |
+| `Bash(git branch --list:*)` | `--no-list`, abbreviated down to `--no-l`, which turns list mode off, so `git branch --list --no-list -D <name>` deletes and `-f`, `-m`, `-C` and `-u` work too. With list mode on each is git's usage error or a listing, and `--no-merged`, `--no-color` and `--no-column` are reads, so the deny is `Bash(git branch --list *--no-l*)` and the grant stays, `/branch` and `/ship` needing `git branch --list <name>` |
 | `Bash(git reset HEAD:*)` | `git reset HEAD --hard` — the `--hard` deny matches the other word order |
 | `Bash(git log:*)`, `Bash(git diff:*)`, `Bash(git show:*)` | `--output=<path>`, which is an arbitrary file write with `--format=` choosing the bytes. Reproduced: `git log -1 --format=%s --output=<scratch>` wrote the commit subject, silently |
 | `Bash(git fetch:*)`, `Bash(git pull --ff-only:*)` | a URL in the repository position, and `ext::<cmd>` is a git transport that **runs its argument as a command** |
@@ -1053,6 +1054,7 @@ row is therefore a spelling the deny list does not match.
 | Rename a branch, forced | `git branch -M feature other` | `deny` | `test_destructive_classes.py` |
 | Rename a branch, long option | `git branch --move feature other` | `deny` | `test_destructive_classes.py` |
 | Move a branch over another | `git branch --force feature HEAD~1` | `deny` | `test_destructive_classes.py` |
+| Turn list mode off behind the list grant | `git branch --list --no-list -D feature` | `deny` | `test_destructive_classes.py` |
 | Remove a worktree, discarding its work | `git worktree remove -f .claude/worktrees/x` | `deny` | `test_destructive_classes.py` |
 | Merge a pull request past its checks | `gh pr merge 7 --rebase --admin` | `deny` | `test_destructive_classes.py` |
 | Write a file through a read-only command | `git log --output=out.txt` | `deny` | `test_destructive_classes.py` |
@@ -1208,6 +1210,20 @@ so each is judged as the whole directory.
 `~` and the variables this process shares with the session are expanded and
 judged, and a literal `cd` is followed, through a subshell's end as well.
 
+**The same check holds three more writes, each narrowed by what agents type.**
+`find` is judged by what it writes: `-delete` as `rm -r` from each start, so
+`find .claude/hooks -delete` is refused and `.`, no start and `-files0-from` are
+not, and `-fprint`, `-fprint0`, `-fprintf` and `-fls` by their file. `git rm`,
+`git mv` and a checkout or a restore from another commit are held from a
+literal `-C`, in a main checkout alone: in a linked worktree each is in the
+pull request's diff, and the replay found agents typing all three there. A
+restore from `HEAD` or the index, `--staged`, `--cached` and a dry run are not
+held, since each leaves the file what it was. And `rm`, `mv`,
+`rmdir`, `shred` and `unlink` are refused the filesystem's root, the home
+directory and a strict parent of the checkout, a trailing `/*` read as the
+directory, so `rm -rf ..` and `rm -rf ../*` are refused from the root, and
+`rm -rf .`, `rm -rf ../foo*` and `mv notes.md ..` are not.
+
 **What it cannot read it admits, and that is the narrowing, not a gap.** An
 unknown variable, a computed operand, or a relative target after a `cd` nothing
 can read is admitted: `> "$var…"` was typed 523 times, `cd x && … > y` 736 and
@@ -1220,13 +1236,21 @@ place under `.claude/worktrees/`, and a checkout under the temp root that the
 session is not standing in is not this target's: mutation proofs write there,
 which the replay of backend's transcripts found.
 
-**Five lists reach what the flag check above did not.** The short spellings of
+**Six lists reach what the flag check above did not.** The short spellings of
 the flags that run a command, keyed by subcommand because a letter means
 something else on another; `bisect run` and `submodule foreach`, which run
 their operand; `--strategy` and `--template`, per subcommand; `--ext-diff`,
 `--textconv`, `--extcmd` and `--open-files-in-pager`, with `--text` read as the
-option it is; and `filter-branch`, `send-email`, `instaweb`, `daemon`,
-`http-backend` and `web--browse` refused whole. Those are lists and not an
+option it is; `filter-branch`, `send-email`, `instaweb`, `daemon`,
+`http-backend`, `web--browse`, `difftool` and `mergetool` refused whole, with
+`send-pack`, `http-push` and `receive-pack` beside `subtree push`, which update
+a remote ref past every check a push gets; and writes of a subset of the keys
+that run a program, `alias.*`, `core.pager`, `core.hooksPath`,
+`core.sshCommand`, `diff.external` and `*.cmd`, the `git -c` refused above made
+persistent. It is a subset by hand and not the enumeration refused above:
+`core.editor`, `credential.helper` and every other key stay admitted, with a
+read and a removal, since refusing the option whole here would stop
+`rerere.enabled`, which this harness's own rules set. Those are lists and not an
 allow-list of subcommands, which would refuse `git ls-remote`, `git config` and
 `git stash`, typed hundreds of times. `xargs` is refused only in front of a
 push, whose destination it supplies unseen; a fetch is refused its `-f`, `-u`
@@ -1281,7 +1305,14 @@ in the first place.
 
 `Bash(git fetch origin:*)` **pins the remote**: a literal remote name occupies
 the repository position, so a URL never reaches it. That is the control the
-sentence describes, and it is real.
+sentence describes, and it is real. It says nothing about the refspec after
+the remote, whose destination writes a ref: `guard-git-argv.py`'s
+`refspec_offence` admits only `main:main`, a `refs/heads/<name>` of origin onto
+its own tracking ref and a tag onto itself, for a fetch and for a pull alike,
+and refuses `--refmap` on both and a fetch's `--stdin`. The tracking source is
+named in full because a short one takes origin's same-named tag first;
+`main:main` takes it too, as a fast-forward at most, and stays because `/ship`
+names it.
 
 `Bash(git pull --ff-only)` pins **nothing** — no remote name appears in it at
 all. What it does is drop the `:*`, so the grant is the documented
@@ -1383,8 +1414,9 @@ inventoried in a command file and not here is the same drift this paragraph
 warns about, running the other way.
 
 **A fifth was opened deliberately rather than found**: the force push, which
-three lease-bound helpers carry and nothing else does. Branch updates are
-rebases, so a branch's published commits are rewritten, and
+three lease-bound helpers carry and nothing else does to rewrite a branch;
+`git-sync-head-drop.sh` carries the flag only to lease a delete, below. Branch
+updates are rebases, so a branch's published commits are rewritten, and
 `.claude/settings.json` denies `git push --force` and `--force-with-lease`
 alike. **That deny is untouched**, for every raw spelling: the helpers relax
 the client's policy and the deny list does not move. What lets the client
@@ -1402,15 +1434,18 @@ out, which leaves a commit it never applied looking like one a resolution
 emptied), takes one branch name that has to equal the one checked out, refuses
 `main` by name before it reads the checkout at all, refuses a remote holding
 commits this checkout lacks, leases the push against the commit the same run
-read, and refuses (exit 7) an `origin` with more than one push URL, or whose
-one URL, after `pushurl`, `pushInsteadOf` and `insteadOf`, names another host
-or path than the URL the remote was added with. A protocol rewrite on one host
-passes, and a URL with no host and path to compare has no key and is refused:
-`file://`, `ext::`, a one-component hosted path, a dot or empty segment, a
-query or a fragment. **A rule could have bought none of that**: a permission
-pattern matches the text of a command, and every guard in that list is a fact
-about the checkout. Which is the general form — where the safety is a property
-of the state rather than of the words, the grant has to be a helper.
+read, and refuses (exit 7) an `origin` with more than one push URL or more
+than one `url`, or whose push or fetch URL, after `pushurl`, `pushInsteadOf`
+and `insteadOf`, names another host, port or path than the URL the remote was
+added with. A rewrite between https and ssh at their default ports on one host
+passes. A URL on any other scheme, `git://`, `http://`, `file://` or `ext::`
+among them, has no key and is refused, and so has one with no host and path to
+compare: a one-component hosted path, a dot or empty segment, a query or a
+fragment. That refusal is `git-push-url.sh`'s, which all three force helpers
+source, each at its own exit code. **A rule could have bought none of that**: a
+permission pattern matches the text of a command, and every guard in that list
+is a fact about the checkout. Which is the general form — where the safety is a
+property of the state rather than of the words, the grant has to be a helper.
 
 **A second helper rewrites published commits, and is a second force push.**
 `git-trailer-pr.sh` adds `PR: #<n>` to the commits of the branch checked out,
@@ -1420,7 +1455,10 @@ It takes one number and spells the `git rebase -x` command itself, so no
 folded as the rebase helper folds it, a pull request that is not an open,
 same-repository one into `main` for this branch, a dirty tree, a remote that
 differs from the checkout in either direction, a merge commit, and a commit
-that already names another pull request. A rewrite failing on `index.lock`, as
+that already names another pull request. It refuses the rebase helper's
+redirected or two-URL `origin` at exit 8, before anything is rewritten: its 7
+is a push that failed after the rewrite, whose answer is a rerun, and a rerun
+cannot answer a redirect. A rewrite failing on `index.lock`, as
 one does when a concurrent git reader holds the index, is aborted and tried
 once more; any other failure stops. Its residual is a push that fails
 after the rewrite: the local branch then carries the trailers and origin's
@@ -1433,8 +1471,9 @@ or reworded for a reason neither helper above covers had no route but the
 deny. `git-push-force.sh` publishes the branch checked out and takes no
 argument, so no name a caller passes can point it at another. It refuses
 `main` in any spelling, folded as the rebase helper folds it; a detached
-`HEAD`; and a branch origin lacks, asked of origin itself rather than of a
-tracking ref a deleted branch leaves behind. It fetches the branch fresh and
+`HEAD`; a redirected or two-URL `origin`, as the rebase helper does; and a
+branch origin lacks, asked of origin itself rather than of a tracking ref a
+deleted branch leaves behind. It fetches the branch fresh and
 leases the push against the tip it fetched, so a push landing in between is
 git's to refuse. And it refuses a remote tip the branch's own reflog does not
 hold, because a lease is not consent: once another session's commits have been
@@ -1449,7 +1488,8 @@ Its exit codes are the rebase helper's, those it can reach: 0 published, or
 nothing to force because origin already holds `HEAD`; 2 usage, an argument
 given; 3 the branch is `main`, however it is spelled; 4 a detached `HEAD`; 6
 origin has no such branch, so push it normally; 7 origin carries commits this
-checkout never held; 12 origin could not be asked where the branch is, or
+checkout never held, or would take the force at a second URL or a redirected
+one; 12 origin could not be asked where the branch is, or
 fetched from. A push origin refuses, a lease that no longer holds among them,
 exits with git's own status, as the rebase helper's does.
 
@@ -1492,9 +1532,35 @@ that name, so nothing to drop; 7 it has not landed, with no `MERGED` row into
 or its worktrees could not be read, so whether it landed or is in use is
 unknown.
 
+**A merged sync's branch goes from origin through a helper no setting grants.**
+`git push --delete` stays denied, and `dispatch_board.py sync-drop`, which
+`/dispatch` alone grants, is what runs `git-sync-head-drop.sh <branch>`. No
+setting auto-approves the helper, and none denies it, so that is no control: a
+session that names a head to it is bounded by the helper's own checks, which
+leave it nothing to delete but a merged sync's branch. It takes a sync head and
+no other name, in the one pattern `harness_sync` opens them under, reads
+origin's tip by the whole ref name, and deletes only when `pr-for-branch.sh`
+lists no `OPEN` row and a `MERGED` row into `main` whose head is that tip. The
+delete is leased to that tip, so a push made during the read is git's to refuse.
+The tip and the delete must reach one repository: `remote.origin.url` as added,
+the URL `get-url` fetches from and the one `get-url --push` pushes to have to be
+the same string,
+so a `pushurl`, a second URL or any `insteadOf` keeps the branch, the harmless
+protocol rewrite included. That costs a line in the morning report and the
+branch stays. Its residual is a sync head no `MERGED` row holds at its tip,
+which stays on origin for a human.
+
+Its exit codes: 0 deleted; 2 usage, or a name that is not a sync head; 6 origin
+has no such branch; 7 no merge into `main` at origin's tip, an open row, or a
+rewritten origin; 12 origin's URLs, origin or the pull requests could not be
+read. A push origin refuses, a lease that no longer holds among them, exits with
+git's own status.
+
 **A reader of pull requests is granted by its whole command line.** `Bash(py
 -3.12 .claude/scripts/sync_pr.py:*)` admits `list`, `verify <n>`, `review-diff
-<n> <out>` and `local-suites`, and nothing in it writes to GitHub: its `gh`
+<n> <out>`, `local-suites` and `run-local-suites <n> --head <oid>`, the one that
+runs a suite, as the paragraph on `unittest discover` below says, and nothing
+in it writes to GitHub: its `gh`
 calls are `pr list` with a fixed field set and `gh api` reads of the harness
 repository's `git/trees` and `compare`, which it spells itself, so no caller
 chooses a field, a repository or a method. A pull request's body is text anyone
@@ -1544,16 +1610,31 @@ index, and a session an owner opens there sees `codebase-index` pending until
 they approve it. Seeding would add a read of the main checkout's `.mcp.json`
 and settings to a grant that is meant to do two git commands and nothing else.
 
-**`Bash(py -3.12 -m unittest discover:*)` runs the code of whatever tree it is
-pointed at, and is `/ship`'s alone.** A sync's step 2 runs the target-local
-suites with it, as it runs the payload suites `sync_pr.py` names as walking its
-commands, and a prefix grant cannot pin `-s`, so what bounds it is where it
-runs: only in a worktree whose `HEAD` equals the proved oid and whose `git
-status --short` is empty, which the sync section requires before anything in the
-tree runs, and which `dispatch_board.py sync-launch` and `run` compare before a
-`--dispatched` run starts in it. The settings do not allow it, so no other
-command reaches it. Residual: a `/ship` run that skips the comparison runs the
-head's own tests, which is the code the comparison exists to vouch for.
+**No command grants `unittest discover`, because a prefix grant cannot pin
+`-s`.** `Bash(py -3.12 -m unittest discover:*)` admitted any `-s <dir> -p
+<file>`, so a file written outside the tree, a scratchpad included, ran
+auto-approved and never had to appear in a pull request (#223). Spelling
+`-s .claude/scripts` into the grant pins nothing, since `discover` takes the
+last `-s` it is given, and some of a sync's local suites live outside that
+directory. So a sync's step 2 runs `sync_pr.py run-local-suites <n> --head
+<oid>`, which takes no path. The settings allow that script to every session,
+where the old grant was `/ship`'s alone, so what bounds the subcommand is its
+own proof: it runs `verify <n> --head <oid>` and refuses a failure, so a test
+file committed on a local branch, with that branch's `HEAD` as the pin, runs
+nothing. It then refuses a `HEAD` other than the oid or a tree `git status
+--short` says is not clean, the comparison the sync section requires and which
+`dispatch_board.py sync-launch` and `run` compare before a `--dispatched` run
+starts in it, and runs each path `local-suites` derives from
+`.harness/config.json` and `git ls-files` as `py -3.12 -m unittest discover -s
+<dir> -p <file>`. A target's *Ship checks* that runs the whole `.claude/scripts`
+suite runs `shard-harness-suite.py`, granted with no `:*` so that its `--ids
+<file>` and `--queue <file>`, its workers' own, stay out. Residual: those suites
+run with the session's credentials, and what they run is an open sync's head,
+which its pull request shows; a session can still run any test file by a command
+no grant names, which asks in the default mode and under `auto` is the
+classifier's to approve or refuse, an approval running it unprompted; and
+whether an allow rule without `:*` is a prefix match has never been measured,
+as *The ext transport and pinned grants* says.
 
 **`gh-issue-harness.sh` files in the harness from a target, and only /ship holds
 it.** `<bug|test-gap|enhancement> <critical|high|medium|low>
@@ -2035,7 +2116,8 @@ spelled as itself is **admitted** here.
 **Two things a path deny cannot reach are judged here all the same, and
 neither takes a copy of a list.** Every rule anchors at the session's
 permission root, so a worktree of this repository that the session has not
-entered, the main checkout seen from a linked one included, is reached by none
+entered, the main checkout seen from a linked one included, launched there or
+entered with the project left at main, is reached by none
 of them: its `.claude/scripts/x` and its `.git`
 are judged by this target's own `Edit(...)` denies, read from
 `.claude/settings.json` through `guard-git-argv.py`'s `denied_path`, anchored at
@@ -2056,6 +2138,25 @@ sessions write: it refuses sibling checkouts, `run-locally.md` and the task
 list, a false refusal under *The guards' threat model*. `~/.claude/CLAUDE.md`
 stays writable because it is the owner's rules rather than a grant, and a
 change to `~/.claude/settings.json` is the owner's to run from a script.
+
+**The git guard refuses the same names for a shell write**, and reads them from
+one list, `HOME_TREES` and its neighbours in `guard-git-argv.py`, which the edit
+guard loads; if it cannot load them it refuses a target under the home
+directory. A redirect and a writing verb's operand are judged by spelling and by
+resolution, with `HOME` and the process's own home both read as the root, and a
+checkout the session stands in is left to its denies. The shell also may not
+write `~/.claude/projects/` or `~/.claude/output-styles/`, which the edit guard
+admits: a `Write` there meets a command's deny in the turn that holds one, and a
+shell write meets none.
+
+**A replay narrowed it.** 79,469 commands of these repositories' sessions since
+2026-10-01 gave 34 new refusals, none under the login or control names. 30 wrote
+a memory or an output style with a redirect or `sed -i`, most appending a line
+to `MEMORY.md`; the refusal names the editing tool, which does the same. 3 were
+`rm` of a stale memory, which no editing tool can do and which plants nothing,
+so `rm` and `unlink` of a file named below a project's `memory/` are admitted. A
+`mv` stays refused, as the 1 typed was, since the same verb plants a file, and
+so does a glob there, or a removal of the directory or anything wider.
 
 ## Edit guard path resolution
 
@@ -2272,7 +2373,8 @@ a worktree the next sweep's start can drop.
 `sweep-slices.sh` writes its slice lists to the worktree's path plus
 `.slices`, a name it derives from the same checked shape rather than takes,
 and `git-worktree-drop.sh` removes that directory once git has removed the
-worktree, a half-finished removal included: where git unregistered the worktree
+worktree, under `core.longpaths` as `git-worktree-remove.sh` does, a
+half-finished removal included: where git unregistered the worktree
 and failed to delete its tree, an empty directory goes and any other is named,
 exit 4, for the owner to remove, since no later sweep's start can see it.
 `sweep-mark.sh` moves `refs/sweeps/bug` or `refs/sweeps/security`
@@ -2280,7 +2382,10 @@ to a commit, and only to an existing one by its full SHA. The ref is local
 and a missing one means a full sweep, so the write can make a later sweep
 read less only by pointing at a commit that really was swept clean; a
 poisoned tree cannot reach it, because the parent runs it once, on a clean
-end, with `$pinned`.
+end, with `$pinned`, and `guard-git-argv.py` refuses the granted fetch's
+refspec that would write it without the helper. That is a guard's reach and no
+more: a `git update-ref` no grant holds still writes the ref, and *The guards'
+threat model* says what bounds it.
 
 ## The sed line-ending guard
 
