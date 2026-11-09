@@ -120,20 +120,15 @@ out of a closed set, and `test_npm_checks.py` asserts that no command's
 `allowed-tools` grants a package runner or an interpreter — `npm`, `npx`,
 `node`, `ng`, `yarn`, `pnpm`, `bun`, `deno`, `python` or `pip` in any
 version, a wrapper (`env`, `command`, `exec`) that runs whichever program
-follows it, or a `py` not pinned to a script under `.claude/scripts/` or to
-the unittest runner. It judges each grant by its program word, through a
+follows it, or a `py` not pinned to a script under `.claude/scripts/`. It
+judges each grant by its program word, through a
 path, a Windows shim suffix, an environment assignment or a wrapper: the
 house form `Bash(npx:*)` never matched the prefix `Bash(npx ` the check
 first looked for (blueprint-frontend#375). The helper closes the executor and
 not the manifest, so the auto-load names are denied as well in
 `/review-branch`, the one local command that states an editing boundary, and
 `test_review_branch_frontend.py` holds that list. The exact filenames are
-measured; a glob beside them in a `disallowed-tools` value is not. One
-interpreter grant stays open, and the check exempts it by name:
-`Bash(py -3.12 -m unittest discover:*)` in the managed `ship.md` takes any
-`-s <dir> -p <file>`, so it runs a test file written anywhere, a scratchpad
-included, where `npm-checks.sh test` runs only specs the diff shows. Narrowing
-it is the payload's, and blueprint-harness#223 tracks it.
+measured; a glob beside them in a `disallowed-tools` value is not.
 
 **`eslint.config.js` and `.prettierrc` stay editable, and the checks run
 them.** They are not in `.harness/config.json`'s denies, because
