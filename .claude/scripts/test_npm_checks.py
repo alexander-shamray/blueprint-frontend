@@ -27,10 +27,8 @@ WRAPPERS = frozenset({"env", "command", "exec"})
 # The suffixes Windows runs a program by: npm installs `npx.cmd` beside `npx`.
 SHIM_SUFFIXES = (".exe", ".cmd", ".bat", ".ps1")
 # `py` is the launcher `.harness/agent-rules.md` requires, so it is granted,
-# but only pinned to a script under `.claude/scripts/` or to the unittest
-# runner `/ship`'s sync section runs the printed local suites with.
-PINNED_PY = re.compile(
-    r"py -3\.\d+ (?:\.claude/scripts/[\w.-]+\.py|-m unittest discover)(?::\*)?")
+# but only pinned to a script under `.claude/scripts/`.
+PINNED_PY = re.compile(r"py -3\.\d+ \.claude/scripts/[\w.-]+\.py(?::\*)?")
 
 
 def program_word(grant):
@@ -103,6 +101,7 @@ class TheCheckRunnerIsTheOnlyExecutor(unittest.TestCase):
                       "/usr/bin/node:*", "C:\\Python\\python.exe:*", "python:*",
                       "python3 -c:*", "pip install:*", "py:*", "py",
                       "py -3.12:*", "py -3.12 -c:*", "py -3.12 /tmp/x.py:*",
+                      "py -3.12 -m unittest discover:*",
                       "npx.cmd:*", "npm.cmd run:*", "ng.bat:*", "node.ps1:*",
                       "python3.12:*", "pip3.12 install:*", "env npx:*",
                       "env -i node:*", "env FOO=1 npx:*", "command npx:*",
@@ -113,7 +112,7 @@ class TheCheckRunnerIsTheOnlyExecutor(unittest.TestCase):
         # And the grants the commands do hold, which a word match must spare.
         for grant in ("bash .claude/scripts/npm-checks.sh:*",
                       "py -3.12 .claude/scripts/sync_pr.py:*",
-                      "py -3.12 -m unittest discover:*", "git diff:*",
+                      "git diff:*",
                       "gh pr checks:*", "ls:*"):
             with self.subTest(grant=grant):
                 self.assertFalse(refused_grant(grant))
