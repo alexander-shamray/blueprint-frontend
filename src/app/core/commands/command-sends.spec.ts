@@ -24,6 +24,13 @@ interface CommandSends {
   readonly begun: readonly string[];
 }
 
+/**
+ * The one file that builds an object under this key without sending it: its log
+ * event repeats the id it read off a request's body. Any other shorthand may be
+ * a send, with its value out of sight in a variable or a caller.
+ */
+const READS_THE_FIELD = 'core/log/client-log.interceptor.ts';
+
 function walk(dir: string): string[] {
   return readdirSync(dir).flatMap((entry) => {
     const full = join(dir, entry);
@@ -49,10 +56,6 @@ function findCommandSends(root: string): CommandSends {
     const source = readFileSync(path, 'utf8');
     const file = ts.createSourceFile(path, source, ts.ScriptTarget.Latest, true);
     const name = relative(root, path).split(sep).join('/');
-    // A log event repeats a body's id under the same key, shorthand, in a file
-    // holding no identity (`client-log.interceptor.ts`): that is a read, and
-    // only a file with an identity to skip can skip it.
-    const holdsIdentity = source.includes('CommandIdentity');
     const refuse = (node: ts.Node) =>
       offenders.push(`${name}:${file.getLineAndCharacterOfPosition(node.getStart()).line + 1}`);
 
@@ -65,7 +68,11 @@ function findCommandSends(root: string): CommandSends {
         if (isBeginCall(node.initializer)) begun.add(name);
         else refuse(node);
       }
-      if (ts.isShorthandPropertyAssignment(node) && node.name.text === 'commandId' && holdsIdentity) {
+      if (
+        ts.isShorthandPropertyAssignment(node) &&
+        node.name.text === 'commandId' &&
+        name !== READS_THE_FIELD
+      ) {
         refuse(node);
       }
       ts.forEachChild(node, visit);
@@ -136,13 +143,16 @@ describe('a command takes its id from CommandIdentity.begin()', () => {
       expect(findCommandSends(root).offenders).toEqual(['page.ts:1']);
     });
 
-    it('refuses the shorthand in a file holding an identity', () => {
-      write(
-        'page.ts',
-        `const identity = new CommandIdentity();\nconst commandId = identity.current();\nsend({ commandId });\n`,
-      );
+    it('refuses the shorthand, whose value is out of sight', () => {
+      write('page.ts', `const commandId = identity.current();\nsend({ commandId });\n`);
 
-      expect(findCommandSends(root).offenders).toEqual(['page.ts:3']);
+      expect(findCommandSends(root).offenders).toEqual(['page.ts:2']);
+    });
+
+    it('refuses the shorthand in a helper that names no identity and is handed the id', () => {
+      write('helper.ts', `export const place = (commandId: string) => send({ commandId });\n`);
+
+      expect(findCommandSends(root).offenders).toEqual(['helper.ts:1']);
     });
 
     it('reads a subdirectory, and names the offender by its path from the root', () => {
@@ -176,8 +186,8 @@ describe('a command takes its id from CommandIdentity.begin()', () => {
       expect(findCommandSends(root).offenders).toEqual([]);
     });
 
-    it('ignores the shorthand in a file holding no identity, which only reads the field', () => {
-      write('interceptor.ts', `const commandId = readBody();\nlog({ commandId });\n`);
+    it('ignores the shorthand in the interceptor, which only reads the field', () => {
+      write(READS_THE_FIELD, `const commandId = readBody();\nlog({ commandId });\n`);
 
       expect(findCommandSends(root).offenders).toEqual([]);
     });
