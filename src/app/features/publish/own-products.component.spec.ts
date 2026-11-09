@@ -376,7 +376,7 @@ describe('OwnProductsComponent', () => {
     window.open({ kind: 'rateLimited', title: '', detail: null, retryAfterSeconds: 30 });
     TestBed.inject(CatalogRefresh).request();
     await settle();
-    controller.expectNone(MINE);
+    controller.expectNone((r) => r.url === MINE);
 
     window.close();
     await settle();
