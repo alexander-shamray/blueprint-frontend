@@ -39,7 +39,7 @@ GOOD = {
 
 
 class Lockfile:
-    """A lockfile written from a dict, with one entry's fields changed."""
+    """A package-lock.json written from a dict or raw text into a temporary directory."""
 
     def __init__(self, test):
         temporary = tempfile.TemporaryDirectory()
@@ -108,6 +108,39 @@ class Refusals(unittest.TestCase):
             with self.subTest(resolved=resolved):
                 found = self.refused(with_entry("node_modules/left-pad", resolved=resolved))
                 self.assertEqual(len(found), 1, found)
+
+    def test_another_packages_registry_tarball_is_refused(self):
+        found = self.refused(with_entry(
+            "node_modules/left-pad", resolved=f"{REGISTRY}evil-pkg/-/evil-pkg-1.0.0.tgz"))
+        self.assertEqual(len(found), 1)
+        self.assertIn("not this package's own tarball", found[0])
+
+    def test_a_tarball_of_another_version_than_the_entry_names_is_refused(self):
+        found = self.refused(with_entry(
+            "node_modules/left-pad", resolved=f"{REGISTRY}left-pad/-/left-pad-1.2.0.tgz"))
+        self.assertEqual(len(found), 1)
+
+    def test_a_scope_swapped_for_another_is_refused(self):
+        found = self.refused(with_entry(
+            "node_modules/@scope/pkg", resolved=f"{REGISTRY}@other/pkg/-/pkg-2.0.0.tgz"))
+        self.assertEqual(len(found), 1)
+
+    def test_an_entry_with_no_version_is_refused(self):
+        found = self.refused(with_entry("node_modules/left-pad", version=None))
+        self.assertEqual(len(found), 1)
+
+    def test_a_nested_scoped_package_resolves_to_its_own_tarball(self):
+        document = with_entry(
+            "node_modules/left-pad/node_modules/@scope/inner", version="0.1.0-rc.1",
+            resolved=f"{REGISTRY}@scope/inner/-/inner-0.1.0-rc.1.tgz", integrity="sha512-CCCC")
+        self.assertEqual(self.refused(document), [])
+
+    def test_an_alias_is_refused_even_with_the_aliased_packages_tarball(self):
+        found = self.refused(with_entry(
+            "node_modules/left-pad", name="evil-pkg", version="1.0.0",
+            resolved=f"{REGISTRY}evil-pkg/-/evil-pkg-1.0.0.tgz"))
+        self.assertEqual(len(found), 1)
+        self.assertIn("alias", found[0])
 
     def test_a_resolved_that_is_not_a_string_is_refused(self):
         found = self.refused(with_entry("node_modules/left-pad", resolved=["https://x"]))

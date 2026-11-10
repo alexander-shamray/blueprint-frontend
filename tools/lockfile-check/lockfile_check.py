@@ -4,10 +4,11 @@
 
 `npm ci` installs what the lockfile names, from the URL its `resolved` names and
 against the hash its `integrity` names, and runs each package's install scripts.
-So every package entry but the root must carry a `resolved` on
-https://registry.npmjs.org/ and an `integrity`; README.md beside this file says
-why, and what each refusal means. Exit 0 is a clean lockfile, 1 is a lockfile
-with an entry refused, each named on stdout, and 2 is one this check cannot read.
+So each package entry must carry a `resolved` that is its own tarball on
+https://registry.npmjs.org/, and an `integrity`; README.md beside this file owns
+which entries are exempt, why, and what each refusal means. Exit 0 is a clean
+lockfile, 1 is a lockfile with an entry refused, each named on stdout, and 2 is
+one this check cannot read.
 """
 
 import json
@@ -43,6 +44,12 @@ def packages_of(document):
     return packages
 
 
+def tarball(path, version):
+    """The registry URL npm publishes the package installed at `path` under, at `version`."""
+    name = path.rsplit("node_modules/", 1)[-1]
+    return f"{REGISTRY}{name}/-/{name.split('/')[-1]}-{version}.tgz"
+
+
 def refusals(packages):
     """Every entry the lockfile would install unpinned or from elsewhere, as `path: reason`."""
     found = []
@@ -62,6 +69,15 @@ def refusals(packages):
             continue
         if not isinstance(resolved, str) or not resolved.startswith(REGISTRY):
             found.append(f"{path}: `resolved` {resolved!r} is not on {REGISTRY}")
+        elif "name" in entry:
+            # An alias installs another package under this path, so its tarball
+            # is legitimately not this path's; none is admitted until one is
+            # wanted and the check is taught which alias is meant.
+            found.append(f"{path}: an alias (`name` {entry['name']!r}), which this check refuses")
+        elif resolved != tarball(path, entry.get("version")):
+            # On the registry is not enough: any published package's tarball
+            # is, and `npm audit` would still judge it by this path's name.
+            found.append(f"{path}: `resolved` {resolved!r} is not this package's own tarball")
         integrity = entry.get("integrity")
         if not isinstance(integrity, str) or not integrity.strip():
             found.append(f"{path}: `resolved` with no `integrity`")
