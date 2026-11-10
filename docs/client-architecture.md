@@ -1486,6 +1486,19 @@ lockfile; each entry is removed once its parent's own range admits the fixed
 version, which `npm ls <package>` shows. An advisory with no fixed release at
 all still takes an `ALLOWED` row with an expiry.
 
+**Before it installs anything, the `audit` job holds the lockfile to the
+registry**: every package entry carries a `resolved` on
+`https://registry.npmjs.org/` and an `integrity` (#449). `npm audit` judges a
+package by its name and version, so a commit that repoints a `resolved` and
+rewrites the `integrity` to match passes it and still runs foreign code on
+every install. The job runs the check's suite first, since a gate that has not
+been seen to refuse proves nothing, and the `commits` job runs the head's copy
+over each earlier commit's lockfile before that commit's `npm ci`, since it
+installs those too. It sits in `audit` rather than a job of its own because
+`audit` is among the checks `/ship` step 6's wait requires, which a new job
+would not be until the ruleset named it. `tools/lockfile-check/README.md` owns
+what the check refuses.
+
 The `commits` job runs on pull requests only and lints and builds every commit
 before the head (one `npm ci`, repeated when a commit's `package-lock.json`
 differs from the one last installed), because a pull request lands by rebase

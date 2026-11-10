@@ -44,6 +44,9 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: npm
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
       - name: Every commit before the head lints and builds
         shell: bash
         env:
@@ -53,12 +56,17 @@ jobs:
           set -euo pipefail
           mapfile -t shas < <(git rev-list --reverse "$BASE_SHA..$HEAD_SHA" | grep -vx "$HEAD_SHA" || true)
           echo "${#shas[@]} commit(s) besides the head"
+          # The checked-out tree's lockfile check, copied out before the loop checks older
+          # commits out: an earlier commit may predate it, and its copy is not the one reviewed.
+          check="$RUNNER_TEMP/lockfile_check.py"
+          cp tools/lockfile-check/lockfile_check.py "$check"
           installed=""
           for sha in "${shas[@]}"; do
             echo "::group::$sha"
             git checkout --quiet --detach "$sha"
             lock=$(git rev-parse "$sha:package-lock.json")
             if [ "$lock" != "$installed" ]; then
+              python "$check" package-lock.json
               npm ci
               installed="$lock"
             fi
@@ -86,6 +94,16 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: npm
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      # Before `npm ci` installs anything: tools/lockfile-check/README.md owns what the check
+      # refuses, and the suite runs first because a gate not yet seen to refuse proves nothing.
+      - name: Test the lockfile check
+        working-directory: tools/lockfile-check
+        run: python -m unittest
+      - name: Every resolved in package-lock.json is on the registry with an integrity
+        run: python tools/lockfile-check/lockfile_check.py
       - name: Install, refusing a deprecated package
         run: |
           set -o pipefail
