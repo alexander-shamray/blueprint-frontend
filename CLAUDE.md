@@ -53,7 +53,8 @@ capacitor.config.ts    the one file that decides what `cap sync` writes into bot
 .github/workflows/     ci — the jobs `docs/client-architecture.md` §14 names, including `harness`
 .claude/               commands, agents, hooks, scripts — managed but for `.harness/config.json`'s `local` list
 .harness/              the harness's config, manifest and shared rules
-tools/                 token-usage/ — the report on where a session's tokens go
+tools/                 token-usage/ — the report on where a session's tokens go;
+                       lockfile-check/ — CI's hold of package-lock.json to the registry
 docs/                  this file's table, above
 ```
 
