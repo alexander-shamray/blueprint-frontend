@@ -1,14 +1,7 @@
 """Refuse a package-lock.json that can install anything the registry did not pin.
 
-    py -3.12 tools/lockfile-check/lockfile_check.py [path/to/package-lock.json]
-
-`npm ci` installs what the lockfile names, from the URL its `resolved` names and
-against the hash its `integrity` names, and runs each package's install scripts.
-So each package entry must carry a `resolved` that is its own tarball on
-https://registry.npmjs.org/, and an `integrity`; README.md beside this file owns
-which entries are exempt, why, and what each refusal means. Exit 0 is a clean
-lockfile, 1 is a lockfile with an entry refused, each named on stdout, and 2 is
-one this check cannot read.
+Exit 0 clean, 1 an entry refused, 2 a lockfile it cannot read. README.md beside
+this file owns what each refusal means, which entries are exempt, and why.
 """
 
 import json
