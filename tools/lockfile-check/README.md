@@ -20,6 +20,8 @@ Every entry under `packages` but the root is refused, and named, when:
 | | |
 |---|---|
 | its `resolved` does not start with `https://registry.npmjs.org/` | a git, file, link, plain-`http` or other host's URL, including a host that only begins with the registry's name |
+| its `resolved` is on the registry but is not its own tarball, `<name>/-/<basename>-<version>.tgz` with the name read from its path | any published package's tarball is on the registry, and `npm audit` would still judge it by this path's name and version |
+| it carries a `name`, which makes it an alias | an alias installs another package at this path, so the rule above cannot say which tarball is its own; none exists today, and the first one wanted teaches the check which is meant |
 | it has a `resolved` and no non-blank `integrity` | the tarball would be taken unhashed |
 | it has no `resolved` and is not `inBundle: true` | npm would fetch it by name and version with no hash; a bundled package ships inside its parent's tarball, which the parent's `integrity` pins |
 | it is not an object | nothing above can be read from it |
@@ -34,6 +36,6 @@ check learns it.
 The suite's last class runs the check over this checkout's own lockfile,
 which is the file the gate exists to read. `.github/workflows/ci.yml` runs
 the suite and then the check in the `audit` job, before `npm ci`, and the
-`commits` job runs the head's copy of the check over each earlier commit's
-lockfile before installing it; `docs/client-architecture.md` §14 says why
-those two jobs.
+`commits` job runs the checked-out tree's copy of the check over each earlier
+commit's lockfile before installing it; `docs/client-architecture.md` §14 says
+why those two jobs.
