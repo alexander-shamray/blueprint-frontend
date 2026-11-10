@@ -120,13 +120,14 @@ out of a closed set, and `test_npm_checks.py` asserts that no command's
 `allowed-tools` grants a package runner or an interpreter — `npm`, `npx`,
 `node`, `ng`, `yarn`, `pnpm`, `bun`, `deno`, `python` or `pip` in any
 version, a wrapper (`env`, `command`, `exec`) that runs whichever program
-follows it, or a `py` not pinned to a script under `.claude/scripts/`. It
-judges each grant by its program word, through a
-path, a Windows shim suffix, an environment assignment or a wrapper: the
-house form `Bash(npx:*)` never matched the prefix `Bash(npx ` the check
-first looked for (blueprint-frontend#375). The helper closes the executor and
-not the manifest, so the auto-load names are denied as well in
-`/review-branch`, the one local command that states an editing boundary, and
+follows it, or a `py` not pinned to a script under `.claude/scripts/` with
+nothing after it but fixed lower-case subcommand words. It judges each
+grant by its program word, through a path, a Windows shim suffix, an
+environment assignment or a wrapper: the house form `Bash(npx:*)` never
+matched the prefix `Bash(npx ` the check first looked for
+(blueprint-frontend#375). The helper closes the executor and not the manifest,
+so the auto-load names are denied as well in `/review-branch`, the one local
+command that states an editing boundary, and
 `test_review_branch_frontend.py` holds that list. The exact filenames are
 measured; a glob beside them in a `disallowed-tools` value is not.
 

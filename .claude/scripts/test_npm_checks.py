@@ -27,8 +27,10 @@ WRAPPERS = frozenset({"env", "command", "exec"})
 # The suffixes Windows runs a program by: npm installs `npx.cmd` beside `npx`.
 SHIM_SUFFIXES = (".exe", ".cmd", ".bat", ".ps1")
 # `py` is the launcher `.harness/agent-rules.md` requires, so it is granted,
-# but only pinned to a script under `.claude/scripts/`.
-PINNED_PY = re.compile(r"py -3\.\d+ \.claude/scripts/[\w.-]+\.py(?::\*)?")
+# but only pinned to a script under `.claude/scripts/`, followed by nothing
+# or by fixed lower-case subcommand words: never a flag, a path or a script.
+PINNED_PY = re.compile(
+    r"py -3\.\d+ \.claude/scripts/[\w.-]+\.py(?: [a-z][a-z-]*)*(?::\*)?")
 
 
 def program_word(grant):
@@ -102,6 +104,12 @@ class TheCheckRunnerIsTheOnlyExecutor(unittest.TestCase):
                       "python3 -c:*", "pip install:*", "py:*", "py",
                       "py -3.12:*", "py -3.12 -c:*", "py -3.12 /tmp/x.py:*",
                       "py -3.12 -m unittest discover:*",
+                      "py -3.12 .claude/scripts/sync_pr.py -c:*",
+                      "py -3.12 .claude/scripts/sync_pr.py tasks -x:*",
+                      "py -3.12 .claude/scripts/sync_pr.py /tmp/x.py:*",
+                      "py -3.12 .claude/scripts/sync_pr.py tasks x.py:*",
+                      "py -3.12 .claude/scripts/a.py .claude/scripts/b.py:*",
+                      "py -3.12 .claude/scripts/sync_pr.py *",
                       "npx.cmd:*", "npm.cmd run:*", "ng.bat:*", "node.ps1:*",
                       "python3.12:*", "pip3.12 install:*", "env npx:*",
                       "env -i node:*", "env FOO=1 npx:*", "command npx:*",
@@ -112,6 +120,8 @@ class TheCheckRunnerIsTheOnlyExecutor(unittest.TestCase):
         # And the grants the commands do hold, which a word match must spare.
         for grant in ("bash .claude/scripts/npm-checks.sh:*",
                       "py -3.12 .claude/scripts/sync_pr.py:*",
+                      "py -3.12 .claude/scripts/dispatch_board.py tasks start:*",
+                      "py -3.12 .claude/scripts/dispatch_board.py tasks back:*",
                       "git diff:*",
                       "gh pr checks:*", "ls:*"):
             with self.subTest(grant=grant):
