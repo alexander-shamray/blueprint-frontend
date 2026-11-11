@@ -324,7 +324,7 @@ only this repository has:
   settings list the directory under `additionalDirectories`, and auto mode
   wrote it unprompted when blueprint-backend#1590 measured the rule. The
   main checkout's root may hold `TODO.md`, gitignored, as a link to the
-  file for the user's editor; nothing writes the file through the link,
+  file for the user's editor; no session writes the file through the link,
   which the same guard refuses because the target resolves out of the
   checkout.
 - **A bare `#NN` inside a managed file is not an issue here**: it names one
