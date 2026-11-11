@@ -308,10 +308,11 @@ only this repository has:
 - **The task list is `.todo/blueprint-frontend.md` in the main checkout's
   parent directory: outside every checkout, local, never committed**, the
   path `.harness/config.json` names under `task_list`. It is for the user.
-  Its shape, which section holds a row, and how a row is written are the
-  harness's, not this section's: `.harness/agent-rules.md`, *Working in a
-  target*, and `docs/harness/working-rules.md`, *Issues and the task list*.
-  This section owns only where the file lives, and why.
+  Where it lives, its shape, which section holds a row, and how a row is
+  written are the harness's, not this section's: `.harness/agent-rules.md`,
+  *Working in a target*, and `docs/harness/working-rules.md`, *Issues and
+  the task list*. This section owns why it lives outside the checkout, and
+  the `TODO.md` link below.
   It lives outside the checkout because Claude Code's isolation refuses a
   session moved into `.claude/worktrees/` with `EnterWorktree` every path
   in the main checkout outside that worktree — *"Edit the worktree copy of
