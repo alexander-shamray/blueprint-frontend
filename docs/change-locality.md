@@ -307,12 +307,11 @@ only this repository has:
   and merges directly.
 - **The task list is `.todo/blueprint-frontend.md` in the main checkout's
   parent directory: outside every checkout, local, never committed**, the
-  path `.harness/config.json` names under `task_list`. It is for the user,
-  and its layout is the backend's task list, `.todo/blueprint-backend.md`
-  beside it, exactly: the rules note topmost, then **In progress**,
-  **Remaining** (a wave and group per row), **Tracking** and **Paused**. Which
-  of them holds a row, and when it moves, is the state table in
-  `docs/harness/working-rules.md`, *Issues and the task list*.
+  path `.harness/config.json` names under `task_list`. It is for the user.
+  Its shape, which section holds a row, and how a row is written are the
+  harness's, not this section's: `.harness/agent-rules.md`, *Working in a
+  target*, and the document it cites. This section owns only where the
+  file lives, and why.
   It lives outside the checkout because Claude Code's isolation refuses a
   session moved into `.claude/worktrees/` with `EnterWorktree` every path
   in the main checkout outside that worktree — *"Edit the worktree copy of
@@ -325,14 +324,9 @@ only this repository has:
   settings list the directory under `additionalDirectories`, and auto mode
   wrote it unprompted when blueprint-backend#1590 measured the rule. The
   main checkout's root may hold `TODO.md`, gitignored, as a link to the
-  file for the user's editor; a session writes the file by its own path and
-  never through the link, which the same guard refuses because the target
-  resolves out of the checkout. When in doubt, rebuild the rows from
-  `gh pr list --limit 1000 --json number,title,url,closingIssuesReferences`
-  and `gh issue list --limit 1000 --json number,title,url,labels`, because
-  the default of 30 truncates silently; severity is the `high`, `medium` or
-  `low` label. Those recover the rows only: the rules note, the waves, the
-  groups and Paused come from the backend's task list.
+  file for the user's editor; nothing writes the file through the link,
+  which the same guard refuses because the target resolves out of the
+  checkout.
 - **A bare `#NN` inside a managed file is not an issue here**: it names one
   in `blueprint-backend`, where most of that machinery was built, or in
   `blueprint-harness`. `CLAUDE.md` repeats this, because it reaches every
