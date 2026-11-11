@@ -310,8 +310,8 @@ only this repository has:
   path `.harness/config.json` names under `task_list`. It is for the user.
   Its shape, which section holds a row, and how a row is written are the
   harness's, not this section's: `.harness/agent-rules.md`, *Working in a
-  target*, and the document it cites. This section owns only where the
-  file lives, and why.
+  target*, and `docs/harness/working-rules.md`, *Issues and the task list*.
+  This section owns only where the file lives, and why.
   It lives outside the checkout because Claude Code's isolation refuses a
   session moved into `.claude/worktrees/` with `EnterWorktree` every path
   in the main checkout outside that worktree — *"Edit the worktree copy of
