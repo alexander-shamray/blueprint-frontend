@@ -186,6 +186,18 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
+      # The browsers are cached under the version of Playwright that fixes their revisions, so a
+      # hit downloads none of them; the system packages are not, and `--with-deps` installs those
+      # on every run.
+      - name: Playwright's version, the browser cache's key
+        id: playwright
+        run: |
+          version=$(node -p 'require("@playwright/test/package.json").version')
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ steps.playwright.outputs.version }}
       - run: npx playwright install --with-deps chromium webkit
 
       # The recipe is the backend's own (docs/backend-architecture/
