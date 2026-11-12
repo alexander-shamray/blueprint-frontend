@@ -216,4 +216,4 @@ part lives.
 - **Whether the input equivalent priced per model fell** is not read here:
   four days of sweeps and rounds are no span to price against the baseline's
   month. That half of the exit, and the rows the backend still holds behind
-  its #845 gates, wait on blueprint-backend#857.
+  the gates of blueprint-backend#845, wait on blueprint-backend#857.
