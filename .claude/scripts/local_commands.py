@@ -9,8 +9,9 @@ CEILINGS = {
     "review-branch.md": 11700,
 }
 
-# Its own suites that list a tree rather than name its files, read by `suite_select.py` after the payload's rows:
-# every tracked path for the class map and the deny coverage, the commands for the check runner's grants.
+# Its own suites that list a tree rather than name its files, for the payload's `suite_select.py` to add after
+# its own rows once a sync brings it: every tracked path for the class map and the deny coverage, the commands
+# for the check runner's grants.
 TREE_READERS = (
     ("**", ("test_class_map_frontend.EveryTrackedPathHasAClass", "test_review_branch_frontend")),
     (".claude/commands/*.md", ("test_npm_checks.TheCheckRunnerIsTheOnlyExecutor",)),
