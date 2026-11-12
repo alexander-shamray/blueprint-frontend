@@ -75,10 +75,35 @@ has merged.
 | 4 | #171 | `/ship` stops carrying two external review loops it skips: the in-house `branch-reviewer` is the review, and the Grok and Copilot commands are archived (`archive/external-reviewers`) | done |
 | 5 | #172 | A sweep slices the tree, follows leads after round 1, and sweeps only what changed | open, after step 4 |
 | 6 | #173 | Each long command is split into a runbook, resident while it runs, and an argument under `docs/commands/`, which each rule cites | done |
+| 7 | #370 | What a session accumulates: a wait woken once, plans held to their size and written in one pass | this pull request; came with the harness |
+| 7d | #370 | Which model a subagent runs on | this pull request; came with the harness, and its exit waits on blueprint-backend#857 |
 
 **Step 3 is the largest single win here**: `harness-boundaries.md` is more
 than six times the size of the backend's before its own step 3, and nothing
 indexes it.
+
+### Steps 7 and 7d
+
+The backend took both after step 6, and this repository took them from the
+shared harness rather than from a pull request of its own: its first sync
+(#382) brought each rule, so steps 7 and 7d here are a record of where each
+part lives and what its exit read. The backend's `docs/token-plan.md`, *Step
+7* and *Step 7d*, owns the argument and the table; this section restates
+neither.
+
+| Part | Landed in the backend | Here |
+|---|---|---|
+| The report's `mean_context` column | #840 | the report's port, #301 |
+| A wait run as one background task, its exit the only wake | #1668, #1670 | `.harness/agent-rules.md`, *Subagents, review rounds and plans*, since #382 |
+| `/validate-blueprint`'s main session dispatches its passes | #898 | no subject: this repository has no such command |
+| A size check on every plan added after the planning rule | #890 | `.github/plan-size-gate/`, since #382 |
+| A plan-writing agent that writes in one pass | #890 | `.harness/agent-rules.md`, as above |
+| The model rule and its table | #896 | `.harness/agent-rules.md` owns the rule, `harness/token-rules.md`, *Which model a subagent runs on*, its reason and table, since #382 |
+| The report split by model | #896 | `--models`, in the report's port, #301 |
+| Opus pinned on the read-only reviewer and auditors | #1294 | the profiles under `.claude/agents/`, since #382 |
+
+Their first reading is [`token-usage.md`](token-usage.md)'s section of
+2026-11-12.
 
 ## 4. What each step must keep true
 
@@ -100,6 +125,11 @@ command or an agent holds two things.
   the lists first, and the report already reads a quality-set run's
   transcripts by the name that runner gives its worktree so that it works the
   day the runner does.
+- **Step 7's wake share, and step 7d's exit.** The share after a wake missed
+  its exit on 2026-11-12, and the exit stays. Step 7d's priced comparison
+  and the rows the backend keeps behind its #845 gates wait on
+  blueprint-backend#857, which the owner keeps paused; they arrive here by a
+  harness sync, and #370 stays open for their reading.
 - **A CI job for the report's suite.** The suite is run by hand
   (`python -m unittest discover -s tools/token-usage -p 'test_*.py'`). The
   backend gates nothing on it and runs it as a job; a job here is an edit to

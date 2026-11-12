@@ -172,3 +172,47 @@ history. The baseline found the subagents and the in-house review are *not*
 where the spend is, so the briefing and review-round rules are there so every
 session does the same thing, and no saving is claimed for them. Whether the
 wake share moved is the next window's to show, not this section's.
+
+## 2026-11-12 — steps 7 and 7d, the days since the harness brought them
+
+**Taken against `main` at `d2b37ec`**, with 90 transcript directories read,
+over the responses from 2026-11-08, the day the shared harness's first sync
+(#382) brought both steps' rules here, to 2026-11-12. That is four days
+against the baseline's month, so it says which way each exit points and
+settles none of them. `token-plan.md`, *Steps 7 and 7d*, says where each
+part lives.
+
+| | |
+|---|---|
+| Contexts | 232 |
+| Calls | 2,895 |
+| `mean_context` | 114,036 |
+| `input_equivalent` | 55,882,497 |
+| `woken_equivalent` | 23,716,690, 42 % |
+
+**Step 7.**
+
+- **A `/ship` session's own turns send 135,579 a call**, against the
+  baseline's 223,618 and a target a fifth lower: it passes. A `/ship` loaded
+  through the `Skill` tool rather than typed sends 218,910 over four
+  sessions, and is not the row the target names.
+- **The wake share is 42 %**, against 52 % over the baseline's history and an
+  exit under 40 %: it fails, and the exit stays.
+- **Every plan is within the planning rule's limit**: CI's plan-size gate
+  holds it on every pull request, and no plan was added in the window.
+- **`/validate-blueprint` has no subject here**: this repository has no such
+  command, so its part of the step's exit reads nothing.
+
+**Step 7d**, from `--models`.
+
+- **Every `branch-reviewer` round ran on Opus**, 65 contexts, the profile's
+  pin; so did the 21 `bug-auditor` contexts of a sweep's fan-out.
+- **A sweep's re-verification ran on Sonnet**: 89 `bug-auditor` contexts at
+  22,257 a call, the spawn's `model` overriding the profile, which is the
+  row the table marks as already so.
+- **No `Explore` or `general-purpose` agent ran in the window**, so the rows
+  that move a search to a cheaper model have nothing to show yet.
+- **Whether the input equivalent priced per model fell** is not read here:
+  four days of sweeps and rounds are no span to price against the baseline's
+  month. That half of the exit, and the rows the backend still holds behind
+  its #845 gates, wait on blueprint-backend#857.
