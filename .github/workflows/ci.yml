@@ -9,6 +9,18 @@ on:
     branches: [main]
   pull_request:
 
+# A second push to a pull request cancels the run of the first, which would
+# otherwise hold its runners, the Windows `harness` leg among them, until it
+# finished. On main each commit has a group of its own, so a later push cannot
+# cancel the run of an earlier one and `main-red` sees every push's result. A
+# rerun has one too, so rerunning a stale head cannot cancel the required
+# checks of a newer head on the same ref.
+concurrency:
+  group: >-
+    ci-${{ github.ref }}-${{ github.ref == 'refs/heads/main' && github.sha || '' }}${{
+    github.run_attempt != '1' && format('-{0}', github.run_id) || '' }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
 jobs:
   web:
     runs-on: ubuntu-latest
@@ -465,8 +477,8 @@ jobs:
     needs:
       [web, audit, e2e, gates, workflow-lint, harness, issue-form, android, ios-config, ios-build]
     # A job that hits its timeout or that no runner picks up reports `cancelled`, and `failure()`
-    # is false for that. No `concurrency` block cancels a run here, so the one false alarm is
-    # somebody's own cancel.
+    # is false for that. The `concurrency` block above never cancels a push to main, whose group
+    # is its own commit's, so the one false alarm is somebody's own cancel.
     if: >-
       always() && github.event_name == 'push' &&
       (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled'))
