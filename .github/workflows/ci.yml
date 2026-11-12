@@ -34,7 +34,14 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run lint
-      - run: npm test
+      # Each test's duration, kept for a week, so a test growing slow shows without reading a log.
+      - run: npm test -- --reporters=default --reporters=junit --output-file=reports/vitest-junit.xml
+      - if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: vitest-junit
+          path: reports/vitest-junit.xml
+          retention-days: 7
       - run: npm run build
 
   # Rebase landing puts every commit on main, and `web` lints and builds only
