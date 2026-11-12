@@ -127,9 +127,9 @@ command or an agent holds two things.
   day the runner does.
 - **Step 7's wake share, and step 7d's exit.** The share after a wake missed
   its exit on 2026-11-12, and the exit stays. Step 7d's priced comparison
-  and the rows the backend keeps behind its #845 gates wait on
-  blueprint-backend#857, which the owner keeps paused; they arrive here by a
-  harness sync, and #370 stays open for their reading.
+  and the rows the backend keeps behind the gates of blueprint-backend#845
+  wait on blueprint-backend#857, which the owner keeps paused; they arrive
+  here by a harness sync, and #370 stays open for their reading.
 - **A CI job for the report's suite.** The suite is run by hand
   (`python -m unittest discover -s tools/token-usage -p 'test_*.py'`). The
   backend gates nothing on it and runs it as a job; a job here is an edit to
