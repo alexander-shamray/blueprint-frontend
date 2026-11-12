@@ -121,8 +121,8 @@ out of a closed set, and `test_npm_checks.py` asserts that no command's
 `node`, `ng`, `yarn`, `pnpm`, `bun`, `deno`, `python` or `pip` in any
 version, a wrapper (`env`, `command`, `exec`) that runs whichever program
 follows it, or a `py` not pinned to a script under `.claude/scripts/` with
-nothing after it but fixed lower-case words, each a subcommand or a long
-flag such as `--selective`, and never a flag's value. It judges each
+nothing after it but fixed lower-case subcommand words and then long flags
+such as `--selective`, and never a flag's value. It judges each
 grant by its program word, through a path, a Windows shim suffix, an
 environment assignment or a wrapper: the house form `Bash(npx:*)` never
 matched the prefix `Bash(npx ` the check first looked for
