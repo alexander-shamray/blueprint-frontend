@@ -52,7 +52,12 @@
     ".claude/scripts/test_root_ignore_coverage.py",
     ".claude/scripts/test_*_frontend.py",
     ".claude/skills/codebase-index/scripts/mcp-launch.mjs",
-    "docs/commands/review-branch.md"
+    ".github/locality-gate/classes.yml",
+    ".mcp.json",
+    "CLAUDE.md",
+    "docs/codebase-index-requirements.txt",
+    "docs/commands/review-branch.md",
+    "docs/testing.md"
   ],
   "exclude": [
     ".github/output-gate/**"
