@@ -9,12 +9,10 @@ on:
     branches: [main]
   pull_request:
 
-# A second push to a pull request cancels the run of the first, which would
-# otherwise hold its runners, the Windows `harness` leg among them, until it
-# finished. On main each commit has a group of its own, so a later push cannot
-# cancel the run of an earlier one and `main-red` sees every push's result. A
-# rerun has one too, so rerunning a stale head cannot cancel the required
-# checks of a newer head on the same ref.
+# A second push to a pull request cancels the first one's run, which would otherwise hold its
+# runners to the end, the Windows `harness` leg among them. On main each commit has a group of its
+# own, so no push cancels an earlier one and `main-red` sees every result; a rerun has one too, so
+# rerunning a stale head cannot cancel the required checks of a newer head on the same ref.
 concurrency:
   group: >-
     ci-${{ github.ref }}-${{ github.ref == 'refs/heads/main' && github.sha || '' }}${{
