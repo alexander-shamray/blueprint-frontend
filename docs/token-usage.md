@@ -198,8 +198,9 @@ part lives.
   sessions, and is not the row the target names.
 - **The wake share is 42 %**, against 52 % over the baseline's history and an
   exit under 40 %: it fails, and the exit stays.
-- **Every plan is within the planning rule's limit**: CI's plan-size gate
-  holds it on every pull request, and no plan was added in the window.
+- **Every plan dated since the planning rule is within its limit**: CI's
+  plan-size gate holds it on every pull request, and no plan was added in
+  the window.
 - **`/validate-blueprint` has no subject here**: this repository has no such
   command, so its part of the step's exit reads nothing.
 
