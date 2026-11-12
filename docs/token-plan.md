@@ -75,8 +75,8 @@ has merged.
 | 4 | #171 | `/ship` stops carrying two external review loops it skips: the in-house `branch-reviewer` is the review, and the Grok and Copilot commands are archived (`archive/external-reviewers`) | done |
 | 5 | #172 | A sweep slices the tree, follows leads after round 1, and sweeps only what changed | open, after step 4 |
 | 6 | #173 | Each long command is split into a runbook, resident while it runs, and an argument under `docs/commands/`, which each rule cites | done |
-| 7 | #370 | What a session accumulates: a wait woken once, plans held to their size and written in one pass | this pull request; came with the harness |
-| 7d | #370 | Which model a subagent runs on | this pull request; came with the harness, and its exit waits on blueprint-backend#857 |
+| 7 | #370 | What a session accumulates: a wait woken once, plans held to their size and written in one pass | this pull request, 2026-11-12; came with the harness |
+| 7d | #370 | Which model a subagent runs on | this pull request, 2026-11-12; came with the harness, and its exit waits on blueprint-backend#857 |
 
 **Step 3 is the largest single win here**: `harness-boundaries.md` is more
 than six times the size of the backend's before its own step 3, and nothing
