@@ -35,14 +35,16 @@ class OnlyThisCheckoutsPullRequestsSurvive(unittest.TestCase):
     HELPER = SCRIPTS / "pr-for-branch.sh"
     OWNER = "acme/widgets"
 
+    # Rows 2-4 pass every other drop, a base of `main` and no `mergeCommit`, so the repository filter is what
+    # drops them; the base filter would otherwise drop them first and the tests below pass with no repository filter.
     ROWS = """[
       {"number": 1, "state": "OPEN", "url": "u1", "headRefOid": "aaa1", "baseRefName": "main",
        "headRepository": {"nameWithOwner": "acme/widgets"}},
-      {"number": 2, "state": "OPEN", "url": "u2",
+      {"number": 2, "state": "OPEN", "url": "u2", "headRefOid": "aaa2", "baseRefName": "main",
        "headRepository": {"nameWithOwner": "mallory/widgets"}},
-      {"number": 3, "state": "MERGED", "url": "u3",
+      {"number": 3, "state": "MERGED", "url": "u3", "headRefOid": "aaa3", "baseRefName": "main",
        "headRepository": null},
-      {"number": 4, "state": "CLOSED", "url": "u4",
+      {"number": 4, "state": "CLOSED", "url": "u4", "headRefOid": "aaa4", "baseRefName": "main",
        "headRepository": {"nameWithOwner": "acme/widgets-fork"}}
     ]"""
 
@@ -119,6 +121,14 @@ class OnlyThisCheckoutsPullRequestsSurvive(unittest.TestCase):
         got = json.loads(self.run_helper().stdout)
         self.assertNotIn(4, [row["number"] for row in got])
 
+    def test_each_dropped_row_survives_with_this_checkouts_repository(self):
+        # The subject is the fixture: given row 1's repository, each dropped row is kept, so nothing but the
+        # repository filter is what drops it in the three tests above.
+        for row in json.loads(self.ROWS)[1:]:
+            with self.subTest(number=row["number"]):
+                row["headRepository"] = {"nameWithOwner": self.OWNER}
+                self.assertEqual([row["number"]], self.numbers(self.listing([row])))
+
     def test_the_shape_is_the_fixed_field_set(self):
         got = json.loads(self.run_helper().stdout)
         self.assertEqual({"number", "state", "url", "headRefOid", "baseRefName"}, set(got[0]))
@@ -151,6 +161,24 @@ class OnlyThisCheckoutsPullRequestsSurvive(unittest.TestCase):
         self.assertEqual(4, result.returncode)
         self.assertEqual("", result.stdout.strip())
         self.assertIn("truncated", result.stderr)
+
+    def test_a_jq_that_does_not_finish_is_no_answer(self):
+        # Git Bash reported a tool fed by a process substitution as `Child exited`. A `jq` dying on the
+        # count, the repository filter, the merged-row read or the final shape stands in: each ends the run with
+        # nothing printed, never an empty list `/ship` would read as "no pull request".
+        for dies_on in ("length", "--arg", "-r", "--argjson"):
+            with self.subTest(dies_on=dies_on):
+                shim = Path(self.bin, "jq")
+                shim.write_text(f'#!/usr/bin/env bash\ncase "$1" in {dies_on}) echo "Child exited" >&2; exit 148 ;; esac\n'
+                                'PATH=${PATH#*:}\nexec jq "$@"\n', encoding="utf-8", newline="\n")
+                shim.chmod(0o755)
+                path, git = self.make_repo()
+                git("branch", "some-branch")
+                result = self.listing([self.row(1, "MERGED", mergeCommit={"oid": "a" * 40}), self.row(2, "OPEN")],
+                                      cwd=path)
+                self.assertNotEqual(0, result.returncode)
+                self.assertIn("Child exited", result.stderr, "the stand-in jq was not the one the helper ran")
+                self.assertEqual("", result.stdout)
 
     def test_an_answer_that_is_no_count_is_not_reported_as_truncation(self):
         result = self.run_helper(rows="")
