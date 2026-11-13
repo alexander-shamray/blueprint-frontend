@@ -1505,10 +1505,10 @@ before the head (one `npm ci`, repeated when a commit's `package-lock.json`
 differs from the one last installed), because a pull request lands by rebase
 and `web` sees only the head: a commit in the middle that does not build costs
 a `git bisect` its whole range. It does not run the tests, which cost one step
-when red. A separate workflow, `commit-gate.yml`, holds every commit of a pull
-request to a `PR: #<n>` trailer and `/commit`'s subject form, since a rebase
-landing leaves no merge commit to name the pull request;
-`.github/commit-gate/README.md` owns its rules (#207).
+when red. The `commit-gate` check, a step of `.github/workflows/gates.yml`,
+holds every commit of a pull request to a `PR: #<n>` trailer and `/commit`'s
+subject form, since a rebase landing leaves no merge commit to name the pull
+request; `.github/commit-gate/README.md` owns its rules (#207).
 
 The `issue-form` job holds the issue form under `.github/ISSUE_TEMPLATE/` to
 the vocabularies it mirrors and to the repository's labels, which it reads
@@ -1516,12 +1516,13 @@ with a token that may read the checkout and the issues and nothing more
 (#359).
 `.github/issue-form-gate/README.md` owns what it reads and claims.
 
-The `gates` job runs every suite under `.github/*/` from its own directory, then
-`plan_size_gate.py` (#404). A gate's own workflow runs its suite on a pull
-request alone, and `plan-size-gate` has no workflow, so this job is what runs
-them on a push to `main`. It finds the directories rather than naming them, so
-a suite a sync adds is covered with no edit here, and finding none fails it; a
-gate with no workflow still needs a step for its own script, as
+The `gate-suites` job runs every suite under `.github/*/` from its own
+directory, then `plan_size_gate.py` (#404). The `Gates` workflow,
+`.github/workflows/gates.yml`, runs each gate and its suite on a pull request
+alone, and `plan-size-gate` is none of its steps, so this job is what runs them
+on a push to `main`. It finds the directories rather than naming them, so a
+suite a sync adds is covered with no edit here, and finding none fails it; a
+gate that is no step of `gates.yml` still needs a step for its own script, as
 `plan_size_gate.py` has. The `workflow-lint` job runs `actionlint` over
 `.github/workflows/`, after requiring it to fail the fixture beside its README,
 `.github/workflow-lint/README.md`, which owns what it reads and claims. Neither

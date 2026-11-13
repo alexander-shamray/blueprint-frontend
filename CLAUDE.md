@@ -140,12 +140,12 @@ brings it here. `docs/harness-boundaries.md` is what the harness grants these
 commands and refuses; read the section its index names before touching
 anything under `.claude/`. A residual only this repository has goes in
 `docs/harness-local.md` *Residuals*, and a working rule only this repository
-has in `docs/change-locality.md` §6. The locality gate's workflow and the two
-document audits did not come with the harness: `docs/change-locality.md` §3
-says where the first gap bites, and `docs/harness-local.md` *Residuals* where
-the audits' does. A bare `#NN` inside a managed file names an issue in
-`blueprint-backend`, where most of that machinery was built, or in
-`blueprint-harness`; it is not an issue here.
+has in `docs/change-locality.md` §6. The locality gate's script and suite and
+the two document audits did not come with the harness:
+`docs/change-locality.md` §3 says where the first gap bites, and
+`docs/harness-local.md` *Residuals* where the audits' does. A bare `#NN`
+inside a managed file names an issue in `blueprint-backend`, where most of
+that machinery was built, or in `blueprint-harness`; it is not an issue here.
 
 `/ship`, `/branch`, `/commit`, `/pr`, `/review-branch`, `/style-pass`,
 `/security-sweep`, `/bug-sweep`, `/dispatch` and `/team` say what each does

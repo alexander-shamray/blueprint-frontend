@@ -236,7 +236,7 @@ the same PR. It waives nothing else. In particular:
   second, as `docs/harness/working-rules.md` *CI* says. A pull request is
   not tested against the newest `main` before it lands, so two that pass
   apart can fail together, and a push to `main` is where that shows.
-  `ci.yml` runs every job on that push but `commits`, and `commit-gate.yml`
+  `ci.yml` runs every job on that push but `commits`, and `gates.yml`
   none: both judge a pull request's own commits, their trailers and that
   each one builds. A replay onto a newer
   `main` can leave an intermediate commit that no longer builds, which costs
