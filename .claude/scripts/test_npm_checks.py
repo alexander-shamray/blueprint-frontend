@@ -4,6 +4,8 @@
 Run: py -3.12 -m unittest discover -s .claude/scripts -p 'test_npm_checks.py'
 """
 
+import json
+import os
 import re
 import shutil
 import subprocess
@@ -172,6 +174,66 @@ class TheCheckRunnerIsTheOnlyExecutor(unittest.TestCase):
         # written against. CI owns that suite.
         source = (SCRIPTS / "npm-checks.sh").read_text(encoding="utf-8")
         self.assertNotIn("npm run e2e", source)
+
+
+class TheCheckRunnerRecordsItsTime(unittest.TestCase):
+    """Driven against a stub `npm` in a scratch repository, so no real check runs."""
+
+    def run_mode(self, mode, npm_exit, timings):
+        holder = tempfile.TemporaryDirectory(prefix="npm-checks-")
+        self.addCleanup(holder.cleanup)
+        base = Path(holder.name)
+        subprocess.run([GIT, "init", "-q", str(base)], check=True)
+        (base / "node_modules").mkdir()
+        stub = base / "bin"
+        stub.mkdir()
+        npm = stub / "npm"
+        npm.write_text(f"#!/usr/bin/env bash\nexit {npm_exit}\n", encoding="utf-8", newline="\n")
+        npm.chmod(0o755)
+        env = {**os.environ, "PATH": f"{stub}{os.pathsep}{os.environ['PATH']}",
+               "HARNESS_TIMINGS": str(timings)}
+        return subprocess.run([BASH, str(SCRIPTS / "npm-checks.sh"), mode],
+                              capture_output=True, text=True, cwd=str(base), env=env)
+
+    def test_a_passing_run_records_its_script_mode_and_exit(self):
+        holder = tempfile.TemporaryDirectory(prefix="npm-timings-")
+        self.addCleanup(holder.cleanup)
+        timings = Path(holder.name) / "timings.jsonl"
+        out = self.run_mode("fast", 0, timings)
+        self.assertEqual(0, out.returncode, out.stderr)
+        lines = [json.loads(line) for line in timings.read_text(encoding="utf-8").splitlines()]
+        self.assertEqual(1, len(lines))
+        self.assertEqual(("npm-checks.sh", "fast", 0),
+                         (lines[0]["script"], lines[0]["mode"], lines[0]["exit"]))
+
+    def test_a_failing_run_keeps_its_exit_and_records_it(self):
+        holder = tempfile.TemporaryDirectory(prefix="npm-timings-")
+        self.addCleanup(holder.cleanup)
+        timings = Path(holder.name) / "timings.jsonl"
+        out = self.run_mode("lint", 7, timings)
+        self.assertEqual(7, out.returncode, out.stderr)
+        line = json.loads(timings.read_text(encoding="utf-8").splitlines()[0])
+        self.assertEqual(7, line["exit"])
+
+    def test_a_failed_record_changes_no_exit(self):
+        holder = tempfile.TemporaryDirectory(prefix="npm-timings-")
+        self.addCleanup(holder.cleanup)
+        blocker = Path(holder.name) / "file"
+        blocker.write_text("x", encoding="utf-8")
+        # A path beneath a regular file cannot be created, so the record fails.
+        unwritable = blocker / "timings.jsonl"
+        for npm_exit in (0, 7):
+            with self.subTest(npm_exit=npm_exit):
+                out = self.run_mode("test", npm_exit, unwritable)
+                self.assertEqual(npm_exit, out.returncode, out.stderr)
+
+    def test_a_usage_error_records_nothing(self):
+        holder = tempfile.TemporaryDirectory(prefix="npm-timings-")
+        self.addCleanup(holder.cleanup)
+        timings = Path(holder.name) / "timings.jsonl"
+        out = self.run_mode("e2e", 0, timings)
+        self.assertEqual(2, out.returncode, out.stderr)
+        self.assertFalse(timings.exists())
 
 
 if __name__ == "__main__":
