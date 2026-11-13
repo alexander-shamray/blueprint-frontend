@@ -35,8 +35,8 @@ Selected by what the diff touched:
   `eslint.config.js`, `.prettierrc`). Each run of a mode past the
   install check appends its wall time to the harness timings record, which
   `py -3.12 .claude/scripts/harness_timings.py report` reads; a failed record
-  never changes the exit. A docs-only change runs `fast` or nothing and says which.
-  **A new worktree has no `node_modules`**: run
+  never changes the exit. A docs-only change runs `fast` or nothing and says
+  which. **A new worktree has no `node_modules`**: run
   `npm ci` there once first, since the helper refuses a checkout without its
   own install rather than resolve packages from the main checkout's.
 - **The Playwright suite is CI's and is not run here**: it needs the
