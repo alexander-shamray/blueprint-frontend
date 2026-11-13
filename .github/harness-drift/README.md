@@ -106,14 +106,14 @@ harness repository tests that they agree.
 
 ## How it runs
 
-The `gates` job in [`gates.yml`](../workflows/gates.yml), which posts this
-gate's verdict as the `harness-drift` check, on every pull request with no
-path filter. It takes the gate from the base commit; when the base carries
-none, which is the first sync into a target, the head's copy judges and the
-run says so. It then fetches the payload, runs the gate, posts the verdict,
-and only then runs this directory's suite, so head test code cannot tamper
-with the run before the gate has judged. A failed fetch fails the check; a
-failed suite fails the `gates` job.
+The `gates` job in [`gates.yml`](../workflows/gates.yml), whose verdict for
+this gate the `report` job posts as the `harness-drift` check, on every pull
+request with no path filter. It takes the gate from the base commit; when the
+base carries none, which is the first sync into a target, the head's copy
+judges and the run says so. It then fetches the payload, runs the gate, fixes
+the verdict, and only then runs this directory's suite, so head test code
+cannot tamper with the run before the gate has judged. A failed fetch fails
+the check; a failed suite fails the `gates` job.
 
 The suite includes `test_gate_reads_the_shipped_manifest`, which checks the
 tree it sits in. It needs a rendered tree and is never run from the harness

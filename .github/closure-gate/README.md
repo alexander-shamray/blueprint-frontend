@@ -65,13 +65,15 @@ testable without a network. The live invocation is in
 ## How it runs
 
 The `gates` job in [`gates.yml`](../workflows/gates.yml), which runs every
-gate of the pull request in one job and posts this one's verdict as the
-`closure-gate` check, on every pull request with no path filter, and on
+gate of the pull request in one job, while its `open` and `report` jobs,
+which check nothing out and alone hold `checks: write`, open this one's check
+run before it judges and complete it as the `closure-gate` check, on every
+pull request with no path filter, and on
 `edited` as well as pushes, because a description edit with no push behind
 it can break the claim. **The gate that judges is read out of the base
 commit**, while the suite runs the branch's copy, so a pull request cannot
 supply its own judge; a base carrying no gate fails rather than falling back.
-The suite runs only after every verdict is posted, so head test code cannot
+The suite runs only after every verdict is fixed, so head test code cannot
 alter the run ahead of it; a red suite fails the `gates` job rather than the
 `closure-gate` check. The workflow file itself is still the
 branch's copy, because `pull_request` runs the head definition, and closing

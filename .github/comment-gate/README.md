@@ -155,12 +155,13 @@ tree is under the rule; CI does not run it.
 ## How it runs
 
 The `gates` job in [`gates.yml`](../workflows/gates.yml), which runs every
-gate of the pull request in one job and posts this one's verdict as the
-`comment-gate` check; a label starts a run of this gate alone, which in the
-CI workflow would start a build and every suite as well. On a pull request,
-**the gate that judges is read out of the base commit**, on the closure gate's
-design, so a pull request cannot loosen the rule it is judged by. The suite
-runs the head copy only after every verdict is posted, so head test code
+gate of the pull request in one job, while its `report` job posts this one's
+verdict as the `comment-gate` check; a label starts a run of this gate
+alone, which in the CI workflow would start a build and every suite as well.
+On a pull request, **the gate that judges is read out of the base commit**,
+on the closure gate's design, so a pull request cannot loosen the rule it is
+judged by. The suite
+runs the head copy only after every verdict is fixed, so head test code
 cannot alter the run ahead of it. A base with no gate directory is
 judged by the head copy under a warning, the bootstrap, because the pull
 request that lands the gate has no base copy. The testing
