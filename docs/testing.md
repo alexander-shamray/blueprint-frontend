@@ -60,8 +60,8 @@ and **Python 3.12**.** How you
 reach that interpreter is a local choice: `py -3.12` works on Windows and
 exists nowhere else, `python` or `python3` elsewhere. **CI does not make that
 choice** — `actions/setup-python` puts 3.12 on PATH and the `harness` job runs
-`python -m unittest` on all three runners, so a developer reproducing CI runs
-`python` whatever their platform. **That Python's SQLite
+the suite under `python` on all three runners, so a developer reproducing CI
+runs `python` whatever their platform. **That Python's SQLite
 must be 3.37 or later, built with FTS5** (#140): the index-refresh cases build
 full-text tables and read `PRAGMA table_list`, and a 3.12 on Linux can be
 linked against an older system SQLite. Those cases assert the version in their
@@ -82,14 +82,17 @@ macOS runner executes them as well (below).
 
 **On a Windows host the whole harness suite is slow, so run the module a
 change touches**: `py -3.12 -m unittest discover -s .claude/scripts -p
-'<module>.py'`. Most of a local run is `git` and Git Bash processes starting
+'<module>.py'`, or the whole of it in parallel shards, as CI does:
+`py -3.12 .claude/scripts/shard-harness-suite.py`. Most of a local run is
+`git` and Git Bash processes starting
 (alexander-shamray/blueprint-frontend#259), and the suite the harness sync
 delivers is larger than the one that issue measured (2,089 s on one Windows
 host at harness `9a774e5`, blueprint-harness#162). The per-class runner #259
 added was this repository's alone and went with the first sync
 (`docs/harness-local.md` names what stayed). **CI's `harness` job runs the
-whole suite on all three runners**; `docs/client-architecture.md` §14 says how
-it came to.
+whole suite on Linux always, and on Windows and macOS whenever
+`harness-legs.py` says a pull request reaches it**;
+`docs/client-architecture.md` §14 says how it came to.
 
 **The code-index CLI is pinned, here** (alexander-shamray/blueprint-frontend#147).
 It is the one tool outside the lockfile that runs unprompted: the MCP server
