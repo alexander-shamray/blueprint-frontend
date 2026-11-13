@@ -32,10 +32,10 @@ Selected by what the diff touched:
 - **`bash .claude/scripts/npm-checks.sh all`** — lint, the unit suite and
   the production build — whenever the change reaches `src/**`, `e2e/**` or a
   file the toolchain reads (`package.json`, `angular.json`, `tsconfig*.json`,
-  `eslint.config.js`, `.prettierrc`). Each run past the install check
-  appends its wall time to the harness timings record, which `py -3.12
-  .claude/scripts/harness_timings.py report` reads; a failed record never
-  changes the exit. A docs-only change runs `fast` or nothing and says which.
+  `eslint.config.js`, `.prettierrc`). Each run of a mode past the
+  install check appends its wall time to the harness timings record, which
+  `py -3.12 .claude/scripts/harness_timings.py report` reads; a failed record
+  never changes the exit. A docs-only change runs `fast` or nothing and says which.
   **A new worktree has no `node_modules`**: run
   `npm ci` there once first, since the helper refuses a checkout without its
   own install rather than resolve packages from the main checkout's.
