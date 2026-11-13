@@ -1635,7 +1635,9 @@ CRLF folded, since `run` starts an executor on that file before CI has judged
 it; the manifest lists each payload file the config neither excludes nor keeps
 local, and lists no path it does; and the head changes only manifest paths,
 old-manifest paths and the manifest, with `.harness/config.json` and every
-`local` path untouched. The settings proof executes code from the head: its
+`local` path untouched, and holds no path the old manifest listed and the new
+one drops, changed or not, but one a `local` glob keeps, since apply deletes
+it, excluded or not. The settings proof executes code from the head: its
 `.harness/render.py`, read by oid and never from a tree, runs only once that
 commit is on the harness's `main` and the renderer and
 `.harness/settings.base.json` are manifest paths whose blobs are the payload's
@@ -1893,11 +1895,17 @@ read an empty alternative differently and one set would judge a path `inside`
 on one machine and `outside` on another. The verdicts come from one `grep`
 per pattern over every changed path, and a path is checked by `case`, so no
 process is spawned per path: on Windows a spawn per path and pattern made
-the helper look hung. A row that fails its grammar exits 3 naming the row
-and not its content, and so does a class map that is absent, names a class
-twice, leaves one without items, or holds a line or a token outside its
-grammar: a verdict half-read from a map the helper refuses would be one no
-gate gives. **The verdict narrows
+the helper look hung. The rows, their cells, the class, each token and each
+map item are judged by bash too, and each pattern's `grep` reads a pipe,
+since Git Bash on a loaded runner reported a `grep` fed by a process
+substitution as `Child exited`, and the helper refused a valid map item
+(#451); a pattern's `grep` ending past status 2, as a killed one does,
+exits 1 and prints nothing, since a verdict read past it would be
+`outside` for a path nothing judged. A row
+that fails its grammar exits 3 naming the row and not its content, and so
+does a class map that is absent, names a class twice, leaves one without
+items, or holds a line or a token outside its grammar: a verdict half-read
+from a map the helper refuses would be one no gate gives. **The verdict narrows
 and grants nothing**: the caller's deny list and the class's tree set hold
 authority, an `outside` or `outside-class` line is a finding, and an
 `inside` line is not a licence for anything the caller's grant refuses.
@@ -2162,13 +2170,13 @@ and its gate stays green.
 **That guard holds no copy of any deny list, and refusing to write one is
 the whole of why it is safe to run on every write this repository makes.**
 A path deny is *correct* when the spelling is true of the file, so inside a
-checkout the session stands in the hook judges only the disagreement and
-leaves every list — `.claude/settings.json`'s and both commands' frontmatter —
-to say what may be edited; where no rule reaches it reads that list rather
-than copying it, as the next paragraph says. Nothing here goes
-stale as those change, and the PR that lifts a deny to edit a helper is not
-refused by the guard on its way past. A test pins that control: a denied tree
-spelled as itself is **admitted** here.
+checkout the session stands in, one holding the home aside, the hook judges
+only the disagreement and leaves every list — `.claude/settings.json`'s and
+both commands' frontmatter — to say what may be edited; where no rule
+reaches it reads that list rather than copying it, as the next paragraph
+says. Nothing here goes stale as those change, and the PR that lifts a deny
+to edit a helper is not refused by the guard on its way past. A test pins
+that control: a denied tree spelled as itself is **admitted** here.
 
 **Two things a path deny may not reach are judged here all the same, and
 neither takes a copy of a list.** A rule of more than one component anchors at
@@ -2187,7 +2195,10 @@ one only if git's backlink agrees, so a `.git` file alone makes none, and a
 checkout of another repository is not one, because this target's denies say
 nothing about what it protects.
 
-**Outside every checkout the guard refuses by name and admits the rest.**
+**Outside every checkout, and inside one holding the home, the guard refuses
+by name and admits the rest.** A checkout holding the home, a dotfiles one at
+`~` or a project directory set there or above, still refuses a link that
+disagrees, as any checkout does, but excuses none of these names.
 `~/.ssh`, the shell profiles and `~/.gitconfig` run at login under every
 session, and `~/.claude`'s credentials, settings, hooks, commands, agents,
 plugins, scripts, skills and sandbox apply to every project, judged on the
@@ -2203,8 +2214,9 @@ one list, `HOME_TREES` and its neighbours in `guard-git-argv.py`, which the edit
 guard loads; if it cannot load them it refuses a target under the home
 directory. A redirect and a writing verb's operand are judged by spelling and by
 resolution, with `HOME` and the process's own home both read as the root, and a
-checkout the session stands in is left to its denies. The shell also may not
-write `~/.claude/projects/` or `~/.claude/output-styles/`, which the edit guard
+checkout the session stands in is left to its denies unless it holds the home.
+The shell also may not write `~/.claude/projects/` or
+`~/.claude/output-styles/`, which the edit guard
 admits: a `Write` there meets a command's deny in the turn that holds one, and a
 shell write meets none.
 
@@ -2515,9 +2527,10 @@ its input —
 as a command of its own, and reads sed's options as `getopt_long` does:
 clusters, `-i<suffix>`, `--in-place=`, unique prefixes of long names, and
 the first operand as the script when no `-e` or `-f` names one. It refuses
-when an operand, globbed as bash would, is a regular file whose first 4 MiB
-hold a CRLF and which `git ls-files --error-unmatch` finds in its
-checkout's index. The refusal names the forms that keep the endings: the
+when an operand, its brace lists and sequences expanded and its globs
+matched as bash would, is a regular file whose first 4 MiB hold a CRLF and
+which `git ls-files --error-unmatch` finds in its checkout's index. The
+refusal names the forms that keep the endings: the
 Edit tool, a Python script that opens the file with `newline=""`, or
 `sed --binary -i`, which is admitted. **It judges on Windows alone**: GNU
 sed on Linux and macOS keeps the CR as an ordinary character, so a refusal
@@ -2533,14 +2546,17 @@ as a separator, and an apostrophe in a comment as an unbalanced quote.
 
 **What it reads, and what a crafted path makes it run.** Only a regular
 file is opened, read-only, and nothing read leaves the hook but a path: the
-one the command spelled, or the file in its directory that a glob of it
-matched. So a device, a FIFO or a directory is never opened,
+one the command spelled, or a file its brace expansion names or a glob of
+it matched. So a device, a FIFO or a directory is never opened,
 and a path outside the checkout costs a read the session could `cat`
 anyway. The one thing a path can make it run is git in that path's
 directory, whose checkout may be foreign: the call switches
 `core.fsmonitor` off, since `ls-files` would otherwise run the command a
 hostile config names, and sets `GIT_OPTIONAL_LOCKS=0` so the read writes no
-index. Each git call is bounded at 5 seconds, and a command at 200 files.
+index. Each git call is bounded at 5 seconds, and a command at 200 files;
+an operand's braces are expanded to 201 words at most, made one at a time,
+and its globs share one walk of 201 entries, so a `{1..1000000}` costs
+what is read of it.
 
 **Which git it runs.** The first on `PATH` by the hook's own search, the
 rule *Index refresh and worktree seeding* gives its console script but for
@@ -2573,9 +2589,14 @@ an untracked CRLF file, whose endings are not yet the checkout's. A
 `printf` piped into a shell is read as its words rather than its format's
 expansion, so it is refused where the format holds the `sed` and its
 arguments carry the file, and admitted where an argument carries the whole
-line. A quoted
-glob is expanded although bash would pass it literally, which can only
-refuse more.
+line. A glob or brace list quoted whole is expanded although bash would
+pass it literally, and a brace list's own name is read beside the words it
+makes, since the hook cannot tell the quoted from the bare: either can only
+refuse more. A comma quoted or escaped inside a list is the exception: the
+quotes are gone before the list is read, so `{"a,b",c}.txt` is read as
+`a.txt`, `b.txt` and `c.txt`, never the `a,b.txt` bash passes. An operand
+whose braces make more than 201 words is judged on its first 201, and the
+command, as any command, is admitted once it names more than 200 files.
 
 ## Headless dispatched sessions
 
@@ -2728,7 +2749,8 @@ it. The operating system drops the lock with the process that held it, so there
 is nothing stale to clear. A run that waited says how long once the lock comes
 free, since no time it prints after that includes the wait.
 
-**`--selective` runs what the change reaches, and CI runs the rest.** The
+**`--selective` runs what the change reaches, and CI, where it runs the whole
+suite, runs the rest.** The
 change is what the checkout holds that `origin/main` does not: its commits, its
 edits and its untracked files. `suite_select.py` places each changed path: a
 suite that names its file, or names a code file that does, one step out; a
@@ -2750,11 +2772,15 @@ suite that lists a tree, in a spelling its pattern knows, must be named in
 `TREE_READERS`, and every selector must name a class that exists. The check is
 per class: a listing in a test class the table does not name fails it, unless
 the table names its module whole. Module-level code, and a class holding no
-test, is placed by the module or by any class of it that is a reader. A
-listing in a spelling the pattern does not know, a root included, passes it;
-any change to a suite selects the check. What one step misses, a caller's
-caller, a red that only the whole suite shows, is the price of the local run,
-and CI, which runs every class on three hosts, is what pays it. A selection
+test, is placed by the module or by any class of it that is a reader. The
+pattern reads a glob or directory listing off any ALL-CAPS module constant, off
+`root`, off `__file__` and a few attribute names, and `git ls-files`; a listing
+in a spelling it does not know, a lowercase or attribute name, passes it, and a
+script a suite runs over the checkout is named in the check's own table; any
+change to a suite selects the check. What one step misses, a caller's caller, a
+red that only the whole suite shows, is the price of the local run, and CI,
+where it runs the whole suite (`blueprint-harness`'s runs every class on three
+hosts), is what pays it; a target whose CI runs less pays less. A selection
 still goes through the plan's check against what it kept, and a module that
 fails to import runs in every selection.
 
@@ -2762,9 +2788,10 @@ fails to import runs in every selection.
 it to `%LOCALAPPDATA%/blueprint-harness/timings.jsonl`, or
 `~/.cache/blueprint-harness/` elsewhere, outside every checkout so that no
 clean, sync or teardown loses it, and `HARNESS_TIMINGS` points it elsewhere,
-as CI does to upload it: the script and mode, the repository, branch and
-commit, the host, the workers, the lock wait, the wall time, the exit, and
-each class's seconds. A line that cannot be written is said and swallowed,
+as `blueprint-harness`'s CI does to upload it, a target's setting it or not:
+the script and mode, the repository, branch and commit, the host, the workers,
+the lock wait, the wall time, the exit, and each class's seconds. A line that
+cannot be written is said and swallowed,
 since a run's exit is its tests', never its record's. `harness_timings.py
 report` prints p50, p90 and the maximum per script and mode and the slowest
 classes; a check script records itself with `harness_timings.py record
@@ -2869,6 +2896,21 @@ inside a managed directory: a sync neither writes nor deletes it.
 `.github/workflows/gates.yml`. Its README owns what the
 gate refuses, how a config change re-renders the settings, and what to do
 when it is red.
+
+**The gate checks hold against accident, not against a pull request that
+names its own job after one.** `pull_request` runs the head's copy of
+`gates.yml`, and a job's check run needs no token, so a branch that edits it
+(or adds a workflow) with a job named `closure-gate`, `commit-gate` or
+`harness-drift` posts a passing check of that name. It held before the
+`report` legs too, when the verdicts were posted through the API. It is
+accepted, and the fix is not filed again: the two ways to close it are a
+required workflow taken from `main`, a ruleset `workflows` rule that
+GitHub offers organisation repositories only, and verdicts posted from a
+`pull_request_target` or `workflow_run` workflow, a redesign that runs
+judges beside a token and a pull request's refs. What bounds a branch that
+sets out to spoof a gate is the owner's review of every merged pull request,
+which sees the edit to `gates.yml`, as *The guards' threat model* bounds the
+guards.
 
 **`docs/harness-local.md` is the one document every target writes for the
 payload**, and the payload cites it rather than any target document by path:
