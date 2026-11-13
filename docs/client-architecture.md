@@ -1559,10 +1559,11 @@ sets `ANDROID_HOME` itself. That job therefore pins `runs-on: ubuntu-24.04`
 rather than following the other three onto `ubuntu-latest`: the claim above is
 about an image, and `ubuntu-latest` is a label that moves.
 
-A step that downloads a tool from outside the repository retries before it
-fails (#513). Both `main is red` issues this repository has filed (#405, #452)
-were a failed download, and each passed on a rerun with no change, so the job
-that fetched it was not the thing under test. The `workflow-lint` job's
+The steps named here retry a download from outside the repository before they
+fail (#513); the `harness` job's package-manager installs of `jq` do not. The
+two `main is red` issues filed before #513 (#405, #452) were each a failed
+download that passed on a rerun with no change, so the job that fetched it was
+not the thing under test. The `workflow-lint` job's
 `curl` retries every error, and the checksum line after it already refuses a
 truncated file. `playwright install`, the Gradle wrapper's download and the
 Compose `pull` and broker `build` in `e2e` run in a loop. `playwright install`
