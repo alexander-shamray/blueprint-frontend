@@ -198,7 +198,17 @@ jobs:
         with:
           path: ~/.cache/ms-playwright
           key: ${{ runner.os }}-playwright-${{ steps.playwright.outputs.version }}
-      - run: npx playwright install --with-deps chromium webkit
+      # Retried, and bounded per attempt and by the step, so a download that hangs on runner
+      # DNS fails in minutes and is tried again instead of holding the job to its cancel.
+      - name: Install the browsers and their system packages
+        timeout-minutes: 20
+        run: |
+          for attempt in 1 2 3; do
+            timeout 6m npx playwright install --with-deps chromium webkit && exit 0
+            echo "playwright install failed (attempt $attempt)." >&2
+            sleep 10
+          done
+          exit 1
 
       # The recipe is the backend's own (docs/backend-architecture/
       # 14-local-development.md): pull what is published, build the one
@@ -209,8 +219,17 @@ jobs:
         working-directory: blueprint-backend
         run: |
           compose=deploy/compose/docker-compose.yml
-          docker compose -f "$compose" pull --quiet
-          docker compose -f "$compose" build rabbitmq
+          # Both fetch from outside the repository, and a 504 from either is not a result.
+          retry() {
+            for attempt in 1 2 3; do
+              "$@" && return 0
+              echo "'$*' failed (attempt $attempt)." >&2
+              sleep 10
+            done
+            return 1
+          }
+          retry docker compose -f "$compose" pull --quiet
+          retry docker compose -f "$compose" build rabbitmq
           docker compose -f "$compose" up -d --wait --no-build
 
       - name: Wait for the gateway
@@ -365,7 +384,7 @@ jobs:
           ACTIONLINT_VERSION: 1.7.12
           ACTIONLINT_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
         run: |
-          curl -sSfL -o actionlint.tar.gz \
+          curl -sSfL --retry 5 --retry-all-errors --retry-delay 5 -o actionlint.tar.gz \
             "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
           echo "${ACTIONLINT_SHA256}  actionlint.tar.gz" | sha256sum --check --strict
           tar -xzf actionlint.tar.gz actionlint
@@ -451,6 +470,17 @@ jobs:
             echo 'A release sync allowed mixed content.' >&2
             exit 1
           fi
+      # The wrapper downloads its distribution on first use. Fetching it alone, retried,
+      # means a failed download is not a failed build and a failed build is not run again.
+      - name: Fetch the Gradle distribution
+        working-directory: android
+        run: |
+          for attempt in 1 2 3; do
+            ./gradlew --version && exit 0
+            echo "The Gradle wrapper's download failed (attempt $attempt)." >&2
+            sleep 10
+          done
+          exit 1
       - run: ./gradlew assembleDebug
         working-directory: android
 

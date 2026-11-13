@@ -1559,6 +1559,19 @@ sets `ANDROID_HOME` itself. That job therefore pins `runs-on: ubuntu-24.04`
 rather than following the other three onto `ubuntu-latest`: the claim above is
 about an image, and `ubuntu-latest` is a label that moves.
 
+A step that downloads a tool from outside the repository retries before it
+fails (#513). Both `main is red` issues this repository has filed (#405, #452)
+were a failed download, and each passed on a rerun with no change, so the job
+that fetched it was not the thing under test. The `workflow-lint` job's
+`curl` retries every error, and the checksum line after it already refuses a
+truncated file. `playwright install`, the Gradle wrapper's download and the
+Compose `pull` and broker `build` in `e2e` run in a loop. `playwright install`
+is also bounded, per attempt and by its step, well under the job's limit, so a
+download that hangs on runner DNS fails in minutes and is tried again rather
+than holding the job to its cancel. The attempts, delays and limits are in
+`ci.yml`, and a document names no number. The RabbitMQ plugin download is in
+the backend's Dockerfile, so the retry for it belongs in `blueprint-backend`.
+
 The `harness` job runs the agent harness's own suite across a three-OS matrix,
 and it is the newest of the five. It runs the whole suite — `python -m unittest
 discover -s .claude/scripts` — on every runner, as the harness's own CI has
