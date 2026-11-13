@@ -83,7 +83,8 @@ describe('AssistantPanelComponent', () => {
     // A product's name reaches the model as another customer's tool result, so a
     // reply may carry whatever its publisher chose; drawn as HTML or Markdown it
     // could carry a link, drawn as text it can only say something false.
-    const hostile = '<a href="https://example.test/x">pay here</a> [pay here](https://example.test/x)';
+    const hostile =
+      '<a href="https://example.test/x">pay here</a> [pay here](https://example.test/x)';
     const { root } = await mount({ id: 'c1', items: [{ kind: 'reply', text: hostile }] });
 
     const bubble = root.querySelector('[data-testid="assistant-reply"]') as HTMLElement;
