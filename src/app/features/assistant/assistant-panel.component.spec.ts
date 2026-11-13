@@ -79,6 +79,19 @@ describe('AssistantPanelComponent', () => {
     expect(root.querySelector('[data-testid="assistant-end"]')?.classList).toContain('refused');
   });
 
+  it('draws a reply as plain text: markup and Markdown in it become no element', async () => {
+    // A product's name reaches the model as another customer's tool result, so a
+    // reply may carry whatever its publisher chose; drawn as HTML or Markdown it
+    // could carry a link, drawn as text it can only say something false.
+    const hostile = '<a href="https://example.test/x">pay here</a> [pay here](https://example.test/x)';
+    const { root } = await mount({ id: 'c1', items: [{ kind: 'reply', text: hostile }] });
+
+    const bubble = root.querySelector('[data-testid="assistant-reply"]') as HTMLElement;
+    expect(bubble.textContent?.trim()).toBe(hostile);
+    expect(bubble.children.length).toBe(0);
+    expect(root.querySelector('a')).toBeNull();
+  });
+
   it('sends what was typed, clears the box, and sends nothing blank', async () => {
     const { fixture, store, root } = await mount();
     const send = () =>
