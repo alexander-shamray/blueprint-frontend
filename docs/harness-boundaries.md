@@ -1572,6 +1572,21 @@ that name, so nothing to drop; 7 it has not landed, with no `MERGED` row into
 or its worktrees could not be read, so whether it landed or is in use is
 unknown.
 
+**One helper is granted for a line a worktree session could not run, and
+writes only the index.** `git-stage-hunks.sh` is `git add -p` without its
+prompts: `--list <path>` numbers one tracked file's unstaged hunks, and
+`<path> <n>[,<n>...]` cuts those from `git diff` inside the script and stages
+them with `git apply --cached`. Before it, a session split a file's hunks by
+writing a patch to the scratchpad and applying it, a line Claude Code's
+worktree isolation check refused whenever a variable held the path or a loop
+walked the patches (`docs/harness/pitfalls.md`, its entry on git a worktree
+session cannot follow). The helper takes the path literally, refuses one
+starting `-`, a directory, an untracked, binary, added, deleted, retyped or
+unmerged file and a number past the last, and spells out each option a config
+could set to make the patch unreadable to `git apply` or refused by it. Its
+exit codes: 0 listed or staged; 2 usage; 3 a path it refuses; 4 a hunk number
+past the last; 5 `git apply` refused, with nothing staged.
+
 **A merged sync's branch goes from origin through a helper no setting grants.**
 `git push --delete` stays denied, and `dispatch_board.py sync-drop`, which
 `/dispatch` alone grants, is what runs `git-sync-head-drop.sh <branch>`. No
@@ -2733,13 +2748,15 @@ and no change at all. The fallback is the never-stop-placing rule again, and
 `test_suite_select.py` holds the table to the suites by reading them: each
 suite that lists a tree, in a spelling its pattern knows, must be named in
 `TREE_READERS`, and every selector must name a class that exists. The check is
-by module, so a listing added to a class beside one the table names, or spelt
-off a root the pattern does not know, passes it; any change to a suite
-selects the check. What one step misses, a caller's caller, a red that
-only the whole suite shows, is the price of the local run, and CI, which runs
-every class on three hosts, is what pays it. A selection still goes through
-the plan's check against what it kept, and a module that fails to import runs
-in every selection.
+per class: a listing in a test class the table does not name fails it, unless
+the table names its module whole. Module-level code, and a class holding no
+test, is placed by the module or by any class of it that is a reader. A
+listing in a spelling the pattern does not know, a root included, passes it;
+any change to a suite selects the check. What one step misses, a caller's
+caller, a red that only the whole suite shows, is the price of the local run,
+and CI, which runs every class on three hosts, is what pays it. A selection
+still goes through the plan's check against what it kept, and a module that
+fails to import runs in every selection.
 
 **Each run leaves one line of how long it took.** `harness_timings.py` appends
 it to `%LOCALAPPDATA%/blueprint-harness/timings.jsonl`, or

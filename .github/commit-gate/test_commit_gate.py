@@ -204,10 +204,15 @@ def setUpModule() -> None:
         raise RuntimeError("bash is needed to run the workflow's deciding step")
 
 
+def gates_job(text: str) -> str:
+    """The judging job's lines: the jobs opening and completing the check runs run no step of this gate."""
+    return re.split(r"(?m)^  [\w-]+:\n", text.split("\n  gates:\n", 1)[1], maxsplit=1)[0]
+
+
 def workflow_steps() -> list[str]:
     # The comments between steps dropped, or the one ahead of the next step reads as the end of this one's script.
     text = re.sub(r"(?m)^      #.*\n", "", WORKFLOW.read_text(encoding="utf-8"))
-    return re.split(r"\n(?=      - )", text.split("\n    steps:\n", 1)[1])
+    return re.split(r"\n(?=      - )", gates_job(text).split("\n    steps:\n", 1)[1])
 
 
 def deciding_step() -> str:
@@ -291,10 +296,10 @@ class Standing(unittest.TestCase):
 
 
 class WorkflowShape(unittest.TestCase):
-    def test_the_job_has_no_condition_so_a_human_push_is_judged(self) -> None:
-        head = WORKFLOW.read_text(encoding="utf-8").split("\n    steps:\n", 1)[0]
-        job = head.split("\n  gates:\n", 1)[1]
-        self.assertNotRegex(job, r"(?m)^    if:")
+    def test_the_job_waits_on_the_decision_alone_so_a_human_push_is_judged(self) -> None:
+        job = gates_job(WORKFLOW.read_text(encoding="utf-8")).split("\n    steps:\n", 1)[0]
+        self.assertEqual(["${{ !cancelled() && needs.open.outputs.closure != '' }}"],
+                         re.findall(r"(?m)^    if: (.*)$", job))
 
     def test_the_checkout_runs_first_with_full_history_and_no_condition(self) -> None:
         first = workflow_steps()[0]
@@ -316,8 +321,8 @@ class WorkflowShape(unittest.TestCase):
 
     def test_the_stand_down_is_posted_as_a_pass(self) -> None:
         # The steps skip, so the check a ruleset requires has to be posted as passing or it never reports.
-        report = next(step for step in workflow_steps() if "id: report" in step)
-        commit_gate = re.search(r"(?m)^          COMMIT_GATE: >-\n((?:            .+\n)+)", report)
+        verdicts = next(step for step in workflow_steps() if "id: verdicts" in step)
+        commit_gate = re.search(r"(?m)^          COMMIT_GATE: >-\n((?:            .+\n)+)", verdicts)
         self.assertIsNotNone(commit_gate)
         self.assertEqual(2, commit_gate.group(1).count("steps.dependabot.outputs.own == 'true' && 'success' ||"))
 
