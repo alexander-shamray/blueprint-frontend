@@ -263,7 +263,8 @@ jobs:
       # harness-legs.py owns the rule and what reaches these legs
       # (docs/harness-boundaries.md, *The harness legs decision*). A pull
       # request that reaches none of it still reports each leg, with jq's
-      # install and the suite skipped; Linux and every push run them.
+      # install and the suite skipped. Linux runs the suite on every event, and
+      # a push runs both on every leg.
       - name: Decide whether this leg tests
         id: reach
         if: runner.os != 'Linux'
@@ -317,11 +318,12 @@ jobs:
           gh label list --repo "$GITHUB_REPOSITORY" --limit 1000 --json name |
             python .github/issue-form-gate/issue_form_gate.py
 
-  # Every gate suite under .github/, on a push to main too: a gate's own workflow runs its suite on
-  # a pull request alone, and a gate with no workflow would otherwise run nowhere. The loop finds
-  # the directories, so a suite a sync adds is covered with no line here, and finding none fails.
-  # Each suite runs from its own directory, as those workflows run it.
-  gates:
+  # Every gate suite under .github/, on a push to main too: gates.yml runs each gate and its
+  # suite on a pull request alone, and a gate that is no step there would otherwise run nowhere.
+  # The loop finds the directories, so a suite a sync adds is covered with no line here, and
+  # finding none fails. Each suite runs from its own directory, as gates.yml runs it. Named
+  # apart from gates.yml's `gates` job, so a pull request shows one check of each name.
+  gate-suites:
     runs-on: ubuntu-latest
     # Bounds a step that never exits, which would otherwise hold the runner
     # for GitHub's default limit (docs/testing.md). Headroom over the usual
@@ -511,7 +513,7 @@ jobs:
   # `commits` is not in `needs` because it never runs on a push.
   main-red:
     needs:
-      [web, audit, e2e, gates, workflow-lint, harness, issue-form, android, ios-config, ios-build]
+      [web, audit, e2e, gate-suites, workflow-lint, harness, issue-form, android, ios-config, ios-build]
     # A job that hits its timeout or that no runner picks up reports `cancelled`, and `failure()`
     # is false for that. The `concurrency` block above never cancels a push to main, whose group
     # is its own commit's, so the one false alarm is somebody's own cancel.
