@@ -59,9 +59,9 @@ runs the MCP launcher; the runners ship it, and `.nvmrc` pins the project's)
 and **Python 3.12**.** How you
 reach that interpreter is a local choice: `py -3.12` works on Windows and
 exists nowhere else, `python` or `python3` elsewhere. **CI does not make that
-choice** — `actions/setup-python` puts 3.12 on PATH and the `harness` job runs
-the suite under `python` on all three runners, so a developer reproducing CI
-runs `python` whatever their platform. **That Python's SQLite
+choice** — `actions/setup-python` puts 3.12 on PATH on every runner, and the
+`harness` job invokes the suite as `python` wherever it runs it, so a
+developer reproducing CI runs `python` whatever their platform. **That Python's SQLite
 must be 3.37 or later, built with FTS5** (#140): the index-refresh cases build
 full-text tables and read `PRAGMA table_list`, and a 3.12 on Linux can be
 linked against an older system SQLite. Those cases assert the version in their
