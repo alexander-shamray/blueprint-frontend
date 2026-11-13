@@ -252,22 +252,41 @@ jobs:
     # run, not a duration.
     timeout-minutes: 45
     steps:
+      # Depth 2 keeps the merge commit's parents, which the decision below
+      # compares.
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
       - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
+      # harness-legs.py owns the rule and what reaches these legs
+      # (docs/harness-boundaries.md, *The harness legs decision*). A pull
+      # request that reaches none of it still reports each leg, with jq's
+      # install and the suite skipped; Linux and every push run them.
+      - name: Decide whether this leg tests
+        id: reach
+        if: runner.os != 'Linux'
+        shell: bash
+        run: python .claude/scripts/harness-legs.py >> "$GITHUB_OUTPUT"
       # `setUpModule` FAILS rather than skips on a missing tool, so jq has to
       # be present on every runner rather than only where it happens to ship.
       # It is on the ubuntu image already; the other two need a line.
-      - if: runner.os == 'Windows'
+      - if: runner.os == 'Windows' && steps.reach.outputs.test != 'false'
         run: choco install jq --no-progress -y
-      - if: runner.os == 'macOS'
+      - if: runner.os == 'macOS' && steps.reach.outputs.test != 'false'
         run: brew install jq
       - name: The suite reads `git ls-files`, so the checkout must be a real one
         run: git rev-parse --is-inside-work-tree
+      # The shard runner every target is handed, on every leg, as the
+      # harness's own `payload-suites` job runs it. The version line shows
+      # which bash read the helpers, since macOS's is 3.2.
       - name: The whole suite
+        if: runner.os == 'Linux' || steps.reach.outputs.test != 'false'
         shell: bash
-        run: python -m unittest discover -s .claude/scripts -p 'test_*.py' -v
+        run: |
+          bash --version | head -n 1
+          python .claude/scripts/shard-harness-suite.py
 
   # The issue form under .github/ISSUE_TEMPLATE against the vocabularies it
   # mirrors and the labels its answers name; .github/issue-form-gate/README.md
