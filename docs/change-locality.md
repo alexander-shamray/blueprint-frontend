@@ -18,8 +18,8 @@ A lower layer cites a higher one by name. It never copies the value.
 1. **Gates and tests.** Green means the claim they cover is true. Here that
    is `npm run lint`, the Vitest suite, the Playwright smoke, the `android`
    job's two-direction assertion of the emulator relaxations, and the
-   `harness` job's run of the agent harness's whole suite on all three
-   runners. `client-architecture.md` §14 owns which
+   `harness` job's run of the agent harness's whole suite on each runner
+   that runs it. `client-architecture.md` §14 owns which
    jobs exist and what each runs; this list
    names what a green one means rather than restating them.
 2. **Code.** Types, providers, guards, interceptors, environment files,

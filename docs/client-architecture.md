@@ -1578,6 +1578,19 @@ that is what `.claude/settings.json` invokes the two `PreToolUse` hooks as,
 and jq is installed on the Windows and macOS runners because the suite's
 `setUpModule` fails rather than skips when a required tool is absent.
 
+> **Superseded on 2026-11-13 as to how the suite runs and when two legs skip
+> it** (blueprint-frontend#489, #490). Every leg runs it through
+> `.claude/scripts/shard-harness-suite.py`, the shard runner every target is
+> handed and the shape the harness's own `payload-suites` job runs on all three
+> hosts; run serially, the Windows leg was the critical path of every pull
+> request. On a pull request the Windows and macOS legs first ask
+> `.claude/scripts/harness-legs.py` whether it reaches anything the suite tests
+> (`docs/harness-boundaries.md`, *The harness legs decision*), and skip the
+> suite, and jq's install with it, when it reaches nothing; each still reports
+> its required check. Linux runs the suite on every pull request, and every
+> push to `main` runs it on all three. The paragraph above is the claim as it
+> stood, kept for why the matrix exists, which has not changed.
+
 Until that job existed, nothing ran those tests at all — which mattered
 because `.claude/commands/review-grok.md` argued one of its premises was
 "still gated" by them.
