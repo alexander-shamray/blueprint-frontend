@@ -179,7 +179,9 @@ class TheCheckRunnerIsTheOnlyExecutor(unittest.TestCase):
 class TheCheckRunnerRecordsItsTime(unittest.TestCase):
     """Driven against a stub `npm` in a scratch repository, so no real check runs."""
 
-    def run_mode(self, mode, npm_exit, timings):
+    def scratch(self, npm_exit, timings, stubs=None):
+        """A scratch repository and the environment of a run in it. `stubs` maps
+        more program names to the exit each stands for, first on PATH."""
         holder = tempfile.TemporaryDirectory(prefix="npm-checks-")
         self.addCleanup(holder.cleanup)
         base = Path(holder.name)
@@ -187,11 +189,16 @@ class TheCheckRunnerRecordsItsTime(unittest.TestCase):
         (base / "node_modules").mkdir()
         stub = base / "bin"
         stub.mkdir()
-        npm = stub / "npm"
-        npm.write_text(f"#!/usr/bin/env bash\nexit {npm_exit}\n", encoding="utf-8", newline="\n")
-        npm.chmod(0o755)
+        for name, code in {"npm": npm_exit, **(stubs or {})}.items():
+            program = stub / name
+            program.write_text(f"#!/usr/bin/env bash\nexit {code}\n", encoding="utf-8", newline="\n")
+            program.chmod(0o755)
         env = {**os.environ, "PATH": f"{stub}{os.pathsep}{os.environ['PATH']}",
                "HARNESS_TIMINGS": str(timings)}
+        return base, env
+
+    def run_mode(self, mode, npm_exit, timings, stubs=None):
+        base, env = self.scratch(npm_exit, timings, stubs)
         return subprocess.run([BASH, str(SCRIPTS / "npm-checks.sh"), mode],
                               capture_output=True, text=True, cwd=str(base), env=env)
 
@@ -226,6 +233,38 @@ class TheCheckRunnerRecordsItsTime(unittest.TestCase):
             with self.subTest(npm_exit=npm_exit):
                 out = self.run_mode("test", npm_exit, unwritable)
                 self.assertEqual(npm_exit, out.returncode, out.stderr)
+                # The premise: the record did fail, and said so.
+                self.assertIn("was not recorded", out.stderr)
+
+    def test_a_recorder_that_cannot_run_changes_no_exit(self):
+        # Every interpreter the script may pick exits 1, so the exit is npm's
+        # only while `|| true` swallows the recorder's: delete it and this fails.
+        holder = tempfile.TemporaryDirectory(prefix="npm-timings-")
+        self.addCleanup(holder.cleanup)
+        timings = Path(holder.name) / "timings.jsonl"
+        for npm_exit in (0, 7):
+            with self.subTest(npm_exit=npm_exit):
+                out = self.run_mode("test", npm_exit, timings,
+                                    stubs={"py": 1, "python3": 1, "python": 1})
+                self.assertEqual(npm_exit, out.returncode, out.stderr)
+
+    def test_a_relative_call_from_a_subdirectory_still_records(self):
+        # The recorder is found beside the script, not beside the path the
+        # caller typed, which the script's own cd to the root would invalidate.
+        holder = tempfile.TemporaryDirectory(prefix="npm-timings-")
+        self.addCleanup(holder.cleanup)
+        timings = Path(holder.name) / "timings.jsonl"
+        base, env = self.scratch(0, timings)
+        copy = base / ".claude" / "scripts"
+        copy.mkdir(parents=True)
+        for name in ("npm-checks.sh", "harness_timings.py"):
+            shutil.copy(SCRIPTS / name, copy / name)
+        sub = base / "sub"
+        sub.mkdir()
+        out = subprocess.run([BASH, "../.claude/scripts/npm-checks.sh", "lint"],
+                             capture_output=True, text=True, cwd=str(sub), env=env)
+        self.assertEqual(0, out.returncode, out.stderr)
+        self.assertTrue(timings.exists(), out.stderr)
 
     def test_a_usage_error_records_nothing(self):
         holder = tempfile.TemporaryDirectory(prefix="npm-timings-")

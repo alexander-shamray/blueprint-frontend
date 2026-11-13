@@ -6,6 +6,9 @@
 set -euo pipefail
 
 mode="${1:-all}"
+# Absolute before the cd below: a relative call from a subdirectory would otherwise
+# look for the recorder beside the repository root's copy of this path.
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 root="$(git rev-parse --show-toplevel)"
 cd "$root"
 
@@ -56,7 +59,7 @@ esac
 # One line of how long the run took, for harness_timings.py report
 # (docs/harness-boundaries.md, *The suite's shard runner*). A failed record is
 # said by the recorder and swallowed here; a machine with no Python records nothing.
-timings="$(dirname "${BASH_SOURCE[0]}")/harness_timings.py"
+timings="$here/harness_timings.py"
 if command -v py >/dev/null 2>&1; then
   interpreter=(py -3.12)
 elif command -v python3 >/dev/null 2>&1; then
