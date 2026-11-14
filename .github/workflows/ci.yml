@@ -71,7 +71,10 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
-          mapfile -t shas < <(git rev-list --reverse "$BASE_SHA..$HEAD_SHA" | grep -vx "$HEAD_SHA" || true)
+          # rev-list runs on its own: `set -e` reaches no process substitution, and the `|| true` a
+          # one-commit pull request needs would read a missing base or head as no commits at all.
+          revs=$(git rev-list --reverse "$BASE_SHA..$HEAD_SHA")
+          mapfile -t shas < <(printf '%s\n' "$revs" | grep -vx -e "$HEAD_SHA" -e '' || true)
           echo "${#shas[@]} commit(s) besides the head"
           # The checked-out tree's lockfile check, copied out before the loop checks older
           # commits out: an earlier commit may predate it, and its copy is not the one reviewed.
@@ -137,10 +140,14 @@ jobs:
             jq -e '.metadata' "$doc" > /dev/null || { echo "::error::npm audit gave no answer"; cat "$doc"; exit 1; }
           done
           today=$(date -u +%F)
-          found=$({
-            jq -r '[.vulnerabilities[].via[] | objects | select(.severity == "high" or .severity == "critical") | (.url | split("/") | last) + "\t" + .title] | unique[]' audit.json
-            jq -r '[.vulnerabilities[].via[] | objects | (.url | split("/") | last) + "\t" + .title] | unique[]' full.json
-          } | sort -u)
+          # Each document is read on its own, so a jq that fails on one fails the step: a pipeline
+          # takes its last command's status, and `sort` would pass what jq dropped.
+          high=$(jq -r '[.vulnerabilities[].via[] | objects
+            | select(.severity == "high" or .severity == "critical")
+            | (.url | split("/") | last) + "\t" + .title] | unique[]' audit.json)
+          every=$(jq -r '[.vulnerabilities[].via[] | objects
+            | (.url | split("/") | last) + "\t" + .title] | unique[]' full.json)
+          found=$(printf '%s\n%s\n' "$high" "$every" | sort -u)
           failed=0
           while IFS=$'\t' read -r id title; do
             [ -n "$id" ] || continue
