@@ -186,7 +186,8 @@ export class OrdersPage {
 
     // A renewed token for the same buyer: on native `user()` stays set while
     // the access token expires and renews on a timer, so a read sent in that
-    // gap is answered 401 and stays on its banner (#156, #601). Reads again.
+    // gap is answered 401 and stays on its banner (#156, #601). Reads again when
+    // the renewal lands after that 401; one landing first leaves nothing to see.
     let lastExpiry = untracked(() => user()?.expiresAt ?? null);
     effect(() => {
       const expiry = user()?.expiresAt ?? null;

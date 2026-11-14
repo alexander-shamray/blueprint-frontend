@@ -361,7 +361,8 @@ export class OwnProductsComponent {
     // A renewed token for the same seller. On native `user()` stays set while
     // the access token expires and renews on a timer, so a list read in that
     // gap is answered 401 and stops (#156, #600); the renewal changes only
-    // `expiresAt`. Reads again when the list stopped on that sign-in error.
+    // `expiresAt`. Reads again when the renewal lands after that 401 and the
+    // list stopped on the sign-in error; one landing first changes nothing.
     let lastExpiry = untracked(() => user()?.expiresAt ?? null);
     effect(() => {
       const expiry = user()?.expiresAt ?? null;
