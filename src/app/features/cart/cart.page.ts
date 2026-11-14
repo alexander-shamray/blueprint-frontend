@@ -331,7 +331,11 @@ export class CartPage {
   }
 
   getQuote(): void {
-    const generation = this.generation;
+    // Each request starts its own generation, so a reply to an older request
+    // that lands after a newer one was sent is dropped as `invalidateQuote()`
+    // drops a superseded one: otherwise two taps share a generation and the
+    // older reply overwrites, or on failure nulls, the newer quote.
+    const generation = ++this.generation;
     // Captured with the request, not read when the reply lands: this is the
     // basket the platform is being asked to price, and it is what the reply
     // is a statement about.
