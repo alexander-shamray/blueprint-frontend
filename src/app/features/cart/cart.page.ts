@@ -392,7 +392,7 @@ export class CartPage {
 
         // The quote requires sign-in; the button prompts for it (spec §5.2).
         //
-        // .catch(), not a bare `void`. signIn() rejects when the identity
+        // A rejection handler, not a bare `void`. signIn() rejects when the identity
         // provider is unreachable: WebAuthStrategy retries the discovery
         // document there, because initCodeFlow() with no loginUrl silently
         // does nothing rather than navigating. Under `void` that rejection
