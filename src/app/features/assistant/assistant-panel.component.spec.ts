@@ -180,8 +180,10 @@ describe('AssistantPanelComponent', () => {
     root.querySelector('ion-input')?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
     (root.querySelector('[data-testid="assistant-start-over"]') as HTMLElement).click();
 
-    expect(root.querySelector('[data-testid="assistant-send"]')?.hasAttribute('disabled')).toBe(true);
-    expect(root.querySelector('[data-testid="assistant-start-over"]')?.hasAttribute('disabled')).toBe(true);
+    const disabled = (testid: string): boolean | undefined =>
+      (root.querySelector(`[data-testid="${testid}"]`) as { disabled?: boolean } | null)?.disabled;
+    expect(disabled('assistant-send')).toBe(true);
+    expect(disabled('assistant-start-over')).toBe(true);
     expect(root.querySelector('app-error-banner')?.textContent).toContain('Too many requests');
     expect(store.send).not.toHaveBeenCalled();
     expect(store.startOver).not.toHaveBeenCalled();
