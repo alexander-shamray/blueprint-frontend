@@ -1,4 +1,6 @@
-import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy, Component, computed, effect, inject, signal, untracked,
+} from '@angular/core';
 import { HttpErrorResponse } from '@angular/common/http';
 import { Router, RouterLink } from '@angular/router';
 import {
@@ -199,6 +201,23 @@ export class CartPage {
 
   readonly lines = this.store.lines;
 
+  constructor() {
+    // A tab root outlives a sign-in, so a refusal one buyer got must not stay
+    // for the next; `OrdersPage` does the same on a change of subject. The
+    // generation drops a reply still out for the last session.
+    const user = this.auth.user();
+    let lastSeen = untracked(() => user()?.subject ?? null);
+    effect(() => {
+      const subject = user()?.subject ?? null;
+      if (subject === lastSeen) return;
+      lastSeen = subject;
+      untracked(() => {
+        this.generation++;
+        this.errorState.set(null);
+      });
+    });
+  }
+
   // Writable privately, readonly to everyone else — the shape CartStore.lines
   // and CommandIdentity.current already use. `readonly` alone guards the field
   // binding, not `.set()`. Nothing outside this class holds a reference to
@@ -387,9 +406,16 @@ export class CartPage {
         // response to type it as. See error-mapper.ts's non-HttpErrorResponse
         // branch, added for exactly this call.
         if (displayed.kind === 'signIn') {
-          this.auth.signIn().catch((failure) => {
-            this.errorState.set(mapError(failure));
-          });
+          this.auth.signIn().then(
+            () => {
+              // The sentence asked for a sign-in and one has happened. Only
+              // this banner goes: a newer request's own is not this one's.
+              if (this.errorState() === displayed) this.errorState.set(null);
+            },
+            (failure: unknown) => {
+              this.errorState.set(mapError(failure));
+            },
+          );
         }
       },
     });
