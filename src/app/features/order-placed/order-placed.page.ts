@@ -194,7 +194,10 @@ export class OrderPlacedPage {
   /** The open stream, or the request that will become one. */
   private inFlight: Subscription | null = null;
   private delayMs: number = ORDER_STREAM.initialMs;
-  /** The id of the event behind the row on screen, or null once a 404 has cleared that row; sent back so the server skips a row we hold. */
+  /**
+   * The id of the event behind the row on screen, or null once a 404 has cleared
+   * that row; sent back so the server skips a row we hold.
+   */
   private lastEventId: string | null = null;
   /** Between Ionic's `ionViewWillEnter` and `ionViewWillLeave`. Construction counts as entering. */
   private entered = true;
