@@ -12,12 +12,13 @@ import { describe, expect, it } from 'vitest';
  * bound expression (`[label]="'New price'"`, `{{ ok ? 'Saved now' : '' }}`) is
  * outside both. This reads those two places and fails on a literal that looks
  * like prose. In TypeScript that is a capitalised word followed by another
- * word; in a binding or a built string, any two words side by side. A selector,
- * a header name, a URL, a route path and a storage key contain no space, and an
- * OAuth scope or an ISO code list has no capitalised word, so the shape is the
- * allow-list for all of them and nothing is listed by hand. A single word, and
- * a sentence that starts in lower case, are not caught, because an enum value
- * and a label read the same; that is a limit, kept in §17.
+ * word of any length; in a binding or a built string, two words side by side,
+ * one of them two letters or more. A selector, a header name, a URL, a route
+ * path and a storage key contain no space, and an OAuth scope or an ISO code
+ * list has no capitalised word, so the shape is the allow-list for all of them
+ * and nothing is listed by hand. A single word, and a sentence that starts in
+ * lower case, are not caught, because an enum value and a label read the same;
+ * that is a limit, kept in §17.
  *
  * What the shape cannot tell from a sentence is skipped by position instead:
  * an import specifier, a property name, a type, the value of a property named
