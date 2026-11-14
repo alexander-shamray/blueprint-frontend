@@ -289,7 +289,9 @@ export class AccountPage {
    * loop was CLOSED (the one thing that could clear it was disabled). This
    * one is open — whichever of the two buttons is on screen is enabled, and
    * either clears the banner — so the residue is cosmetic, and arguably
-   * still true, rather than a stuck affordance.
+   * still true, rather than a stuck affordance. A change of buyer is not that
+   * loop: the subject effect clears the banner, since it describes a request
+   * the new buyer never made.
    */
   private readonly errorState = signal<DisplayError | null>(null);
   readonly error = this.errorState.asReadonly();
@@ -329,6 +331,9 @@ export class AccountPage {
         // typing into the editor.
         this.savedAddressState.set(null);
         this.closeEditor();
+        // A refusal banner is the last session's own: it describes a save or a
+        // forget the new buyer never made.
+        this.errorState.set(null);
         this.readSavedAddress(current);
       });
     });
@@ -416,6 +421,7 @@ export class AccountPage {
           if (!mine()) return;
           // A read that was out when this landed is older than it.
           this.latestRequest++;
+          this.savesLanded++;
           this.savedAddressState.set(saved);
           this.closeEditor();
         },
@@ -475,6 +481,12 @@ export class AccountPage {
   private saveSequence = 0;
 
   /**
+   * Counts the saves whose reply was applied. A forget's reply that finds it
+   * moved is older than an address stored since, and must not empty it.
+   */
+  private savesLanded = 0;
+
+  /**
    * A failed read shows nothing: the address is a convenience, and an empty
    * section is its honest fallback.
    */
@@ -509,13 +521,18 @@ export class AccountPage {
     // The reply belongs to the session that sent it: another buyer's page must
     // be neither emptied nor given a banner by the last buyer's late answer.
     const epoch = this.sessionEpoch;
+    // The DELETE is older than any save whose reply lands before its own: the
+    // server holds that newer address, so this reply must not clear it (#582).
+    const landed = this.savesLanded;
 
     this.savedAddressApi
       .remove()
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: () => {
-          if (epoch === this.sessionEpoch) this.savedAddressState.set(null);
+          if (epoch === this.sessionEpoch && landed === this.savesLanded) {
+            this.savedAddressState.set(null);
+          }
         },
         error: (failure: unknown) => {
           if (epoch === this.sessionEpoch) this.errorState.set(mapError(failure));
