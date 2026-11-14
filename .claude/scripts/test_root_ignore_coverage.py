@@ -647,6 +647,14 @@ class TheNativeGeneratedTreesAreCoveredAtTheRoot(unittest.TestCase):
         "ios/App/App/public/",
         "ios/DerivedData/",
         "ios/capacitor-cordova-ios-plugins/",
+        "ios/App/App/xcuserdata/",
+        "ios/App/CapApp-SPM/.build/",
+        "android/.kotlin/",
+        "android/captures/",
+        "android/app/release/",
+        "android/.cxx/",
+        "android/app/.cxx/",
+        "android/.navigation/",
     )
 
     # The generated files, which need naming more than the directories do. Only the pair
@@ -661,6 +669,14 @@ class TheNativeGeneratedTreesAreCoveredAtTheRoot(unittest.TestCase):
         "android/local.properties",
         "ios/App/App/capacitor.config.json",
         "ios/App/App/config.xml",
+        "ios/App/CapApp-SPM/.swiftpm/config/registries.json",
+        "ios/App/CapApp-SPM/.swiftpm/xcode/package.xcworkspace/contents.xcworkspacedata",
+        "android/app/release/app-release.aab",
+        "android/app/build-debug.apk",
+        "android/app/hs_err.hprof",
+        "android/app/app.iml",
+        "android/.externalNativeBuild",
+        "android/app/.externalNativeBuild",
     )
 
     def test_the_root_file_hides_every_generated_native_tree(self):
@@ -675,6 +691,17 @@ class TheNativeGeneratedTreesAreCoveredAtTheRoot(unittest.TestCase):
         # does not end in one.
         self.assertEqual(set(self.GENERATED_FILES),
                          root_only_hides(ROOT, list(self.GENERATED_FILES)))
+
+
+class GradlewBatStaysCrlf(unittest.TestCase):
+    """`.gitattributes` keeps a Windows batch file CRLF on its next re-add (#540)."""
+
+    def test_bat_and_cmd_files_are_checked_out_crlf(self):
+        for path in ("android/gradlew.bat", "x/run.cmd"):
+            with self.subTest(path=path):
+                done = subprocess.run(["git", "check-attr", "eol", path], cwd=str(ROOT),
+                                      capture_output=True, text=True, check=True)
+                self.assertTrue(done.stdout.strip().endswith("eol: crlf"), done.stdout)
 
 
 if __name__ == "__main__":
