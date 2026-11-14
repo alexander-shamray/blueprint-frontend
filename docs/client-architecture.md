@@ -2085,8 +2085,11 @@ templates, and to the spec, which reads markers; and the rule does not read a
 bound expression, so `[label]="'text'"` passes it.
 `src/app/core/i18n-literals.spec.ts` (#314) reads those two places with the
 TypeScript parser and fails on a literal that has the shape of a sentence: a
-capitalised word and another word in TypeScript, any two words side by side
-inside a binding or a built string. The shape is the allow-list for selectors,
+capitalised word and another word of any length in TypeScript ("Add a
+product"), and inside a binding or a built string two words side by side, one
+of them two letters or more, the built string read whole with each
+substitution as a word (#543, #552). A template under any tag but `$localize`
+is read as a literal. The shape is the allow-list for selectors,
 header names, URLs, route paths and scopes, none of which holds a space, so
 nothing of that kind is listed. What the shape cannot tell from a message is
 skipped by position (an import specifier, a property name, a type, the value of
