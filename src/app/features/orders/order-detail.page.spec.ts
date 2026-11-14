@@ -653,4 +653,57 @@ describe('OrderDetailPage', () => {
       .expectOne(`${READ}${GUID_A}`)
       .flush({ title: 'Not Found', status: 404 }, { status: 404, statusText: 'Not Found' });
   });
+
+  it('sends no replay into a window that opened during the sign-in, and keeps the one replay (#589)', async () => {
+    const mounted = await mountWith(order());
+    controller = mounted.controller;
+    const window = TestBed.inject(RateLimitWindows).forPartition('authenticated');
+    signIn.mockImplementationOnce(async () => window.open(refusal));
+
+    mounted.fixture.componentInstance.cancel();
+    controller
+      .expectOne((r) => r.url.endsWith('/cancel'))
+      .flush({ title: 'Unauthorized', status: 401 }, { status: 401, statusText: 'Unauthorized' });
+    await mounted.fixture.whenStable();
+
+    expect(signIn).toHaveBeenCalledOnce();
+    controller.expectNone((r) => r.url.endsWith('/cancel'));
+
+    // The bound was not spent on a send that never happened: once the window
+    // closes, a second refusal is still replayed.
+    window.close();
+    mounted.fixture.componentInstance.cancel();
+    controller
+      .expectOne((r) => r.url.endsWith('/cancel'))
+      .flush({ title: 'Unauthorized', status: 401 }, { status: 401, statusText: 'Unauthorized' });
+    await mounted.fixture.whenStable();
+
+    expect(signIn).toHaveBeenCalledTimes(2);
+    controller.expectOne((r) => r.url.endsWith('/cancel'));
+  });
+
+  it('holds a cancel reply to the session that sent it, so it cannot release a newer cancel (#596)', async () => {
+    const mounted = await mountWith(order());
+    controller = mounted.controller;
+    const page = mounted.fixture.componentInstance;
+
+    page.cancel();
+    mounted.user.set(null);
+    mounted.fixture.detectChanges();
+    mounted.user.set(demo);
+    mounted.fixture.detectChanges();
+    controller.expectOne(`${READ}${GUID_A}`).flush(order());
+    await mounted.fixture.whenStable();
+
+    page.cancel();
+    const sent = controller.match((r) => r.url.endsWith('/cancel'));
+    expect(sent).toHaveLength(2);
+
+    // The first cancel's reply lands while the second is still out.
+    sent[0].flush(null, { status: 204, statusText: 'No Content' });
+    expect(page.cancelled()).toBe(false);
+
+    page.cancel();
+    controller.expectNone((r) => r.url.endsWith('/cancel'));
+  });
 });
