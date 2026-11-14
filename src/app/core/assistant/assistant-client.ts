@@ -237,7 +237,11 @@ export class AssistantConversation {
   async resume(): Promise<void> {
     const id = this.ids.get();
     if (!id) return;
+    // An abandon, start-over or send since this began owns the conversation:
+    // a read in flight at sign-out must not restore the customer's before it.
+    const sent = this.sends;
     const view = await this.client.read(id).catch(() => null);
+    if (this.sends !== sent) return;
     if (!view) {
       this.ids.set(null);
       return;
