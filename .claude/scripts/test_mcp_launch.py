@@ -87,7 +87,7 @@ class TheMcpServerStartsOnlyOverAnIndexTheHookWouldOpen(unittest.TestCase):
         env = {**os.environ, "PATH": str(path), "PYTHONPATH": str(self.stubs), **extra}
         env.pop("CBX_NO_SKILL_AUTO_UPDATE", None)
         return subprocess.run([NODE, str(LAUNCHER)], cwd=self.root, env=env, stdin=subprocess.DEVNULL,
-                              capture_output=True, text=True, timeout=120)
+                              capture_output=True, text=True, encoding="utf-8", timeout=120)
 
     def test_a_clean_root_starts_the_server_with_its_arguments_and_the_update_disabled(self):
         done = self.launch(self.with_python)

@@ -24,7 +24,8 @@ def setUpModule():
 
 
 def tracked():
-    out = subprocess.run([GIT, "ls-files"], cwd=str(ROOT), capture_output=True, text=True)
+    out = subprocess.run([GIT, "ls-files"], cwd=str(ROOT), capture_output=True, text=True,
+                         encoding="utf-8")
     if out.returncode != 0:
         raise AssertionError(f"git ls-files failed: {out.stderr}")
     return [line for line in out.stdout.splitlines() if line]
@@ -145,7 +146,8 @@ class ReviewBranchDeniesEveryTrackedPath(unittest.TestCase):
         # A path deny is held by spelling, and a tracked symbolic link inside
         # an allowed tree is a spelling the deny never sees. Defence in depth
         # beside the edit guard, which refuses a link at edit time.
-        out = subprocess.run([GIT, "ls-files", "-s"], cwd=str(ROOT), capture_output=True, text=True)
+        out = subprocess.run([GIT, "ls-files", "-s"], cwd=str(ROOT), capture_output=True,
+                             text=True, encoding="utf-8")
         if out.returncode != 0:
             raise AssertionError(f"git ls-files failed: {out.stderr}")
         entries = out.stdout.splitlines()
