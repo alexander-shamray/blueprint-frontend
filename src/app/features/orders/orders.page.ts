@@ -183,6 +183,19 @@ export class OrdersPage {
       lastSeen = subject;
       untracked(() => this.clear());
     });
+
+    // A renewed token for the same buyer: on native `user()` stays set while
+    // the access token expires and renews on a timer, so a read sent in that
+    // gap is answered 401 and stays on its banner (#156, #601). Reads again.
+    let lastExpiry = untracked(() => user()?.expiresAt ?? null);
+    effect(() => {
+      const expiry = user()?.expiresAt ?? null;
+      if (expiry === lastExpiry) return;
+      lastExpiry = expiry;
+      untracked(() => {
+        if (this.errorSignal()?.kind === 'signIn' && !this.rateLimit.blocked()) this.retryLoad();
+      });
+    });
   }
 
   /**

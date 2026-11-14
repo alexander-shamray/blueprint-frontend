@@ -268,4 +268,35 @@ describe('OrdersPage', () => {
     expect(page.orders().map((o) => o.orderId)).toEqual(['o1']);
     expect(retry()).toBeUndefined();
   });
+
+  it('reads again when a renewed token arrives after a 401 on the read (#601)', () => {
+    const mounted = mount();
+    controller = mounted.controller;
+    mounted.fixture.componentInstance.ionViewWillEnter();
+    list(controller).flush(
+      { title: 'Unauthorized', status: 401 },
+      { status: 401, statusText: 'Unauthorized' },
+    );
+    expect(mounted.fixture.componentInstance.error()).toMatchObject({ kind: 'signIn' });
+
+    // The native renewal lands: same buyer, a later expiry.
+    mounted.user.set({ ...demo, expiresAt: 1_800_000_000 });
+    mounted.fixture.detectChanges();
+    list(controller).flush({ items: [summary('o1')], nextCursor: null });
+
+    expect(mounted.fixture.componentInstance.error()).toBeNull();
+    expect(mounted.fixture.componentInstance.orders().map((o) => o.orderId)).toEqual(['o1']);
+  });
+
+  it('does not read again on a renewed token when the read did not fail with a 401 (#601)', () => {
+    const mounted = mount();
+    controller = mounted.controller;
+    mounted.fixture.componentInstance.ionViewWillEnter();
+    list(controller).flush({ items: [summary('o1')], nextCursor: null });
+
+    mounted.user.set({ ...demo, expiresAt: 1_800_000_000 });
+    mounted.fixture.detectChanges();
+
+    controller.expectNone((r) => r.url === LIST);
+  });
 });
