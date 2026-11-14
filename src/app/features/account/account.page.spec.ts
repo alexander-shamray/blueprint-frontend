@@ -627,6 +627,38 @@ describe('AccountPage', () => {
       expect(fixture.componentInstance.savedAddress()).toBeNull();
     });
 
+    it('does not empty an address a newer save stored, when the older forget replies last (#582)', async () => {
+      const { fixture, save, remove } = await open(savedHome);
+      const forgotten = new Subject<void>();
+      remove.mockReturnValueOnce(forgotten);
+      fixture.componentInstance.forgetAddress();
+
+      fixture.componentInstance.editAddress();
+      fixture.componentInstance.addressForm.setValue(typed);
+      fixture.componentInstance.saveAddress();
+      expect(save).toHaveBeenCalledOnce();
+      expect(fixture.componentInstance.savedAddress()).toEqual({ ...typed, line2: null });
+
+      forgotten.next();
+
+      expect(fixture.componentInstance.savedAddress()).toEqual({ ...typed, line2: null });
+    });
+
+    it('still empties the address when the save sent after a forget failed (#582)', async () => {
+      const { fixture, save, remove } = await open(savedHome);
+      const forgotten = new Subject<void>();
+      remove.mockReturnValueOnce(forgotten);
+      fixture.componentInstance.forgetAddress();
+      save.mockReturnValueOnce(throwError(() => new Error('down')));
+      fixture.componentInstance.editAddress();
+      fixture.componentInstance.addressForm.setValue(typed);
+      fixture.componentInstance.saveAddress();
+
+      forgotten.next();
+
+      expect(fixture.componentInstance.savedAddress()).toBeNull();
+    });
+
     it('stops listening for a save when the page is destroyed', async () => {
       const { fixture, save } = await open(null);
       const reply = new Subject<Address>();
@@ -821,6 +853,20 @@ describe('AccountPage', () => {
       fixture.detectChanges();
       await fixture.whenStable();
       late.error(new Error('refused'));
+
+      expect(fixture.componentInstance.error()).toBeNull();
+    });
+
+    it('clears the last buyer’s refusal banner when another buyer signs in (#595)', async () => {
+      const { fixture, remove, session } = mount(demo, true, undefined, savedHome);
+      await fixture.whenStable();
+      remove.mockReturnValueOnce(throwError(() => new Error('refused')));
+      fixture.componentInstance.forgetAddress();
+      expect(fixture.componentInstance.error()).not.toBeNull();
+
+      session.set({ ...demo, subject: 'someone-else' });
+      fixture.detectChanges();
+      await fixture.whenStable();
 
       expect(fixture.componentInstance.error()).toBeNull();
     });
