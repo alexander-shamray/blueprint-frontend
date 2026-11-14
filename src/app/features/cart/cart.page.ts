@@ -182,11 +182,12 @@ export class CartPage {
   protected readonly currencies = ['EUR', 'GBP', 'USD'] as const;
 
   /**
-   * Bumped by `invalidateQuote()`. `getQuote()` captures the generation it
-   * was called under and checks it again in both the success and error
-   * branches when the response lands; a response whose generation no longer
-   * matches was superseded by a quantity or currency change that invalidated
-   * it, and is dropped rather than applied — the same shape, deliberately,
+   * Bumped by `invalidateQuote()` and by each `getQuote()`. `getQuote()`
+   * captures the generation it started and checks it again in both the
+   * success and error branches when the response lands; a response whose
+   * generation no longer matches was superseded by a quantity or currency
+   * change that invalidated it, or by a newer `getQuote()`, and is dropped
+   * rather than applied — the same shape, deliberately,
    * as `ProductsPage.generation` guards a `loadMore()` in flight against a
    * `reload()` that started a fresh sequence underneath it. Without this, a
    * `getQuote()` in flight when the user taps `+` or switches currency lands
@@ -354,7 +355,8 @@ export class CartPage {
     this.checkoutApi.quote(lines, this.currency()).subscribe({
       next: (quote) => {
         // Superseded by an invalidateQuote() (a quantity or currency change)
-        // that started a new generation while this request was in flight.
+        // or a newer getQuote() that started a new generation while this
+        // request was in flight.
         // Applying it now would restore a quote for a basket or currency
         // that no longer exists.
         if (generation !== this.generation) return;
