@@ -29,8 +29,8 @@ jobs:
     # run, not a duration.
     timeout-minutes: 5
     # No concurrency group: GitHub cancels a group's pending job when a newer one queues, and a
-    # rerun cancelled so would leave its first attempt neither rerun nor filed, since `main-red`
-    # files from a later attempt alone.
+    # rerun cancelled so never reruns its first attempt: `file`, which runs on a cancelled
+    # `rerun`, files what may have been a flake as `main is red: ci`.
     permissions:
       actions: write
       issues: write
