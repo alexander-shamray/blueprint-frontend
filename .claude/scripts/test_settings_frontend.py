@@ -18,6 +18,25 @@ def deny():
     return json.loads(SETTINGS.read_text(encoding="utf-8"))["permissions"]["deny"]
 
 
+def rule_matches(rule, path):
+    """Whether an `Edit(...)` rule covers `path`, given from the root. Read
+    wide, since the tests ask what a rule must not cover: a leading `/` or
+    `./` is the root, `**/` matches at the root too, a pattern with no slash
+    matches a file's name at any depth, and `*` crosses directories."""
+    pattern = rule[len("Edit("):-1]
+    if pattern.startswith("./"):
+        pattern = pattern[2:]
+    elif pattern.startswith("/") and not pattern.startswith("//"):
+        pattern = pattern[1:]
+    patterns = [pattern] + ([pattern[3:]] if pattern.startswith("**/") else [])
+    names = [path] + ([path.rsplit("/", 1)[-1]] if "/" not in pattern else [])
+    return any(fnmatch.fnmatchcase(name, each) for name in names for each in patterns)
+
+
+def edit_rules():
+    return [rule for rule in deny() if rule.startswith("Edit(")]
+
+
 class TheEditDeniesTheChecksRunOnAreInSettings(unittest.TestCase):
     ALSO_IN_SETTINGS = (
         ".github/**", "package.json", "**/package.json", ".npmrc", "**/.npmrc",
@@ -49,21 +68,42 @@ class TheEditDeniesTheChecksRunOnAreInSettings(unittest.TestCase):
         # `/style-pass` records a corrected form in `eslint.config.js` and
         # `.prettierrc`, and a settings deny beats a command's own allowance,
         # so these stay out of the list: `docs/harness-local.md` *Residuals*
-        # states the residual as accepted.
-        rules = deny()
-        for path in ("eslint.config.js", "./eslint.config.js", ".prettierrc",
-                     "./.prettierrc", "**/*.config.js"):
-            with self.subTest(path=path):
-                self.assertNotIn(f"Edit({path})", rules)
+        # states the residual as accepted. Every rule is matched against the
+        # files, in whichever spelling it is written.
+        for path in ("eslint.config.js", ".prettierrc"):
+            for rule in edit_rules():
+                with self.subTest(path=path, rule=rule):
+                    self.assertFalse(rule_matches(rule, path))
 
     def test_the_composition_root_is_not_denied(self):
         # `**/*.config.ts` matches src/app/app.config.ts, which ordinary changes
         # edit, so the build configs are named instead.
-        for rule in deny():
-            if not rule.startswith("Edit("):
-                continue
-            with self.subTest(rule=rule):
-                self.assertFalse(fnmatch.fnmatchcase("src/app/app.config.ts", rule[len("Edit("):-1]))
+        for path in ("src/app/app.config.ts", "src/app/app.routes.ts"):
+            for rule in edit_rules():
+                with self.subTest(path=path, rule=rule):
+                    self.assertFalse(rule_matches(rule, path))
+
+    def test_the_matcher_reads_every_spelling_of_a_rule(self):
+        # The subject of the two cases above: a matcher that missed one of
+        # these would pass them with that rule in the settings.
+        for rule, path in (("Edit(/src/app/**)", "src/app/app.config.ts"),
+                           ("Edit(./src/**)", "src/app/app.routes.ts"),
+                           ("Edit(**/*.config.ts)", "src/app/app.config.ts"),
+                           ("Edit(*.config.ts)", "src/app/app.config.ts"),
+                           ("Edit(app.config.ts)", "src/app/app.config.ts"),
+                           ("Edit(**/eslint.config.js)", "eslint.config.js"),
+                           ("Edit(*.js)", "eslint.config.js"),
+                           ("Edit(/.prettierrc)", ".prettierrc"),
+                           ("Edit(./.prettierrc)", ".prettierrc"),
+                           ("Edit(.prettier*)", ".prettierrc")):
+            with self.subTest(rule=rule, path=path):
+                self.assertTrue(rule_matches(rule, path))
+        for rule, path in (("Edit(**/vite.config.ts)", "src/app/app.config.ts"),
+                           ("Edit(**/*.config.mts)", "src/app/app.config.ts"),
+                           ("Edit(**/*.config.cjs)", "eslint.config.js"),
+                           ("Edit(.github/**)", ".prettierrc")):
+            with self.subTest(rule=rule, path=path):
+                self.assertFalse(rule_matches(rule, path))
 
     def test_the_rules_are_edit_and_never_write(self):
         # A `Write(path)` rule matches nothing and stops Claude Code starting.
