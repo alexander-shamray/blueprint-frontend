@@ -894,8 +894,9 @@ describe('OwnProductsComponent', () => {
       await settle();
     });
 
-    // Each row sends its own `code`, so handling that singled one code out would
-    // be seen by that code's row rather than pass on a body both rows share.
+    // The two 422 rows each send their own `code` (the 404 row sends none), so
+    // handling that singled one code out would be seen by that code's row
+    // rather than pass on a body both rows share.
     it.each([
       ['a 422 product.withdrawn', 422, 'product.withdrawn'],
       ['a 422 product.currency_fixed', 422, 'product.currency_fixed'],
