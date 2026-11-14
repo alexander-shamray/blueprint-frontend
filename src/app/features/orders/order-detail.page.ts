@@ -346,6 +346,7 @@ export class OrderDetailPage {
         this.orderState.set(null);
         this.cancelledState.set(false);
         this.cancelErrorState.set(null);
+        this.loadErrorState.set(null);
         this.cancelling.set(false);
         this.loadOrHold();
       });
@@ -379,6 +380,8 @@ export class OrderDetailPage {
         this.loadingState.set(false);
         this.cancelling.set(false);
         this.replayedAfterSignIn = false;
+        // A read the previous subject left held is theirs, not the next one's.
+        this.readHeld.set(false);
         if (subject !== null) this.loadOrHold();
       });
     });

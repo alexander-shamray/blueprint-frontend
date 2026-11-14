@@ -591,6 +591,24 @@ describe('OrderDetailPage', () => {
     controller.expectOne(`${READ}${GUID_A}`).flush(order());
   });
 
+  it('drops a held read when the buyer signs out, and sends nothing once the window closes (#568)', async () => {
+    const mounted = await mountWith(order());
+    controller = mounted.controller;
+    const authenticated = TestBed.inject(RateLimitWindows).forPartition('authenticated');
+    authenticated.open(refusal);
+
+    mounted.user.set(other);
+    mounted.fixture.detectChanges();
+    await mounted.fixture.whenStable();
+    mounted.user.set(null);
+    mounted.fixture.detectChanges();
+    await mounted.fixture.whenStable();
+
+    authenticated.close();
+    await mounted.fixture.whenStable();
+    controller.expectNone((r) => r.url.startsWith(READ));
+  });
+
   it('reads nothing on an entry inside an open authenticated window', async () => {
     const mounted = await mountWith(order());
     controller = mounted.controller;
