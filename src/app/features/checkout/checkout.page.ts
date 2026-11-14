@@ -637,7 +637,10 @@ export class CheckoutPage {
           this.subjectChanges === changesAtRefusal;
         // Read here, not when the 401 landed: two 401s pending at once would
         // both have read it unspent and replayed twice (#533).
-        if (!this.replayedAfterSignIn && sameSubject) {
+        // A window that opened while the sign-in was pending is not sent
+        // into, and the bound stays unspent: the button is disabled for the
+        // window, and a later 401 may still replay once it closes (#584).
+        if (!this.replayedAfterSignIn && sameSubject && !this.rateLimit.blocked()) {
           // Spent where the replay is sent, not before the sign-in settles: a
           // dismissed or foreign sign-in sent nothing, so the bound has not
           // been used (#157).

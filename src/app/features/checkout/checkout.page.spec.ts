@@ -704,6 +704,39 @@ describe('CheckoutPage', () => {
     await fixture.whenStable();
   });
 
+  it('a sign-in that returns into an open window sends no replay and keeps the one replay (#584)', async () => {
+    const window = TestBed.inject(RateLimitWindows).forPartition('authenticated');
+    signIn.mockImplementationOnce(async () =>
+      window.open({
+        kind: 'rateLimited',
+        title: 'Too many requests',
+        detail: null,
+        retryAfterSeconds: 30,
+      }),
+    );
+
+    fixture.componentInstance.placeOrder();
+    controller
+      .expectOne('http://localhost:5000/api/v1/orders')
+      .flush({ title: 'Unauthorized', status: 401 }, { status: 401, statusText: 'Unauthorized' });
+    await fixture.whenStable();
+
+    expect(signIn).toHaveBeenCalledOnce();
+    controller.expectNone('http://localhost:5000/api/v1/orders');
+
+    // The bound was not spent on a send that never happened: once the window
+    // closes, a second refusal is still replayed.
+    window.close();
+    fixture.componentInstance.placeOrder();
+    controller
+      .expectOne('http://localhost:5000/api/v1/orders')
+      .flush({ title: 'Unauthorized', status: 401 }, { status: 401, statusText: 'Unauthorized' });
+    await fixture.whenStable();
+
+    expect(signIn).toHaveBeenCalledTimes(2);
+    controller.expectOne('http://localhost:5000/api/v1/orders');
+  });
+
   it('disables Place order while a 429 window is open', async () => {
     fixture.componentInstance.placeOrder();
     controller.expectOne('http://localhost:5000/api/v1/orders').flush(
