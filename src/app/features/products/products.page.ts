@@ -382,8 +382,8 @@ export class ProductsPage {
     // An effect() runs once immediately on top of every signal it reads, so
     // the version seen right here — before that first run — is remembered
     // and compared against: the first run is this same construction's own
-    // load() above, and reloading again for it would double-fetch on every
-    // app start.
+    // read through `restartForQuery()` above, and reloading again for it
+    // would double-fetch on every app start.
     //
     // A request that arrives while the catalogue window is open is held, not
     // taken: it would send a request the client already expects to be
@@ -408,9 +408,10 @@ export class ProductsPage {
 
   /**
    * Restarts the listing from the first page, under what the search and sort
-   * controls hold now. Reached three ways: the effect above, when a publish
+   * controls hold now. Reached four ways: the effect above, when a publish
    * elsewhere bumps `CatalogRefresh` (spec §5.5); `refresh()`, pull to
-   * refresh; and a changed search or sort. The rows stay on screen until the
+   * refresh; a changed search or sort; and the construction's first read,
+   * through `restartForQuery()`. The rows stay on screen until the
    * first page replaces them (#202).
    */
   reload(done?: () => void): void {
