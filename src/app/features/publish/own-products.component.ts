@@ -297,7 +297,10 @@ export class OwnProductsComponent {
   );
 
   constructor() {
-    this.load();
+    // The first read waits for an open window, as the refresh below does: one
+    // sent then is one the client already expects to be refused, which
+    // restarts the window (#572, as `ProductPage` for #161).
+    this.reloadOrHold();
 
     // An edit after a validation failure releases the id, as the order form's
     // does; after any other failure the id is held (`CommandIdentity.onEdit`).
@@ -350,10 +353,20 @@ export class OwnProductsComponent {
         this.productsSignal.set([]);
         this.errorSignal.set(null);
         this.hasMoreSignal.set(true);
-        if (subject !== null) this.reload();
+        if (subject !== null) this.reloadOrHold();
         else this.generation++;
       });
     });
+  }
+
+  /** A `reload()` that waits for the window to close when it is open, and drops what is out meanwhile. */
+  private reloadOrHold(): void {
+    if (!this.rateLimit.blocked()) {
+      this.reload();
+      return;
+    }
+    this.generation++;
+    this.refreshHeld.set(true);
   }
 
   /** Restarts from the first page, keeping the rows until it lands (#202). */

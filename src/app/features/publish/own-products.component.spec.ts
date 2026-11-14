@@ -1204,3 +1204,68 @@ describe('OwnProductsComponent', () => {
     });
   });
 });
+
+describe('OwnProductsComponent inside an open authenticated rate-limit window (#572)', () => {
+  const refusal = {
+    kind: 'rateLimited',
+    title: 'Too many requests',
+    detail: null,
+    retryAfterSeconds: 30,
+  } as const;
+  let controller: HttpTestingController;
+  let user: WritableSignal<CurrentUser | null>;
+
+  function build(opened: boolean): ComponentFixture<OwnProductsComponent> {
+    user = signal<CurrentUser | null>({
+      username: 'demo', subject: 'subject-demo', permissions: ['catalog:write'], expiresAt: 0,
+    });
+    TestBed.configureTestingModule({
+      imports: [OwnProductsComponent],
+      providers: [
+        provideHttpClient(withInterceptors([rateLimitInterceptor])),
+        provideHttpClientTesting(),
+        { provide: AuthService, useValue: { signIn: vi.fn(), user: () => user, accessToken: () => 't' } },
+      ],
+    });
+    if (opened) TestBed.inject(RateLimitWindows).forPartition('authenticated').open(refusal);
+    const built = TestBed.createComponent(OwnProductsComponent);
+    controller = TestBed.inject(HttpTestingController);
+    built.detectChanges();
+    return built;
+  }
+
+  const authenticated = () => TestBed.inject(RateLimitWindows).forPartition('authenticated');
+
+  it('holds the constructor’s read, and sends it once the window closes', async () => {
+    const built = build(true);
+    await built.whenStable();
+    controller.expectNone((r) => r.url === MINE);
+
+    authenticated().close();
+    await built.whenStable();
+
+    controller.expectOne((r) => r.url === MINE).flush({ items: [product('a')], nextCursor: null });
+    await built.whenStable();
+    expect(built.componentInstance.products().map((p) => p.productId)).toEqual(['a']);
+    controller.verify();
+  });
+
+  it('holds the read a changed subject asks for, and sends it once the window closes', async () => {
+    const built = build(false);
+    controller.expectOne((r) => r.url === MINE).flush({ items: [product('a')], nextCursor: null });
+    await built.whenStable();
+    authenticated().open(refusal);
+
+    user.set({
+      username: 'other', subject: 'subject-other', permissions: ['catalog:write'], expiresAt: 0,
+    });
+    built.detectChanges();
+    await built.whenStable();
+    controller.expectNone((r) => r.url === MINE);
+
+    authenticated().close();
+    await built.whenStable();
+    controller.expectOne((r) => r.url === MINE).flush({ items: [], nextCursor: null });
+    controller.verify();
+  });
+});

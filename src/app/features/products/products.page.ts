@@ -365,7 +365,10 @@ export class ProductsPage {
   );
 
   constructor() {
-    this.load();
+    // A cold start on a deep link builds only `ProductPage`, whose refused
+    // read opens this window; the listing built after it holds its first read
+    // as a new query does (#572).
+    this.restartForQuery();
 
     // Ionic caches this page's ComponentRef in its tab-stack view list and
     // reuses it on re-entry (StackController.getExistingView, via

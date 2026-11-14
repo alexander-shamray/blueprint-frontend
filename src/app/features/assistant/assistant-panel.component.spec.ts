@@ -2,6 +2,7 @@ import { signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { describe, expect, it, vi } from 'vitest';
 import { ConversationState, EMPTY_CONVERSATION } from '@core/assistant/assistant-client';
+import { RateLimitWindows } from '@core/errors/rate-limit';
 import { hydrated } from '@shared/testing/hydrated';
 import { AssistantStore } from './assistant.store';
 import { AssistantPanelComponent } from './assistant-panel.component';
@@ -167,5 +168,28 @@ describe('AssistantPanelComponent', () => {
 
     expect(store.startOver).toHaveBeenCalled();
     expect(closed).toHaveBeenCalled();
+  });
+
+  it('holds Send, Enter and Start over, and says why, while the authenticated window is open (#572)', async () => {
+    const { fixture, store, root } = await mount({
+      id: 'c1',
+      items: [{ kind: 'operator', text: 'hello' }],
+    });
+    type(fixture, 'where is my order?');
+    TestBed.inject(RateLimitWindows).forPartition('authenticated').open({
+      kind: 'rateLimited', title: 'Too many requests', detail: null, retryAfterSeconds: 30,
+    });
+    fixture.detectChanges();
+    await hydrated(root);
+
+    (root.querySelector('[data-testid="assistant-send"]') as HTMLElement).click();
+    root.querySelector('ion-input')?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+    (root.querySelector('[data-testid="assistant-start-over"]') as HTMLElement).click();
+
+    expect(root.querySelector('[data-testid="assistant-send"]')?.hasAttribute('disabled')).toBe(true);
+    expect(root.querySelector('[data-testid="assistant-start-over"]')?.hasAttribute('disabled')).toBe(true);
+    expect(root.querySelector('app-error-banner')?.textContent).toContain('Too many requests');
+    expect(store.send).not.toHaveBeenCalled();
+    expect(store.startOver).not.toHaveBeenCalled();
   });
 });

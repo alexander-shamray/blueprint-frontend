@@ -8,6 +8,7 @@ import { SavedAddressApi } from '@core/api/saved-address.api';
 import { Appearance, AppearanceStore } from '@core/theme/appearance.store';
 import { Address } from '@core/api/types';
 import { AuthService, CurrentUser } from '@core/auth/auth.service';
+import { RateLimitWindows } from '@core/errors/rate-limit';
 import { AccountPage } from './account.page';
 
 const savedHome: Address = {
@@ -19,6 +20,7 @@ function mount(
   sessionEndsOnReload: boolean,
   denied?: string,
   saved: Address | null = null,
+  beforeCreate?: () => void,
 ) {
   TestBed.resetTestingModule();
   const signIn = vi.fn(async () => undefined);
@@ -61,6 +63,7 @@ function mount(
     ],
   });
 
+  beforeCreate?.();
   const fixture: ComponentFixture<AccountPage> = TestBed.createComponent(AccountPage);
   fixture.detectChanges();
   return { fixture, signIn, signOut, queryParams, session, read, remove, save, choose, chosen };
@@ -846,5 +849,50 @@ describe('AccountPage', () => {
       expect(fixture.componentInstance.error()).not.toBeNull();
       expect(shown(fixture)).not.toBeNull();
     });
+  });
+});
+
+describe('AccountPage inside an open authenticated rate-limit window (#572)', () => {
+  const refusal = {
+    kind: 'rateLimited',
+    title: 'Too many requests',
+    detail: null,
+    retryAfterSeconds: 30,
+  } as const;
+  const authenticated = () => TestBed.inject(RateLimitWindows).forPartition('authenticated');
+
+  it('holds the saved-address read, and sends it once the window closes', async () => {
+    const { fixture, read } = mount(demo, true, undefined, savedHome, () =>
+      authenticated().open(refusal),
+    );
+    fixture.componentInstance.ionViewWillEnter();
+    await fixture.whenStable();
+    expect(read).not.toHaveBeenCalled();
+
+    authenticated().close();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(read).toHaveBeenCalledTimes(1);
+    expect(fixture.componentInstance.savedAddress()).toEqual(savedHome);
+  });
+
+  it('disables Forget and refuses a forget, and tells the buyer why', async () => {
+    const { fixture, remove } = mount(demo, true, undefined, savedHome);
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    authenticated().open(refusal);
+    fixture.detectChanges();
+    fixture.componentInstance.forgetAddress();
+
+    expect(remove).not.toHaveBeenCalled();
+    expect(
+      fixture.nativeElement.querySelector('[data-testid="forget-address"]').hasAttribute('disabled') ||
+        fixture.nativeElement.querySelector('[data-testid="forget-address"]').disabled,
+    ).toBe(true);
+    expect(fixture.nativeElement.querySelector('app-error-banner').textContent).toContain(
+      'Too many requests',
+    );
   });
 });

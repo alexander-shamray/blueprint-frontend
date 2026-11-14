@@ -15,6 +15,7 @@ import { Address } from '@core/api/types';
 import { AuthService } from '@core/auth/auth.service';
 import { APPEARANCES, Appearance, AppearanceStore } from '@core/theme/appearance.store';
 import { DisplayError, mapError } from '@core/errors/error-mapper';
+import { RateLimitWindows } from '@core/errors/rate-limit';
 import { ADDRESS_FIELDS, AddressField, splitAddressErrors } from '@shared/address/address-errors';
 import { countryOptions } from '@shared/address/countries';
 import { ErrorBannerComponent } from '@shared/error-banner.component';
@@ -38,7 +39,7 @@ import { ErrorBannerComponent } from '@shared/error-banner.component';
     <ion-header><ion-toolbar><ion-title i18n="@@account.title">Account</ion-title></ion-toolbar></ion-header>
 
     <ion-content>
-      <app-error-banner [error]="error()" />
+      <app-error-banner [error]="error() ?? rateLimit.refusal()" [retryInSeconds]="rateLimit.remaining()" />
 
       @if (denied(); as permission) {
         <ion-item>
@@ -125,7 +126,7 @@ import { ErrorBannerComponent } from '@shared/error-banner.component';
               </ion-note>
             }
             <ion-button expand="block" type="submit" data-testid="save-address"
-              [disabled]="addressForm.invalid || savingAddress()">
+              [disabled]="addressForm.invalid || savingAddress() || rateLimit.blocked()">
               @if (savingAddress()) {
                 <ng-container i18n="@@account.saving">Saving…</ng-container>
               } @else {
@@ -154,6 +155,7 @@ import { ErrorBannerComponent } from '@shared/error-banner.component';
               Change this address
             </ion-button>
             <ion-button expand="block" fill="outline" data-testid="forget-address"
+              [disabled]="rateLimit.blocked()"
               (click)="forgetAddress()"
               i18n="@@account.forget">
               Forget this address
@@ -195,6 +197,10 @@ export class AccountPage {
   private readonly route = inject(ActivatedRoute);
 
   private readonly savedAddressApi = inject(SavedAddressApi);
+  /** Spec §6's 429 row: every call here is under `/bff/`, the gateway's authenticated bucket. */
+  readonly rateLimit = inject(RateLimitWindows).authenticated;
+  /** The saved-address read was asked for inside a blocked window, and is taken once it ends. */
+  private readonly readHeld = signal(false);
   private readonly appearanceStore = inject(AppearanceStore);
 
   /** The sheet the user chose, shown selected; the choice itself is `AppearanceStore`'s (#92). */
@@ -327,6 +333,12 @@ export class AccountPage {
       });
     });
 
+    // A read held for the window is taken once it closes.
+    effect(() => {
+      if (!this.readHeld() || this.rateLimit.blocked()) return;
+      untracked(() => this.readSavedAddress(this.currentUser()?.subject ?? null));
+    });
+
     // An edit after a refusal makes the refusal's messages stale: they were
     // about the value that was sent.
     for (const field of ADDRESS_FIELDS) {
@@ -377,7 +389,7 @@ export class AccountPage {
    * keeps only the keys no control here owns.
    */
   saveAddress(): void {
-    if (this.addressForm.invalid) return;
+    if (this.addressForm.invalid || this.rateLimit.blocked()) return;
 
     const value = this.addressForm.getRawValue();
     const address: Address = {
@@ -468,7 +480,15 @@ export class AccountPage {
    */
   private readSavedAddress(subject: string | null): void {
     const request = ++this.latestRequest;
+    this.readHeld.set(false);
     if (subject === null) return;
+    // A read sent inside the window is one the client already expects to be
+    // refused, which restarts it (#572, as `ProductPage` for #161): it waits,
+    // and the banner says why meanwhile.
+    if (this.rateLimit.blocked()) {
+      this.readHeld.set(true);
+      return;
+    }
 
     this.savedAddressApi
       .read()
@@ -482,6 +502,7 @@ export class AccountPage {
   }
 
   forgetAddress(): void {
+    if (this.rateLimit.blocked()) return;
     this.errorState.set(null);
     this.latestRequest++;
 

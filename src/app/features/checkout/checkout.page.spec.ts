@@ -9,6 +9,7 @@ import { AuthService, CurrentUser } from '@core/auth/auth.service';
 import { CartPersistence } from '@core/cart/cart.persistence';
 import { CartStore } from '@core/cart/cart.store';
 import { CheckoutHandoff } from '@core/cart/checkout-handoff';
+import { RateLimitWindows } from '@core/errors/rate-limit';
 import { CheckoutPage } from './checkout.page';
 
 const validAddress = {
@@ -861,6 +862,25 @@ describe('CheckoutPage', () => {
   });
 
   describe('the saved address (#109)', () => {
+    it('holds the read while the authenticated window is open, and sends it once it closes (#572)', async () => {
+      // The page built above has asked already; a second one is built inside the window.
+      controller.expectOne(SAVED).flush(null, { status: 404, statusText: 'Not Found' });
+      const authenticated = TestBed.inject(RateLimitWindows).forPartition('authenticated');
+      authenticated.open({ kind: 'rateLimited', title: 'Too many', detail: null, retryAfterSeconds: 30 });
+
+      const second = TestBed.createComponent(CheckoutPage);
+      second.detectChanges();
+      await second.whenStable();
+      controller.expectNone(SAVED);
+
+      authenticated.close();
+      await second.whenStable();
+      controller.expectOne(SAVED).flush(savedAddress);
+      await second.whenStable();
+
+      expect(second.componentInstance.form.getRawValue()).toEqual(savedAddress);
+    });
+
     /** Starts from an empty form, as the page does when nothing has been typed. */
     function pristine(): void {
       fixture.componentInstance.form.reset();

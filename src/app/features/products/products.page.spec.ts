@@ -858,3 +858,36 @@ describe('ProductsPage', () => {
     });
   });
 });
+
+describe('ProductsPage built inside an open catalogue rate-limit window (#572)', () => {
+  const LIST = 'http://localhost:5000/api/v1/catalog/products';
+
+  it('holds its first read, and sends it once the window closes', async () => {
+    TestBed.configureTestingModule({
+      imports: [ProductsPage],
+      providers: [
+        provideHttpClient(withInterceptors([rateLimitInterceptor])),
+        provideHttpClientTesting(),
+        provideRouter([]),
+        CartStore,
+        { provide: CartPersistence, useValue: { read: async () => [], write: async () => undefined } },
+      ],
+    });
+    const catalogue = TestBed.inject(RateLimitWindows).forPartition('catalogue');
+    catalogue.open({ kind: 'rateLimited', title: 'Too many', detail: null, retryAfterSeconds: 30 });
+    const built = TestBed.createComponent(ProductsPage);
+    const controller = TestBed.inject(HttpTestingController);
+    built.detectChanges();
+    await built.whenStable();
+
+    controller.expectNone((r) => r.url === LIST);
+
+    catalogue.close();
+    await built.whenStable();
+
+    controller.expectOne((r) => r.url === LIST).flush(page(2, null));
+    await built.whenStable();
+    expect(built.componentInstance.products()).toHaveLength(2);
+    controller.verify();
+  });
+});
