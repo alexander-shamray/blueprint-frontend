@@ -29,6 +29,9 @@ export const CONVERSATION_KEY = 'blueprint.assistant.conversation';
  */
 export const NOTICE_KEY = 'assistant-notice';
 
+/** The waits before each re-read of a status read that could not say (the last is the final try). */
+export const STATUS_RETRY_MS: readonly number[] = [2_000, 10_000, 30_000];
+
 /** What the shop says it is when it opens a conversation. */
 export const CLIENT = { name: 'blueprint-frontend', version: '1' } as const;
 
@@ -170,7 +173,15 @@ export class AssistantStore {
   }
 
   private async load(subject: string): Promise<void> {
-    const status = await this.client.status();
+    let status = await this.client.status();
+    // `null` is a read that could not say, not an answer: it is read again
+    // rather than hiding the assistant until the next sign-in.
+    for (const wait of STATUS_RETRY_MS) {
+      if (status !== null || this.subject() !== subject) break;
+      await new Promise((resolve) => setTimeout(resolve, wait));
+      if (this.subject() !== subject) return;
+      status = await this.client.status();
+    }
     // A sign-out, or another customer, since the read began makes it stale.
     if (this.subject() !== subject) return;
     this.status.set(status);
