@@ -5,12 +5,17 @@ this file owns what each refusal means, which entries are exempt, and why.
 """
 
 import json
+import re
 import sys
 from pathlib import Path
 
 REGISTRY = "https://registry.npmjs.org/"
 SUPPORTED_VERSION = 3
-DEFAULT = Path(__file__).resolve().parents[2] / "package-lock.json"
+
+def default_lockfile():
+    """The repository root's lockfile, found only when no path was given, so a copy of
+    this script anywhere, `/tmp` included, still runs with an explicit one."""
+    return Path(__file__).resolve().parents[2] / "package-lock.json"
 
 
 class Unreadable(Exception):
@@ -39,7 +44,7 @@ def packages_of(document):
 
 def tarball(path, version):
     """The registry URL npm publishes the package installed at `path` under, at `version`."""
-    name = path.rsplit("node_modules/", 1)[-1]
+    name = re.split(r"(?:^|/)node_modules/", path)[-1]
     return f"{REGISTRY}{name}/-/{name.split('/')[-1]}-{version}.tgz"
 
 
@@ -91,7 +96,7 @@ def main(argv):
     if len(argv) > 1:
         print("usage: lockfile_check.py [package-lock.json]", file=sys.stderr)
         return 2
-    lockfile = Path(argv[0]) if argv else DEFAULT
+    lockfile = Path(argv[0]) if argv else default_lockfile()
     try:
         checked, found = check(lockfile)
     except Unreadable as error:
