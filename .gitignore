@@ -92,10 +92,11 @@ __pycache__/
 # `.codeindexignore`'s until now — the root file is where the gate wants them,
 # because it is the one both tools read.
 #
-# This list is what those templates generate in a checkout that has built, not
-# a mirror of everything they could. `test_root_ignore_coverage.py` is what
-# catches the next one, and it asserts these paths whether or not the checkout
-# has built, so the lock holds on CI's clean tree too.
+# This list is mostly what those templates generate in a checkout that has
+# built, with the exceptions named below, not a mirror of everything they
+# could. `test_root_ignore_coverage.py` is what catches the next one, and it
+# asserts these paths whether or not the checkout has built, so the lock holds
+# on CI's clean tree too.
 #
 # The Xcode, SwiftPM and Android Studio lines at its end are the nested files'
 # own, for the same reason; `/android/.kotlin/` and `/android/app/release/` are
@@ -134,7 +135,7 @@ __pycache__/
 # its nested-hidden paths the root file does not reach — the method, not the
 # answer, is the part worth keeping.
 #
-# Only the pair under `android/app/src/main/assets/` has a directory to itself,
+# The pair under `android/app/src/main/assets/` has a directory to itself,
 # which the directory walk can reach. The rest sit beside tracked content —
 # `config.xml` next to `file_paths.xml`, `local.properties` next to the Gradle
 # files, both iOS files next to `AppDelegate.swift` — so no directory is wholly
