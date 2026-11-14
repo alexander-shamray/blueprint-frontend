@@ -32,8 +32,11 @@ describe('CartPage', () => {
   let controller: HttpTestingController;
   let store: CartStore;
   const signIn = vi.fn(async () => undefined);
+  // Writable, so a test can start a session or hand it to somebody else.
+  const session = signal<{ username: string; subject: string } | null>(null);
 
   beforeEach(async () => {
+    session.set({ username: 'demo', subject: 'a' });
     TestBed.configureTestingModule({
       imports: [CartPage],
       providers: [
@@ -51,7 +54,7 @@ describe('CartPage', () => {
         provideHttpClientTesting(),
         CartStore,
         { provide: CartPersistence, useValue: { read: async () => [], write: async () => undefined } },
-        { provide: AuthService, useValue: { signIn, user: () => signal({ username: 'demo' }), accessToken: () => 't' } },
+        { provide: AuthService, useValue: { signIn, user: () => session, accessToken: () => 't' } },
       ],
     });
 
@@ -199,6 +202,54 @@ describe('CartPage', () => {
     await fixture.whenStable();
 
     expect(signIn).toHaveBeenCalledOnce();
+  });
+
+  it('clears the sign-in banner once the sign-in resolves (#597)', async () => {
+    fixture.componentInstance.getQuote();
+    controller
+      .expectOne((r) => r.url.includes('/quote'))
+      .flush({ title: 'Unauthorized', status: 401 }, { status: 401, statusText: 'Unauthorized' });
+    await fixture.whenStable();
+
+    expect(fixture.componentInstance.error()).toBeNull();
+  });
+
+  it('keeps the banner when the sign-in itself fails (#597)', async () => {
+    signIn.mockRejectedValueOnce('discovery failed');
+    fixture.componentInstance.getQuote();
+    controller
+      .expectOne((r) => r.url.includes('/quote'))
+      .flush({ title: 'Unauthorized', status: 401 }, { status: 401, statusText: 'Unauthorized' });
+    await fixture.whenStable();
+
+    expect(fixture.componentInstance.error()).not.toBeNull();
+  });
+
+  it('clears a refusal banner when another buyer signs in (#597)', async () => {
+    fixture.componentInstance.getQuote();
+    controller
+      .expectOne((r) => r.url.includes('/quote'))
+      .flush({ title: 'Unprocessable', status: 422 }, { status: 422, statusText: 'Unprocessable' });
+    await fixture.whenStable();
+    expect(fixture.componentInstance.error()).not.toBeNull();
+
+    session.set({ username: 'other', subject: 'b' });
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    expect(fixture.componentInstance.error()).toBeNull();
+  });
+
+  it('drops a quote reply that was out when another buyer signed in (#597)', async () => {
+    fixture.componentInstance.getQuote();
+    const request = controller.expectOne((r) => r.url.includes('/quote'));
+
+    session.set({ username: 'other', subject: 'b' });
+    fixture.detectChanges();
+    await fixture.whenStable();
+    request.flush({ title: 'Forbidden', status: 403 }, { status: 403, statusText: 'Forbidden' });
+
+    expect(fixture.componentInstance.error()).toBeNull();
   });
 
   it('drops a quote reply that lands after another screen changed the basket', async () => {
