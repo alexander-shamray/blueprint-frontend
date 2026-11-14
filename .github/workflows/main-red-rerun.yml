@@ -39,14 +39,11 @@ jobs:
       failed: ${{ steps.rerun.outputs.failed }}
     steps:
       - id: rerun
-        name: Rerun the failed jobs once, and write the flake down
+        name: Rerun the failed jobs once
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           RUN_ID: ${{ github.event.workflow_run.id }}
-          RUN_URL: ${{ github.event.workflow_run.html_url }}
-          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
-          CONCLUSION: ${{ github.event.workflow_run.conclusion }}
           # Each job that did not pass, and the steps in it that did not, as a list line each.
           FAILED_JQ: >-
             .jobs[] | select(.conclusion | IN("success", "skipped", "neutral") | not)
@@ -61,26 +58,56 @@ jobs:
           delim="EOF_$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')"
           printf 'failed<<%s\n%s\n%s\n' "$delim" "$failed" "$delim" >> "$GITHUB_OUTPUT"
           # Unrerun, the first attempt is the only one there will be, so `file` files it as
-          # `main-red` would.
-          gh run rerun "$RUN_ID" --failed || {
-            echo "::error::the failed jobs could not be rerun"
-            exit 0
-          }
+          # `main-red` would. Refused because a person already reran the failed jobs, it is not:
+          # that later attempt's own `main-red` files it if it is red, so the rerun has started.
+          if gh run rerun "$RUN_ID" --failed; then
+            echo 'by=this workflow' >> "$GITHUB_OUTPUT"
+          else
+            rerun=$(gh run view "$RUN_ID" --json attempt,status \
+              --jq 'if .attempt > 1 or .status != "completed" then "yes" else "no" end') ||
+              rerun=no
+            if [ "$rerun" != yes ]; then
+              echo "::error::the failed jobs could not be rerun"
+              exit 0
+            fi
+            echo 'by=hand, before this workflow reached them' >> "$GITHUB_OUTPUT"
+          fi
           echo 'started=true' >> "$GITHUB_OUTPUT"
-          # A flake that reruns green is still written down, or the tracker goes blind. A missing
-          # tracker is a warning, not a red run: the rerun, which is what unblocks main, has
-          # already started.
-          tracker=$(gh issue list --state open --label flaky --limit 100 --json number,title \
-            --jq 'map(select(.title == "Flaky tests tracker")) | .[0].number // empty')
+
+      # A flake that reruns green is still written down, or the tracker goes blind. A step of its
+      # own, so `started` is published before anything here can fail or hang, and one whose
+      # failure is a warning on a green run: the rerun, which is what unblocks main, has started.
+      - name: Write the flake down on the tracker
+        if: steps.rerun.outputs.started == 'true'
+        continue-on-error: true
+        # Under the job's own bound, so a hang here ends this step and not the job.
+        timeout-minutes: 2
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          FAILED: ${{ steps.rerun.outputs.failed }}
+          RERUN_BY: ${{ steps.rerun.outputs.by }}
+        run: |
+          set -euo pipefail
+          # A list as long as its limit may be cut, and the tracker, older than the issues beside
+          # it, is the one a cut list drops, so it is refused as `file` refuses its own.
+          list=$(gh issue list --state open --label flaky --limit 1000 --json number,title)
+          [ "$(jq length <<<"$list")" -lt 1000 ] ||
+            { echo "::error::the flaky issue list reached its limit and may be cut"; exit 1; }
+          tracker=$(jq -r 'map(select(.title == "Flaky tests tracker")) | .[0].number // empty' \
+            <<<"$list")
           if [ -z "$tracker" ]; then
             echo "::warning::no open Flaky tests tracker issue, so this red attempt is not recorded"
             exit 0
           fi
           printf '%s\n' \
             "The \`ci\` push run on \`main\` at $HEAD_SHA ended \`$CONCLUSION\` on its first" \
-            "attempt, and its failed jobs were rerun once: $RUN_URL" \
+            "attempt, and its failed jobs were rerun once, by $RERUN_BY: $RUN_URL" \
             '' \
-            "$failed" \
+            "$FAILED" \
             '' \
             "A green second attempt makes it a flake; a red one files \`main is red: ci\` from" \
             'that attempt.' \
@@ -89,7 +116,8 @@ jobs:
             gh issue comment "$tracker" --body-file -
 
   # A first attempt the rerun never started, refused or not reached, is filed here as a later
-  # attempt would be.
+  # attempt would be. One whose failed jobs a person had already rerun is not: that attempt is
+  # the later one, and its own `main-red` files it.
   file:
     needs: rerun
     if: always() && needs.rerun.result != 'skipped' && needs.rerun.outputs.started != 'true'
