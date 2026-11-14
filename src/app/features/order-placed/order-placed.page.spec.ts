@@ -616,6 +616,28 @@ describe('OrderPlacedPage', () => {
     mounted.fixture.destroy();
   });
 
+  it('reopens on the 401 of a stream sent before a renewal that landed while it was in flight (#606)', () => {
+    const mounted = mount(GUID_A);
+    controller = mounted.controller;
+    const [first] = streams(controller);
+
+    // The renewal is adopted while the stream sent with the old token is pending.
+    mounted.user.set({ ...demo, expiresAt: 1_800_000_000 });
+    mounted.fixture.detectChanges();
+    fail(first, 401, 'Unauthorized');
+    mounted.fixture.detectChanges();
+
+    expect(mounted.fixture.componentInstance.error()).toBeNull();
+    vi.advanceTimersByTime(60_000);
+    const reopened = streams(controller);
+    expect(reopened).toHaveLength(1);
+
+    // A refusal of the renewed token itself still stops the page.
+    fail(reopened[0], 401, 'Unauthorized');
+    expect(mounted.fixture.componentInstance.error()).toMatchObject({ kind: 'signIn' });
+    mounted.fixture.destroy();
+  });
+
   it('lifts a sign-in stop when the page becomes visible again (#156)', () => {
     const mounted = mount(GUID_A);
     controller = mounted.controller;
