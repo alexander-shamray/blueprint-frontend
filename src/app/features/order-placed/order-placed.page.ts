@@ -194,7 +194,7 @@ export class OrderPlacedPage {
   /** The open stream, or the request that will become one. */
   private inFlight: Subscription | null = null;
   private delayMs: number = ORDER_STREAM.initialMs;
-  /** The id of the last event this id's streams delivered, sent back so the server skips a row we hold. */
+  /** The id of the event behind the row on screen, or null once a 404 has cleared that row; sent back so the server skips a row we hold. */
   private lastEventId: string | null = null;
   /** Between Ionic's `ionViewWillEnter` and `ionViewWillLeave`. Construction counts as entering. */
   private entered = true;
@@ -291,13 +291,13 @@ export class OrderPlacedPage {
     this.resume();
   }
 
-  /** A 401 stopped the stream for want of a session; with one signed in, it no longer holds. */
   /** Whether the session's token was renewed after a request was issued with `issuedWith`. */
   private renewedSince(issuedWith: number | null): boolean {
     const current = this.user()?.expiresAt ?? null;
     return current !== null && (issuedWith === null || current > issuedWith);
   }
 
+  /** A 401 stopped the stream for want of a session; with one signed in, it no longer holds. */
   private liftSignInStop(): void {
     if (this.errorState()?.kind === 'signIn' && this.user() !== null) {
       this.errorState.set(null);
