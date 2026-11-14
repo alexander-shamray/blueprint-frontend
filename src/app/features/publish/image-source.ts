@@ -96,9 +96,17 @@ export const CAMERA = new InjectionToken<CameraPlugin>('CAMERA', {
   }),
 });
 
-/** How the image's bytes are read back from the path the plugin answers with. */
+/**
+ * How the image's bytes are read back from the path the plugin answers with.
+ * `fetch` resolves on a 404 or a 500 too, and its body would be taken for the
+ * photo, so a non-2xx answer rejects and `pick` reads it as unreadable.
+ */
 export const READ_PHOTO = new InjectionToken<(webPath: string) => Promise<Blob>>('READ_PHOTO', {
-  factory: () => async (webPath) => (await fetch(webPath)).blob(),
+  factory: () => async (webPath) => {
+    const response = await fetch(webPath);
+    if (!response.ok) throw new Error(`The photo could not be read: ${response.status}`);
+    return response.blob();
+  },
 });
 
 /** Every refusal the plugin names, as the sentence the seller reads. */

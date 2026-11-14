@@ -220,12 +220,49 @@ describe('ImageSource', () => {
       // A plain answer rather than a `Response`: Node's will not take jsdom's Blob.
       const fetch = vi
         .spyOn(globalThis, 'fetch')
-        .mockResolvedValue({ blob: async () => blob } as unknown as Response);
+        .mockResolvedValue({ ok: true, blob: async () => blob } as unknown as Response);
 
       const read = await TestBed.inject(READ_PHOTO)(PATH);
 
       expect(fetch).toHaveBeenCalledWith(PATH);
       expect(read).toBe(blob);
+    });
+
+    it('rejects a non-2xx answer instead of taking its body for the photo', async () => {
+      const body = new Blob(['not found'], { type: 'text/html' });
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: false,
+        status: 404,
+        blob: async () => body,
+      } as unknown as Response);
+
+      await expect(TestBed.inject(READ_PHOTO)(PATH)).rejects.toThrow('404');
+    });
+
+    it('raises ImagePickError, not a photo, when the path answers non-2xx', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: false,
+        status: 500,
+        blob: async () => new Blob(['oops'], { type: 'text/html' }),
+      } as unknown as Response);
+      TestBed.configureTestingModule({
+        providers: [
+          {
+            provide: ActionSheetController,
+            useValue: {
+              create: async () => ({
+                present: async () => undefined,
+                onDidDismiss: async () => ({ data: 'camera' }),
+              }),
+            },
+          },
+          { provide: CAMERA, useValue: { takePhoto: async () => photo() } },
+        ],
+      });
+
+      await expect(TestBed.inject(NativeImageSource).pick()).rejects.toBeInstanceOf(
+        ImagePickError,
+      );
     });
 
     it('rejects a photo whose bytes cannot be read back', async () => {
