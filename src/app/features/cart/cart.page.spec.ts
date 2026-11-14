@@ -319,6 +319,33 @@ describe('CartPage', () => {
     expect(fixture.componentInstance.canCheckout()).toBe(false);
   });
 
+  it('keeps the newer quote when a reply to an older getQuote() lands after it', async () => {
+    const page = fixture.componentInstance;
+    page.getQuote();
+    page.getQuote();
+    const [older, newer] = controller.match((r) => r.url.includes('/quote'));
+
+    newer.flush({ currency: 'EUR', lines: [], total: 20, unpriced: [] });
+    older.flush({ currency: 'EUR', lines: [], total: 8, unpriced: [] });
+    await fixture.whenStable();
+
+    expect(page.quote()?.total).toBe(20);
+  });
+
+  it('keeps the newer quote when an older getQuote() fails after it', async () => {
+    const page = fixture.componentInstance;
+    page.getQuote();
+    page.getQuote();
+    const [older, newer] = controller.match((r) => r.url.includes('/quote'));
+
+    newer.flush({ currency: 'EUR', lines: [], total: 20, unpriced: [] });
+    older.flush({ title: 'Server error', status: 500 }, { status: 500, statusText: 'Server Error' });
+    await fixture.whenStable();
+
+    expect(page.quote()?.total).toBe(20);
+    expect(page.error()).toBeNull();
+  });
+
   it('discards a quote when the basket is changed from another screen', async () => {
     fixture.componentInstance.getQuote();
     controller.expectOne((r) => r.url.includes('/quote')).flush({
