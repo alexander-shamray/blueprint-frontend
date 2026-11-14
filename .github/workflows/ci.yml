@@ -586,9 +586,14 @@ jobs:
           GH_REPO: ${{ github.repository }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
+          set -euo pipefail
           title='main is red: ci'
-          open=$(gh issue list --state open --label bug --limit 1000 --json number,title \
-            --jq "map(select(.title == \"$title\")) | .[0].number // empty")
+          # A list as long as its limit may be cut, and a listing that cannot see the open issue
+          # files a second one, so it is refused, as main-red-rerun.yml's `file` job refuses it.
+          list=$(gh issue list --state open --label bug --limit 1000 --json number,title)
+          [ "$(jq length <<<"$list")" -lt 1000 ] ||
+            { echo "::error::the issue list reached its limit and may be cut"; exit 1; }
+          open=$(jq -r "map(select(.title == \"$title\")) | .[0].number // empty" <<<"$list")
           if [ -n "$open" ]; then
             gh issue comment "$open" \
               --body "Red again at $GITHUB_SHA on attempt $GITHUB_RUN_ATTEMPT: $RUN_URL"
