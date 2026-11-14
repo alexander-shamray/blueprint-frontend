@@ -18,14 +18,12 @@ COMMANDS = SCRIPTS.parent / "commands"
 BASH = shutil.which("bash")
 GIT = shutil.which("git")
 
-# The programs no command may be granted in any spelling: package runners and
-# interpreters, each of which executes whatever it is pointed at, and the
-# wrappers that run whichever program follows them.
-FORBIDDEN_PROGRAMS = frozenset({
-    "npm", "npx", "node", "ng", "yarn", "pnpm", "bun", "deno",
-    "python", "pip", "env", "command", "exec",
-})
-WRAPPERS = frozenset({"env", "command", "exec"})
+# The programs a command may be granted, and no other: none is a package
+# runner, an interpreter, a shell or a wrapper that runs whatever follows it.
+# A list of forbidden programs passes every one it does not name, so a
+# program missing here is refused until it is added knowingly; `py` and
+# `bash` are granted only pinned, below.
+ALLOWED_PROGRAMS = frozenset({"git", "gh", "ls", "wc", "rm"})
 # The suffixes Windows runs a program by: npm installs `npx.cmd` beside `npx`.
 SHIM_SUFFIXES = (".exe", ".cmd", ".bat", ".ps1")
 # `py` is the launcher `.harness/agent-rules.md` requires, so it is granted,
@@ -34,37 +32,46 @@ SHIM_SUFFIXES = (".exe", ".cmd", ".bat", ".ps1")
 # short flag, a flag's value, a path or a script.
 PINNED_PY = re.compile(
     r"py -3\.\d+ \.claude/scripts/[\w.-]+\.py(?: [a-z][a-z-]*)*(?: --[a-z][a-z-]*)*(?::\*)?")
+# `bash` runs only a file under `.claude/`, whose arguments are its own to
+# check: never a flag of bash's, a path that climbs out with `..`, or an
+# env prefix, since BASH_ENV names a file bash runs first.
+PINNED_BASH = re.compile(r"bash \.claude/(?:[\w-]+/)+\w[\w.-]*(?:[ :].*)?", re.DOTALL)
 
 
 def program_word(grant):
     """The program a `Bash(...)` grant runs: `npx` for `npx:*`, `NPX.exe:*`,
-    `npx.cmd:*`, `/usr/bin/npx:*`, `CI=1 npx:*` and `env npx:*`; `python` for
-    `python3.12:*`. A colon before a slash is a drive letter; a wrapper with a
-    flag or nothing after it is its own word, since a flag's argument would
-    read as the program."""
-    rest = grant.strip()
-    while True:
-        rest = re.sub(r"^(?:\w+=\S*\s+)*", "", rest)
-        word = re.split(r"\s|:(?![\\/])|\*", rest, maxsplit=1)[0]
-        word = word.replace("\\", "/").rsplit("/", 1)[-1].lower()
-        for suffix in SHIM_SUFFIXES:
-            if word.endswith(suffix):
-                word = word[:-len(suffix)]
-                break
-        word = re.sub(r"(?<=[a-z])\d+(?:\.\d+)*$", "", word)
-        after = re.sub(r"^\S+\s+", "", rest, count=1)
-        if word in WRAPPERS and after != rest and after and not after.startswith("-"):
-            rest = after
-            continue
-        return word
+    `npx.cmd:*`, `/usr/bin/npx:*`, `CI=1 npx:*` and `FOO="a b" npx:*`;
+    `python` for `python3.12:*`; `env` for `env npx:*` and `timeout` for
+    `timeout 600 npx:*`, since a wrapper is refused as itself. A colon before
+    a slash is a drive letter."""
+    rest = re.sub(r"""^(?:\w+=(?:"[^"]*"|'[^']*'|\S*)\s+)*""", "", grant.strip())
+    word = re.split(r"\s|:(?![\\/])|\*", rest, maxsplit=1)[0]
+    word = word.replace("\\", "/").rsplit("/", 1)[-1].lower()
+    for suffix in SHIM_SUFFIXES:
+        if word.endswith(suffix):
+            word = word[:-len(suffix)]
+            break
+    return re.sub(r"(?<=[a-z])\d+(?:\.\d+)*$", "", word)
 
 
 def refused_grant(grant):
-    """Whether a `Bash(...)` grant runs a package runner or an interpreter."""
+    """Whether a `Bash(...)` grant runs anything but an allowed program, a
+    pinned `py` or a pinned `bash`."""
     word = program_word(grant)
     if word == "py":
         return not PINNED_PY.fullmatch(grant.strip())
-    return word in FORBIDDEN_PROGRAMS
+    if word == "bash":
+        return not PINNED_BASH.fullmatch(grant.strip())
+    return word not in ALLOWED_PROGRAMS
+
+
+def code(path):
+    """A shell script's text without its whole-line comments, each
+    double-quoted string emptied, so a word in a message or a comment is not
+    read as a command."""
+    lines = path.read_text(encoding="utf-8").splitlines()
+    return "\n".join(re.sub(r'"[^"\n]*"', '""', line) for line in lines
+                     if not line.lstrip().startswith("#"))
 
 
 def setUpModule():
@@ -80,7 +87,8 @@ class TheCheckRunnerIsTheOnlyExecutor(unittest.TestCase):
         # A package runner or an interpreter executes whatever it is pointed
         # at, so the executor is `npm-checks.sh`, one closed-set word
         # (docs/harness-local.md, *Residuals*). Every command is read, the
-        # payload's included, and each grant is judged by its program word.
+        # payload's included, and each grant is judged by its program word
+        # against the allowed ones.
         seen = grants = 0
         for path in sorted(COMMANDS.glob("*.md")):
             seen += 1
@@ -92,7 +100,7 @@ class TheCheckRunnerIsTheOnlyExecutor(unittest.TestCase):
                         self.assertFalse(
                             refused_grant(grant),
                             f"{path.name} grants `Bash({grant})`, which runs a "
-                            "package runner or an interpreter")
+                            "program outside ALLOWED_PROGRAMS or an unpinned py or bash")
         # The positive controls: an empty glob, or a parser that found no
         # grant, would satisfy every case above.
         self.assertGreater(seen, 3, "found almost no commands")
@@ -123,11 +131,25 @@ class TheCheckRunnerIsTheOnlyExecutor(unittest.TestCase):
                       "python3.12:*", "pip3.12 install:*", "env npx:*",
                       "env -i node:*", "env FOO=1 npx:*", "command npx:*",
                       "exec python:*", "env:*", "env -i:*",
-                      "env -u VAR npx:*", "exec -a x npx:*"):
+                      "env -u VAR npx:*", "exec -a x npx:*",
+                      # Shells, the other runners and wrappers, and a quoted
+                      # env value, each of which the forbidden list missed.
+                      "bash:*", "bash -c:*", "bash", "sh -c:*", "zsh:*",
+                      "bash .claude/../x.sh:*", "bash /tmp/x.sh:*",
+                      "bunx:*", "pnpx:*", "tsx:*", "timeout 600 npx:*",
+                      "xargs npx:*", "nohup node:*", "nice -n 5 npx:*",
+                      "sudo npm:*", 'FOO="a b" npx:*', "FOO='a b' npx:*",
+                      "jq:*", "env git:*",
+                      # BASH_ENV names a file bash runs before the script.
+                      "BASH_ENV=/tmp/x bash .claude/scripts/npm-checks.sh:*"):
             with self.subTest(grant=grant):
                 self.assertTrue(refused_grant(grant))
         # And the grants the commands do hold, which a word match must spare.
         for grant in ("bash .claude/scripts/npm-checks.sh:*",
+                      "bash .claude/scripts/pr-state.sh",
+                      "bash .claude/skills/codebase-index/scripts/cbx diff-impact:*",
+                      "GIT.exe diff:*",
+                      "gh:*", "wc:*", "rm suggestions.md",
                       "py -3.12 .claude/scripts/sync_pr.py:*",
                       "py -3.12 .claude/scripts/dispatch_board.py tasks start:*",
                       "py -3.12 .claude/scripts/dispatch_board.py tasks back:*",
@@ -139,13 +161,37 @@ class TheCheckRunnerIsTheOnlyExecutor(unittest.TestCase):
 
     def test_the_check_runner_helper_takes_no_free_parameter(self):
         # The script names and the flags are literals, and the one argument is
-        # matched against a fixed case rather than passed on.
+        # matched against a fixed case rather than passed on. Read per command,
+        # since a literal on another line must not stand in for an expansion
+        # on the line that runs npm; TheCheckRunnerRunsOnlyItsFixedCommands
+        # drives every mode.
+        source = code(SCRIPTS / "npm-checks.sh")
+        runs = {run.strip() for run in re.findall(
+            r"(?<![\w./-])np[mx](?![\w.-])[^;&|}\n]*", source)}
+        self.assertEqual({"npm run lint", "npm test", "npm run build"}, runs)
+        labels = re.findall(r"^\s*([^\s()#]+)\)\s*$", source, re.MULTILINE)
+        self.assertEqual(["all", "fast", "lint", "test", "build", "*"], labels)
+
+    def test_the_command_reader_sees_an_expansion_in_any_spelling(self):
+        # The subject of the case above: each line passes the caller's word
+        # to npm in another spelling, and each must change what it reads.
         source = (SCRIPTS / "npm-checks.sh").read_text(encoding="utf-8")
-        self.assertIn("npm run lint", source)
-        self.assertIn("npm test", source)
-        self.assertIn("npm run build", source)
-        self.assertNotIn('"$@"', source)
-        self.assertNotIn("$mode\"", source.replace('"$mode" in', ""))
+        self.assertIn("    npm run lint || status=$?\n", source)
+        holder = tempfile.TemporaryDirectory(prefix="npm-checks-")
+        self.addCleanup(holder.cleanup)
+        for line in ('npm run $mode || status=$?', 'npm run "${mode}" || status=$?',
+                     'npm run "$1" || status=$?', 'npm run lint "$@" || status=$?',
+                     'cmd=npm; $cmd run "$1" || status=$?'):
+            with self.subTest(line=line):
+                copy = Path(holder.name) / "npm-checks.sh"
+                copy.write_text(source.replace("npm run lint || status=$?", line, 1),
+                                encoding="utf-8")
+                runs = {run.strip() for run in re.findall(
+                    r"(?<![\w./-])np[mx](?![\w.-])[^;&|}\n]*", code(copy))}
+                self.assertNotEqual({"npm run lint", "npm test", "npm run build"}, runs)
+        copy.write_text(source.replace("  *)\n", "  smoke)\n    npx playwright test\n"
+                                       "    ;;\n  *)\n", 1), encoding="utf-8")
+        self.assertIn("smoke", re.findall(r"^\s*([^\s()#]+)\)\s*$", code(copy), re.MULTILINE))
 
     def test_the_check_runner_refuses_an_absent_install(self):
         # Driven, not grepped. A worktree under .claude/worktrees/ resolves
@@ -171,9 +217,54 @@ class TheCheckRunnerIsTheOnlyExecutor(unittest.TestCase):
         # Playwright needs a browser download and the backend's Compose stack.
         # A mode that ran it where neither exists would pass because nothing
         # was listening, which is the fail-open shape every gate here is
-        # written against. CI owns that suite.
-        source = (SCRIPTS / "npm-checks.sh").read_text(encoding="utf-8")
-        self.assertNotIn("npm run e2e", source)
+        # written against. CI owns that suite, and the modes that would run
+        # it are driven in TheCheckRunnerRunsOnlyItsFixedCommands.
+        source = code(SCRIPTS / "npm-checks.sh").lower()
+        for word in ("e2e", "playwright"):
+            with self.subTest(word=word):
+                self.assertNotIn(word, source)
+
+
+class TheCheckRunnerRunsOnlyItsFixedCommands(unittest.TestCase):
+    """Each mode driven against stubs that log argv: the exact npm calls it
+    makes, and no call at all for a mode outside the case."""
+
+    def calls(self, *args):
+        """The exit, stderr and npm and npx calls of `npm-checks.sh *args`."""
+        holder = tempfile.TemporaryDirectory(prefix="npm-timings-")
+        self.addCleanup(holder.cleanup)
+        # The same scratch repository, borrowed: it reads nothing of the
+        # class but addCleanup.
+        base, env = TheCheckRunnerRecordsItsTime.scratch(
+            self, 0, Path(holder.name) / "timings.jsonl")
+        out = subprocess.run([BASH, str(SCRIPTS / "npm-checks.sh"), *args],
+                             capture_output=True, text=True, cwd=str(base), env=env)
+        log = base / "argv.log"
+        lines = log.read_text(encoding="utf-8").splitlines() if log.exists() else []
+        return out, [line for line in lines if line.split(" ", 1)[0] in ("npm", "npx")]
+
+    def test_each_mode_runs_exactly_its_fixed_commands(self):
+        every = ["npm run lint", "npm test", "npm run build"]
+        for args, want in (((), every), (("all",), every),
+                           (("fast",), ["npm run lint", "npm test"]),
+                           (("lint",), ["npm run lint"]), (("test",), ["npm test"]),
+                           (("build",), ["npm run build"]),
+                           (("lint", "--config=x"), ["npm run lint"])):
+            with self.subTest(args=args):
+                out, calls = self.calls(*args)
+                self.assertEqual(0, out.returncode, out.stderr)
+                self.assertEqual(want, calls)
+
+    def test_every_other_mode_is_refused_before_npm_runs(self):
+        # `e2e` and `smoke` would run Playwright; the rest are a mode's near
+        # misses, which a loosened case label would take.
+        for mode in ("e2e", "smoke", "LINT", "lint ", "lint;x", "lint x", "--version",
+                     "run", "-c", "build:prod"):
+            with self.subTest(mode=mode):
+                out, calls = self.calls(mode)
+                self.assertEqual(2, out.returncode, out.stderr)
+                self.assertIn("usage:", out.stderr)
+                self.assertEqual([], calls)
 
 
 class TheCheckRunnerRecordsItsTime(unittest.TestCase):
@@ -181,7 +272,9 @@ class TheCheckRunnerRecordsItsTime(unittest.TestCase):
 
     def scratch(self, npm_exit, timings, stubs=None):
         """A scratch repository and the environment of a run in it. `stubs` maps
-        more program names to the exit each stands for, first on PATH."""
+        more program names to the exit each stands for, first on PATH; `npx`
+        is stubbed too, and every stub appends its name and argv to
+        `argv.log` in the repository."""
         holder = tempfile.TemporaryDirectory(prefix="npm-checks-")
         self.addCleanup(holder.cleanup)
         base = Path(holder.name)
@@ -189,12 +282,15 @@ class TheCheckRunnerRecordsItsTime(unittest.TestCase):
         (base / "node_modules").mkdir()
         stub = base / "bin"
         stub.mkdir()
-        for name, code in {"npm": npm_exit, **(stubs or {})}.items():
+        for name, status in {"npm": npm_exit, "npx": 0, **(stubs or {})}.items():
             program = stub / name
-            program.write_text(f"#!/usr/bin/env bash\nexit {code}\n", encoding="utf-8", newline="\n")
+            program.write_text(
+                "#!/usr/bin/env bash\n"
+                '{ printf "%s" "${0##*/}"; printf " %s" "$@"; printf "\\n"; } >> "$STUB_LOG"\n'
+                f"exit {status}\n", encoding="utf-8", newline="\n")
             program.chmod(0o755)
         env = {**os.environ, "PATH": f"{stub}{os.pathsep}{os.environ['PATH']}",
-               "HARNESS_TIMINGS": str(timings)}
+               "HARNESS_TIMINGS": str(timings), "STUB_LOG": str(base / "argv.log")}
         return base, env
 
     def run_mode(self, mode, npm_exit, timings, stubs=None):
