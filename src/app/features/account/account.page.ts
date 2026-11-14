@@ -283,15 +283,17 @@ export class AccountPage {
    * shown) and the user switches to another tab and back, Ionic performs no
    * teardown on Account — it is a tab root, never destroyed — so the stale
    * banner is still there, unprompted by anything the user just did. The two
-   * methods that can set it, `signIn()` and `signOut()`, are also the only
-   * two that clear it, and each clears it first thing. Left as-is
+   * methods that can set it here, `signIn()` and `signOut()`, each clear it
+   * first thing, whatever else clears it. Left as-is
    * deliberately, unlike the publish page's spent `CommandIdentity`: that
    * loop was CLOSED (the one thing that could clear it was disabled). This
    * one is open — whichever of the two buttons is on screen is enabled, and
    * either clears the banner — so the residue is cosmetic, and arguably
    * still true, rather than a stuck affordance. A change of buyer is not that
-   * loop: the subject effect clears the banner, since it describes a request
-   * the new buyer never made.
+   * loop: the subject effect clears the banner when a buyer is signed in, since
+   * it describes a request that buyer never made. Not when the subject goes
+   * null: a sign-out empties the session before its failure is reported, and
+   * that banner is the one this page must keep.
    */
   private readonly errorState = signal<DisplayError | null>(null);
   readonly error = this.errorState.asReadonly();
@@ -332,8 +334,10 @@ export class AccountPage {
         this.savedAddressState.set(null);
         this.closeEditor();
         // A refusal banner is the last session's own: it describes a save or a
-        // forget the new buyer never made.
-        this.errorState.set(null);
+        // forget the new buyer never made. Only for a buyer: a sign-out nulls
+        // the subject before its own failure banner is set, and clears the
+        // banner itself first thing.
+        if (current !== null) this.errorState.set(null);
         this.readSavedAddress(current);
       });
     });

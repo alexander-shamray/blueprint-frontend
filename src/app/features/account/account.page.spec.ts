@@ -871,6 +871,22 @@ describe('AccountPage', () => {
       expect(fixture.componentInstance.error()).toBeNull();
     });
 
+    it('keeps a sign-out failure banner although the sign-out emptied the session first (#595)', async () => {
+      const { fixture, signOut, session } = mount(demo, true, undefined, savedHome);
+      await fixture.whenStable();
+      signOut.mockImplementationOnce(async () => {
+        session.set(null);
+        throw new Error('logout unreachable');
+      });
+
+      fixture.componentInstance.signOut();
+      await fixture.whenStable();
+      fixture.detectChanges();
+      await fixture.whenStable();
+
+      expect(fixture.componentInstance.error()).not.toBeNull();
+    });
+
     it('forgets it on the buyer’s say-so, and stops showing it', async () => {
       const { fixture, remove } = mount(demo, true, undefined, savedHome);
       await fixture.whenStable();
