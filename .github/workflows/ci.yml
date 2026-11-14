@@ -545,15 +545,22 @@ jobs:
       [web, audit, e2e, gate-suites, workflow-lint, harness, issue-form, android, ios-config, ios-build]
     # A job that hits its timeout or that no runner picks up reports `cancelled`, and `failure()`
     # is false for that. The `concurrency` block above never cancels a push to main, whose group
-    # is its own commit's, so the one false alarm is somebody's own cancel.
+    # is its own commit's, so the one false alarm is somebody's own cancel. A first attempt files
+    # nothing: main-red-rerun.yml reruns its failed jobs once, and this job with them, and files
+    # a first attempt itself when that rerun does not start.
     if: >-
-      always() && github.event_name == 'push' &&
+      always() && github.event_name == 'push' && github.run_attempt != '1' &&
       (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled'))
     runs-on: ubuntu-latest
     # Bounds a step that never exits, which would otherwise hold the runner
     # for GitHub's default limit (docs/testing.md). Headroom over the usual
     # run, not a duration.
     timeout-minutes: 5
+    # One at a time, and in the group main-red-rerun.yml's `file` job files under, so two red runs
+    # never both see no open issue.
+    concurrency:
+      group: main-red
+      cancel-in-progress: false
     permissions:
       issues: write
     steps:
@@ -566,10 +573,12 @@ jobs:
           open=$(gh issue list --state open --label bug --limit 1000 --json number,title \
             --jq "map(select(.title == \"$title\")) | .[0].number // empty")
           if [ -n "$open" ]; then
-            gh issue comment "$open" --body "Red again at $GITHUB_SHA: $RUN_URL"
+            gh issue comment "$open" \
+              --body "Red again at $GITHUB_SHA on attempt $GITHUB_RUN_ATTEMPT: $RUN_URL"
           else
             printf '%s\n' \
-              "The \`ci\` run on a push to \`main\` did not pass at $GITHUB_SHA: $RUN_URL" \
+              "The \`ci\` run on a push to \`main\` did not pass at $GITHUB_SHA on attempt" \
+              "$GITHUB_RUN_ATTEMPT: its failed jobs were rerun and were red again. $RUN_URL" \
               '' \
               '## Severity' \
               '' \

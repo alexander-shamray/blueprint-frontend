@@ -246,9 +246,12 @@ the same PR. It waives nothing else. In particular:
   ruleset forbids rewriting, so it would report what nobody can fix, and
   `git bisect skip` steps over the commit it would have named.
   When a job on a push to `main` fails, times out or finds no runner,
-  `ci.yml`'s `main-red` job opens an issue titled `main is red: ci`, or comments
-  on the open one, so a red run nobody watched still reaches the repository's
-  watchers and every `gh issue list`; it is closed by hand once `main` is green;
+  `main-red-rerun.yml` reruns the run's failed jobs once and comments them on
+  the *Flaky tests tracker*; when the second attempt is red too, `ci.yml`'s
+  `main-red` job opens an issue titled `main is red: ci`, or comments on the
+  open one, as `main-red-rerun.yml` itself does for a rerun that never started,
+  so a red run nobody watched still reaches the repository's watchers and every
+  `gh issue list`; it is closed by hand once `main` is green;
 - every commit carries `PR: #<n>`, as `docs/harness/working-rules.md`
   *Commits* says, and every intermediate commit lints and builds as its pull
   request carried it: the `commits` job lints and builds each commit but the

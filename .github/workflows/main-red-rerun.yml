@@ -1,0 +1,146 @@
+name: main-red-rerun
+
+# A first red attempt of a push run of `ci.yml` on main is rerun once before anything is filed:
+# most red runs on main were a loaded runner, an outside service or a leg no runner picked up, and
+# a rerun turned them green. A workflow of its own, since a run cannot rerun itself while its
+# `main-red` job still runs. The second attempt's `main-red` job, rerun with the jobs it needs,
+# files `main is red: ci` when that attempt is red too (docs/change-locality.md §6).
+on:
+  workflow_run:
+    # By name, which is what `workflow_run` matches: `ci.yml` is named `ci`.
+    workflows: [ci]
+    types: [completed]
+    branches: [main]
+
+permissions: {}
+
+jobs:
+  rerun:
+    # The first attempt alone: a later one is `ci.yml`'s `main-red` job's to file, and rerunning it
+    # again would only hide a red main for longer.
+    if: >-
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.run_attempt == 1 &&
+      contains(fromJSON('["failure", "cancelled", "timed_out", "startup_failure"]'),
+      github.event.workflow_run.conclusion)
+    runs-on: ubuntu-latest
+    # Bounds a step that never exits, which would otherwise hold the runner
+    # for GitHub's default limit (docs/testing.md). Headroom over the usual
+    # run, not a duration.
+    timeout-minutes: 5
+    # No concurrency group: GitHub cancels a group's pending job when a newer one queues, and a
+    # rerun cancelled so would leave its first attempt neither rerun nor filed, since `main-red`
+    # files from a later attempt alone.
+    permissions:
+      actions: write
+      issues: write
+    outputs:
+      started: ${{ steps.rerun.outputs.started }}
+      failed: ${{ steps.rerun.outputs.failed }}
+    steps:
+      - id: rerun
+        name: Rerun the failed jobs once, and write the flake down
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          # Each job that did not pass, and the steps in it that did not, as a list line each.
+          FAILED_JQ: >-
+            .jobs[] | select(.conclusion | IN("success", "skipped", "neutral") | not)
+            | ([.steps[]? | select(.conclusion | IN("failure", "cancelled", "timed_out"))
+            | "`\(.name)`"] | if length == 0 then "no step failed" else join(", ") end) as $steps
+            | "- `\(.name)` (\(.conclusion)): \($steps)"
+        run: |
+          set -euo pipefail
+          # Read before the rerun replaces them.
+          failed=$(gh run view "$RUN_ID" --attempt 1 --json jobs --jq "$FAILED_JQ" ||
+            echo '- its jobs could not be read')
+          delim="EOF_$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')"
+          printf 'failed<<%s\n%s\n%s\n' "$delim" "$failed" "$delim" >> "$GITHUB_OUTPUT"
+          # Unrerun, the first attempt is the only one there will be, so `file` files it as
+          # `main-red` would.
+          gh run rerun "$RUN_ID" --failed || {
+            echo "::error::the failed jobs could not be rerun"
+            exit 0
+          }
+          echo 'started=true' >> "$GITHUB_OUTPUT"
+          # A flake that reruns green is still written down, or the tracker goes blind. A missing
+          # tracker is a warning, not a red run: the rerun, which is what unblocks main, has
+          # already started.
+          tracker=$(gh issue list --state open --label flaky --limit 100 --json number,title \
+            --jq 'map(select(.title == "Flaky tests tracker")) | .[0].number // empty')
+          if [ -z "$tracker" ]; then
+            echo "::warning::no open Flaky tests tracker issue, so this red attempt is not recorded"
+            exit 0
+          fi
+          printf '%s\n' \
+            "The \`ci\` push run on \`main\` at $HEAD_SHA ended \`$CONCLUSION\` on its first" \
+            "attempt, and its failed jobs were rerun once: $RUN_URL" \
+            '' \
+            "$failed" \
+            '' \
+            "A green second attempt makes it a flake; a red one files \`main is red: ci\` from" \
+            'that attempt.' \
+            '' \
+            'Commented by main-red-rerun.yml.' |
+            gh issue comment "$tracker" --body-file -
+
+  # A first attempt the rerun never started, refused or not reached, is filed here as a later
+  # attempt would be.
+  file:
+    needs: rerun
+    if: always() && needs.rerun.result != 'skipped' && needs.rerun.outputs.started != 'true'
+    runs-on: ubuntu-latest
+    # Bounds a step that never exits, which would otherwise hold the runner
+    # for GitHub's default limit (docs/testing.md). Headroom over the usual
+    # run, not a duration.
+    timeout-minutes: 5
+    # The group `ci.yml`'s `main-red` job files under, so a filing here and one there never both
+    # see no open issue. A pending job displaced from it is displaced by one that files or
+    # comments, so the red is still heard.
+    concurrency:
+      group: main-red
+      cancel-in-progress: false
+    permissions:
+      issues: write
+    steps:
+      - name: A red main that was not rerun is an issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          FAILED: ${{ needs.rerun.outputs.failed }}
+        run: |
+          set -euo pipefail
+          title='main is red: ci'
+          # A list as long as its limit may be cut, and a listing that cannot see the open issue
+          # files a second one, so it is refused.
+          list=$(gh issue list --state open --label bug --limit 1000 --json number,title)
+          [ "$(jq length <<<"$list")" -lt 1000 ] ||
+            { echo "::error::the issue list reached its limit and may be cut"; exit 1; }
+          open=$(jq -r "map(select(.title == \"$title\")) | .[0].number // empty" <<<"$list")
+          if [ -n "$open" ]; then
+            gh issue comment "$open" \
+              --body "Red again at $HEAD_SHA, and its failed jobs were not rerun: $RUN_URL"
+          else
+            printf '%s\n' \
+              "The \`ci\` run on a push to \`main\` did not pass at $HEAD_SHA ($CONCLUSION), and" \
+              "its failed jobs were not rerun: $RUN_URL" \
+              '' \
+              "${FAILED:-- its jobs could not be read}" \
+              '' \
+              '## Severity' \
+              '' \
+              'high' \
+              '' \
+              'Revert the pull request that turned it red first, then fix forward' \
+              '(docs/change-locality.md §6). Close this issue once main is green.' \
+              '' \
+              'Filed by main-red-rerun.yml, not by hand or by a sweep.' |
+              gh issue create --title "$title" --label bug --label high --body-file -
+          fi
