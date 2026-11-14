@@ -1326,5 +1326,4 @@ describe('OwnProductsComponent inside an open authenticated rate-limit window (#
     controller.expectOne((r) => r.url === MINE).flush({ items: [], nextCursor: null });
     controller.verify();
   });
-
 });
