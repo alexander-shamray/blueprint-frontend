@@ -791,6 +791,37 @@ describe('AccountPage', () => {
       expect(fixture.componentInstance.savedAddress()).toBeNull();
     });
 
+    it('drops a forget that lands after another buyer signed in', async () => {
+      const { fixture, remove, read, session } = mount(demo, true, undefined, savedHome);
+      await fixture.whenStable();
+      const late = new Subject<void>();
+      remove.mockReturnValueOnce(late);
+      fixture.componentInstance.forgetAddress();
+
+      read.mockReturnValue(of(savedHome));
+      session.set({ ...demo, subject: 'someone-else' });
+      fixture.detectChanges();
+      await fixture.whenStable();
+      late.next();
+
+      expect(fixture.componentInstance.savedAddress()).toEqual(savedHome);
+    });
+
+    it('drops a forget failure that lands after another buyer signed in', async () => {
+      const { fixture, remove, session } = mount(demo, true, undefined, savedHome);
+      await fixture.whenStable();
+      const late = new Subject<void>();
+      remove.mockReturnValueOnce(late);
+      fixture.componentInstance.forgetAddress();
+
+      session.set({ ...demo, subject: 'someone-else' });
+      fixture.detectChanges();
+      await fixture.whenStable();
+      late.error(new Error('refused'));
+
+      expect(fixture.componentInstance.error()).toBeNull();
+    });
+
     it('forgets it on the buyer’s say-so, and stops showing it', async () => {
       const { fixture, remove } = mount(demo, true, undefined, savedHome);
       await fixture.whenStable();

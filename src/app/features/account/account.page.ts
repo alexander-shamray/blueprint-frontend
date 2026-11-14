@@ -485,10 +485,21 @@ export class AccountPage {
     this.errorState.set(null);
     this.latestRequest++;
 
-    this.savedAddressApi.remove().subscribe({
-      next: () => this.savedAddressState.set(null),
-      error: (failure: unknown) => this.errorState.set(mapError(failure)),
-    });
+    // The reply belongs to the session that sent it: another buyer's page must
+    // be neither emptied nor given a banner by the last buyer's late answer.
+    const epoch = this.sessionEpoch;
+
+    this.savedAddressApi
+      .remove()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: () => {
+          if (epoch === this.sessionEpoch) this.savedAddressState.set(null);
+        },
+        error: (failure: unknown) => {
+          if (epoch === this.sessionEpoch) this.errorState.set(mapError(failure));
+        },
+      });
   }
 
   /**
