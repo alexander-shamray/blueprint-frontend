@@ -292,6 +292,12 @@ export class OrderPlacedPage {
   }
 
   /** A 401 stopped the stream for want of a session; with one signed in, it no longer holds. */
+  /** Whether the session's token was renewed after a request was issued with `issuedWith`. */
+  private renewedSince(issuedWith: number | null): boolean {
+    const current = this.user()?.expiresAt ?? null;
+    return current !== null && (issuedWith === null || current > issuedWith);
+  }
+
   private liftSignInStop(): void {
     if (this.errorState()?.kind === 'signIn' && this.user() !== null) {
       this.errorState.set(null);
@@ -359,6 +365,7 @@ export class OrderPlacedPage {
     }
 
     const issuedForId = this.orderId();
+    const issuedWithExpiry = this.user()?.expiresAt ?? null;
 
     this.inFlight = this.orders.stream(issuedForId, this.lastEventId).subscribe({
       next: ({ id, order }) => {
@@ -381,6 +388,14 @@ export class OrderPlacedPage {
         if (this.orderId() !== issuedForId) return;
 
         const displayed = mapError(failure);
+        if (displayed.kind === 'signIn' && this.renewedSince(issuedWithExpiry)) {
+          // Sent with the token that was current then; a renewal has been
+          // adopted since, and the expiry effect could not lift a stop that
+          // did not exist yet (#606). Ask again with the new one: a second
+          // 401 is sent with it and stops.
+          this.next();
+          return;
+        }
         if (displayed.kind === 'signIn' || displayed.kind === 'forbidden') {
           // Nothing a later attempt could change on its own: say so and stop.
           // A 401 is lifted on the next entry once a session is back
