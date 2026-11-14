@@ -351,12 +351,16 @@ realm's direct grant on the host, and it reaches the WebView through its
 DevTools socket, which a debug build exposes:
 
 ```bash
-adb shell cat /proc/net/unix | grep -o 'webview_devtools_remote_[0-9]*'
+adb shell "cat /proc/net/unix" | grep -o 'webview_devtools_remote_[0-9]*'
 adb forward tcp:9222 localabstract:webview_devtools_remote_<pid>
 node e2e/native-stream.mts           # places an order; or pass an order id
 ```
 
-The pid changes on every launch, so the forward is redone each time. Node
+The pid changes on every launch, so the forward is redone each time. The
+device command is quoted as one argument because Git Bash, the shell on a
+Windows host, rewrites a bare `/proc/net/unix` into a path under its own
+install before the native `adb.exe` sees it, and the `cat` then finds
+nothing. Node
 warns that `environment.android.ts` was reparsed as an ES module; that is its
 module detection and not a failure.
 
