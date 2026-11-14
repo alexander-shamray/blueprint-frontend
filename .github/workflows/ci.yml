@@ -223,13 +223,15 @@ jobs:
       # packages are ever made private, `pull` fails with "denied" and this
       # step needs a docker/login-action for ghcr.io before it.
       - name: Start the platform
+        timeout-minutes: 30
         working-directory: blueprint-backend
         run: |
           compose=deploy/compose/docker-compose.yml
-          # Both fetch from outside the repository, and a 504 from either is not a result.
+          # Both fetch from outside the repository, and a 504 from either is not a result; each
+          # attempt is bounded, so a fetch that stalls is tried again rather than held to the job.
           retry() {
             for attempt in 1 2 3; do
-              "$@" && return 0
+              timeout 8m "$@" && return 0
               echo "'$*' failed (attempt $attempt)." >&2
               sleep 10
             done
@@ -240,9 +242,13 @@ jobs:
           docker compose -f "$compose" up -d --wait --no-build
 
       - name: Wait for the gateway
+        timeout-minutes: 10
         run: |
-          for _ in $(seq 1 60); do
-            curl -fsS http://localhost:5000/health/ready && exit 0
+          # Five minutes by the clock, each try bounded, so a gateway that holds the connection
+          # open without answering costs one try rather than the job.
+          deadline=$((SECONDS + 300))
+          while [ "$SECONDS" -lt "$deadline" ]; do
+            curl -fsS --connect-timeout 5 --max-time 5 http://localhost:5000/health/ready && exit 0
             sleep 5
           done
           echo "The gateway never became ready." >&2
