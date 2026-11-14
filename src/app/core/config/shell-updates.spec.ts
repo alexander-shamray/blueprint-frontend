@@ -136,6 +136,20 @@ describe('ShellUpdates', () => {
   });
 
   it('asks for an update at start and again when the connection returns', async () => {
+    const { updates, online } = setup({ enabled: true });
+    TestBed.tick();
+    expect(updates.checkForUpdate).toHaveBeenCalledTimes(1);
+
+    online.set(false);
+    TestBed.tick();
+    expect(updates.checkForUpdate).toHaveBeenCalledTimes(1);
+
+    online.set(true);
+    TestBed.tick();
+    expect(updates.checkForUpdate).toHaveBeenCalledTimes(2);
+  });
+
+  it('asks nothing while it starts offline, and once when the connection first arrives', () => {
     const { updates, online } = setup({ enabled: true, online: false });
     TestBed.tick();
     expect(updates.checkForUpdate).not.toHaveBeenCalled();
