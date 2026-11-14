@@ -642,17 +642,19 @@ export class CheckoutPage {
         // window, and a later 401 may still replay once it closes (#584). The
         // 401's sign-in banner is dropped so the window's own, with its
         // countdown, shows instead.
-        if (!this.replayedAfterSignIn && sameSubject && this.rateLimit.blocked()) {
-          this.errorState.set(null);
+        if (!sameSubject) return;
+        // A replay already spent sends nothing either, and the buyer is signed
+        // in: the banner would tell them otherwise, so it is dropped too
+        // (#599). Pressing Place order again is safe, the command id is held.
+        if (this.replayedAfterSignIn || this.rateLimit.blocked()) {
+          if (this.errorState()?.kind === 'signIn') this.errorState.set(null);
           return;
         }
-        if (!this.replayedAfterSignIn && sameSubject) {
-          // Spent where the replay is sent, not before the sign-in settles: a
-          // dismissed or foreign sign-in sent nothing, so the bound has not
-          // been used (#157).
-          this.replayedAfterSignIn = true;
-          this.placeOrder();
-        }
+        // Spent where the replay is sent, not before the sign-in settles: a
+        // dismissed or foreign sign-in sent nothing, so the bound has not
+        // been used (#157).
+        this.replayedAfterSignIn = true;
+        this.placeOrder();
       },
       (failure: unknown) => this.errorState.set(mapError(failure)),
     );

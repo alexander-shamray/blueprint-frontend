@@ -1149,4 +1149,22 @@ describe('CheckoutPage', () => {
       expect(fixture.componentInstance.saveAddress.value).toBe(true);
     });
   });
+
+  it('drops the sign-in banner when a completed sign-in sends no replay, the bound being spent (#599)', async () => {
+    fixture.componentInstance.placeOrder();
+    controller
+      .expectOne('http://localhost:5000/api/v1/orders')
+      .flush({ title: 'Unauthorized', status: 401 }, { status: 401, statusText: 'Unauthorized' });
+    await fixture.whenStable();
+    controller
+      .expectOne('http://localhost:5000/api/v1/orders')
+      .flush({ title: 'Unauthorized', status: 401 }, { status: 401, statusText: 'Unauthorized' });
+    await fixture.whenStable();
+
+    // The second sign-in completed for the same buyer and sent nothing: they
+    // are signed in, and "Sign in to continue." must not stay on screen.
+    expect(signIn).toHaveBeenCalledTimes(2);
+    controller.expectNone('http://localhost:5000/api/v1/orders');
+    expect(fixture.componentInstance.error()).toBeNull();
+  });
 });
