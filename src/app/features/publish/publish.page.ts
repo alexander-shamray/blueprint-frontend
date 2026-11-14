@@ -658,11 +658,15 @@ export class PublishPage {
           refusedSubject !== null &&
           this.auth.user()()?.subject === refusedSubject &&
           this.subjectChanges === changesAtRefusal;
-        if (replay && sameSubject) {
-          // Spent where the replay is sent (#157); see CheckoutPage.
-          this.replayedAfterSignIn = true;
-          this.publish();
+        if (!sameSubject) return;
+        // A spent bound sends nothing, and the seller is signed in (#599).
+        if (!replay) {
+          if (this.errorState()?.kind === 'signIn') this.errorState.set(null);
+          return;
         }
+        // Spent where the replay is sent (#157); see CheckoutPage.
+        this.replayedAfterSignIn = true;
+        this.publish();
       },
       (failure: unknown) => this.errorState.set(mapError(failure)),
     );

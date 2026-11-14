@@ -738,4 +738,23 @@ describe('OrderDetailPage', () => {
 
     controller.expectNone(`${READ}${GUID_A}`);
   });
+
+  it('drops the sign-in banner when a completed sign-in sends no replay, the bound being spent (#599)', async () => {
+    const mounted = await mountWith(order());
+    controller = mounted.controller;
+    const refuse = () =>
+      controller!
+        .expectOne((r) => r.url.endsWith('/cancel'))
+        .flush({ title: 'Unauthorized', status: 401 }, { status: 401, statusText: 'Unauthorized' });
+
+    mounted.fixture.componentInstance.cancel();
+    refuse();
+    await mounted.fixture.whenStable();
+    refuse();
+    await mounted.fixture.whenStable();
+
+    expect(signIn).toHaveBeenCalledTimes(2);
+    controller.expectNone((r) => r.url.endsWith('/cancel'));
+    expect(mounted.fixture.componentInstance.error()).toBeNull();
+  });
 });
