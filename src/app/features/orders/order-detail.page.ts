@@ -320,6 +320,14 @@ export class OrderDetailPage {
   /** True while a `cancel()` request is outstanding. See `cancel()` below. */
   private readonly cancelling = signal(false);
 
+  /**
+   * Which cancel session a reply belongs to. The id and subject effects
+   * release `cancelling` and bump it, so a reply from a cancel sent before a
+   * re-sign-in, or before the route went to another order and back, never
+   * releases the guard of a newer cancel that is still out (#596).
+   */
+  private cancelEpoch = 0;
+
   /** A first or subject-change read was asked for inside a blocked window, and is taken once it ends. */
   private readonly readHeld = signal(false);
 
@@ -347,6 +355,7 @@ export class OrderDetailPage {
         this.cancelledState.set(false);
         this.cancelErrorState.set(null);
         this.loadErrorState.set(null);
+        this.cancelEpoch++;
         this.cancelling.set(false);
         this.loadOrHold();
       });
@@ -378,6 +387,7 @@ export class OrderDetailPage {
         this.cancelErrorState.set(null);
         this.loadErrorState.set(null);
         this.loadingState.set(false);
+        this.cancelEpoch++;
         this.cancelling.set(false);
         this.replayedAfterSignIn = false;
         // A read the previous subject left held is theirs, not the next one's.
@@ -472,10 +482,13 @@ export class OrderDetailPage {
     // buyer who has since signed out never lands under the one who followed.
     const issuedForId = this.orderId();
     const issuedForSubject = this.subject();
+    const issuedInEpoch = this.cancelEpoch;
 
     this.ordering.cancel(issuedForId, OrderDetailPage.USER_REASON).subscribe({
       next: () => {
-        if (!this.stillFor(issuedForId, issuedForSubject)) return;
+        if (issuedInEpoch !== this.cancelEpoch || !this.stillFor(issuedForId, issuedForSubject)) {
+          return;
+        }
         this.cancelling.set(false);
         this.replayedAfterSignIn = false;
         this.cancelErrorState.set(null);
@@ -485,7 +498,9 @@ export class OrderDetailPage {
         this.load();
       },
       error: (failure: HttpErrorResponse) => {
-        if (!this.stillFor(issuedForId, issuedForSubject)) return;
+        if (issuedInEpoch !== this.cancelEpoch || !this.stillFor(issuedForId, issuedForSubject)) {
+          return;
+        }
         this.cancelling.set(false);
         // The permission comes from the route's own knowledge of what it
         // needs, not from the response — the 403 deliberately names none.
@@ -528,7 +543,8 @@ export class OrderDetailPage {
           replay &&
           refusedSubject !== null &&
           this.stillFor(issuedForId, refusedSubject) &&
-          !this.cancelled()
+          !this.cancelled() &&
+          !this.rateLimit.blocked()
         ) {
           // Spent where the replay is sent (#157); see CheckoutPage.
           this.replayedAfterSignIn = true;
