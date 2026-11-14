@@ -400,6 +400,9 @@ export class OrderPlacedPage {
           // The latest answer decides the note, and a 404 never stands
           // beside a status an earlier event reported.
           this.statusState.set(null);
+          // The row is no longer shown, so the reopen must not ask the
+          // server to skip it (#605).
+          this.lastEventId = null;
           this.notRecordedState.set(true);
           this.transientState.set(false);
         } else {

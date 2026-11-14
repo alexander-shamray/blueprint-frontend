@@ -548,6 +548,22 @@ describe('OrderPlacedPage', () => {
     mounted.fixture.destroy();
   });
 
+  it('reopens after a 404 without the id of the row it stopped showing (#605)', () => {
+    const mounted = mount(GUID_A);
+    controller = mounted.controller;
+    end(openWith(controller, detail(GUID_A, 'placed')));
+
+    vi.advanceTimersByTime(3_000);
+    const [again] = streams(controller);
+    expect(again.request.headers.get('Last-Event-ID')).toBe('2026-10-05T10:00:01Z');
+    fail(again, 404, 'Not Found');
+
+    vi.advanceTimersByTime(60_000);
+    const [reopened] = streams(controller);
+    expect(reopened.request.headers.has('Last-Event-ID')).toBe(false);
+    mounted.fixture.destroy();
+  });
+
   it('lets the latest answer decide the note: a 404 after a failed open says not recorded', () => {
     const mounted = mount(GUID_A);
     controller = mounted.controller;
