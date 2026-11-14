@@ -2,14 +2,20 @@ import { Component, LOCALE_ID, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { Router, provideRouter } from '@angular/router';
 import { Preferences } from '@capacitor/preferences';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { PERMISSIONS } from '@core/api/types';
 import { AssistantClient } from '@core/assistant/assistant-client';
 import { AssistantTransport } from '@core/assistant/assistant-transport';
 import { OpenConversation } from '@core/assistant/protocol';
 import { FakeHost, json, settle } from '@core/assistant/testing/assistant-fakes';
 import { AuthService, CurrentUser } from '@core/auth/auth.service';
-import { AssistantStore, CLIENT, CONVERSATION_KEY, NOTICE_KEY } from './assistant.store';
+import {
+  AssistantStore,
+  CLIENT,
+  CONVERSATION_KEY,
+  NOTICE_KEY,
+  STATUS_RETRY_MS,
+} from './assistant.store';
 
 const BASE = '/bff/v1/assistant';
 const ON = { enabled: true, provider: 'anthropic', model: 'm', reason: null };
@@ -224,6 +230,25 @@ describe('AssistantStore', () => {
     expect(store.state().id).toBeNull();
     expect(sessionStorage.getItem(CONVERSATION_KEY)).toBeNull();
     expect(host.requests.length).toBe(asked);
+  });
+
+  it('reads the status again after a read that could not say, rather than staying hidden', async () => {
+    vi.useFakeTimers();
+    try {
+      const { store, host, user } = setup({ user: null });
+      let calls = 0;
+      host.on('GET', /\/assistant$/, () => (++calls === 1 ? json({}, 503) : json(ON)));
+      user.set(customer('s1'));
+      TestBed.tick();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(store.available()).toBe(false);
+
+      await vi.advanceTimersByTimeAsync(STATUS_RETRY_MS[0]);
+
+      expect(store.available()).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('drops a status read answered after the customer it was for signed out', async () => {
