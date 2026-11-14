@@ -21,6 +21,8 @@ import {
   IonToolbar,
 } from '@ionic/angular';
 import { ConversationItem } from '@core/assistant/protocol';
+import { RateLimitWindows } from '@core/errors/rate-limit';
+import { ErrorBannerComponent } from '@shared/error-banner.component';
 import { AssistantStore } from './assistant.store';
 import { endLabel, problemLabel, toolLabel } from './assistant-words';
 
@@ -43,6 +45,7 @@ type ToolItem = Extract<ConversationItem, { kind: 'tool' }>;
   selector: 'app-assistant-panel',
   standalone: true,
   imports: [
+    ErrorBannerComponent,
     IonButton,
     IonButtons,
     IonContent,
@@ -119,7 +122,7 @@ type ToolItem = Extract<ConversationItem, { kind: 'tool' }>;
         <ion-buttons slot="end">
           <ion-button
             (click)="startOver()"
-            [disabled]="empty() || running()"
+            [disabled]="empty() || running() || rateLimit.blocked()"
             data-testid="assistant-start-over"
             i18n="@@assistant.startOver"
             >Start over</ion-button
@@ -188,6 +191,8 @@ type ToolItem = Extract<ConversationItem, { kind: 'tool' }>;
         }
       </div>
 
+      <app-error-banner [error]="rateLimit.refusal()" [retryInSeconds]="rateLimit.remaining()" />
+
       @if (problem(); as problem) {
         <p role="alert" data-testid="assistant-problem">
           <ion-note color="danger">{{ problemWords(problem) }}</ion-note>
@@ -249,8 +254,14 @@ export class AssistantPanelComponent {
   protected readonly running = computed(() => this.store.state().running);
   protected readonly problem = computed(() => this.store.state().problem);
   protected readonly empty = computed(() => this.items().length === 0);
+  /** Spec §6's 429 row: a turn is a POST under `/bff/`, the gateway's authenticated bucket (#572). */
+  protected readonly rateLimit = inject(RateLimitWindows).authenticated;
   protected readonly canSend = computed(
-    () => !this.noticePending() && !this.running() && this.draft().trim() !== '',
+    () =>
+      !this.noticePending() &&
+      !this.running() &&
+      !this.rateLimit.blocked() &&
+      this.draft().trim() !== '',
   );
 
   constructor() {
@@ -297,6 +308,7 @@ export class AssistantPanelComponent {
   }
 
   protected startOver(): void {
+    if (this.rateLimit.blocked()) return;
     void this.store.startOver();
   }
 

@@ -370,9 +370,24 @@ export class CheckoutPage {
     const signedInSubject = computed(() => user()?.subject ?? null);
     effect(() => {
       const subject = signedInSubject();
-      untracked(() => (subject === null ? this.dropPrefill() : this.prefillFromSaved(subject)));
+      untracked(() => {
+        if (subject === null) {
+          this.prefillHeld.set(null);
+          this.dropPrefill();
+        } else this.prefillFromSaved(subject);
+      });
+    });
+
+    // A prefill held for the window is taken once it closes.
+    effect(() => {
+      const held = this.prefillHeld();
+      if (held === null || this.rateLimit.blocked()) return;
+      untracked(() => this.prefillFromSaved(held));
     });
   }
+
+  /** The subject whose saved-address read was asked for inside a blocked window (#572). */
+  private readonly prefillHeld = signal<string | null>(null);
 
   /**
    * Whether the form holds an address this page filled in from the saved one
@@ -412,6 +427,15 @@ export class CheckoutPage {
    * kept: the address lives in the form, as a typed one does.
    */
   private prefillFromSaved(subject: string): void {
+    // A read sent inside the `authenticated` window is one the client already
+    // expects to be refused, which restarts it for every screen on the bucket
+    // (#572, as `ProductPage` for #161): it waits, and the form stays empty
+    // meanwhile, as it does when there is nothing saved.
+    if (this.rateLimit.blocked()) {
+      this.prefillHeld.set(subject);
+      return;
+    }
+    this.prefillHeld.set(null);
     this.savedAddressApi.read().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (saved) => {
         if (saved === null || this.form.dirty) return;
