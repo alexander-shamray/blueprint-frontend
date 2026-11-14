@@ -117,8 +117,18 @@ describe('silent-refresh.html posts the authorization response to its parent (#3
       ['the query without its leading #', 'state=n1&code=c1'],
     ])('exchanges nothing for %s, which is the #373 time-out', async (_, message) => {
       deliver(message);
+      // A well-formed response delivered after it runs the same listener and the
+      // same exchange, so once its POST is out, any POST the first message
+      // caused is out too, however late the exchange runs: no fixed wait to
+      // outlast.
+      deliver(postedOn(`${REDIRECT}?state=n1&code=after`).message);
 
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      const after = await vi.waitFor(() =>
+        controller.expectOne(
+          (r) => r.url === TOKEN_ENDPOINT && (r.body as HttpParams).get('code') === 'after',
+        ),
+      );
+      after.flush({ error: 'invalid_grant' }, { status: 400, statusText: 'Bad Request' });
       controller.expectNone(TOKEN_ENDPOINT);
     });
   });

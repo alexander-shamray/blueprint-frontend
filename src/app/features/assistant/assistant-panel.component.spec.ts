@@ -106,6 +106,12 @@ describe('AssistantPanelComponent', () => {
     send();
     fixture.detectChanges();
     expect(store.send).toHaveBeenCalledWith('is it in stock?');
+
+    // Cleared: a second press finds nothing to send, where a draft left in the
+    // box would be sent again.
+    send();
+    fixture.detectChanges();
+    expect(store.send).toHaveBeenCalledTimes(1);
   });
 
   it('sends on Enter, and not while a turn runs', async () => {
