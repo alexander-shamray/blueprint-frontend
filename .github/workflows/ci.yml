@@ -290,11 +290,28 @@ jobs:
         run: python .claude/scripts/harness-legs.py >> "$GITHUB_OUTPUT"
       # `setUpModule` FAILS rather than skips on a missing tool, so jq has to
       # be present on every runner rather than only where it happens to ship.
-      # It is on the ubuntu image already; the other two need a line.
-      - if: runner.os == 'Windows' && steps.reach.outputs.test != 'false'
-        run: choco install jq --no-progress -y
-      - if: runner.os == 'macOS' && steps.reach.outputs.test != 'false'
-        run: brew install jq
+      # It is on the ubuntu image already; the other two need a step, each retried as the `e2e`
+      # job's downloads are, since the package comes from outside the repository.
+      - name: Install jq on Windows
+        if: runner.os == 'Windows' && steps.reach.outputs.test != 'false'
+        shell: bash
+        run: |
+          for attempt in 1 2 3; do
+            choco install jq --no-progress -y && exit 0
+            echo "jq's install failed (attempt $attempt)." >&2
+            sleep 10
+          done
+          exit 1
+      - name: Install jq on macOS
+        if: runner.os == 'macOS' && steps.reach.outputs.test != 'false'
+        shell: bash
+        run: |
+          for attempt in 1 2 3; do
+            brew install jq && exit 0
+            echo "jq's install failed (attempt $attempt)." >&2
+            sleep 10
+          done
+          exit 1
       - name: The suite reads `git ls-files`, so the checkout must be a real one
         run: git rev-parse --is-inside-work-tree
       # The shard runner every target is handed, on every leg, as the

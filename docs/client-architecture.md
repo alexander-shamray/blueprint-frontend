@@ -1561,14 +1561,16 @@ rather than following the other three onto `ubuntu-latest`: the claim above is
 about an image, and `ubuntu-latest` is a label that moves.
 
 The steps named here retry a download from outside the repository before they
-fail (#513); the `harness` job's package-manager installs of `jq` do not. The
-two `main is red` issues filed before #513 (#405, #452) were each a failed
-download that passed on a rerun with no change, so the job that fetched it was
-not the thing under test. The `workflow-lint` job's
-`curl` retries every error, and the checksum line after it already refuses a
-truncated file. `playwright install`, the Gradle wrapper's download and the
-Compose `pull` and broker `build` in `e2e` run in a loop. `playwright install`
-is also bounded, per attempt and by its step, well under the job's limit, so a
+fail (#513, #517). The two `main is red` issues filed before #513 (#405, #452)
+were each a failed download that passed on a rerun with no change, so the job
+that fetched it was not the thing under test; that is also why a red first
+attempt on `main` is rerun once before anything is filed (#519), as
+`docs/change-locality.md` §6 says. The `workflow-lint` job's `curl` retries
+every error, and the checksum line after it already refuses a truncated file.
+`playwright install`, the Gradle wrapper's download, the Compose `pull` and
+broker `build` in `e2e`, and the `harness` job's package-manager installs of
+`jq` on Windows and macOS run in a loop. `playwright install` is also bounded,
+per attempt and by its step, well under the job's limit, so a
 download that hangs on runner DNS fails in minutes and is tried again rather
 than holding the job to its cancel. The attempts, delays and limits are in
 `ci.yml`, and a document names no number. The RabbitMQ plugin download is in
