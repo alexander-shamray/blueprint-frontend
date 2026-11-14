@@ -9,6 +9,7 @@ import { AssistantTransport } from '@core/assistant/assistant-transport';
 import { OpenConversation } from '@core/assistant/protocol';
 import { FakeHost, json, settle } from '@core/assistant/testing/assistant-fakes';
 import { AuthService, CurrentUser } from '@core/auth/auth.service';
+import { RateLimitWindows } from '@core/errors/rate-limit';
 import {
   AssistantStore,
   CLIENT,
@@ -246,6 +247,51 @@ describe('AssistantStore', () => {
       await vi.advanceTimersByTimeAsync(STATUS_RETRY_MS[0]);
 
       expect(store.available()).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('sends no status read inside a 429 window of the authenticated limiter, and one after it', async () => {
+    vi.useFakeTimers();
+    try {
+      const { store, host, user } = setup({ user: null });
+      TestBed.inject(RateLimitWindows)
+        .forPartition('authenticated')
+        .open({ kind: 'rateLimited', title: 'Slow down', detail: null, retryAfterSeconds: 30 });
+      user.set(customer('s1'));
+      TestBed.tick();
+      await vi.advanceTimersByTimeAsync(29_000);
+      expect(statusReads(host)).toBe(0);
+
+      await vi.advanceTimersByTimeAsync(2_000);
+
+      expect(statusReads(host)).toBe(1);
+      expect(store.available()).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('keeps one status loop when a sign-out and a sign-in as the same customer overlap it', async () => {
+    vi.useFakeTimers();
+    try {
+      const { host, user } = setup({ user: null });
+      host.on('GET', /\/assistant$/, () => json({}, 503));
+      user.set(customer('s1'));
+      TestBed.tick();
+      await vi.advanceTimersByTimeAsync(0);
+      user.set(null);
+      TestBed.tick();
+      user.set(customer('s1'));
+      TestBed.tick();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(statusReads(host)).toBe(2);
+
+      await vi.advanceTimersByTimeAsync(STATUS_RETRY_MS[0]);
+
+      // The first session's loop is over; only the second's re-reads.
+      expect(statusReads(host)).toBe(3);
     } finally {
       vi.useRealTimers();
     }

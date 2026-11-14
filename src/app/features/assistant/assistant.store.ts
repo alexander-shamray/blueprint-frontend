@@ -12,6 +12,7 @@ import { AssistantTransport } from '@core/assistant/assistant-transport';
 import { ClientToolRegistry } from '@core/assistant/client-tools';
 import { AssistantStatus, OpenConversation } from '@core/assistant/protocol';
 import { AuthService } from '@core/auth/auth.service';
+import { RateLimitWindows } from '@core/errors/rate-limit';
 import { shopCatalogue } from './shop-catalogue';
 import { shopTools } from './shop-tools';
 
@@ -83,6 +84,7 @@ function tabIds(subject: () => string | null): IdStore {
 export class AssistantStore {
   private readonly auth = inject(AuthService);
   private readonly router = inject(Router);
+  private readonly rateLimit = inject(RateLimitWindows).authenticated;
   private readonly locale = inject(LOCALE_ID);
   private readonly client = inject(AssistantTransport).client();
   private readonly tools = new ClientToolRegistry();
@@ -93,6 +95,12 @@ export class AssistantStore {
   private readonly navigations = signal(0);
   /** The subject last seen; `undefined` until the first read. */
   private lastSubject: string | null | undefined = undefined;
+  /**
+   * Bumped by every change of subject, so a status loop belongs to the session
+   * that began it: a sign-out and a sign-in as the same subject is another
+   * session, and the first's loop must not race the second's.
+   */
+  private session = 0;
 
   private readonly subject = computed(() => this.auth.user()()?.subject ?? null);
   private readonly conversation = new AssistantConversation(
@@ -167,25 +175,40 @@ export class AssistantStore {
     if (subject === this.lastSubject) return;
     const previous = this.lastSubject;
     this.lastSubject = subject;
+    const session = ++this.session;
     this.status.set(null);
     if (previous !== undefined && previous !== null) this.conversation.abandon();
-    if (subject !== null) void this.load(subject);
+    if (subject !== null) void this.load(subject, session);
   }
 
-  private async load(subject: string): Promise<void> {
-    let status = await this.client.status();
+  private async load(subject: string, session: number): Promise<void> {
+    const current = () => this.session === session && this.subject() === subject;
+    let status = await this.read(current);
     // `null` is a read that could not say, not an answer: it is read again
     // rather than hiding the assistant until the next sign-in.
     for (const wait of STATUS_RETRY_MS) {
-      if (status !== null || this.subject() !== subject) break;
+      if (status !== null || !current()) break;
       await new Promise((resolve) => setTimeout(resolve, wait));
-      if (this.subject() !== subject) return;
-      status = await this.client.status();
+      if (!current()) return;
+      status = await this.read(current);
     }
-    // A sign-out, or another customer, since the read began makes it stale.
-    if (this.subject() !== subject) return;
+    // A sign-out, or another session, since the read began makes it stale.
+    if (!current()) return;
     this.status.set(status);
     if (status?.enabled) await this.conversation.resume();
+  }
+
+  /**
+   * One status read, sent outside a 429 window of the authenticated limiter:
+   * inside it the read is one the client expects refused, which restarts the
+   * window (#572). Waits the window out, and sends nothing once the session
+   * is over.
+   */
+  private async read(current: () => boolean): Promise<AssistantStatus | null> {
+    while (current() && this.rateLimit.blocked()) {
+      await new Promise((resolve) => setTimeout(resolve, this.rateLimit.remaining() * 1000));
+    }
+    return current() ? this.client.status() : null;
   }
 
   private async readNotice(): Promise<void> {
