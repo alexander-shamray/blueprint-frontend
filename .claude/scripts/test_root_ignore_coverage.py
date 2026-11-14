@@ -660,12 +660,11 @@ class TheNativeGeneratedTreesAreCoveredAtTheRoot(unittest.TestCase):
         "android/app/.externalNativeBuild/",
     )
 
-    # The generated files, which need naming more than the directories do. The pair under
-    # `android/app/src/main/assets/` has a directory to itself, as does the SwiftPM pair
-    # under `.swiftpm/`, and the release bundle sits in a directory the root hides whole;
-    # the rest sit beside tracked content, so no directory is wholly hidden and the
-    # directory scan can never reach them. `local.properties` also carries an absolute SDK
-    # path from whichever machine ran the build.
+    # The generated files, which need naming more than the directories do. The assets pair
+    # and the SwiftPM pair each have a directory to themselves, and the release bundle sits
+    # in one the root hides whole; the rest sit beside tracked content, so the directory
+    # scan can never reach them. `local.properties` also carries an absolute SDK path from
+    # whichever machine ran the build.
     GENERATED_FILES = (
         "android/app/src/main/assets/capacitor.config.json",
         "android/app/src/main/assets/capacitor.plugins.json",
