@@ -68,9 +68,11 @@ describe('SavedAddressApi', () => {
     const request = controller.expectOne(URL);
     expect(request.request.method).toBe('PUT');
     expect(request.request.body).toEqual(HOME);
-    request.flush({ ...HOME, city: 'Doha' });
+    // A reply that differs from the request, so echoing what was sent fails.
+    const normalised: Address = { ...HOME, line1: '1 EXAMPLE ST', postalCode: '00001' };
+    request.flush(normalised);
 
-    expect(seen).toHaveBeenCalledWith(HOME);
+    expect(seen).toHaveBeenCalledWith(normalised);
   });
 
   it('deletes the saved address', () => {

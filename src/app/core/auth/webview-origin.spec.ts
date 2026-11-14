@@ -367,6 +367,10 @@ describe('the WebView origin the realm grants', () => {
   it('the emulator relaxations move neither origin', async () => {
     const flagged = await loadConfig({ BLUEPRINT_EMULATOR: '1' });
 
+    // The relaxations are on, so the origins below are the emulator config's
+    // and not the release one a dead gate would hand back.
+    expect(flagged.server?.cleartext).toBe(true);
+    expect(flagged.android?.allowMixedContent).toBe(true);
     expect(webViewOrigin(flagged, 'android')).toBe(ANDROID_ORIGIN);
     expect(webViewOrigin(flagged, 'ios')).toBe(IOS_ORIGIN);
   });
@@ -374,6 +378,8 @@ describe('the WebView origin the realm grants', () => {
   it('the documented emulator script moves neither origin', async () => {
     const flagged = await loadConfig({ npm_lifecycle_event: 'emulator:android' });
 
+    expect(flagged.server?.cleartext).toBe(true);
+    expect(flagged.android?.allowMixedContent).toBe(true);
     expect(webViewOrigin(flagged, 'android')).toBe(ANDROID_ORIGIN);
     expect(webViewOrigin(flagged, 'ios')).toBe(IOS_ORIGIN);
   });
