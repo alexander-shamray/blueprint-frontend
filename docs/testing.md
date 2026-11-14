@@ -357,10 +357,10 @@ node e2e/native-stream.mts           # places an order; or pass an order id
 ```
 
 The pid changes on every launch, so the forward is redone each time. The
-device command is quoted as one argument because Git Bash, the shell on a
-Windows host, rewrites a bare `/proc/net/unix` into a path under its own
-install before the native `adb.exe` sees it, and the `cat` then finds
-nothing. Node
+device command is quoted as one argument because Git Bash, which runs this
+block on a Windows host, rewrites a bare `/proc/net/unix` into a path under
+its own install before the native `adb.exe` sees it, and the `cat` then
+finds nothing. Node
 warns that `environment.android.ts` was reparsed as an ES module; that is its
 module detection and not a failure.
 
