@@ -398,7 +398,8 @@ export class OrderDetailPage {
 
     // A renewed token for the same buyer: on native `user()` stays set while
     // the access token expires and renews on a timer, so a read sent in that
-    // gap is answered 401 and stays on its banner (#156, #601). Reads again.
+    // gap is answered 401 and stays on its banner (#156, #601). Reads again when
+    // the renewal lands after that 401; one landing first leaves nothing to see.
     let lastExpiry = untracked(() => this.user()?.expiresAt ?? null);
     effect(() => {
       const expiry = this.user()?.expiresAt ?? null;
@@ -553,21 +554,22 @@ export class OrderDetailPage {
     this.auth.signIn().then(
       () => {
         if (
-          replay &&
-          refusedSubject !== null &&
-          this.stillFor(issuedForId, refusedSubject) &&
-          !this.cancelled()
+          refusedSubject === null ||
+          !this.stillFor(issuedForId, refusedSubject) ||
+          this.cancelled()
         ) {
-          // A window that opened while the sign-in was pending is not sent
-          // into (#589); the 401's sign-in banner gives way to the window's.
-          if (this.rateLimit.blocked()) {
-            this.cancelErrorState.set(null);
-            return;
-          }
-          // Spent where the replay is sent (#157); see CheckoutPage.
-          this.replayedAfterSignIn = true;
-          this.cancel();
+          return;
         }
+        // A window that opened while the sign-in was pending is not sent
+        // into (#589), and a spent bound sends nothing either (#599): the
+        // buyer is signed in, so the 401's sign-in banner gives way.
+        if (!replay || this.rateLimit.blocked()) {
+          if (this.cancelErrorState()?.kind === 'signIn') this.cancelErrorState.set(null);
+          return;
+        }
+        // Spent where the replay is sent (#157); see CheckoutPage.
+        this.replayedAfterSignIn = true;
+        this.cancel();
       },
       // `unknown`, not HttpErrorResponse: signIn() can reject with a bare
       // string when discovery fails (see CartPage.getQuote()).

@@ -1101,4 +1101,21 @@ describe('PublishPage', () => {
       expect(fixture.componentInstance.imagePickRefusal()).toBeNull();
     });
   });
+
+  it('drops the sign-in banner when a completed sign-in sends no replay, the bound being spent (#599)', async () => {
+    const url = 'http://localhost:5000/api/v1/catalog/products';
+    fixture.componentInstance.publish();
+    controller
+      .expectOne(url)
+      .flush({ title: 'Unauthorized', status: 401 }, { status: 401, statusText: 'Unauthorized' });
+    await fixture.whenStable();
+    controller
+      .expectOne(url)
+      .flush({ title: 'Unauthorized', status: 401 }, { status: 401, statusText: 'Unauthorized' });
+    await fixture.whenStable();
+
+    expect(signIn).toHaveBeenCalledTimes(2);
+    controller.expectNone(url);
+    expect(fixture.componentInstance.error()).toBeNull();
+  });
 });
