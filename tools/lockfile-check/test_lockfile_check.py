@@ -12,9 +12,12 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import lockfile_check
-from lockfile_check import DEFAULT, REGISTRY, Unreadable, check, main
+from lockfile_check import REGISTRY, Unreadable, check, default_lockfile, main
+
+DEFAULT = default_lockfile()
 
 GOOD = {
     "name": "blueprint-frontend",
@@ -134,6 +137,16 @@ class Refusals(unittest.TestCase):
             "node_modules/left-pad/node_modules/@scope/inner", version="0.1.0-rc.1",
             resolved=f"{REGISTRY}@scope/inner/-/inner-0.1.0-rc.1.tgz", integrity="sha512-CCCC")
         self.assertEqual(self.refused(document), [])
+
+    def test_a_scope_ending_in_node_modules_is_split_on_the_segment_not_the_substring(self):
+        own = with_entry(
+            "node_modules/@my-node_modules/x", version="1.0.0",
+            resolved=f"{REGISTRY}@my-node_modules/x/-/x-1.0.0.tgz", integrity="sha512-DDDD")
+        self.assertEqual(self.refused(own), [])
+        other = with_entry(
+            "node_modules/@node_modules/evil", version="1.0.0",
+            resolved=f"{REGISTRY}evil/-/evil-1.0.0.tgz", integrity="sha512-EEEE")
+        self.assertEqual(len(self.refused(other)), 1)
 
     def test_an_alias_is_refused_even_with_the_aliased_packages_tarball(self):
         found = self.refused(with_entry(
@@ -266,6 +279,13 @@ class ExitCodes(unittest.TestCase):
     def test_two_arguments_exit_2(self):
         code, _, _ = self.run_main(["a", "b"])
         self.assertEqual(code, 2)
+
+    def test_an_explicit_path_never_computes_the_default(self):
+        # A copy fewer than two directories below the root has no `parents[2]`.
+        path = self.lockfile.write(GOOD)
+        with mock.patch.object(lockfile_check, "default_lockfile", side_effect=IndexError):
+            code, _, _ = self.run_main([str(path)])
+        self.assertEqual(code, 0)
 
     def test_the_script_runs_as_ci_runs_it(self):
         path = self.lockfile.write(with_entry("node_modules/left-pad", integrity=None))
