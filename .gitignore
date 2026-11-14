@@ -107,6 +107,20 @@ __pycache__/
 /ios/App/App/public/
 /ios/DerivedData/
 /ios/capacitor-cordova-ios-plugins/
+/ios/App/**/xcuserdata/
+/ios/App/CapApp-SPM/.build/
+/android/.kotlin/
+/android/captures/
+/android/app/release/
+/android/.cxx/
+/android/app/.cxx/
+/android/app/.externalNativeBuild
+/android/.externalNativeBuild
+/android/.navigation/
+*.apk
+*.aab
+*.hprof
+*.iml
 
 # The generated files beside them, which the block above missed and its own
 # verification could not have caught: that check rebuilt the native trees from
@@ -129,6 +143,8 @@ __pycache__/
 /android/local.properties
 /ios/App/App/capacitor.config.json
 /ios/App/App/config.xml
+/ios/App/CapApp-SPM/.swiftpm/config/registries.json
+/ios/App/CapApp-SPM/.swiftpm/xcode/package.xcworkspace/contents.xcworkspacedata
 
 # /ship's local review writes each round's inputs under artifacts/review/.
 /artifacts/
