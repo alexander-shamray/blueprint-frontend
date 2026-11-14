@@ -647,7 +647,8 @@ class TheNativeGeneratedTreesAreCoveredAtTheRoot(unittest.TestCase):
         "ios/App/App/public/",
         "ios/DerivedData/",
         "ios/capacitor-cordova-ios-plugins/",
-        "ios/App/App/xcuserdata/",
+        "ios/App/App.xcodeproj/xcuserdata/",
+        "ios/App/App.xcodeproj/project.xcworkspace/xcuserdata/",
         "ios/App/CapApp-SPM/.build/",
         "android/.kotlin/",
         "android/captures/",
@@ -655,13 +656,16 @@ class TheNativeGeneratedTreesAreCoveredAtTheRoot(unittest.TestCase):
         "android/.cxx/",
         "android/app/.cxx/",
         "android/.navigation/",
+        "android/.externalNativeBuild/",
+        "android/app/.externalNativeBuild/",
     )
 
-    # The generated files, which need naming more than the directories do. Only the pair
-    # under `android/app/src/main/assets/` has a directory to itself; the rest sit beside
-    # tracked content, so no directory is wholly hidden and the directory scan can never
-    # reach them. `local.properties` also carries an absolute SDK path from whichever
-    # machine ran the build.
+    # The generated files, which need naming more than the directories do. The pair under
+    # `android/app/src/main/assets/` has a directory to itself, as does the SwiftPM pair
+    # under `.swiftpm/`, and the release bundle sits in a directory the root hides whole;
+    # the rest sit beside tracked content, so no directory is wholly hidden and the
+    # directory scan can never reach them. `local.properties` also carries an absolute SDK
+    # path from whichever machine ran the build.
     GENERATED_FILES = (
         "android/app/src/main/assets/capacitor.config.json",
         "android/app/src/main/assets/capacitor.plugins.json",
@@ -675,8 +679,6 @@ class TheNativeGeneratedTreesAreCoveredAtTheRoot(unittest.TestCase):
         "android/app/build-debug.apk",
         "android/app/hs_err.hprof",
         "android/app/app.iml",
-        "android/.externalNativeBuild",
-        "android/app/.externalNativeBuild",
     )
 
     def test_the_root_file_hides_every_generated_native_tree(self):
@@ -694,7 +696,7 @@ class TheNativeGeneratedTreesAreCoveredAtTheRoot(unittest.TestCase):
 
 
 class GradlewBatStaysCrlf(unittest.TestCase):
-    """`.gitattributes` keeps a Windows batch file CRLF on its next re-add (#540)."""
+    """`.gitattributes` keeps a Windows batch file CRLF on its next re-add."""
 
     def test_bat_and_cmd_files_are_checked_out_crlf(self):
         for path in ("android/gradlew.bat", "x/run.cmd"):
