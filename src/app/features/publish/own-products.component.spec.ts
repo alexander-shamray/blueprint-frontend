@@ -894,18 +894,20 @@ describe('OwnProductsComponent', () => {
       await settle();
     });
 
+    // Each row sends its own `code`, so handling that singled one code out would
+    // be seen by that code's row rather than pass on a body both rows share.
     it.each([
-      ['a 422 product.withdrawn', 422],
-      ['a 422 product.currency_fixed', 422],
-      ['a 404 for a product this account no longer owns', 404],
-    ])('closes the editor, shows why and reads the list again on %s', async (_name, status) => {
+      ['a 422 product.withdrawn', 422, 'product.withdrawn'],
+      ['a 422 product.currency_fixed', 422, 'product.currency_fixed'],
+      ['a 404 for a product this account no longer owns', 404, undefined],
+    ])('closes the editor, shows why and reads the list again on %s', async (_n, status, code) => {
       await listed(product('a'));
 
       page().askToReprice(page().products()[0]);
       type(9);
       page().reprice(page().products()[0]);
       controller.expectOne(priceOf('a')).flush(
-        { title: 'Refused', status },
+        { title: 'Refused', status, ...(code === undefined ? {} : { code }) },
         { status, statusText: '' },
       );
       await settle();
