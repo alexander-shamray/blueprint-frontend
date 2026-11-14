@@ -146,7 +146,10 @@ class Refusals(unittest.TestCase):
         other = with_entry(
             "node_modules/@node_modules/evil", version="1.0.0",
             resolved=f"{REGISTRY}evil/-/evil-1.0.0.tgz", integrity="sha512-EEEE")
-        self.assertEqual(len(self.refused(other)), 1)
+        found = self.refused(other)
+        self.assertEqual(len(found), 1)
+        self.assertIn("node_modules/@node_modules/evil", found[0])
+        self.assertIn("not this package's own tarball", found[0])
 
     def test_an_alias_is_refused_even_with_the_aliased_packages_tarball(self):
         found = self.refused(with_entry(
