@@ -832,6 +832,31 @@ describe('OwnProductsComponent', () => {
       await settle();
     });
 
+    it('still says an edited second press was not applied when the first press’s 204 landed before its id_reused (#554)', async () => {
+      await listed(product('a'));
+
+      page().askToReprice(page().products()[0]);
+      type(9);
+      page().reprice(page().products()[0]);
+      type(10);
+      page().reprice(page().products()[0]);
+      const [first, second] = controller.match(priceOf('a'));
+      first.flush(null, { status: 204, statusText: 'No Content' });
+      await settle();
+      mine().flush({ items: [product('a')], nextCursor: null });
+      await settle();
+
+      second.flush(
+        { title: 'Conflict', status: 409, code: 'command.id_reused' },
+        { status: 409, statusText: 'Conflict' },
+      );
+      await settle();
+
+      expect(page().actionError()?.kind).toBe('idReused');
+      mine().flush({ items: [product('a')], nextCursor: null });
+      await settle();
+    });
+
     it.each([
       ['a 422 product.withdrawn', 422],
       ['a 422 product.currency_fixed', 422],

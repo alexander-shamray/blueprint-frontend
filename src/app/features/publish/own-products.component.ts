@@ -575,10 +575,12 @@ export class OwnProductsComponent {
         error: (failure: unknown) => {
           if (this.subjectChanges !== changesAtIssue) return;
           this.adjustCount(this.repricingSignal, product.productId, -1);
-          // Another press's success retired this id: its price changed, and
-          // this late failure must not banner over it or replay it (#554).
-          if (!ownsId()) return;
           const displayed = mapError(failure, { permission: PERMISSIONS.catalogWrite });
+          // An earlier reply retired this id, so this late failure must not
+          // banner over its outcome or replay under a new id (#554). Except
+          // `idReused`: an edited press sent under the same id says its amount
+          // was not applied, which the retiring reply cannot have said.
+          if (!ownsId() && displayed.kind !== 'idReused') return;
           identity.onFailure(displayed);
 
           // This id's reprice was applied before, so the price is the new one
