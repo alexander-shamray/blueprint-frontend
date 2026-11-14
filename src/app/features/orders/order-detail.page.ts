@@ -543,9 +543,14 @@ export class OrderDetailPage {
           replay &&
           refusedSubject !== null &&
           this.stillFor(issuedForId, refusedSubject) &&
-          !this.cancelled() &&
-          !this.rateLimit.blocked()
+          !this.cancelled()
         ) {
+          // A window that opened while the sign-in was pending is not sent
+          // into (#589); the 401's sign-in banner gives way to the window's.
+          if (this.rateLimit.blocked()) {
+            this.cancelErrorState.set(null);
+            return;
+          }
           // Spent where the replay is sent (#157); see CheckoutPage.
           this.replayedAfterSignIn = true;
           this.cancel();

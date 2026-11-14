@@ -723,6 +723,9 @@ describe('CheckoutPage', () => {
 
     expect(signIn).toHaveBeenCalledOnce();
     controller.expectNone('http://localhost:5000/api/v1/orders');
+    // The stale sign-in banner gives way to the window's own.
+    expect(fixture.componentInstance.error()).toBeNull();
+    expect(fixture.componentInstance.rateLimit.refusal()?.kind).toBe('rateLimited');
 
     // The bound was not spent on a send that never happened: once the window
     // closes, a second refusal is still replayed.

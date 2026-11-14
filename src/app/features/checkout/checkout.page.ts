@@ -639,8 +639,14 @@ export class CheckoutPage {
         // both have read it unspent and replayed twice (#533).
         // A window that opened while the sign-in was pending is not sent
         // into, and the bound stays unspent: the button is disabled for the
-        // window, and a later 401 may still replay once it closes (#584).
-        if (!this.replayedAfterSignIn && sameSubject && !this.rateLimit.blocked()) {
+        // window, and a later 401 may still replay once it closes (#584). The
+        // 401's sign-in banner is dropped so the window's own, with its
+        // countdown, shows instead.
+        if (!this.replayedAfterSignIn && sameSubject && this.rateLimit.blocked()) {
+          this.errorState.set(null);
+          return;
+        }
+        if (!this.replayedAfterSignIn && sameSubject) {
           // Spent where the replay is sent, not before the sign-in settles: a
           // dismissed or foreign sign-in sent nothing, so the bound has not
           // been used (#157).

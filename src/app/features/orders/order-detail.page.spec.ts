@@ -668,6 +668,9 @@ describe('OrderDetailPage', () => {
 
     expect(signIn).toHaveBeenCalledOnce();
     controller.expectNone((r) => r.url.endsWith('/cancel'));
+    // The stale sign-in banner gives way to the window's own.
+    expect(mounted.fixture.componentInstance.error()).toBeNull();
+    expect(mounted.fixture.componentInstance.rateLimit.refusal()?.kind).toBe('rateLimited');
 
     // The bound was not spent on a send that never happened: once the window
     // closes, a second refusal is still replayed.
