@@ -158,7 +158,7 @@ class TheCheckRunnerIsTheOnlyExecutor(unittest.TestCase):
         subprocess.run([GIT, "init", "-q", str(base)], check=True)
         (base / "package-lock.json").write_text("{}\n", encoding="utf-8")
         out = subprocess.run([BASH, str(SCRIPTS / "npm-checks.sh"), "lint"],
-                             capture_output=True, text=True, cwd=str(base))
+                             capture_output=True, text=True, encoding="utf-8", cwd=str(base))
         self.assertEqual(3, out.returncode, out.stderr)
         self.assertIn("no node_modules", out.stderr)
         # No staleness test: a lockfile rewritten with identical content by a
@@ -200,7 +200,8 @@ class TheCheckRunnerRecordsItsTime(unittest.TestCase):
     def run_mode(self, mode, npm_exit, timings, stubs=None):
         base, env = self.scratch(npm_exit, timings, stubs)
         return subprocess.run([BASH, str(SCRIPTS / "npm-checks.sh"), mode],
-                              capture_output=True, text=True, cwd=str(base), env=env)
+                              capture_output=True, text=True, encoding="utf-8",
+                              cwd=str(base), env=env)
 
     def test_a_passing_run_records_its_script_mode_and_exit(self):
         holder = tempfile.TemporaryDirectory(prefix="npm-timings-")
@@ -262,7 +263,8 @@ class TheCheckRunnerRecordsItsTime(unittest.TestCase):
         sub = base / "sub"
         sub.mkdir()
         out = subprocess.run([BASH, "../.claude/scripts/npm-checks.sh", "lint"],
-                             capture_output=True, text=True, cwd=str(sub), env=env)
+                             capture_output=True, text=True, encoding="utf-8",
+                             cwd=str(sub), env=env)
         self.assertEqual(0, out.returncode, out.stderr)
         self.assertTrue(timings.exists(), out.stderr)
 

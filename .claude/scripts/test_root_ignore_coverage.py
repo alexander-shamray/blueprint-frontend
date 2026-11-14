@@ -33,7 +33,7 @@ def _check_ignore(root, flags, relatives):
         ["git", "-c", "core.excludesFile=", "check-ignore", *flags,
          "-z", "--stdin"],
         cwd=str(root), input="\0".join(relatives),
-        capture_output=True, text=True,
+        capture_output=True, text=True, encoding="utf-8",
     )
     # 1 is "nothing matched", which is an answer. Anything else is not.
     if done.returncode not in (0, 1):
