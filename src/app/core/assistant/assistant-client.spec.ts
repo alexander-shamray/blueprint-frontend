@@ -524,6 +524,27 @@ describe('AssistantConversation', () => {
     expect(conversation.current.items.at(-1)).toEqual({ kind: 'reply', text: 'Opening the cart.' });
   });
 
+  it('restores nothing when the conversation was abandoned while its read was in flight', async () => {
+    const ids = memoryIds('c1');
+    const { host, conversation } = setup(ids);
+    host.on('GET', /\/conversations\/c1$/, () =>
+      json({
+        id: 'c1',
+        items: [{ kind: 'reply', text: 'old' }],
+        running: true,
+        lastEventId: 4,
+        pendingCalls: [],
+      }),
+    );
+
+    const resumed = conversation.resume();
+    conversation.abandon();
+    await resumed;
+
+    expect(conversation.current).toEqual(EMPTY_CONVERSATION);
+    expect(host.streams).toEqual([]);
+  });
+
   it('forgets an id the host no longer holds', async () => {
     const ids = memoryIds('gone');
     const { host, conversation } = setup(ids);
