@@ -279,11 +279,10 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
-      # harness-legs.py owns the rule and what reaches these legs
-      # (docs/harness-boundaries.md, *The harness legs decision*). A pull
-      # request that reaches none of it still reports each leg, with jq's
-      # install and the suite skipped. Linux runs the suite on every event, and
-      # a push runs both on every leg.
+      # harness-legs.py owns the rule and what reaches these legs (docs/harness-boundaries.md,
+      # *The harness legs decision*). A pull request that reaches none of it still reports each
+      # leg, with jq's install and the suite skipped. Linux runs the suite on every event, and a
+      # push runs the install on the Windows and macOS legs and the suite on every leg.
       - name: Decide whether this leg tests
         id: reach
         if: runner.os != 'Linux'
@@ -337,10 +336,10 @@ jobs:
           gh label list --repo "$GITHUB_REPOSITORY" --limit 1000 --json name |
             python .github/issue-form-gate/issue_form_gate.py
 
-  # Every gate suite under .github/, on a push to main too: gates.yml runs each gate and its
-  # suite on a pull request alone, and a gate that is no step there would otherwise run nowhere.
-  # The loop finds the directories, so a suite a sync adds is covered with no line here, and
-  # finding none fails. Each suite runs from its own directory, as gates.yml runs it. Named
+  # Every gate suite under .github/, on a push to main too: gates.yml runs each gate and its suite
+  # on a pull request alone, and a gate with no step there and no job of its own here would run
+  # nowhere. The loop finds the directories, so a suite a sync adds is covered with no line here,
+  # and finding none fails. Each suite runs from its own directory, as gates.yml runs it. Named
   # apart from gates.yml's `gates` job, so a pull request shows one check of each name.
   gate-suites:
     runs-on: ubuntu-latest
