@@ -96,6 +96,11 @@ __pycache__/
 # a mirror of everything they could. `test_root_ignore_coverage.py` is what
 # catches the next one, and it asserts these paths whether or not the checkout
 # has built, so the lock holds on CI's clean tree too.
+#
+# The Xcode, SwiftPM and Android Studio lines at its end are the nested files'
+# own, for the same reason; `/android/.kotlin/` and `/android/app/release/` are
+# hidden by no nested file, and come from what Kotlin Gradle Plugin 2.x and
+# Generate Signed Bundle write.
 /android/.gradle/
 /android/build/
 /android/app/build/
@@ -137,6 +142,10 @@ __pycache__/
 # them. The regression lock names them individually for that reason.
 # `local.properties` also carries an absolute SDK path from whichever machine
 # ran the build.
+#
+# The SwiftPM pair below comes from the nested `ios/App/CapApp-SPM/.gitignore`,
+# not from `cap sync`, and nothing under `.swiftpm/` is tracked, so those two
+# files are the exception: each has a directory to itself.
 /android/app/src/main/assets/capacitor.config.json
 /android/app/src/main/assets/capacitor.plugins.json
 /android/app/src/main/res/xml/config.xml
