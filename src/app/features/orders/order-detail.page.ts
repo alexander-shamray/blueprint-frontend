@@ -320,6 +320,9 @@ export class OrderDetailPage {
   /** True while a `cancel()` request is outstanding. See `cancel()` below. */
   private readonly cancelling = signal(false);
 
+  /** A first or subject-change read was asked for inside a blocked window, and is taken once it ends. */
+  private readonly readHeld = signal(false);
+
   /** Ionic reports the first entry too, and the id effect has already read the order for it. */
   private enteredBefore = false;
 
@@ -344,8 +347,14 @@ export class OrderDetailPage {
         this.cancelledState.set(false);
         this.cancelErrorState.set(null);
         this.cancelling.set(false);
-        this.load();
+        this.loadOrHold();
       });
+    });
+
+    // A read held for the window is taken once it closes.
+    effect(() => {
+      if (!this.readHeld() || this.rateLimit.blocked()) return;
+      untracked(() => this.loadOrHold());
     });
 
     // A different subject drops everything the previous one left — the
@@ -370,7 +379,7 @@ export class OrderDetailPage {
         this.loadingState.set(false);
         this.cancelling.set(false);
         this.replayedAfterSignIn = false;
-        if (subject !== null) this.load();
+        if (subject !== null) this.loadOrHold();
       });
     });
   }
@@ -393,11 +402,28 @@ export class OrderDetailPage {
   }
 
   /**
+   * The id and subject effects' read. One sent inside the `authenticated`
+   * window is one the client already expects to be refused, which restarts
+   * the window (#568, as `ProductPage` for #161), so it waits for the window
+   * to close, and the banner says why meanwhile.
+   */
+  private loadOrHold(): void {
+    if (this.rateLimit.blocked()) {
+      this.readGeneration++;
+      this.loadingState.set(false);
+      this.readHeld.set(true);
+      return;
+    }
+    this.load();
+  }
+
+  /**
    * Reads the order again. A reply for an id this page has since left, one
    * issued under a subject that has since signed out, or one a later read
    * has overtaken, is dropped.
    */
   load(done?: () => void): void {
+    this.readHeld.set(false);
     const generation = ++this.readGeneration;
     const issuedForId = this.orderId();
     if (issuedForId === '') return;

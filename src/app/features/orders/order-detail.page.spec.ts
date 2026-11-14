@@ -45,7 +45,7 @@ const other: CurrentUser = { username: 'other', subject: 'b', permissions: [], e
 
 let signIn: ReturnType<typeof vi.fn>;
 
-function mount(id: string) {
+function mount(id: string, beforeCreate?: () => void) {
   TestBed.resetTestingModule();
   const paramMap = new BehaviorSubject(id);
   // One writable signal for the whole mount, as the real service holds one,
@@ -73,6 +73,7 @@ function mount(id: string) {
     ],
   });
 
+  beforeCreate?.();
   const fixture: ComponentFixture<OrderDetailPage> = TestBed.createComponent(OrderDetailPage);
   fixture.detectChanges();
   const controller = TestBed.inject(HttpTestingController);
@@ -549,6 +550,45 @@ describe('OrderDetailPage', () => {
       .expectOne(`${READ}${GUID_A}`)
       .flush(order({ status: 'dispatched', cancellable: false }));
     expect(mounted.fixture.componentInstance.order()?.status).toBe('dispatched');
+  });
+
+  const refusal = {
+    kind: 'rateLimited',
+    title: 'Too many requests',
+    detail: null,
+    retryAfterSeconds: 30,
+  } as const;
+
+  it('holds the first read while the authenticated window is open, and sends it once it closes (#568)', async () => {
+    const mounted = mount(GUID_A, () =>
+      TestBed.inject(RateLimitWindows).forPartition('authenticated').open(refusal),
+    );
+    controller = mounted.controller;
+    await mounted.fixture.whenStable();
+
+    controller.expectNone((r) => r.url.startsWith(READ));
+
+    TestBed.inject(RateLimitWindows).forPartition('authenticated').close();
+    await mounted.fixture.whenStable();
+
+    controller.expectOne(`${READ}${GUID_A}`).flush(order());
+    expect(mounted.fixture.componentInstance.order()?.orderId).toBe(GUID_A);
+  });
+
+  it('holds the read a changed subject asks for inside the window, and sends it once it closes (#568)', async () => {
+    const mounted = await mountWith(order());
+    controller = mounted.controller;
+    const authenticated = TestBed.inject(RateLimitWindows).forPartition('authenticated');
+    authenticated.open(refusal);
+
+    mounted.user.set(other);
+    mounted.fixture.detectChanges();
+    await mounted.fixture.whenStable();
+    controller.expectNone((r) => r.url.startsWith(READ));
+
+    authenticated.close();
+    await mounted.fixture.whenStable();
+    controller.expectOne(`${READ}${GUID_A}`).flush(order());
   });
 
   it('reads nothing on an entry inside an open authenticated window', async () => {
