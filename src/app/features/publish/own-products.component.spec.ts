@@ -242,7 +242,8 @@ describe('OwnProductsComponent', () => {
     replay.flush({ title: 'Unauthorized', status: 401 }, { status: 401, statusText: '' });
     await settle();
     controller.expectNone(withdrawalOf('a'));
-    expect(page().actionError()?.kind).toBe('signIn');
+    // The second sign-in completed and sent nothing: no stale banner (#599).
+    expect(page().actionError()).toBeNull();
   });
 
   it('replays nothing when a different subject signs in', async () => {
@@ -1203,6 +1204,63 @@ describe('OwnProductsComponent', () => {
       controller.expectNone(priceOf('a'));
     });
   });
+
+  it('drops the sign-in banner when a completed sign-in sends no replay, the window being open (#599)', async () => {
+    mine().flush({ items: [product('a')], nextCursor: null });
+    await settle();
+    const window = TestBed.inject(RateLimitWindows).forPartition('authenticated');
+    signIn.mockImplementationOnce(async () => {
+      window.open({ kind: 'rateLimited', title: '', detail: null, retryAfterSeconds: 30 });
+    });
+
+    page().withdraw(page().products()[0]);
+    controller.expectOne(withdrawalOf('a')).flush(UNAUTH, UNAUTH_INIT);
+    await settle();
+
+    controller.expectNone(withdrawalOf('a'));
+    expect(page().actionError()).toBeNull();
+    window.close();
+  });
+
+  it('drops the sign-in banner when a completed sign-in sends no replay, the bound being spent (#599)', async () => {
+    mine().flush({ items: [product('a')], nextCursor: null });
+    await settle();
+
+    page().withdraw(page().products()[0]);
+    controller.expectOne(withdrawalOf('a')).flush(UNAUTH, UNAUTH_INIT);
+    await settle();
+    controller.expectOne(withdrawalOf('a')).flush(UNAUTH, UNAUTH_INIT);
+    await settle();
+
+    expect(signIn).toHaveBeenCalledTimes(2);
+    controller.expectNone(withdrawalOf('a'));
+    expect(page().actionError()).toBeNull();
+  });
+
+  it('reads the list again when a renewed token arrives after a 401 on the read (#600)', async () => {
+    mine().flush(UNAUTH, UNAUTH_INIT);
+    await settle();
+    expect(page().error()).toMatchObject({ kind: 'signIn' });
+
+    // The native renewal lands: same seller, a later expiry.
+    user.set({ ...user()!, expiresAt: 1_800_000_000 });
+    fixture.detectChanges();
+    mine().flush({ items: [product('a')], nextCursor: null });
+    await settle();
+
+    expect(page().error()).toBeNull();
+    expect(page().products().map((p) => p.productId)).toEqual(['a']);
+  });
+
+  it('does not read again on a renewed token when the list did not fail with a 401 (#600)', async () => {
+    mine().flush({ items: [product('a')], nextCursor: null });
+    await settle();
+
+    user.set({ ...user()!, expiresAt: 1_800_000_000 });
+    fixture.detectChanges();
+
+    controller.expectNone((r) => r.url === MINE);
+  });
 });
 
 describe('OwnProductsComponent inside an open authenticated rate-limit window (#572)', () => {
@@ -1268,4 +1326,5 @@ describe('OwnProductsComponent inside an open authenticated rate-limit window (#
     controller.expectOne((r) => r.url === MINE).flush({ items: [], nextCursor: null });
     controller.verify();
   });
+
 });

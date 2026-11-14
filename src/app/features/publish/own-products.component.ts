@@ -357,6 +357,20 @@ export class OwnProductsComponent {
         else this.generation++;
       });
     });
+
+    // A renewed token for the same seller. On native `user()` stays set while
+    // the access token expires and renews on a timer, so a list read in that
+    // gap is answered 401 and stops (#156, #600); the renewal changes only
+    // `expiresAt`. Reads again when the list stopped on that sign-in error.
+    let lastExpiry = untracked(() => user()?.expiresAt ?? null);
+    effect(() => {
+      const expiry = user()?.expiresAt ?? null;
+      if (expiry === lastExpiry) return;
+      lastExpiry = expiry;
+      untracked(() => {
+        if (this.errorSignal()?.kind === 'signIn' && !this.rateLimit.blocked()) this.retryLoad();
+      });
+    });
   }
 
   /** A `reload()` that waits for the window to close when it is open, and drops what is out meanwhile. */
@@ -511,9 +525,15 @@ export class OwnProductsComponent {
         // Read here, not when the 401 landed: two 401s pending at once would
         // both have read it unspent and replayed twice (#533). Spent only when
         // the resend sent, so a rate-limited one leaves the replay owed (#542).
-        if (sameSubject && !this.replayedAfterSignIn.has(key) && resend()) {
+        if (!sameSubject) return;
+        if (!this.replayedAfterSignIn.has(key) && resend()) {
           this.replayedAfterSignIn.add(key);
+          return;
         }
+        // Nothing was sent, a spent bound or a refused resend, and the seller
+        // is signed in: the 401's banner would say otherwise and outrank the
+        // window's countdown (#599).
+        if (this.actionErrorSignal()?.kind === 'signIn') this.actionErrorSignal.set(null);
       },
       // `unknown`: signIn() can reject with a bare string (see CartPage.getQuote()).
       (failure: unknown) => this.actionErrorSignal.set(mapError(failure)),
