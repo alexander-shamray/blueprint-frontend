@@ -356,9 +356,9 @@ export class CartPage {
       next: (quote) => {
         // Superseded by an invalidateQuote() (a quantity or currency change)
         // or a newer getQuote() that started a new generation while this
-        // request was in flight.
-        // Applying it now would restore a quote for a basket or currency
-        // that no longer exists.
+        // request was in flight. After an invalidateQuote(), applying it
+        // would restore a quote for a basket or currency that no longer
+        // exists; after a newer getQuote(), it would overwrite the newer quote.
         if (generation !== this.generation) return;
 
         this.errorState.set(null);
