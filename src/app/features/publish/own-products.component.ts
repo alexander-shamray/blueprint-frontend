@@ -580,8 +580,9 @@ export class OwnProductsComponent {
           // banner over its outcome or replay under a new id (#554). Except
           // `idReused`: an edited press sent under the same id says its amount
           // was not applied, which the retiring reply cannot have said.
-          if (!ownsId() && displayed.kind !== 'idReused') return;
-          identity.onFailure(displayed);
+          const owned = ownsId();
+          if (!owned && displayed.kind !== 'idReused') return;
+          if (owned) identity.onFailure(displayed);
 
           // This id's reprice was applied before, so the price is the new one
           // and the list is told so by reading it.
@@ -594,8 +595,10 @@ export class OwnProductsComponent {
           // THIS one, which differs from it (the amount edited since), did not.
           // The price on the row is the first one's; the banner says so and the
           // list is read again to show it.
+          // A retired id's reply leaves the slot alone: a newer press may hold
+          // it, with its own editor and replay key.
           if (displayed.kind === 'idReused') {
-            this.finishPricing(product.productId);
+            if (owned) this.finishPricing(product.productId);
             this.actionErrorSignal.set(displayed);
             this.reload();
             return;

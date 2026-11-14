@@ -857,6 +857,43 @@ describe('OwnProductsComponent', () => {
       await settle();
     });
 
+    it('leaves a newer press’s editor alone when a retired id’s id_reused lands late (#554)', async () => {
+      await listed(product('a'));
+
+      page().askToReprice(page().products()[0]);
+      type(9);
+      page().reprice(page().products()[0]);
+      type(10);
+      page().reprice(page().products()[0]);
+      const [first, stale] = controller.match(priceOf('a'));
+      first.flush(null, { status: 204, statusText: 'No Content' });
+      await settle();
+      mine().flush({ items: [product('a')], nextCursor: null });
+      await settle();
+
+      // The seller reopens the editor and presses again, under a new id.
+      page().askToReprice(page().products()[0]);
+      type(11);
+      page().reprice(page().products()[0]);
+      const newer = controller.expectOne(priceOf('a'));
+
+      stale.flush(
+        { title: 'Conflict', status: 409, code: 'command.id_reused' },
+        { status: 409, statusText: 'Conflict' },
+      );
+      await settle();
+      mine().flush({ items: [product('a')], nextCursor: null });
+      await settle();
+      expect(page().pricing()).toBe('a');
+
+      newer.flush(null, { status: 204, statusText: 'No Content' });
+      await settle();
+      expect(page().pricing()).toBeNull();
+      expect(page().actionError()).toBeNull();
+      mine().flush({ items: [product('a')], nextCursor: null });
+      await settle();
+    });
+
     it.each([
       ['a 422 product.withdrawn', 422],
       ['a 422 product.currency_fixed', 422],
