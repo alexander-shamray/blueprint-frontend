@@ -400,12 +400,16 @@ export class OwnProductsComponent {
    * `request.in_progress`, and suppressing that would hide the mechanism.
    * `OrderDetailPage.cancel()` guards because its body carries no id; this one
    * does. The pending state is shown, not enforced.
+   *
+   * Returns whether a request went out: a replay after a sign-in spends its
+   * one-replay bound only on `true` (#542).
    */
-  withdraw(product: OwnProduct): void {
-    if (product.withdrawnAt !== null || this.rateLimit.blocked()) return;
+  withdraw(product: OwnProduct): boolean {
+    if (product.withdrawnAt !== null || this.rateLimit.blocked()) return false;
 
     const identity = this.identityFor(product.productId);
     const changesAtIssue = this.subjectChanges;
+    const ownsId = (): boolean => this.identities.get(product.productId) === identity;
     this.setPending(product.productId, true);
     this.actionErrorSignal.set(null);
 
@@ -413,11 +417,15 @@ export class OwnProductsComponent {
       next: () => {
         if (this.subjectChanges !== changesAtIssue) return;
         this.setPending(product.productId, false);
+        if (!ownsId()) return;
         this.withdrawn(product.productId);
       },
       error: (failure: unknown) => {
         if (this.subjectChanges !== changesAtIssue) return;
         this.setPending(product.productId, false);
+        // A success of another press retired this id: what this reply says
+        // is about a command the row has moved past (#533).
+        if (!ownsId()) return;
         const displayed = mapError(failure, { permission: PERMISSIONS.catalogWrite });
         identity.onFailure(displayed);
 
@@ -450,6 +458,7 @@ export class OwnProductsComponent {
         }
       },
     });
+    return true;
   }
 
   /**
@@ -476,8 +485,7 @@ export class OwnProductsComponent {
    * page does not survive (spec §4.1); the native strategy returns with the
    * page still standing.
    */
-  private signInAndReplay(key: string, resend: () => void): void {
-    const replay = !this.replayedAfterSignIn.has(key);
+  private signInAndReplay(key: string, resend: () => boolean): void {
     const refusedSubject = this.auth.user()()?.subject ?? null;
     const changesAtRefusal = this.subjectChanges;
 
@@ -487,9 +495,11 @@ export class OwnProductsComponent {
           refusedSubject !== null &&
           this.auth.user()()?.subject === refusedSubject &&
           this.subjectChanges === changesAtRefusal;
-        if (replay && sameSubject) {
+        // Read here, not when the 401 landed: two 401s pending at once would
+        // both have read it unspent and replayed twice (#533). Spent only when
+        // the resend sent, so a rate-limited one leaves the replay owed (#542).
+        if (sameSubject && !this.replayedAfterSignIn.has(key) && resend()) {
           this.replayedAfterSignIn.add(key);
-          resend();
         }
       },
       // `unknown`: signIn() can reject with a bare string (see CartPage.getQuote()).
@@ -539,11 +549,12 @@ export class OwnProductsComponent {
    * the rows and the seller may have opened another by the time the sign-in
    * returns: re-reading it would send that row's amount under this row's id.
    */
-  private sendReprice(product: OwnProduct, amount: number): void {
-    if (product.withdrawnAt !== null || this.rateLimit.blocked()) return;
+  private sendReprice(product: OwnProduct, amount: number): boolean {
+    if (product.withdrawnAt !== null || this.rateLimit.blocked()) return false;
 
     const identity = this.priceIdentityFor(product.productId);
     const changesAtIssue = this.subjectChanges;
+    const ownsId = (): boolean => this.priceIdentities.get(product.productId) === identity;
     this.adjustCount(this.repricingSignal, product.productId, +1);
     this.actionErrorSignal.set(null);
     this.clearPriceMessages(product.productId);
@@ -558,11 +569,15 @@ export class OwnProductsComponent {
         next: () => {
           if (this.subjectChanges !== changesAtIssue) return;
           this.adjustCount(this.repricingSignal, product.productId, -1);
+          if (!ownsId()) return;
           this.repriced(product.productId);
         },
         error: (failure: unknown) => {
           if (this.subjectChanges !== changesAtIssue) return;
           this.adjustCount(this.repricingSignal, product.productId, -1);
+          // Another press's success retired this id: its price changed, and
+          // this late failure must not banner over it or replay it (#554).
+          if (!ownsId()) return;
           const displayed = mapError(failure, { permission: PERMISSIONS.catalogWrite });
           identity.onFailure(displayed);
 
@@ -616,6 +631,7 @@ export class OwnProductsComponent {
           }
         },
       });
+    return true;
   }
 
   /**

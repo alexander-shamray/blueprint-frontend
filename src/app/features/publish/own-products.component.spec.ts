@@ -22,6 +22,9 @@ const WAIT_MS = 6_000;
 const MINE = 'http://localhost:5000/api/v1/catalog/products/mine';
 const withdrawalOf = (id: string) => `http://localhost:5000/api/v1/catalog/products/${id}/withdrawal`;
 
+const UNAUTH = { title: 'Unauthorized', status: 401 };
+const UNAUTH_INIT = { status: 401, statusText: '' };
+
 function product(id: string, withdrawnAt: string | null = null): OwnProduct {
   return {
     productId: id,
@@ -366,6 +369,78 @@ describe('OwnProductsComponent', () => {
     });
     page().withdraw(page().products()[1]);
     controller.expectNone(withdrawalOf('b'));
+  });
+
+  it('keeps the one replay when the sign-in returned into a closed window and sent nothing (#542)', async () => {
+    mine().flush({ items: [product('a')], nextCursor: null });
+    await settle();
+    const window = TestBed.inject(RateLimitWindows).forPartition('authenticated');
+    signIn.mockImplementationOnce(async () => {
+      window.open({ kind: 'rateLimited', title: '', detail: null, retryAfterSeconds: 30 });
+    });
+
+    page().withdraw(page().products()[0]);
+    controller.expectOne(withdrawalOf('a')).flush(UNAUTH, UNAUTH_INIT);
+    await settle();
+    controller.expectNone(withdrawalOf('a'));
+
+    // The window ends and the seller presses again: refused again, and the
+    // replay the blocked one never used is still owed.
+    window.close();
+    page().withdraw(page().products()[0]);
+    controller.expectOne(withdrawalOf('a')).flush(UNAUTH, UNAUTH_INIT);
+    await settle();
+
+    expect(signIn).toHaveBeenCalledTimes(2);
+    controller.expectOne(withdrawalOf('a')).flush(null, { status: 204, statusText: 'No Content' });
+    await settle();
+    mine().flush({ items: [product('a')], nextCursor: null });
+    await settle();
+  });
+
+  it('replays a withdrawal once when two presses are refused before one sign-in resolves (#533)', async () => {
+    mine().flush({ items: [product('a')], nextCursor: null });
+    await settle();
+    const releases: (() => void)[] = [];
+    signIn.mockImplementation(() => new Promise<void>((resolve) => releases.push(resolve)));
+
+    page().withdraw(page().products()[0]);
+    page().withdraw(page().products()[0]);
+    const [first, second] = controller.match(withdrawalOf('a'));
+    first.flush(UNAUTH, UNAUTH_INIT);
+    second.flush(UNAUTH, UNAUTH_INIT);
+    expect(releases).toHaveLength(2);
+    releases.forEach((release) => release());
+    await settle();
+
+    const replays = controller.match(withdrawalOf('a'));
+    expect(replays).toHaveLength(1);
+    replays[0].flush(null, { status: 204, statusText: 'No Content' });
+    await settle();
+    mine().flush({ items: [product('a')], nextCursor: null });
+    await settle();
+  });
+
+  it('drops a second press’s late reply once the first has withdrawn the product (#533)', async () => {
+    mine().flush({ items: [product('a')], nextCursor: null });
+    await settle();
+
+    page().withdraw(page().products()[0]);
+    page().withdraw(page().products()[0]);
+    const [first, second] = controller.match(withdrawalOf('a'));
+    first.flush(null, { status: 204, statusText: 'No Content' });
+    await settle();
+    mine().flush({ items: [product('a', '2026-10-18T02:57:29Z')], nextCursor: null });
+    await settle();
+
+    // Its 401 would sign in and send the withdrawal again as a new command.
+    second.flush(UNAUTH, UNAUTH_INIT);
+    await settle();
+
+    expect(signIn).not.toHaveBeenCalled();
+    controller.expectNone(withdrawalOf('a'));
+    expect(page().actionError()).toBeNull();
+    expect(page().isPending(page().products()[0])).toBe(false);
   });
 
   it('holds a refresh asked for inside a closed window, and takes it when the window ends', async () => {
@@ -821,6 +896,98 @@ describe('OwnProductsComponent', () => {
       expect(page().pricing()).toBeNull();
       mine().flush({ items: [], nextCursor: null });
       await settle();
+    });
+
+    it('keeps the one replay when the sign-in returned into a closed window and sent nothing (#542)', async () => {
+      await listed(product('a'));
+      const window = TestBed.inject(RateLimitWindows).forPartition('authenticated');
+      signIn.mockImplementationOnce(async () => {
+        window.open({ kind: 'rateLimited', title: '', detail: null, retryAfterSeconds: 30 });
+      });
+
+      page().askToReprice(page().products()[0]);
+      type(9);
+      page().reprice(page().products()[0]);
+      controller.expectOne(priceOf('a')).flush(UNAUTH, UNAUTH_INIT);
+      await settle();
+      controller.expectNone(priceOf('a'));
+
+      window.close();
+      page().reprice(page().products()[0]);
+      controller.expectOne(priceOf('a')).flush(UNAUTH, UNAUTH_INIT);
+      await settle();
+
+      expect(signIn).toHaveBeenCalledTimes(2);
+      controller.expectOne(priceOf('a')).flush(null, { status: 204, statusText: 'No Content' });
+      await settle();
+      mine().flush({ items: [product('a')], nextCursor: null });
+      await settle();
+    });
+
+    it('replays a reprice once when two presses are refused before one sign-in resolves (#533)', async () => {
+      await listed(product('a'));
+      const releases: (() => void)[] = [];
+      signIn.mockImplementation(() => new Promise<void>((resolve) => releases.push(resolve)));
+
+      page().askToReprice(page().products()[0]);
+      type(9);
+      page().reprice(page().products()[0]);
+      page().reprice(page().products()[0]);
+      const [first, second] = controller.match(priceOf('a'));
+      first.flush(UNAUTH, UNAUTH_INIT);
+      second.flush(UNAUTH, UNAUTH_INIT);
+      expect(releases).toHaveLength(2);
+      releases.forEach((release) => release());
+      await settle();
+
+      const replays = controller.match(priceOf('a'));
+      expect(replays).toHaveLength(1);
+      replays[0].flush(null, { status: 204, statusText: 'No Content' });
+      await settle();
+      mine().flush({ items: [product('a')], nextCursor: null });
+      await settle();
+    });
+
+    it('drops a second press’s late failure once the first has repriced the product (#554)', async () => {
+      await listed(product('a'));
+
+      page().askToReprice(page().products()[0]);
+      type(9);
+      page().reprice(page().products()[0]);
+      page().reprice(page().products()[0]);
+      const [first, second] = controller.match(priceOf('a'));
+      first.flush(null, { status: 204, statusText: 'No Content' });
+      await settle();
+      mine().flush({ items: [product('a')], nextCursor: null });
+      await settle();
+      expect(page().pricing()).toBeNull();
+
+      second.flush({ title: 'Bad Gateway', status: 502 }, { status: 502, statusText: '' });
+      await settle();
+
+      expect(page().actionError()).toBeNull();
+      expect(page().isRepricing(page().products()[0])).toBe(false);
+    });
+
+    it('sends nothing again when a second press’s late 401 follows the first’s success (#554)', async () => {
+      await listed(product('a'));
+
+      page().askToReprice(page().products()[0]);
+      type(9);
+      page().reprice(page().products()[0]);
+      page().reprice(page().products()[0]);
+      const [first, second] = controller.match(priceOf('a'));
+      first.flush(null, { status: 204, statusText: 'No Content' });
+      await settle();
+      mine().flush({ items: [product('a')], nextCursor: null });
+      await settle();
+
+      second.flush(UNAUTH, UNAUTH_INIT);
+      await settle();
+
+      expect(signIn).not.toHaveBeenCalled();
+      controller.expectNone(priceOf('a'));
+      expect(page().actionError()).toBeNull();
     });
 
     it('drops a reply that lands for a subject who has gone', async () => {
