@@ -602,7 +602,6 @@ export class CheckoutPage {
    * it would send is no longer the order that was refused.
    */
   private signInAndReplay(): void {
-    const replay = !this.replayedAfterSignIn;
     const refusedSubject = this.auth.user()()?.subject ?? null;
     const changesAtRefusal = this.subjectChanges;
 
@@ -612,7 +611,9 @@ export class CheckoutPage {
           refusedSubject !== null &&
           this.auth.user()()?.subject === refusedSubject &&
           this.subjectChanges === changesAtRefusal;
-        if (replay && sameSubject) {
+        // Read here, not when the 401 landed: two 401s pending at once would
+        // both have read it unspent and replayed twice (#533).
+        if (!this.replayedAfterSignIn && sameSubject) {
           // Spent where the replay is sent, not before the sign-in settles: a
           // dismissed or foreign sign-in sent nothing, so the bound has not
           // been used (#157).

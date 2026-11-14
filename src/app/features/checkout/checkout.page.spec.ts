@@ -682,6 +682,27 @@ describe('CheckoutPage', () => {
     controller.expectOne('http://localhost:5000/api/v1/orders');
   });
 
+  it('replays once when two presses are refused with a 401 before one sign-in resolves (#533)', async () => {
+    const releases: (() => void)[] = [];
+    signIn.mockImplementation(() => new Promise<void>((resolve) => releases.push(resolve)));
+
+    fixture.componentInstance.placeOrder();
+    fixture.componentInstance.placeOrder();
+    const [first, second] = controller.match('http://localhost:5000/api/v1/orders');
+    first.flush({ title: 'Unauthorized', status: 401 }, { status: 401, statusText: 'Unauthorized' });
+    second.flush({ title: 'Unauthorized', status: 401 }, { status: 401, statusText: 'Unauthorized' });
+
+    // Both refusals landed with the replay unspent; each sign-in then resolves.
+    expect(releases).toHaveLength(2);
+    releases.forEach((release) => release());
+    await fixture.whenStable();
+
+    const replays = controller.match('http://localhost:5000/api/v1/orders');
+    expect(replays).toHaveLength(1);
+    replays[0].flush('44444444-4444-4444-4444-444444444444', { status: 200, statusText: 'OK' });
+    await fixture.whenStable();
+  });
+
   it('disables Place order while a 429 window is open', async () => {
     fixture.componentInstance.placeOrder();
     controller.expectOne('http://localhost:5000/api/v1/orders').flush(
