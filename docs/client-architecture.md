@@ -1705,6 +1705,15 @@ the `browser` user sees no Publish tab and is refused a direct navigation to
 `/tabs/publish`, landing on `/tabs/account?denied=catalog:write` with the banner
 that names the permission it lacks.
 
+**The game day is to be a workflow of its own, not a job here** (#628).
+`e2e/game-day/` causes a failure the client documents a response to, such as
+the gateway stopped or Keycloak unreachable, and checks the screen's answer;
+its README owns the scenarios and whether the workflow has landed. Its causes
+stop the services every other job needs, so the scenarios run on
+`workflow_dispatch` only, one stack per scenario, and are no check a pull
+request waits on; the suite of its runner, which needs no stack, runs on a pull
+request that touches it.
+
 ---
 
 ## 15. The native shell: one scheme, two origins, and a round trip nobody has run
