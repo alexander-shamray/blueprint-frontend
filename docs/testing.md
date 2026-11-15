@@ -244,6 +244,21 @@ own opening comment: the triggers are `push: branches: [main]` and
 twice for every commit on a PR branch. So a commit pushed to a branch with no
 pull request open runs nothing at all, and is verified by nothing.
 
+## The game day
+
+`e2e/game-day/` causes each failure the web build documents a response to, on
+the same stack, and checks the screen's answer (#628). It is not part of
+`npm run e2e`, because its causes stop services the smoke needs, and it needs
+the table above but for one thing: the dev server is started by hand, since no
+`webServer` starts it. Its suite needs neither stack nor browser:
+
+```bash
+node --test e2e/game-day/harness-suite.mts
+```
+
+`e2e/game-day/README.md` owns the scenarios, the variables a run reads, what a
+pass proves and where CI runs it.
+
 ## The emulator round trip
 
 What a developer runs to put this client on an Android emulator, in order, as
