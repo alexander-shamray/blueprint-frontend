@@ -1,0 +1,149 @@
+name: Game day
+
+# `suite` is the game day's own suite; it needs no stack. `run` causes each failure the app
+# documents a response to, on the backend's Compose stack, one scenario to a job and a stack,
+# and is workflow_dispatch only: e2e/game-day/README.md's *Running it in CI* argues that.
+
+on:
+  pull_request:
+    paths:
+      - 'e2e/game-day/**'
+      - 'e2e/helpers.ts'
+      - '.github/workflows/game-day.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'e2e/game-day/**'
+      - 'e2e/helpers.ts'
+      - '.github/workflows/game-day.yml'
+  workflow_dispatch:
+    inputs:
+      scenarios:
+        description: 'Scenarios to run, space-separated, or all'
+        default: 'all'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: game-day-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  suite:
+    if: github.event_name != 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - name: The game day's suite
+        run: node --test e2e/game-day/harness-suite.mts
+
+  plan:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      scenarios: ${{ steps.plan.outputs.scenarios }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      # A name with no scenario fails here, before any stack is started for it.
+      - name: The scenarios to run, one job each
+        id: plan
+        env:
+          SCENARIOS: ${{ inputs.scenarios }}
+        run: node e2e/game-day/game-day.mts --matrix "$SCENARIOS" >> "$GITHUB_OUTPUT"
+
+  # A job and a stack per scenario: one that dies cannot poison the next. The stack is the
+  # `e2e` job's in ci.yml, started by the same recipe, which that job's comments argue.
+  run:
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        scenario: ${{ fromJSON(needs.plan.outputs.scenarios) }}
+    env:
+      BLUEPRINT_REGISTRY: ghcr.io/alexander-shamray/blueprint-backend
+      BLUEPRINT_TAG: main
+      GAME_DAY_COMPOSE: blueprint-backend/deploy/compose/docker-compose.yml
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7
+        with:
+          repository: alexander-shamray/blueprint-backend
+          path: blueprint-backend
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+
+      - name: Install Chromium and its system packages
+        timeout-minutes: 20
+        run: |
+          for attempt in 1 2 3; do
+            timeout 6m npx playwright install --with-deps chromium && exit 0
+            echo "playwright install failed (attempt $attempt)." >&2
+            sleep 10
+          done
+          exit 1
+
+      - name: Start the platform
+        timeout-minutes: 30
+        working-directory: blueprint-backend
+        run: |
+          compose=deploy/compose/docker-compose.yml
+          retry() {
+            for attempt in 1 2 3; do
+              timeout 8m "$@" && return 0
+              echo "'$*' failed (attempt $attempt)." >&2
+              sleep 10
+            done
+            return 1
+          }
+          retry docker compose -f "$compose" pull --quiet
+          retry docker compose -f "$compose" build rabbitmq
+          docker compose -f "$compose" up -d --wait --no-build
+
+      - name: Start the dev server and wait for it and the gateway
+        timeout-minutes: 10
+        run: |
+          nohup npm start > dev-server.log 2>&1 &
+          deadline=$((SECONDS + 300))
+          while [ "$SECONDS" -lt "$deadline" ]; do
+            if curl -fsS --connect-timeout 5 --max-time 5 http://localhost:5000/health/ready > /dev/null &&
+               curl -fsS --connect-timeout 5 --max-time 5 http://localhost:5173 > /dev/null; then
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "The gateway or the dev server never became ready." >&2
+          exit 1
+
+      - name: Cause the failure and check the app's answer
+        env:
+          SCENARIO: ${{ matrix.scenario }}
+        run: node e2e/game-day/game-day.mts "$SCENARIO"
+
+      - name: Show state on failure
+        if: failure()
+        run: |
+          docker compose -f "$GAME_DAY_COMPOSE" ps -a
+          docker compose -f "$GAME_DAY_COMPOSE" logs --tail 50
+          tail -n 50 dev-server.log
+
+      - name: Tear down
+        if: always()
+        run: docker compose -f "$GAME_DAY_COMPOSE" down -v

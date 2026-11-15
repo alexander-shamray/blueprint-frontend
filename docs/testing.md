@@ -256,8 +256,9 @@ the table above but for one thing: the dev server is started by hand, since no
 node --test e2e/game-day/harness-suite.mts
 ```
 
-`e2e/game-day/README.md` owns the scenarios, the variables a run reads, what a
-pass proves and where CI runs it.
+`e2e/game-day/README.md` owns the scenarios, the variables a run reads and what
+a pass proves; `.github/workflows/game-day.yml` runs the suite on a pull request
+that touches the directory and the scenarios on `workflow_dispatch` only.
 
 ## The emulator round trip
 

@@ -54,7 +54,7 @@ through the library, as `e2e/native-stream.mts` drives a WebView. Node prints a
 | `scenarios.ts` | The scenarios, and `NOT_CAUSED`: each failure #628 asks after that none causes, with why |
 | `runner.ts` | The order, the quiet start, `--matrix` and the verdict line |
 | `game-day.mts` | The command line, and the browser |
-| `harness-suite.mts` | The suite; *Running it in CI* says where it runs |
+| `harness-suite.mts` | The suite, run by `.github/workflows/game-day.yml` on a pull request that touches this directory |
 
 ## A scenario
 
@@ -93,11 +93,9 @@ they live.
 
 ## Running it in CI
 
-**Not yet.** The workflow, `.github/workflows/game-day.yml`, is owed under
-#628: `.github/**` is the owner's to edit, so it lands in a change of its own.
-It is to run the suite on a pull request or a push to `main` that touches this
-directory, and the scenarios on `workflow_dispatch` only, one job and one stack
-per scenario, as the backend's does: a scenario that dies cannot poison the
-next, and a stack started for each is the price of that. The dispatch starts
-the stack as the `e2e` job in `ci.yml` does, then the dev server, then the
-scenario. Until it lands, the suite runs where `docs/testing.md` says, by hand.
+`.github/workflows/game-day.yml` runs the suite on a pull request or a push to
+`main` that touches this directory, and the scenarios on `workflow_dispatch`
+only, one job and one stack per scenario, as the backend's does: a scenario
+that dies cannot poison the next, and a stack started for each is the price of
+that. The dispatch starts the stack as the `e2e` job in `ci.yml` does, then
+the dev server, then the scenario.
