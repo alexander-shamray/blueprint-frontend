@@ -21,7 +21,8 @@ out beside this repository's root, and the Chromium that `npx playwright
 install chromium` puts in place. `GAME_DAY_APP` points at a dev server
 elsewhere than 5173.
 
-Exit 0 means the stack was whole before the cause, the app answered within the
+Exit 0 means the services the cause touches were running and the gateway was
+ready before the cause, the app answered within the
 scenario's deadline, the stack settled after the restore, and the app came back
 by the way back it offers. Anything else prints a `FINDING:` line on stderr, and
 **a finding is the product**: each one is a defect in the app, in its document
