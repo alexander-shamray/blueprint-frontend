@@ -97,7 +97,7 @@ they live.
 
 `.github/workflows/game-day.yml` runs the suite on a pull request or a push to
 `main` that touches this directory, `e2e/helpers.ts`, `src/` for the lines the
-scenarios cite, `.nvmrc` or the lockfile, and the scenarios on
+scenarios cite, `.nvmrc`, `package.json` or the lockfile, and the scenarios on
 `workflow_dispatch` only, one job and one stack per scenario, as the backend's
 does: a scenario
 that dies cannot poison the next, and a stack started for each is the price of
