@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AuthService, CurrentUser } from '@core/auth/auth.service';
 import { ALREADY_COMMITTED } from '@core/commands/command-id';
 import { CatalogRefresh } from '@core/catalog/catalog-refresh';
+import { RateLimitWindows } from '@core/errors/rate-limit';
 import { hydrated } from '@shared/testing/hydrated';
 import { ImagePickError, ImageSource } from './image-source';
 import { PublishPage } from './publish.page';
@@ -1120,5 +1121,26 @@ describe('PublishPage', () => {
       kind: 'retry',
       title: 'That was not sent.',
     });
+  });
+
+  it('leaves the countdown to speak when the bound is spent and a window is open (#610)', async () => {
+    const url = 'http://localhost:5000/api/v1/catalog/products';
+    const window = TestBed.inject(RateLimitWindows).forPartition('authenticated');
+    fixture.componentInstance.publish();
+    controller
+      .expectOne(url)
+      .flush({ title: 'Unauthorized', status: 401 }, { status: 401, statusText: 'Unauthorized' });
+    await fixture.whenStable();
+    signIn.mockImplementationOnce(async () => {
+      window.open({ kind: 'rateLimited', title: '', detail: null, retryAfterSeconds: 30 });
+    });
+    controller
+      .expectOne(url)
+      .flush({ title: 'Unauthorized', status: 401 }, { status: 401, statusText: 'Unauthorized' });
+    await fixture.whenStable();
+
+    controller.expectNone(url);
+    expect(fixture.componentInstance.error()).toBeNull();
+    window.close();
   });
 });

@@ -1238,6 +1238,25 @@ describe('OwnProductsComponent', () => {
     expect(page().actionError()).toMatchObject({ kind: 'retry', title: 'That was not sent.' });
   });
 
+  it('leaves the countdown to speak when the bound is spent and a window is open (#610)', async () => {
+    mine().flush({ items: [product('a')], nextCursor: null });
+    await settle();
+    const window = TestBed.inject(RateLimitWindows).forPartition('authenticated');
+
+    page().withdraw(page().products()[0]);
+    controller.expectOne(withdrawalOf('a')).flush(UNAUTH, UNAUTH_INIT);
+    await settle();
+    signIn.mockImplementationOnce(async () => {
+      window.open({ kind: 'rateLimited', title: '', detail: null, retryAfterSeconds: 30 });
+    });
+    controller.expectOne(withdrawalOf('a')).flush(UNAUTH, UNAUTH_INIT);
+    await settle();
+
+    controller.expectNone(withdrawalOf('a'));
+    expect(page().actionError()).toBeNull();
+    window.close();
+  });
+
   it('reads the list again when a renewed token arrives after a 401 on the read (#600)', async () => {
     mine().flush(UNAUTH, UNAUTH_INIT);
     await settle();
