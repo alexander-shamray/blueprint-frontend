@@ -1708,11 +1708,11 @@ that names the permission it lacks.
 **The game day is a workflow of its own, not a job here** (#628).
 `.github/workflows/game-day.yml` causes a failure the client documents a
 response to, such as the gateway stopped or Keycloak unreachable, and checks
-the screen's answer; `e2e/game-day/README.md` owns the scenarios. Its causes
-stop the services every other job needs, so the scenarios run on
-`workflow_dispatch` only, one stack per scenario, and are no check a pull
-request waits on; the suite of its runner, which needs no stack, runs on a pull
-request that touches it.
+the screen's answer; `e2e/game-day/README.md` owns the scenarios. Each
+scenario starts and tears down a whole stack of its own, which is the `e2e`
+job's cost once per scenario, so the scenarios run on `workflow_dispatch` only
+and are no check a pull request waits on; the suite of its runner, which needs
+no stack, runs on a pull request that touches it.
 
 ---
 
