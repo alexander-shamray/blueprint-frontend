@@ -107,7 +107,7 @@ jobs:
           compose=deploy/compose/docker-compose.yml
           retry() {
             for attempt in 1 2 3; do
-              timeout 8m "$@" && return 0
+              timeout 4m "$@" && return 0
               echo "'$*' failed (attempt $attempt)." >&2
               sleep 10
             done

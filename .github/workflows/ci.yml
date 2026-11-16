@@ -229,9 +229,11 @@ jobs:
           compose=deploy/compose/docker-compose.yml
           # Both fetch from outside the repository, and a 504 from either is not a result; each
           # attempt is bounded, so a fetch that stalls is tried again rather than held to the job.
+          # Four minutes an attempt: both loops' three attempts and their pauses then come to 25
+          # minutes, inside the step's 30 with five left for `up --wait`.
           retry() {
             for attempt in 1 2 3; do
-              timeout 8m "$@" && return 0
+              timeout 4m "$@" && return 0
               echo "'$*' failed (attempt $attempt)." >&2
               sleep 10
             done
