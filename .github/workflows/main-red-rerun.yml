@@ -58,19 +58,25 @@ jobs:
           delim="EOF_$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')"
           printf 'failed<<%s\n%s\n%s\n' "$delim" "$failed" "$delim" >> "$GITHUB_OUTPUT"
           # Unrerun, the first attempt is the only one there will be, so `file` files it as
-          # `main-red` would. Refused because a person already reran the failed jobs, it is not:
-          # that later attempt's own `main-red` files it if it is red, so the rerun has started.
-          if gh run rerun "$RUN_ID" --failed; then
-            echo 'by=this workflow' >> "$GITHUB_OUTPUT"
-          else
-            rerun=$(gh run view "$RUN_ID" --json attempt,status \
-              --jq 'if .attempt > 1 or .status != "completed" then "yes" else "no" end') ||
-              rerun=no
-            if [ "$rerun" != yes ]; then
-              echo "::error::the failed jobs could not be rerun"
-              exit 0
-            fi
+          # `main-red` would. One a person already reran is not: that later attempt's own
+          # `main-red` files it if it is red, so the rerun has started. `gh run rerun` acts on the
+          # latest attempt, so that is read first: called on a person's rerun that has already
+          # finished red, it would rerun that one too. Read again when the call is refused, for a
+          # person's rerun that started between the read and the call.
+          by_hand() {
+            gh run view "$RUN_ID" --json attempt,status \
+              --jq 'if .attempt > 1 or .status != "completed" then "yes" else "no" end'
+          }
+          latest=$(by_hand) || latest=unread
+          if [ "$latest" = yes ]; then
             echo 'by=hand, before this workflow reached them' >> "$GITHUB_OUTPUT"
+          elif [ "$latest" = no ] && gh run rerun "$RUN_ID" --failed; then
+            echo 'by=this workflow' >> "$GITHUB_OUTPUT"
+          elif [ "$(by_hand || echo unread)" = yes ]; then
+            echo 'by=hand, before this workflow reached them' >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::the failed jobs could not be rerun"
+            exit 0
           fi
           echo 'started=true' >> "$GITHUB_OUTPUT"
 
