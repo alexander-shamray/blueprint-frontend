@@ -258,7 +258,7 @@ node --test e2e/game-day/harness-suite.mts
 
 `e2e/game-day/README.md` owns the scenarios, the variables a run reads and what
 a pass proves; `.github/workflows/game-day.yml` runs the suite on a pull request
-that touches the directory or a file the suite reads, and the scenarios on
+that touches a path its `paths` filter names, and the scenarios on
 `workflow_dispatch` only.
 
 ## The emulator round trip
