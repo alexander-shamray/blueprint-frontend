@@ -1732,7 +1732,8 @@ the screen's answer; `e2e/game-day/README.md` owns the scenarios. Each
 scenario starts and tears down a whole stack of its own, which is the `e2e`
 job's cost once per scenario, so the scenarios run on `workflow_dispatch` only
 and are no check a pull request waits on; the suite of its runner, which needs
-no stack, runs on a pull request that touches it.
+no stack, runs on a pull request that touches it or a file it reads, `src/`
+included for the lines the scenarios cite.
 
 ---
 

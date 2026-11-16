@@ -56,7 +56,7 @@ through the library, as `e2e/native-stream.mts` drives a WebView. Node prints a
 | `scenarios.ts` | The scenarios, and `NOT_CAUSED`: each failure #628 asks after that none causes, with why |
 | `runner.ts` | The order, the quiet start, `--matrix` and the verdict line |
 | `game-day.mts` | The command line, and the browser |
-| `harness-suite.mts` | The suite, run by `.github/workflows/game-day.yml` on a pull request that touches this directory |
+| `harness-suite.mts` | The suite, run by `.github/workflows/game-day.yml` on a pull request that touches this directory or a file the suite reads |
 
 ## A scenario
 
@@ -96,7 +96,8 @@ they live.
 ## Running it in CI
 
 `.github/workflows/game-day.yml` runs the suite on a pull request or a push to
-`main` that touches this directory, and the scenarios on `workflow_dispatch`
+`main` that touches this directory or a file the suite reads, `src/` included
+for the lines the scenarios cite, and the scenarios on `workflow_dispatch`
 only, one job and one stack per scenario, as the backend's does: a scenario
 that dies cannot poison the next, and a stack started for each is the price of
 that. The dispatch starts the stack as the `e2e` job in `ci.yml` does, then
