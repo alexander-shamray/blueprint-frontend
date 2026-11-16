@@ -414,7 +414,9 @@ No banner text is authored on the client beyond the six generic banners for
 `signIn`, `forbidden`, `alreadyCommitted`, `rateLimited`, `unavailable` and
 `retry`. Any other error text the client writes is a note on the page it
 concerns, such as §5.4's poll notes. Where the backend sends
-`title` and `detail`, they are shown as sent.
+`title` and `detail`, they are shown as sent. The one other authored banner is a
+sign-in that completes with nothing left to send (`client-architecture.md` §12,
+*A sign-in that sends nothing says so*).
 
 ## 7. Testing
 
