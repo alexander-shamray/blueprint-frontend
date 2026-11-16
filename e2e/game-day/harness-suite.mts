@@ -216,6 +216,7 @@ describe('the CLI pieces', () => {
   it('ends on one line', () => {
     assert.equal(verdict('offline', [], 65), 'game day: offline OK in 1m05s');
     assert.equal(verdict('offline', ['x'], 5), 'game day: offline FAILED in 0m05s');
+    assert.equal(verdict('offline', [], 59.6), 'game day: offline OK in 1m00s');
   });
 });
 
