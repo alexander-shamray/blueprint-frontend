@@ -58,20 +58,20 @@ jobs:
           delim="EOF_$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')"
           printf 'failed<<%s\n%s\n%s\n' "$delim" "$failed" "$delim" >> "$GITHUB_OUTPUT"
           # Unrerun, the first attempt is the only one there will be, so `file` files it as
-          # `main-red` would. One a person already reran is not: that later attempt's own
-          # `main-red` files it if it is red, so the rerun has started. `gh run rerun` acts on the
-          # latest attempt, so that is read first: called on a person's rerun that has already
-          # finished red, it would rerun that one too. Read again when the call is refused, for a
-          # person's rerun that started between the read and the call.
+          # `main-red` would. One a person already reran is not: that attempt's own `main-red`
+          # files it if it is red. `gh run rerun` acts on the latest attempt, so that is read
+          # first, or a person's rerun that has already finished red would be rerun as well.
           by_hand() {
             gh run view "$RUN_ID" --json attempt,status \
               --jq 'if .attempt > 1 or .status != "completed" then "yes" else "no" end'
           }
-          latest=$(by_hand) || latest=unread
+          # A read that fails is tried once more, so one transient failure does not cost the rerun.
+          latest=$(by_hand) || latest=$(by_hand) || latest=unread
           if [ "$latest" = yes ]; then
             echo 'by=hand, before this workflow reached them' >> "$GITHUB_OUTPUT"
           elif [ "$latest" = no ] && gh run rerun "$RUN_ID" --failed; then
             echo 'by=this workflow' >> "$GITHUB_OUTPUT"
+          # Refused: read again, for a person's rerun that started between the read and the call.
           elif [ "$(by_hand || echo unread)" = yes ]; then
             echo 'by=hand, before this workflow reached them' >> "$GITHUB_OUTPUT"
           else
