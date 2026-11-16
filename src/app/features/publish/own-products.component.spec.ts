@@ -242,8 +242,9 @@ describe('OwnProductsComponent', () => {
     replay.flush({ title: 'Unauthorized', status: 401 }, { status: 401, statusText: '' });
     await settle();
     controller.expectNone(withdrawalOf('a'));
-    // The second sign-in completed and sent nothing: no stale banner (#599).
-    expect(page().actionError()).toBeNull();
+    // The second sign-in completed and sent nothing: no stale banner (#599),
+    // and the line says the withdrawal was not sent (#610).
+    expect(page().actionError()).toMatchObject({ kind: 'retry', title: 'That was not sent.' });
   });
 
   it('replays nothing when a different subject signs in', async () => {
@@ -1222,7 +1223,7 @@ describe('OwnProductsComponent', () => {
     window.close();
   });
 
-  it('drops the sign-in banner when a completed sign-in sends no replay, the bound being spent (#599)', async () => {
+  it('says it was not sent when a completed sign-in sends no replay, the bound being spent (#599, #610)', async () => {
     mine().flush({ items: [product('a')], nextCursor: null });
     await settle();
 
@@ -1234,7 +1235,7 @@ describe('OwnProductsComponent', () => {
 
     expect(signIn).toHaveBeenCalledTimes(2);
     controller.expectNone(withdrawalOf('a'));
-    expect(page().actionError()).toBeNull();
+    expect(page().actionError()).toMatchObject({ kind: 'retry', title: 'That was not sent.' });
   });
 
   it('reads the list again when a renewed token arrives after a 401 on the read (#600)', async () => {

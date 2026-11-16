@@ -19,6 +19,7 @@ import { RateLimitWindows } from '@core/errors/rate-limit';
 import { EmptyStateComponent } from '@shared/empty-state.component';
 import { ErrorBannerComponent } from '@shared/error-banner.component';
 import { MoneyPipe } from '@shared/money.pipe';
+import { notSentError } from '@shared/not-sent-error';
 import { SkeletonListComponent } from '@shared/skeleton-list.component';
 
 /** `Amount`'s messages from a 400, apart from the keys no control here owns. */
@@ -533,8 +534,13 @@ export class OwnProductsComponent {
         }
         // Nothing was sent, a spent bound or a refused resend, and the seller
         // is signed in: the 401's banner would say otherwise and outrank the
-        // window's countdown (#599).
-        if (this.actionErrorSignal()?.kind === 'signIn') this.actionErrorSignal.set(null);
+        // window's countdown (#599). A spent bound says it was not sent
+        // (#610); a refused resend leaves the window's countdown to speak.
+        if (this.actionErrorSignal()?.kind === 'signIn') {
+          this.actionErrorSignal.set(
+            this.replayedAfterSignIn.has(key) ? notSentError() : null,
+          );
+        }
       },
       // `unknown`: signIn() can reject with a bare string (see CartPage.getQuote()).
       (failure: unknown) => this.actionErrorSignal.set(mapError(failure)),

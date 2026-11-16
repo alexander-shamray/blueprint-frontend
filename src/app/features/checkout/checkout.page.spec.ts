@@ -1150,7 +1150,7 @@ describe('CheckoutPage', () => {
     });
   });
 
-  it('drops the sign-in banner when a completed sign-in sends no replay, the bound being spent (#599)', async () => {
+  it('says it was not sent when a completed sign-in sends no replay, the bound being spent (#599, #610)', async () => {
     fixture.componentInstance.placeOrder();
     controller
       .expectOne('http://localhost:5000/api/v1/orders')
@@ -1162,9 +1162,13 @@ describe('CheckoutPage', () => {
     await fixture.whenStable();
 
     // The second sign-in completed for the same buyer and sent nothing: they
-    // are signed in, and "Sign in to continue." must not stay on screen.
+    // are signed in, and "Sign in to continue." must not stay on screen; the
+    // order was not sent, and the banner says so.
     expect(signIn).toHaveBeenCalledTimes(2);
     controller.expectNone('http://localhost:5000/api/v1/orders');
-    expect(fixture.componentInstance.error()).toBeNull();
+    expect(fixture.componentInstance.error()).toMatchObject({
+      kind: 'retry',
+      title: 'That was not sent.',
+    });
   });
 });

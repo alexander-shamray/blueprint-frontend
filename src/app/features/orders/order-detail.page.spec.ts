@@ -739,7 +739,7 @@ describe('OrderDetailPage', () => {
     controller.expectNone(`${READ}${GUID_A}`);
   });
 
-  it('drops the sign-in banner when a completed sign-in sends no replay, the bound being spent (#599)', async () => {
+  it('says it was not sent when a completed sign-in sends no replay, the bound being spent (#599, #610)', async () => {
     const mounted = await mountWith(order());
     controller = mounted.controller;
     const refuse = () =>
@@ -755,6 +755,9 @@ describe('OrderDetailPage', () => {
 
     expect(signIn).toHaveBeenCalledTimes(2);
     controller.expectNone((r) => r.url.endsWith('/cancel'));
-    expect(mounted.fixture.componentInstance.error()).toBeNull();
+    expect(mounted.fixture.componentInstance.error()).toMatchObject({
+      kind: 'retry',
+      title: 'That was not sent.',
+    });
   });
 });
