@@ -555,6 +555,23 @@ describe('AssistantConversation', () => {
     expect(host.streams).toEqual([]);
   });
 
+  it('keeps the id when the resume read fails, and resumes on the next try', async () => {
+    const ids = memoryIds('c1');
+    const { host, conversation } = setup(ids);
+    host.on('GET', /\/conversations\/c1$/, () => json({ title: 'Bad Gateway' }, 502));
+
+    await conversation.resume();
+
+    expect(ids.id).toBe('c1');
+    expect(conversation.current).toEqual(EMPTY_CONVERSATION);
+
+    host.on('GET', /\/conversations\/c1$/, () =>
+      json({ id: 'c1', items: [], running: false, lastEventId: 2, pendingCalls: [] }),
+    );
+    await conversation.resume();
+    expect(conversation.current.id).toBe('c1');
+  });
+
   it('holds no stream while idle and hidden, and opens one while visible', async () => {
     const { host, conversation } = setup(memoryIds('c1'));
     host.on('GET', /\/conversations\/c1$/, () =>

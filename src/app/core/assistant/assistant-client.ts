@@ -240,7 +240,15 @@ export class AssistantConversation {
     // An abandon, start-over or send since this began owns the conversation:
     // a read in flight at sign-out must not restore the customer's before it.
     const sent = this.sends;
-    const view = await this.client.read(id).catch(() => null);
+    // Only a 404 (read() answers null) says the host forgot it; a read that
+    // throws (a 401 being renewed, a 5xx, no network) says nothing of the
+    // kind, so the stored id stays for the next reload to try again.
+    let view: ConversationView | null;
+    try {
+      view = await this.client.read(id);
+    } catch {
+      return;
+    }
     if (this.sends !== sent) return;
     if (!view) {
       this.ids.set(null);
