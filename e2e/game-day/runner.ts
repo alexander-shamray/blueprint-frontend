@@ -125,7 +125,9 @@ export function matrix(names: string, scenarios: readonly Scenario[] = SCENARIOS
 
 /** The one line a run ends on. */
 export function verdict(name: string, findings: readonly string[], seconds: number): string {
-  const minutes = Math.floor(seconds / 60);
-  const rest = String(Math.round(seconds % 60)).padStart(2, '0');
+  // Rounded once, then split: rounding the remainder alone prints 59.6s as 0m60s.
+  const whole = Math.round(seconds);
+  const minutes = Math.floor(whole / 60);
+  const rest = String(whole % 60).padStart(2, '0');
   return `game day: ${name} ${findings.length === 0 ? 'OK' : 'FAILED'} in ${minutes}m${rest}s`;
 }
