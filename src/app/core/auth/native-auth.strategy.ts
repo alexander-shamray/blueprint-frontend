@@ -324,6 +324,12 @@ export class NativeAuthStrategy extends AuthService {
           code_challenge: challenge,
           code_challenge_method: 'S256',
           state: flow.state,
+          // The system browser's cookie jar is the device's, so a realm
+          // session found there may not be this user's: one a sign-out could
+          // not reach the realm to end, or one begun outside this app. Without
+          // a prompt Keycloak answers with that session and no login screen,
+          // and whoever tapped Sign in is signed in as its owner (#640).
+          prompt: 'login',
         });
         await this.browser.open({ url: `${endpoint('auth')}?${params}` });
         if (flow.stage === 'opening') flow.stage = 'open';
@@ -409,27 +415,47 @@ export class NativeAuthStrategy extends AuthService {
       }
 
       if (stored) {
-        // Revoke BEFORE clearing. Clearing first would leave a live refresh
-        // token at the realm and nothing left on the device to revoke it with.
-        // Serialised, `stored` is the newest token there is: a renewal queued
-        // ahead of this has already rotated and written, so it is the rotated
-        // token that is revoked, not the one it replaced (#8).
+        // End the realm session BEFORE clearing. Clearing first would leave a
+        // live session at the realm and nothing left on the device to end it
+        // with. Serialised, `stored` is the newest token there is: a renewal
+        // queued ahead of this has already rotated and written, so it is the
+        // rotated token that is presented, not the one it replaced (#8).
         //
-        // The result is deliberately not consulted. A revocation that could
-        // not be delivered leaves a live token at the realm, and the
+        // Keycloak's logout endpoint, not the revocation endpoint (#640).
+        // Revoking the refresh token left the realm's SSO session alive in the
+        // system browser, and the next sign-in on the device could be answered
+        // with it. A POST carrying the refresh token ends that session, and
+        // every token minted in it, without opening a browser over the app.
+        const ended = await this.post(
+          endpoint('logout'),
+          new URLSearchParams({
+            client_id: environment.auth.nativeClientId,
+            refresh_token: stored,
+          }),
+        );
+
+        // A refusal is an answer about the request, not proof the token is
+        // dead, so revoke at least that. An unreachable realm is not asked
+        // twice: a second request would hold the queue for a second timeout.
+        //
+        // Otherwise the result is deliberately not consulted. A logout that
+        // could not be delivered leaves a live session at the realm, and the
         // alternative — keeping the credential on the device and asking the
         // user to try signing out again — is worse in the case that actually
         // matters: a credential kept on a device whose owner has just said they
         // are done with it is available to whoever picks the device up. The
-        // realm-side session expires on its own idle timeout.
-        await this.post(
-          endpoint('revoke'),
-          new URLSearchParams({
-            client_id: environment.auth.nativeClientId,
-            token: stored,
-            token_type_hint: 'refresh_token',
-          }),
-        );
+        // realm-side session expires on its own idle timeout, and until then
+        // `signIn`'s `prompt=login` keeps it from answering the next sign-in.
+        if (ended.outcome === 'refused') {
+          await this.post(
+            endpoint('revoke'),
+            new URLSearchParams({
+              client_id: environment.auth.nativeClientId,
+              token: stored,
+              token_type_hint: 'refresh_token',
+            }),
+          );
+        }
       }
 
       await this.abandonSession();
@@ -778,7 +804,7 @@ interface Flow {
  * so a discovery round trip at launch would buy nothing and cost the one
  * request that stands between a stored credential and a restored session.
  */
-function endpoint(name: 'auth' | 'token' | 'revoke'): string {
+function endpoint(name: 'auth' | 'token' | 'logout' | 'revoke'): string {
   return `${environment.auth.issuer}/protocol/openid-connect/${name}`;
 }
 

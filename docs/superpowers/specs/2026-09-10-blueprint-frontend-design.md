@@ -198,6 +198,11 @@ application asks which platform it is on.
 - Sign-out revokes the refresh token at Keycloak's revocation endpoint before
   clearing storage.
 
+> **Superseded in part on 2026-11-16.** The sign-out bullet is overtaken by
+> `docs/client-architecture.md` §12, *Native sign-out ends the realm session,
+> and a native sign-in always asks*: revoking the refresh token left the SSO
+> session alive in the system browser. The bullet is kept as written.
+
 ### 4.3 Shared
 
 - `auth.interceptor.ts` attaches `Authorization: Bearer` to requests whose URL

@@ -1433,6 +1433,33 @@ the bound is spent and no rate-limit window is open, since an open window's
 countdown already speaks and its button is disabled. §6's sentence is
 narrowed to this one line and the rest of it stands.
 
+### Native sign-out ends the realm session, and a native sign-in always asks
+
+*The claim.* Spec §4.2: "Sign-out revokes the refresh token at Keycloak's
+revocation endpoint before clearing storage", and the authorize request
+carries no `prompt`.
+
+*What is true.* Revoking the refresh token kills that token and leaves the
+realm's SSO session alive in the system browser's cookie jar, which is the
+device's and not the app's (#640). Within `ssoSessionIdleTimeout` the next
+sign-in on the device was answered from that cookie with no login screen, so
+whoever tapped Sign in after a sign-out could be signed in as the user who
+left. The web strategy never had the gap: its `signOut()` calls
+`OAuthService.logOut()`, which ends the session at the end-session endpoint.
+
+*Where it shows.* `NativeAuthStrategy.signOut()` posts the stored refresh token
+to Keycloak's `/protocol/openid-connect/logout` with the `mobile-app`
+client id, which ends the user session and every token minted in it without a
+browser, and revokes the refresh token instead only when the realm refuses
+the logout. `signIn()` sends `prompt=login` on every authorize request, so a
+session the sign-out could not reach, or one begun outside this app, is never
+taken as the user's. The cost is a password typed where a live session once
+let a sign-in through without one, which on a device shared between people is
+the point. Ending the session through the end-session endpoint in the system
+browser was not built: it needs a post-logout redirect URI the realm's
+`mobile-app` client does not register, and it opens a browser over the app to
+sign out. Spec §4.2's sign-out bullet is left as written.
+
 ## 13. The bundle budget is set above the bundle, not at it
 
 `npm run build` was failing before this work could ship, and the failure was the
