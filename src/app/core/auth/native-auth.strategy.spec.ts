@@ -137,13 +137,16 @@ describe('NativeAuthStrategy', () => {
     );
   }
 
-  /** Answers the token endpoint with a session and the revocation endpoint with nothing. */
+  /** Answers the token endpoint with a session and the sign-out endpoints with nothing. */
   function realm(refresh: string, username = 'demo'): void {
     fetchMock.mockImplementation(async (url: string) =>
-      url.endsWith('/revoke')
-        ? { ok: true, json: async () => ({}) }
-        : tokenResponse(refresh, username),
+      endsSession(url) ? { ok: true, json: async () => ({}) } : tokenResponse(refresh, username),
     );
+  }
+
+  /** The logout endpoint, and the revocation endpoint it falls back to (#640). */
+  function endsSession(url: string): boolean {
+    return url.endsWith('/logout') || url.endsWith('/revoke');
   }
 
   it('opens the SYSTEM browser, never a web view', async () => {
@@ -164,6 +167,18 @@ describe('NativeAuthStrategy', () => {
     expect(url).toContain('client_id=mobile-app');
     expect(url).toContain('code_challenge_method=S256');
     expect(url).toContain(encodeURIComponent('blueprint://auth/callback'));
+  });
+
+  it('asks the realm for a login screen on every interactive sign-in (#640)', async () => {
+    void startSignIn();
+    await vi.waitFor(() => expect(browser.open).toHaveBeenCalled());
+
+    // The system browser's cookie jar is the device's, not this app's, so a
+    // realm session found there may be somebody else's: the user who signed
+    // out before a sign-out could reach the realm, or one signed in through
+    // another app. Without a prompt Keycloak would answer with that session.
+    const url = new URL(browser.open.mock.calls[0][0].url);
+    expect(url.searchParams.get('prompt')).toBe('login');
   });
 
   it('keeps the access token in memory and the refresh token in secure storage', async () => {
@@ -331,14 +346,14 @@ describe('NativeAuthStrategy', () => {
     await signOut;
 
     // Adopting it and keeping it would resurrect a session the user ended.
-    // Serialised, the renewal completes first and the sign-out then revokes
+    // Serialised, the renewal completes first and the sign-out then presents
     // the ROTATED token — the one the unserialised strategy left live at the
-    // realm, because it revoked the token the renewal had already retired.
+    // realm, because it presented the token the renewal had already retired.
     expect(strategy.accessToken()).toBeNull();
     expect(store.has(REFRESH_TOKEN_KEY)).toBe(false);
-    expect(new URLSearchParams(String(fetchMock.mock.calls[1][1].body)).get('token')).toBe(
-      'refresh-2',
-    );
+    expect(
+      new URLSearchParams(String(fetchMock.mock.calls[1][1].body)).get('refresh_token'),
+    ).toBe('refresh-2');
   });
 
   it('survives a renewal that throws, rather than raising an unhandled rejection', async () => {
@@ -588,7 +603,7 @@ describe('NativeAuthStrategy', () => {
     const next = strategy.signIn();
     const nextCallback = deliverCallback();
     fetchMock.mockImplementation(async (url: string) =>
-      url.endsWith('/revoke')
+      endsSession(url)
         ? { ok: true, json: async () => ({}) }
         : tokenResponse('brand-new', 'second-session'),
     );
@@ -832,26 +847,58 @@ describe('NativeAuthStrategy', () => {
     expect(secure.remove).not.toHaveBeenCalled();
   });
 
-  it('revokes the refresh token at Keycloak before clearing storage', async () => {
+  it('ends the realm session at Keycloak before clearing storage (#640)', async () => {
     store.set(REFRESH_TOKEN_KEY, 'refresh-1');
-    fetchMock.mockResolvedValue({ ok: true, json: async () => ({}) });
+    // Keycloak answers a logout with 204 and no body.
+    fetchMock.mockResolvedValue({ ok: true, json: async () => Promise.reject(new SyntaxError()) });
 
     await strategy.signOut();
 
-    expect(fetchMock.mock.calls[0][0]).toContain('/protocol/openid-connect/revoke');
+    // The logout endpoint, not the revocation endpoint: revoking the refresh
+    // token left the realm's SSO session alive in the system browser, where
+    // the next sign-in on the device could be answered with it.
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe(`${environment.auth.issuer}/protocol/openid-connect/logout`);
+    const body = new URLSearchParams(String(init.body));
+    expect(body.get('client_id')).toBe('mobile-app');
+    expect(body.get('refresh_token')).toBe('refresh-1');
     expect(store.has(REFRESH_TOKEN_KEY)).toBe(false);
-    // "Before" as an ordering, not just as "the revoke is the first fetch":
+    // "Before" as an ordering, not just as "the logout is the first fetch":
     // reading the token into a local and then clearing storage ahead of the
-    // revoke call passes the two assertions above while doing the thing they
-    // exist to forbid. Invocation order is what actually pins it — a
-    // revocation that loses the race leaves a live refresh token at the realm
-    // for its full idle timeout with nothing left on the device to kill it.
+    // logout call passes the assertions above while doing the thing they
+    // exist to forbid. Invocation order is what actually pins it — a logout
+    // that loses the race leaves a live session at the realm for its full
+    // idle timeout with nothing left on the device to end it with.
     expect(fetchMock.mock.invocationCallOrder[0]).toBeLessThan(
       secure.remove.mock.invocationCallOrder[0],
     );
   });
 
-  it('signs out locally even when the revocation cannot be delivered', async () => {
+  it('revokes the refresh token when the realm refuses the logout', async () => {
+    store.set(REFRESH_TOKEN_KEY, 'refresh-1');
+    fetchMock.mockImplementation(async (url: string) =>
+      url.endsWith('/logout')
+        ? { ok: false, status: 405, json: async () => ({}) }
+        : { ok: true, json: async () => ({}) },
+    );
+
+    await strategy.signOut();
+
+    // A refusal is an answer about the request, so the token may still be
+    // live: kill at least that. An unreachable realm is not retried, since a
+    // second request to it would hold the queue for a second timeout.
+    expect(fetchMock.mock.calls.map(([url]) => String(url).split('/').pop())).toEqual([
+      'logout',
+      'revoke',
+    ]);
+    const body = new URLSearchParams(String(fetchMock.mock.calls[1][1].body));
+    expect(body.get('token')).toBe('refresh-1');
+    expect(body.get('token_type_hint')).toBe('refresh_token');
+    expect(store.has(REFRESH_TOKEN_KEY)).toBe(false);
+  });
+
+  it('signs out locally even when the logout cannot be delivered', async () => {
     store.set(REFRESH_TOKEN_KEY, 'refresh-1');
     fetchMock.mockRejectedValue(new TypeError('Failed to fetch'));
 
@@ -860,8 +907,10 @@ describe('NativeAuthStrategy', () => {
     // A deliberate choice, not an oversight: the realm session outlives the
     // sign-out until its idle timeout, and nobody holds a token to use in the
     // meantime because the only copy is gone. Keeping the credential on the
-    // device so the revocation could be retried would leave it available to
-    // whoever picks up a device its owner has finished with.
+    // device so the logout could be retried would leave it available to
+    // whoever picks up a device its owner has finished with; the next
+    // sign-in's `prompt=login` is what keeps that session from answering it.
+    expect(fetchMock).toHaveBeenCalledOnce();
     expect(strategy.accessToken()).toBeNull();
     expect(store.has(REFRESH_TOKEN_KEY)).toBe(false);
   });
@@ -913,10 +962,11 @@ describe('NativeAuthStrategy', () => {
    * failed against the guarded, unserialised strategy.
    */
   describe('one lifecycle operation at a time (#8)', () => {
+    /** The refresh tokens whose realm session a sign-out ended. */
     function revoked(): string[] {
       return fetchMock.mock.calls
-        .filter(([url]) => String(url).endsWith('/revoke'))
-        .map(([, init]) => new URLSearchParams(String(init.body)).get('token') ?? '');
+        .filter(([url]) => String(url).endsWith('/logout'))
+        .map(([, init]) => new URLSearchParams(String(init.body)).get('refresh_token') ?? '');
     }
 
     it('does not let a request that never answers hold every sign-out behind it', async () => {
