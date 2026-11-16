@@ -15,8 +15,9 @@ export const APP = process.env['GAME_DAY_APP'] ?? 'http://localhost:5173';
 
 /**
  * The backend's Compose file. Its own checkout, never a copy: the services this
- * stops are the backend's to name. CI checks the backend out beside the app and
- * sets the variable; a developer's sibling checkout is the default.
+ * stops are the backend's to name. CI checks the backend out inside the app's
+ * workspace and points the variable at it; a developer's sibling checkout is
+ * the default.
  */
 export const COMPOSE_FILE =
   process.env['GAME_DAY_COMPOSE'] ?? '../blueprint-backend/deploy/compose/docker-compose.yml';
