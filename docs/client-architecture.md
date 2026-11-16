@@ -2305,3 +2305,23 @@ and every turn streams one fixed reply. `e2e/assistant.spec.ts` signs in,
 acknowledges the notice, which names `scripted`, sends a message and reads
 that reply, through the gateway with the bearer. A real provider's round trip
 is still run by nothing in CI.
+
+### A sign-in that sends nothing says so, in one authored line
+
+*What the spec said.* §6: no banner text is authored on the client beyond the
+six generic banners, and any other error text the client writes is a note on
+the page it concerns.
+
+*What is true.* When a sign-in completes for the refused subject and the one
+replay a page owns is already spent, nothing is sent and the signed-in user is
+left with an empty page: dropping the stale "Sign in to continue." (#599) said
+nothing about the order, withdrawal, cancellation or publish that never went
+out (#610). A generic `retry` heading names no cause, and a note beside the
+banner would be four pages each carrying a copy of one sentence.
+
+*Where it shows.* `shared/not-sent-error.ts` is the one authored banner, a
+`retry` kind carrying its own `title` and `detail`; `CheckoutPage`,
+`OrderDetailPage`, `PublishPage` and `OwnProductsComponent` set it only where
+the bound is spent and no rate-limit window is open, since an open window's
+countdown already speaks and its button is disabled. §6's sentence is
+narrowed to this one line and the rest of it stands.
