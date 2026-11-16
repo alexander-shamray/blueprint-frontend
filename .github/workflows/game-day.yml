@@ -5,16 +5,24 @@ name: Game day
 # and is workflow_dispatch only: e2e/game-day/README.md's *Running it in CI* argues that.
 
 on:
+  # `src/**` because the suite checks that each scenario's `source` cites a line that exists, and
+  # `.nvmrc` and the lockfile because the suite runs under them.
   pull_request:
     paths:
       - 'e2e/game-day/**'
       - 'e2e/helpers.ts'
+      - 'src/**'
+      - '.nvmrc'
+      - 'package-lock.json'
       - '.github/workflows/game-day.yml'
   push:
     branches: [main]
     paths:
       - 'e2e/game-day/**'
       - 'e2e/helpers.ts'
+      - 'src/**'
+      - '.nvmrc'
+      - 'package-lock.json'
       - '.github/workflows/game-day.yml'
   workflow_dispatch:
     inputs:
