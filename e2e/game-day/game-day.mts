@@ -7,11 +7,11 @@
  *   node e2e/game-day/game-day.mts --list            # the scenarios, and what none causes
  *   node e2e/game-day/game-day.mts --matrix all      # CI's plan, as a GITHUB_OUTPUT line
  *
- * Exit 0 is a pass, 1 a finding, 2 a refusal: no such scenario, or arguments
- * that do not parse.
+ * Exit 0 is a pass, 1 a finding, 2 a refusal: no such scenario, arguments that
+ * do not parse, or a browser that does not start.
  */
-import { chromium } from '@playwright/test';
-import { Compose, GameDayError, probe, type World } from './harness.ts';
+import { chromium, type Browser, type BrowserContext, type Page } from '@playwright/test';
+import { Compose, GameDayError, message, probe, type World } from './harness.ts';
 import { find, matrix, run, verdict } from './runner.ts';
 import { NOT_CAUSED, SCENARIOS } from './scenarios.ts';
 
@@ -24,14 +24,25 @@ function list(): void {
   }
 }
 
+/** The browser, or a refusal: a run that never reached the app is no finding about it. */
+async function open(): Promise<{ browser: Browser; context: BrowserContext; page: Page }> {
+  let browser: Browser | undefined;
+  try {
+    browser = await chromium.launch();
+    const context = await browser.newContext();
+    return { browser, context, page: await context.newPage() };
+  } catch (error) {
+    await browser?.close();
+    throw new GameDayError(`the browser did not start, so nothing was caused: ${message(error)}`);
+  }
+}
+
 async function one(name: string): Promise<number> {
   const scenario = find(name);
   const started = Date.now();
-  const browser = await chromium.launch();
+  const { browser, context, page } = await open();
   let findings: string[];
   try {
-    const context = await browser.newContext();
-    const page = await context.newPage();
     const world: World = {
       compose: new Compose(),
       page,

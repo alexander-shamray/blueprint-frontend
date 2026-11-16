@@ -28,7 +28,8 @@ by the way back it offers. Anything else prints a `FINDING:` line on stderr, and
 **a finding is the product**: each one is a defect in the app, in its document
 or in this scenario, and gets its own issue. The run ends on one line,
 `game day: offline OK in 0m12s` or `game day: offline FAILED in 1m40s`. Exit 2
-is a refusal: no such scenario, or arguments that do not parse.
+is a refusal: no such scenario, arguments that do not parse, or a browser that
+does not start, since a run that never reached the app is no finding about it.
 
 ## The shape, and why it is the backend's
 
