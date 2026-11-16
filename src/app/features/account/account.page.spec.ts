@@ -887,6 +887,20 @@ describe('AccountPage', () => {
       expect(fixture.componentInstance.error()).not.toBeNull();
     });
 
+    it('clears a refusal banner when the session ends without a sign-out (#607)', async () => {
+      const { fixture, remove, session } = mount(demo, true, undefined, savedHome);
+      await fixture.whenStable();
+      remove.mockReturnValueOnce(throwError(() => new Error('refused')));
+      fixture.componentInstance.forgetAddress();
+      expect(fixture.componentInstance.error()).not.toBeNull();
+
+      session.set(null);
+      fixture.detectChanges();
+      await fixture.whenStable();
+
+      expect(fixture.componentInstance.error()).toBeNull();
+    });
+
     it('forgets it on the buyer’s say-so, and stops showing it', async () => {
       const { fixture, remove } = mount(demo, true, undefined, savedHome);
       await fixture.whenStable();
