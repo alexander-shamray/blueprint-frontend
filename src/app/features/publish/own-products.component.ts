@@ -538,7 +538,9 @@ export class OwnProductsComponent {
         // (#610); a refused resend leaves the window's countdown to speak.
         if (this.actionErrorSignal()?.kind === 'signIn') {
           this.actionErrorSignal.set(
-            this.replayedAfterSignIn.has(key) ? notSentError() : null,
+            this.replayedAfterSignIn.has(key) && !this.rateLimit.blocked()
+              ? notSentError()
+              : null,
           );
         }
       },

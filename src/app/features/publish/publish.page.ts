@@ -661,9 +661,12 @@ export class PublishPage {
           this.subjectChanges === changesAtRefusal;
         if (!sameSubject) return;
         // A spent bound sends nothing, and the seller is signed in (#599).
-        // It was not sent, and the banner says so (#610).
+        // It was not sent, and the banner says so (#610); an open window's
+        // countdown speaks instead.
         if (!replay) {
-          if (this.errorState()?.kind === 'signIn') this.errorState.set(notSentError());
+          if (this.errorState()?.kind === 'signIn') {
+            this.errorState.set(this.rateLimit.blocked() ? null : notSentError());
+          }
           return;
         }
         // Spent where the replay is sent (#157); see CheckoutPage.
