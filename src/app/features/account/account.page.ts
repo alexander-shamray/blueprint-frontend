@@ -296,8 +296,8 @@ export class AccountPage {
    * banner is the one this page must keep.
    */
   private readonly errorState = signal<DisplayError | null>(null);
-  /** Set by `signOut()`, consumed by the next run of the subject effect. */
-  private signOutPending = false;
+  /** The banner `signOut()`'s own failure set; the subject effect keeps only it. */
+  private signOutFailure: DisplayError | null = null;
   readonly error = this.errorState.asReadonly();
 
   /**
@@ -337,13 +337,12 @@ export class AccountPage {
         this.closeEditor();
         // A refusal banner is the last session's own: it describes a save or a
         // forget the new buyer never made. Kept only for this page's own
-        // sign-out: it nulls the subject before its failure banner is set, and
-        // clears the banner itself first thing. A session that ends any other
-        // way (a failed renewal) leaves a banner nobody here is about to
-        // replace, so it goes.
-        const ownSignOut = this.signOutPending;
-        this.signOutPending = false;
-        if (current !== null || !ownSignOut) this.errorState.set(null);
+        // sign-out's own failure: it nulls the subject before that banner is
+        // set. Any other banner, a refusal that landed while the sign-out was
+        // out included, goes, as does one a failed renewal leaves behind.
+        const own = this.signOutFailure;
+        this.signOutFailure = null;
+        if (current !== null || this.errorState() !== own) this.errorState.set(null);
         this.readSavedAddress(current);
       });
     });
@@ -589,7 +588,7 @@ export class AccountPage {
     // two states out of date. The banner belongs to the last thing this page
     // tried, so every entry point clears it.
     this.errorState.set(null);
-    this.signOutPending = true;
+    this.signOutFailure = null;
 
     // .catch(), matching signIn() — and here it matters even more than
     // symmetry: a swallowed rejection leaves the user believing they are
@@ -601,7 +600,9 @@ export class AccountPage {
     // stops a future AuthService implementation from rejecting for a
     // different reason.
     this.auth.signOut().catch((failure: unknown) => {
-      this.errorState.set(mapError(failure));
+      const displayed = mapError(failure);
+      this.signOutFailure = displayed;
+      this.errorState.set(displayed);
     });
   }
 }
