@@ -18,6 +18,7 @@ import { DisplayError, mapError } from '@core/errors/error-mapper';
 import { RateLimitWindows } from '@core/errors/rate-limit';
 import { ErrorBannerComponent } from '@shared/error-banner.component';
 import { MoneyPipe } from '@shared/money.pipe';
+import { notSentError } from '@shared/not-sent-error';
 import { OrderStatusComponent, statusLabel } from '@shared/order-status.component';
 import { SkeletonListComponent } from '@shared/skeleton-list.component';
 
@@ -564,7 +565,11 @@ export class OrderDetailPage {
         // into (#589), and a spent bound sends nothing either (#599): the
         // buyer is signed in, so the 401's sign-in banner gives way.
         if (!replay || this.rateLimit.blocked()) {
-          if (this.cancelErrorState()?.kind === 'signIn') this.cancelErrorState.set(null);
+          // A spent bound says it was not sent (#610); an open window's own
+          // countdown speaks, so that case just drops the banner.
+          if (this.cancelErrorState()?.kind === 'signIn') {
+            this.cancelErrorState.set(this.rateLimit.blocked() ? null : notSentError());
+          }
           return;
         }
         // Spent where the replay is sent (#157); see CheckoutPage.

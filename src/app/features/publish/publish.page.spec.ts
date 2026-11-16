@@ -1102,7 +1102,7 @@ describe('PublishPage', () => {
     });
   });
 
-  it('drops the sign-in banner when a completed sign-in sends no replay, the bound being spent (#599)', async () => {
+  it('says it was not sent when a completed sign-in sends no replay, the bound being spent (#599, #610)', async () => {
     const url = 'http://localhost:5000/api/v1/catalog/products';
     fixture.componentInstance.publish();
     controller
@@ -1116,6 +1116,9 @@ describe('PublishPage', () => {
 
     expect(signIn).toHaveBeenCalledTimes(2);
     controller.expectNone(url);
-    expect(fixture.componentInstance.error()).toBeNull();
+    expect(fixture.componentInstance.error()).toMatchObject({
+      kind: 'retry',
+      title: 'That was not sent.',
+    });
   });
 });

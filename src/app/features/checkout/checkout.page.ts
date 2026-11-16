@@ -21,6 +21,7 @@ import { DisplayError, mapError } from '@core/errors/error-mapper';
 import { RateLimitWindows } from '@core/errors/rate-limit';
 import { ErrorBannerComponent } from '@shared/error-banner.component';
 import { MoneyPipe } from '@shared/money.pipe';
+import { notSentError } from '@shared/not-sent-error';
 import { ADDRESS_FIELDS, AddressField, splitAddressErrors } from '@shared/address/address-errors';
 import { countryOptions } from '@shared/address/countries';
 
@@ -645,9 +646,13 @@ export class CheckoutPage {
         if (!sameSubject) return;
         // A replay already spent sends nothing either, and the buyer is signed
         // in: the banner would tell them otherwise, so it is dropped too
-        // (#599). Pressing Place order again is safe, the command id is held.
+        // (#599). Pressing Place order again is safe, the command id is held,
+        // and a spent bound says so rather than leaving nothing (#610); an
+        // open window needs no line, its countdown speaks.
         if (this.replayedAfterSignIn || this.rateLimit.blocked()) {
-          if (this.errorState()?.kind === 'signIn') this.errorState.set(null);
+          if (this.errorState()?.kind === 'signIn') {
+            this.errorState.set(this.rateLimit.blocked() ? null : notSentError());
+          }
           return;
         }
         // Spent where the replay is sent, not before the sign-in settles: a

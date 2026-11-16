@@ -16,6 +16,7 @@ import { ALREADY_COMMITTED, CommandIdentity } from '@core/commands/command-id';
 import { DisplayError, mapError } from '@core/errors/error-mapper';
 import { RateLimitWindows } from '@core/errors/rate-limit';
 import { ErrorBannerComponent } from '@shared/error-banner.component';
+import { notSentError } from '@shared/not-sent-error';
 import { ImagePickError, ImageSource } from './image-source';
 import { OwnProductsComponent } from './own-products.component';
 
@@ -660,8 +661,9 @@ export class PublishPage {
           this.subjectChanges === changesAtRefusal;
         if (!sameSubject) return;
         // A spent bound sends nothing, and the seller is signed in (#599).
+        // It was not sent, and the banner says so (#610).
         if (!replay) {
-          if (this.errorState()?.kind === 'signIn') this.errorState.set(null);
+          if (this.errorState()?.kind === 'signIn') this.errorState.set(notSentError());
           return;
         }
         // Spent where the replay is sent (#157); see CheckoutPage.
