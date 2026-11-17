@@ -42,11 +42,16 @@ CLAUDE_TREE = re.compile(r"(^|[^\w])\.claude([/\\]|\b)", re.IGNORECASE)
 # What the Task cell and the body name beneath .claude/: a bare `.claude/` in prose names no file to change.
 CLAUDE_PATH = re.compile(r"(^|[^\w])\.claude/[\w.-]", re.IGNORECASE)
 # An issue in Depends on is written #n, after n, waits on n or n's; a bare number is a count, not an issue.
+# Without a # it takes two digits, so a count of 3 is none; after an explicit # one digit names an issue.
+# A #n written straight after a name, `<repo>#n` or `<owner>/<repo>#n`, is another repository's: it is left as text,
+# and so is the far end of a range, `#n-#m`, whose two ends are not every issue it names.
 ISSUE_REF = re.compile(
-    r"(?:#|\b(?:after|waits on|wait on|waiting on|blocked by)\s+#?)(\d{2,6})\b(?!\s*(?:day|week|hour|month|min))"
-    r"|\b(\d{2,6})'s\b", re.IGNORECASE)
+    r"(?:(?<![\w-])#(\d{1,6})|\b(?:after|waits on|wait on|waiting on|blocked by)\s+#?(\d{2,6}))\b"
+    r"(?!\s*(?:day|week|hour|month|min))"
+    r"|(?<![\w/#-])(\d{2,6})'s\b", re.IGNORECASE)
 DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
-NUMBER = re.compile(r"(?<![\w-])#?(\d{2,6})(?![\w-])")
+# The conflicts cell's issues: a `<repo>#n` names none of this repository's.
+NUMBER = re.compile(r"(?<![\w#-])(?:#(\d{1,6})|(\d{2,6}))(?![\w-])")
 OWNER = re.compile(r"\bOWNER\b")
 # What `tasks back` adds on a --berserk run: OWNER alone is a question, which the next flagged run would lift.
 SENT_BACK = "sent back under --berserk"
@@ -300,7 +305,7 @@ def extract_paths(text):
 
 
 def _numbers(text):
-    return {int(n) for n in NUMBER.findall(DATE.sub(" ", text))}
+    return {int("".join(groups)) for groups in NUMBER.findall(DATE.sub(" ", text))}
 
 
 def group_claim(group, bodies):
@@ -371,28 +376,37 @@ def model_problem(model):
     return None if model in MODELS else f"model {model!r} is not one of {', '.join(MODELS)}"
 
 
-def _blocker(row, open_issues, today, bodies, berserk=False):
-    """Why a row cannot launch, or None. `berserk` lifts the human wait and the .claude/ reach and nothing else."""
+def _blocker(row, open_issues, today, bodies, berserk=False, restored=None):
+    """Why a row cannot launch, or None. `berserk` lifts the human wait and the .claude/ reach and nothing else;
+    `restored`, for a row whose owner ran its hand-back script, is *Depends on* as it read before `tasks back`
+    marked it, so the lift is those marks and nothing a human wrote."""
     if row.number is None:
         return "owed, not filed"
-    labels = {label.strip() for label in row.cells[LABELS].split(",")}
-    if not berserk and ("question" in labels or OWNER.search(f"{row.cells[TASK]} {row.cells[DEPENDS]}")):
+    cell = row.cells[DEPENDS] if restored is None else restored
+    # GitHub's label names are case-insensitive: `Question` asks as `question` does.
+    labels = {label.strip().casefold() for label in row.cells[LABELS].split(",")}
+    if not berserk and ("question" in labels or OWNER.search(f"{row.cells[TASK]} {cell}")):
         return "waits on a human"
     for label in ("paused", "tracking"):
         if label in labels:
             return f"labelled {label}"
-    if berserk and SENT_BACK in row.cells[DEPENDS]:
+    if berserk and SENT_BACK in cell:
         return SENT_BACK
-    depends = _without_owner(row.cells[DEPENDS]) if berserk else row.cells[DEPENDS]
+    depends = _without_owner(cell) if berserk else cell
     if UNPLACED in depends:
         return "unplaced: no session has chosen its wave and group"
     if depends.strip().casefold() != "none":
         dates = DATE.findall(depends)
-        numbers = {int(a or b) for a, b in ISSUE_REF.findall(DATE.sub(" ", depends))}
+        numbers = {int("".join(groups)) for groups in ISSUE_REF.findall(DATE.sub(" ", depends))}
         stray = re.search(r"\d", ISSUE_REF.sub(" ", DATE.sub(" ", depends)))
         if (not dates and not numbers) or stray:
             # Free text is never judged here; step 0 turns a human wait into OWNER.
             return "depends on text the helper cannot judge"
+        # A typo, a deleted or moved issue or a pull request is in no list: a closed issue's pass is not its own.
+        known = getattr(open_issues, "known", None)
+        unknown = sorted(n for n in numbers if known is not None and n not in known)
+        if unknown:
+            return "depends on " + ", ".join(f"#{n}" for n in unknown) + ", which no issue in the list holds"
         blocking = sorted(n for n in numbers if n in open_issues)
         if blocking:
             return "depends on open " + ", ".join(f"#{n}" for n in blocking)
@@ -411,10 +425,12 @@ def _blocker(row, open_issues, today, bodies, berserk=False):
     return model_problem(row.cells[MODEL])
 
 
-def ready(group, open_issues, today, bodies=None, berserk=False, kept=frozenset()):
-    """Whether every row may launch, and the first that may not. A row in `kept` is one the flag does not lift."""
+def ready(group, open_issues, today, bodies=None, berserk=False, kept=frozenset(), restored=None):
+    """Whether every row may launch, and the first that may not. A row in `kept` is one the flag does not lift;
+    `restored` maps a resumed row's key to its *Depends on* before `tasks back`."""
     for row in group.rows:
-        why = _blocker(row, open_issues, today, bodies or {}, berserk and row.key not in kept)
+        why = _blocker(row, open_issues, today, bodies or {}, berserk and row.key not in kept,
+                       (restored or {}).get(row.key))
         if why:
             return False, why
     return True, ""
@@ -425,17 +441,19 @@ def strangers(group, owned):
     return [row.key for row in group.rows if row.number is not None and row.number not in owned]
 
 
-def runnable(group, owned, open_issues, today, bodies=None, berserk=False, kept=frozenset()):
+def runnable(group, owned, open_issues, today, bodies=None, berserk=False, kept=frozenset(), restored=None):
     """`ready`, behind the gate no flag lifts: on a public repository an issue is a work order only from the owner."""
     held = strangers(group, owned)
     if held:
         return False, f"{NOT_OWNERS}: {', '.join(held)}"
-    return ready(group, open_issues, today, bodies, berserk, kept)
+    return ready(group, open_issues, today, bodies, berserk, kept, restored)
 
 
-def released(candidates, ready_map, open_issues, today, bodies):
-    """Each group `ready_map` holds ready that would not be without the flag, with what the flag lifted."""
-    plain = ((g.id, ready(g, open_issues, today, bodies)) for g in candidates if ready_map[g.id][0])
+def released(candidates, ready_map, open_issues, today, bodies, restored=None):
+    """Each group `ready_map` holds ready that would not be without the flag, with what the flag lifted; a resumed
+    row is judged with its resume, since that lift is the owner's own and not the flag's."""
+    plain = ((g.id, ready(g, open_issues, today, bodies, restored=restored))
+             for g in candidates if ready_map[g.id][0])
     return {gid: why for gid, (ok, why) in plain if not ok}
 
 
@@ -443,15 +461,17 @@ def _own_issues(group):
     return {r.number for r in group.rows if r.number is not None}
 
 
-def pick(candidates, ready_map, claims, running, taken, slots, lifted=()):
+def pick(candidates, ready_map, claims, running, taken, slots, lifted=(), first=()):
     """Up to `slots` group ids to launch. `candidates` is every group, running ones included, so a running
-    group's issues are known; the earliest wave goes first, within it a group in `lifted` after the rest, so a limit
-    ends the night on the riskier work, and table order breaks a tie."""
+    group's issues are known; a group in `first`, one the owner's script resumed, goes before every other, its work
+    all but done; then the earliest wave, within it a group in `lifted` after the rest, so a limit ends the night on
+    the riskier work, and table order breaks a tie."""
     held = [(claims[g.id], g.id, _own_issues(g)) for g in candidates if g.id in running and g.id in claims]
     held += [(claim, claim.ident, set(claim.issues)) for claim in taken]
     unknown = Claim(frozenset(), frozenset(), frozenset(), True)
     chosen = []
-    order = sorted(range(len(candidates)), key=lambda i: (candidates[i].wave, candidates[i].id in lifted, i))
+    order = sorted(range(len(candidates)),
+                   key=lambda i: (candidates[i].id not in first, candidates[i].wave, candidates[i].id in lifted, i))
     for i in order:
         group = candidates[i]
         if len(chosen) >= slots:
@@ -743,6 +763,8 @@ def issues_from(data):
         if not isinstance(labels, list):
             raise Refusal(f"#{item['number']}'s labels are not a list")
         names = (label.get("name") if isinstance(label, dict) else label for label in labels)
+        # GitHub's label names are case-insensitive, so `Paused` files a row as `paused` does.
+        names = (name.casefold() if isinstance(name, str) else name for name in names)
         found[item["number"]] = Issue(item["number"], item["title"], item.get("state") == "OPEN",
                                       tuple(name for name in names if isinstance(name, str) and name))
     return found
@@ -1162,20 +1184,27 @@ def _held(tasks, bodies, branch_source):
 
 
 def board(text, today, bodies, open_issues, branch_source=lambda _branch: frozenset(), berserk=False,
-          kept=frozenset(), *, owned):
+          kept=frozenset(), *, owned, resumed=None, restored=None):
+    """One line per Remaining group, then, from `resumed` (group id to its line and its worktree), a `resumed` line
+    for each resumed group that is ready and a `resume held` line for each that is not: one a restored question
+    still holds is the interview's, as any row waiting on a human is."""
     tasks = parse_tasks(text)
     held = _held(tasks, bodies, branch_source)
-    out = []
+    out, resumed, ready_resumed = [], resumed or {}, []
     for group in groups(tasks):
         claim = group_claim(group, bodies)
-        ok, why = runnable(group, owned, open_issues, today, bodies, berserk, kept)
-        lifted = released([group], {group.id: (ok, why)}, open_issues, today, bodies).get(group.id)
+        ok, why = runnable(group, owned, open_issues, today, bodies, berserk, kept, restored)
+        lifted = released([group], {group.id: (ok, why)}, open_issues, today, bodies, restored).get(group.id)
         by = next((c.ident or r.key for c, r in held
                    if overlaps(claim, group.id, _own_issues(group), c, c.ident or r.key, set(c.issues))), None)
-        readiness = f"released: {lifted}" if lifted else "ready" if ok else f"not ready: {why}"
+        readiness = (f"released: {lifted}" if lifted else "resumed" if ok and group.id in resumed
+                     else "ready" if ok else f"not ready: {why}")
         out.append(" | ".join((group.id, f"wave {group.wave}", readiness,
                                "free" if by is None else f"taken by {by}", f"{len(claim.paths)} paths")))
-    return out or ["no groups in Remaining"]
+        if group.id in resumed:
+            line, worktree = resumed[group.id]
+            ready_resumed.append(line if ok else f"resume held {worktree}: {group.id} is not ready: {why}")
+    return (out or ["no groups in Remaining"]) + ready_resumed
 
 
 READ_COPY = "tasks.read.md"
@@ -1221,11 +1250,12 @@ def _placement(directory, issue):
 
 def _tasks_command(args, today):
     # The run's state.json is dispatch_run's, which imports this module, so it is reached at call time.
-    from dispatch_run import _close, _field, _note_placed, _record_move, _texts, berserk, load_state, run_dir
+    from dispatch_run import (_close, _field, _note_placed, _record_move, _texts, berserk, load_state,
+                              record_handback, run_dir)
     directory = run_dir(args.root, args.run)
     # Only a run `start` opened is written to, so a mistyped name leaves no phantom state.json behind.
     state = load_state(directory)
-    after, undo = [], []
+    after, undo, returned = [], [], []
 
     def update(text):
         if args.action == "rewrite":
@@ -1271,6 +1301,7 @@ def _tasks_command(args, today):
             raise Refusal(f"{args.group} is {status}: a claimed merge is verified and done, never sent back")
         # The In progress row no longer holds the wave, labels, depends, model or conflicts, so `back` needs these.
         after.append(lambda: _close(directory, args.group, "returned"))
+        returned.append(entry)
         return return_to_remaining(text, rows, keys, berserk(state)[0])
 
     # The file is read here, at the moment of the write, so another session's edit since `board` is kept. A move's
@@ -1292,6 +1323,11 @@ def _tasks_command(args, today):
         raise
     for step in after:
         step()
+    for entry in returned:
+        # Made here, by the list's one writer and after the executor exited, never from what the executor wrote alone.
+        line = record_handback(args.root, args.run, args.group, entry, text)
+        if line:
+            print(line)
 
 
 # The helpers both halves read GitHub and git through
@@ -1502,6 +1538,20 @@ def issue_body(root, number):
     return f"{data.get('title') or ''}\n{data.get('body') or ''}"
 
 
+class OpenIssues(frozenset):
+    """The open issues' numbers, and as `known` every number the list holds, open or closed."""
+
+    def __new__(cls, numbers=(), known=None):
+        made = super().__new__(cls, numbers)
+        made.known = None if known is None else frozenset(known)
+        return made
+
+    @classmethod
+    def of(cls, numbers):
+        # A source that knows only the open ones, as a test's set does, judges no number unknown.
+        return numbers if isinstance(numbers, cls) else cls(numbers)
+
+
 def open_issues(root):
     try:
         data = json.loads(helper(root, "gh-issue-list.sh"))
@@ -1509,8 +1559,9 @@ def open_issues(root):
         raise Refusal("gh-issue-list.sh did not print JSON") from None
     if not isinstance(data, list):
         raise Refusal("gh-issue-list.sh did not print a list")
-    return {item["number"] for item in data
-            if isinstance(item, dict) and item.get("state") == "OPEN" and _number(item.get("number"))}
+    issues = [item for item in data if isinstance(item, dict) and _number(item.get("number"))]
+    return OpenIssues((item["number"] for item in issues if item.get("state") == "OPEN"),
+                      known=(item["number"] for item in issues))
 
 
 def all_issues(root):
@@ -1658,11 +1709,21 @@ def main(argv=None, body_source=None, open_source=None, branch_source=None, week
                 # What this board read is the only base `tasks rewrite` accepts a rebuild from, so it is kept
                 # before anything below can refuse: a list the board refuses is the one a rebuild must repair.
                 _write(directory / READ_COPY, text)
-            bodies = _bodies(parse_tasks(text), directory, bodies_from)
-            print("\n".join(board(text, today, bodies, set(open_from()), branch_from, *flag, owned=owned_from())))
+            tasks = parse_tasks(text)
+            bodies = _bodies(tasks, directory, bodies_from)
+            listed = OpenIssues.of(open_from())
+            found, holds = dispatch_run.resumes(root, groups(tasks))
+            lines = {gid: (dispatch_run.resumed_line(gid, r), r.worktree) for gid, r in found.items()}
+            print("\n".join(board(text, today, bodies, listed, branch_from, *flag, owned=owned_from(),
+                                  resumed=lines, restored=dispatch_run.restored(found)) + holds))
         elif args.command == "tasks" and getattr(args, "run", None) is None:
             _day_command(args, issues_from_, merged_from, owned_from)
         elif args.command == "tasks":
+            # The granted `tasks` prefixes reach --run, whose state.json and handbacks.json decide what the
+            # dispatcher launches; an executor's `--root` could name the main checkout's.
+            if DISPATCHED in os.environ:
+                raise Refusal("a /dispatch executor writes no run: the dispatcher alone writes its state.json and "
+                              "handbacks.json")
             if not args.tasks:
                 raise Refusal(f"tasks {args.action} --run takes --tasks")
             _tasks_command(args, today)

@@ -8,7 +8,9 @@ import functools
 import importlib.util
 import json
 import os
+import re
 import sys
+import types
 import unicodedata
 
 # The tools that write a file. `MultiEdit` is listed although this repository's
@@ -23,26 +25,36 @@ EDITING_TOOLS = ("Edit", "Write", "NotebookEdit", "MultiEdit")
 # this file cannot see is one it has established nothing about.
 PATH_KEYS = ("file_path", "notebook_path")
 
+
+def path_grammar():
+    """`path_grammar.py` beside this file, which names a path on another machine; compiled, so no bytecode is left."""
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "path_grammar.py")
+    module = types.ModuleType("path_grammar")
+    module.__file__ = path
+    with open(path, encoding="utf-8") as handle:
+        exec(compile(handle.read(), path, "exec"), module.__dict__)
+    return module
+
+
+GRAMMAR = path_grammar()
+
+
 GIT_GUARD = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                          "guard-git-argv.py")
 
-# Windows names the same file in more than one alphabet, and a permission rule
-# reads only one of them. Every spelling beginning `\\` is the other: the
-# extended-length prefix `\\?\` and the device prefix `\\.\`, which skip the
-# normalisation a matcher depends on, and the UNC form `\\server\share\...`,
-# which can reach the local disk through an administrative share such as
-# `\\localhost\C$` — so a write spelled either way can land in a directory
-# whose plain spelling is denied.
-#
-# The whole family is refused rather than a list of prefixes, which would miss
-# a spelling, and refused rather than resolved, because a hook can only allow
-# or deny: it cannot hand the matcher the plain spelling. A repository on a
-# network share is the one legitimate case, and the caller exempts a target
-# such a checkout contains. Scoped to Windows because `//x` on POSIX is an
-# ordinary path.
+# The shape of the names a build loads from above a checkout, which `GIT_GUARD`
+# lists; read only when that list cannot be, so the guard fails closed.
+BUILD_SHAPE = re.compile(
+    r"(?i)^(?:directory\.(?:build|solution|packages)\..+|nuget\.config|global\.json)$")
+
+# Windows' other alphabet, which a permission rule does not read: `\\?\`, `\\.\`
+# and the NT prefix `\??\` skip a matcher's normalisation, and `\\server\share`
+# reaches the local disk through `\\localhost\C$`. The family is refused, not
+# resolved, since a hook cannot hand the matcher the plain spelling; the caller
+# exempts a checkout on a share. Windows only: `//x` on POSIX is ordinary.
 def alternate_alphabet(path):
     """Whether `path` is spelled in Windows' non-drive path grammar."""
-    return os.name == "nt" and path[:2].replace("/", "\\") == "\\\\"
+    return GRAMMAR.other_grammar(path)
 
 
 def case_insensitive(path):
@@ -142,6 +154,17 @@ def under(child, parent, traits):
     return child.startswith(parent)
 
 
+def below(child, parent):
+    """The part of `child` beneath `parent`, in `child`'s own spelling.
+
+    Counted rather than compared, where `under` holds: `os.path.relpath`
+    folds case on Windows alone, and elsewhere climbs out of a cased root.
+    """
+    parts = [part for part in os.path.normpath(child).split(os.sep) if part]
+    depth = len([part for part in os.path.normpath(parent).split(os.sep) if part])
+    return os.path.join(*parts[depth:]) if parts[depth:] else os.curdir
+
+
 def checkout_root(path):
     """The nearest ancestor of `path` holding a `.git`, or `None`.
 
@@ -179,11 +202,19 @@ def verified_gitdir(root):
             text = handle.read().strip()
         if not text.startswith("gitdir:"):
             return None
-        gitdir = os.path.realpath(
-            os.path.join(root, text.split(":", 1)[1].strip()))
+        spelled = text.split(":", 1)[1].strip()
+        pointer = os.path.join(root, spelled)
+        if any(GRAMMAR.foreign(place, root, os.getcwd(), os.environ.get("CLAUDE_PROJECT_DIR"))
+               for place in (spelled, pointer)):
+            return None
+        gitdir = os.path.realpath(pointer)
         with open(os.path.join(gitdir, "gitdir"), encoding="utf-8") as handle:
-            backlink = os.path.join(gitdir, handle.read().strip())
+            named = handle.read().strip()
+        backlink = os.path.join(gitdir, named)
     except (OSError, ValueError):
+        return None
+    if any(GRAMMAR.foreign(place, root, os.getcwd(), os.environ.get("CLAUDE_PROJECT_DIR"))
+           for place in (named, backlink)):
         return None
     if os.path.normcase(os.path.realpath(backlink)) != os.path.normcase(
             os.path.realpath(marker)):
@@ -228,7 +259,12 @@ def common_git_dir(root):
         return None
     try:
         with open(os.path.join(gitdir, "commondir"), encoding="utf-8") as handle:
-            common = os.path.realpath(os.path.join(gitdir, handle.read().strip()))
+            spelled = handle.read().strip()
+        pointer = os.path.join(gitdir, spelled)
+        if any(GRAMMAR.foreign(place, gitdir, os.getcwd(), os.environ.get("CLAUDE_PROJECT_DIR"))
+               for place in (spelled, pointer)):
+            return None
+        common = os.path.realpath(pointer)
     except (OSError, ValueError):
         return None
     return common if os.path.isdir(common) else None
@@ -276,7 +312,7 @@ def protected_in_worktree(path, root):
         return "this target's deny list, which cannot be read"
 
 
-def home_offence(spelled, lexical, resolved):
+def home_offence(spelled, lexical, resolved, cwd=None):
     """The reason to refuse a target the home protects, or `None`.
 
     Asked whatever checkout holds it; spelling and resolution are both judged.
@@ -304,17 +340,36 @@ def home_offence(spelled, lexical, resolved):
             if place == "login":
                 return (
                     f"guard-edit-target: {spelled} resolves to {resolved}, "
-                    "a key, a shell profile or git's own configuration below "
-                    "the home: what runs at login, under every session, which "
+                    "a key, a shell profile or git's or npm's own configuration "
+                    "below the home: what runs at login, under every session, which "
                     "no checkout's rules own (docs/harness-boundaries.md)."
                 )
             if place == "control":
                 return (
                     f"guard-edit-target: {spelled} resolves to {resolved}, "
-                    f"inside the harness's own control surface: `{parts[1]}` "
+                    f"inside the harness's own control surface: `{parts[1] if len(parts) > 1 else parts[0]}` "
                     "applies to every project, and a change to it is the "
                     "owner's to run (docs/harness-boundaries.md)."
                 )
+    try:
+        xdg = any(git_guard().xdg_git_config(path, cwd) for path in (lexical, resolved))
+    except (OSError, ValueError, TypeError, AttributeError):
+        if not os.environ.get("XDG_CONFIG_HOME") or not any(
+                os.path.normcase(path).replace("\\", "/").lower().endswith("/git/config")
+                for path in (lexical, resolved)):
+            return None
+        return (
+            f"guard-edit-target: {spelled} may be git's configuration at "
+            "`$XDG_CONFIG_HOME/git/config`, and the names that guard it "
+            f"cannot be read from {GIT_GUARD} (docs/harness-boundaries.md)."
+        )
+    if xdg:
+        return (
+            f"guard-edit-target: {spelled} resolves to {resolved}, git's own "
+            "configuration at `$XDG_CONFIG_HOME/git/config`: what runs at "
+            "login, under every session, which no checkout's rules own "
+            "(docs/harness-boundaries.md)."
+        )
     return None
 
 
@@ -366,20 +421,29 @@ def offence(event):
     # path: either way this file cannot see where the write lands. The loop
     # variable is `name`, not `key`, which is a function in this module.
     tool_input = event.get("tool_input")
-    spelled = None
+    spellings = []
     if isinstance(tool_input, dict):
         for name in PATH_KEYS:
             value = tool_input.get(name)
             if isinstance(value, str) and value:
-                spelled = value
-                break
-    if spelled is None:
+                spellings.append(value)
+    if not spellings:
         return (
             f"guard-edit-target: {tool} carries no file path this guard can "
             "read, so nothing has been established about where it writes. "
             "Refusing rather than waving it through."
         )
+    # Every key carried is judged, since the one read first need not be the
+    # one the tool writes through.
+    for spelled in spellings:
+        reason = target_offence(event, spelled)
+        if reason is not None:
+            return reason
+    return None
 
+
+def target_offence(event, spelled):
+    """The reason to refuse a write to `spelled`, or `None`."""
     cwd = event.get("cwd")
     if not isinstance(cwd, str) or not cwd:
         cwd = os.getcwd()
@@ -413,6 +477,46 @@ def offence(event):
     joined = spelled if os.path.isabs(spelled) else os.path.join(cwd, spelled)
     lexical = os.path.normpath(os.path.abspath(joined))
     resolved = os.path.realpath(joined)
+
+    # A dispatched executor's `Write` reaches the main checkout's `artifacts/dispatch/`, the dispatcher's state, and no
+    # rule refuses it. `guard-git-argv.py` owns the predicate; unreadable, a write naming that tree is refused.
+    try:
+        state = any(git_guard().dispatcher_state(place) for place in (lexical, resolved))
+    except (OSError, ValueError, TypeError, AttributeError):
+        state = "HARNESS_DISPATCHED" in os.environ and any(
+            "/artifacts/dispatch" in os.path.normcase(place).replace("\\", "/").lower()
+            for place in (lexical, resolved))
+    if state:
+        return (
+            f"guard-edit-target: {spelled} is under a main checkout's "
+            "`artifacts/dispatch/`, the dispatcher's own state, which decides "
+            "what it launches; a dispatched session writes none of it. The "
+            "result goes in this worktree's `artifacts/dispatch/` "
+            "(docs/harness-boundaries.md, *Headless dispatched sessions*)."
+        )
+
+    # A build loads these names from every directory above a checkout, where none of its denies reach.
+    # `guard-git-argv.py` owns the names; unreadable, a target named in their shape is refused anywhere.
+    try:
+        above = git_guard().build_ancestor(
+            (lexical, resolved), [form for root, real, _ in checkouts for form in (root, real)])
+    except (OSError, ValueError, TypeError, AttributeError):
+        if any(BUILD_SHAPE.match(os.path.basename(place).split(":")[0].rstrip(". "))
+               for place in (lexical, resolved)):
+            return (
+                f"guard-edit-target: {spelled} may be a file a build loads "
+                "from above a checkout, and the names that guard it cannot be "
+                f"read from {GIT_GUARD} (docs/harness-boundaries.md)."
+            )
+        above = None
+    if above is not None:
+        return (
+            f"guard-edit-target: {spelled} resolves to {resolved}, a file "
+            "the .NET SDK or NuGet loads from a directory above the "
+            f"checkout {above} into its next build, and no deny reaches above "
+            "a checkout's root. Hand it to the owner "
+            "(docs/harness-boundaries.md, *The edit-target guard*)."
+        )
 
     # A rule anchored at the session's root misses a worktree it has not entered,
     # so the target's denies judge it, and it becomes an anchor so that a link
@@ -461,7 +565,7 @@ def offence(event):
         judged = True
 
         expected = os.path.normpath(
-            os.path.join(real_root, os.path.relpath(lexical, base)))
+            os.path.join(real_root, below(lexical, base)))
 
         # The traits are measured at the root and a child can disagree: Windows
         # sets case sensitivity per directory (`fsutil file
@@ -501,8 +605,8 @@ def offence(event):
     # A spelling no anchor recognises, naming a file inside one, is refused, such
     # as an 8.3 alias of the whole prefix: if it resolves into a checkout that
     # did not recognise it, the matcher judged a string that is not this file.
-    # A target outside every anchor is asked only for what `home_offence` names,
-    # which keeps memory and scratch writes working.
+    # A target outside every anchor is asked only for the checks above and what
+    # `home_offence` names, which keeps memory and scratch writes working.
     if not judged:
         for _, real_root, traits in checkouts:
             if under(resolved, real_root, traits):
@@ -515,7 +619,7 @@ def offence(event):
                 )
 
     # Reached when every anchor containing the target agreed.
-    return home_offence(spelled, lexical, resolved)
+    return home_offence(spelled, lexical, resolved, cwd)
 
 
 def main():
@@ -530,6 +634,8 @@ def main():
               file=sys.stderr)
         return 0
 
+    # The same exception: JSON that is not an object names no tool and no
+    # path, so it is as unreadable as text that is not JSON at all.
     if not isinstance(event, dict):
         print("guard-edit-target: hook event is not an object; not judging",
               file=sys.stderr)
