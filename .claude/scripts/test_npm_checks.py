@@ -24,8 +24,9 @@ GIT = shutil.which("git")
 # None of the rest is a package runner, an interpreter, a shell or a wrapper
 # that runs whatever follows it.
 ALLOWED_PROGRAMS = frozenset({"git", "gh", "ls", "wc", "rm"})
-# The `gh` subcommands that install or define a program gh then runs.
+# The subcommands that define a program, or run whatever follows them.
 GH_RUNNERS = frozenset({"alias", "extension", "extensions", "ext"})
+GIT_RUNNERS = frozenset({"config", "submodule", "bisect", "difftool", "mergetool", "filter-branch"})
 # The suffixes Windows runs a program by: npm installs `npx.cmd` beside `npx`.
 SHIM_SUFFIXES = (".exe", ".cmd", ".bat", ".ps1")
 # `py` is the launcher `.harness/agent-rules.md` requires, so it is granted,
@@ -59,13 +60,15 @@ def program_word(grant):
 def refused_grant(grant):
     """Whether a `Bash(...)` grant runs anything but an allowed program, a
     pinned `py` or a pinned `bash`. An env prefix is refused whatever follows:
-    `PATH` or `GIT_EXTERNAL_DIFF` picks the program an allowed one runs."""
-    if re.match(r"\s*\w+=", grant):
+    `PATH` or `GIT_EXTERNAL_DIFF` picks the program an allowed one runs, as a
+    path does for the program itself."""
+    if re.match(r"\s*\w+=", grant) or re.match(r"\s*(?:[A-Za-z]:)?[^\s:*]*[\\/]", grant):
         return True
     word = program_word(grant)
     if word in ("git", "gh"):
         subcommand = re.match(r"\S+ ([a-z][a-z-]*)(?=[\s:*]|$)", grant.strip())
-        return subcommand is None or (word == "gh" and subcommand.group(1) in GH_RUNNERS)
+        runners = GH_RUNNERS if word == "gh" else GIT_RUNNERS
+        return subcommand is None or subcommand.group(1) in runners
     if word == "py":
         return not PINNED_PY.fullmatch(grant.strip())
     if word == "bash":
@@ -157,10 +160,14 @@ class TheCheckRunnerIsTheOnlyExecutor(unittest.TestCase):
                       # defines a program, run whatever they are told to.
                       "git:*", "git", "git -c x=y diff:*", "gh:*", "gh",
                       "gh alias set:*", "gh extension install:*", "gh ext:*",
-                      "gh extensions:*"):
+                      "gh extensions:*", "git config:*", "git submodule foreach:*",
+                      "git bisect run:*", "git difftool:*",
+                      # A path picks the program outright.
+                      "/tmp/x/git diff:*", "/tmp/x/ls:*", "C:\\x\\git.exe diff:*"):
             with self.subTest(grant=grant):
                 self.assertTrue(refused_grant(grant))
-        # And the grants the commands do hold, which a word match must spare.
+        # And the grants the commands hold, with spellings of them a word
+        # match must spare.
         for grant in ("bash .claude/scripts/npm-checks.sh:*",
                       "bash .claude/scripts/pr-state.sh",
                       "bash .claude/skills/codebase-index/scripts/cbx diff-impact:*",
