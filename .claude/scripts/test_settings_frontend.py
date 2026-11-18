@@ -22,14 +22,19 @@ def rule_matches(rule, path):
     """Whether an `Edit(...)` rule covers `path`, given from the root. Read
     wide, since the tests ask what a rule must not cover: a leading `/` or
     `./` is the root, `**/` matches at the root too, a pattern with no slash
-    matches a file's name at any depth, and `*` crosses directories."""
+    matches any one name at any depth, `*` crosses directories, and a rule
+    naming a directory covers everything below it, as in gitignore."""
     pattern = rule[len("Edit("):-1]
     if pattern.startswith("./"):
         pattern = pattern[2:]
     elif pattern.startswith("/") and not pattern.startswith("//"):
         pattern = pattern[1:]
+    pattern = pattern.rstrip("/")
     patterns = [pattern] + ([pattern[3:]] if pattern.startswith("**/") else [])
-    names = [path] + ([path.rsplit("/", 1)[-1]] if "/" not in pattern else [])
+    parts = path.split("/")
+    names = ["/".join(parts[:end]) for end in range(1, len(parts) + 1)]
+    if "/" not in pattern:
+        names += parts
     return any(fnmatch.fnmatchcase(name, each) for name in names for each in patterns)
 
 
@@ -95,13 +100,21 @@ class TheEditDeniesTheChecksRunOnAreInSettings(unittest.TestCase):
                            ("Edit(*.js)", "eslint.config.js"),
                            ("Edit(/.prettierrc)", ".prettierrc"),
                            ("Edit(./.prettierrc)", ".prettierrc"),
-                           ("Edit(.prettier*)", ".prettierrc")):
+                           ("Edit(.prettier*)", ".prettierrc"),
+                           # A directory covers what is below it.
+                           ("Edit(src)", "src/app/app.config.ts"),
+                           ("Edit(app)", "src/app/app.config.ts"),
+                           ("Edit(src/app)", "src/app/app.config.ts"),
+                           ("Edit(src/app/)", "src/app/app.config.ts"),
+                           ("Edit(/src/)", "src/app/app.routes.ts")):
             with self.subTest(rule=rule, path=path):
                 self.assertTrue(rule_matches(rule, path))
         for rule, path in (("Edit(**/vite.config.ts)", "src/app/app.config.ts"),
                            ("Edit(**/*.config.mts)", "src/app/app.config.ts"),
                            ("Edit(**/*.config.cjs)", "eslint.config.js"),
-                           ("Edit(.github/**)", ".prettierrc")):
+                           ("Edit(.github/**)", ".prettierrc"),
+                           ("Edit(src/ap)", "src/app/app.config.ts"),
+                           ("Edit(app/app.config.ts)", "src/app/app.config.ts")):
             with self.subTest(rule=rule, path=path):
                 self.assertFalse(rule_matches(rule, path))
 
