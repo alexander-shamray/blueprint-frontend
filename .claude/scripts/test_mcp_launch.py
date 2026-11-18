@@ -98,6 +98,19 @@ class TheMcpServerStartsOnlyOverAnIndexTheHookWouldOpen(unittest.TestCase):
     def test_the_servers_exit_status_is_the_launchers(self):
         self.assertEqual(7, self.launch(self.with_python, STUB_EXIT="7").returncode)
 
+    def test_a_program_planted_in_the_checkout_is_not_started_for_a_bare_name(self):
+        # Windows searches the working directory before PATH, and elsewhere a
+        # relative or in-checkout PATH entry does the same. The plant is
+        # node, which cannot run `mcp`, so only the stand-in CLI prints its line.
+        planted = "codebase-index.exe" if os.name == "nt" else "codebase-index"
+        shutil.copyfile(NODE, self.root / planted)
+        os.chmod(self.root / planted, 0o755)
+        path = os.pathsep.join([".", str(self.root), str(self.with_python)])
+        done = self.launch(path)
+
+        self.assertEqual(0, done.returncode, done.stderr)
+        self.assertEqual("stub-cli mcp --root . 1", done.stdout.strip())
+
     def test_a_rollback_journal_beside_the_index_stops_it_before_the_server_starts(self):
         self.cache.mkdir(parents=True)
         (self.cache / "index.sqlite-journal").write_bytes(b"branch-written")
