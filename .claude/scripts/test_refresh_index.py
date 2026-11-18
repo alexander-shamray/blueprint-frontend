@@ -4,6 +4,7 @@ The hook suppresses every failure, so its exit status says nothing. The tree
 refreshed is the one the edit landed in, exactly one refresh owns it, or none.
 """
 
+import ast
 import errno
 import importlib.util
 import io
@@ -22,23 +23,47 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+from review_helpers import BASH, python_as_py, sign_nothing
 from test_link_skips import skip_only_without_links
+
+# Captured at import, before any case patches them, for the canary at the end: any stand-in is not these.
+ORIGINAL_POPEN = subprocess.Popen
+ORIGINAL_RUN = subprocess.run
+ORIGINAL_ENVIRON = os.environ
 
 SCRIPTS = Path(__file__).resolve().parent
 NO_CWD_SEARCH = "NoDefaultCurrentDirectoryInExePath"
+# Every variable a case here sets or pops itself, for the canary to compare at the end. Only these: the rest of
+# the environment is the host's and the runner's, and a helper's patch (sign_nothing's) is restored by its own.
+PATCHED_VARIABLES = ("CBX_NO_SKILL_AUTO_UPDATE", "CLAUDE_PROJECT_DIR", "GIT_DIR", "GIT_WORK_TREE", NO_CWD_SEARCH,
+                     "PATH", "PATHEXT", "PYTHONPATH")
+ORIGINAL_VARIABLES = {name: os.environ.get(name) for name in PATCHED_VARIABLES}
 HOOK = SCRIPTS.parent / "hooks" / "refresh-index.py"
+WRAPPER = SCRIPTS.parent / "hooks" / "index-hook.sh"
 SETTINGS = SCRIPTS.parent / "settings.json"
 EXAMPLE = (SCRIPTS.parent / "skills" / "codebase-index" / "examples" / "hooks"
            / "settings.json")
 CACHE = Path(".claude") / "cache" / "codebase-index"
 INDEX = CACHE / "index.sqlite"
 
-# What settings.json has to run, spelled once. Matched whole, because
-# `not-refresh-index.py` and `refresh-index.py.disabled` both contain the
-# file's name and neither of them runs it — and the hook swallows every
-# failure, so a registration broken that way is green everywhere else.
-COMMAND = ("py -3.12 -P -c \"import os, runpy; runpy.run_path(os.environ['CLAUDE_PROJECT_DIR']"
-           " + '/.claude/hooks/refresh-index.py', run_name='__main__')\"")
+# What settings.json has to run under each event, spelled once. Matched whole,
+# because `not-refresh-index.py` and `refresh-index.py.disabled` both contain
+# the file's name and neither of them runs it — and the hook swallows every
+# failure, so a registration broken that way is green everywhere else. The
+# event is the launcher's, which names it in the line it prints on a failure.
+def command(event: str) -> str:
+    return f'bash "${{CLAUDE_PROJECT_DIR}}/.claude/hooks/index-hook.sh" {event} refresh-index.py'
+
+
+def launch(event: str, payload: bytes, environment: dict, timeout: int):
+    """Run what settings.json registers under `event`: the launcher, from this
+    tree, with the arguments the registration hands it, and a `py` that is
+    this interpreter, so the worker the hook starts is this one too."""
+    with tempfile.TemporaryDirectory() as shim:
+        return subprocess.run(
+            [BASH, str(WRAPPER), *shlex.split(command(event))[2:]], input=payload,
+            capture_output=True, timeout=timeout, check=False,
+            env=python_as_py(environment, shim))
 
 
 def _load():
@@ -68,7 +93,7 @@ def entries_running_the_hook(settings: Path) -> dict:
         matched = [
             entry
             for entry in entries
-            if any(hook.get("type") == "command" and hook.get("command") == COMMAND
+            if any(hook.get("type") == "command" and hook.get("command") == command(event)
                    for hook in entry.get("hooks", []))
         ]
         if matched:
@@ -1265,6 +1290,7 @@ class IgnoredPaths(unittest.TestCase):
     git is asked of a real repository whether the path is ignored."""
 
     def setUp(self):
+        sign_nothing(self)
         self.mod = _load()
         self.base = Path(tempfile.mkdtemp())
         self.addCleanup(remove_tree, self.base)
@@ -1897,7 +1923,7 @@ class TheIndexerAKilledWorkerLeftBehind(Base):
     def child(self):
         """A process that runs until it is told not to, stopped by cleanup."""
         child = self.start_process(
-            [sys.executable, "-c", "import sys; sys.stdin.read()"], stdin=subprocess.PIPE)
+            [sys.executable, "-P", "-c", "import sys; sys.stdin.read()"], stdin=subprocess.PIPE)
 
         def stop():
             # Kill before waiting: a failing assertion must not leave the
@@ -1951,7 +1977,7 @@ class TheIndexerAKilledWorkerLeftBehind(Base):
 
     def test_a_record_naming_nothing_alive_keeps_nothing(self):
         root = self.checkout("main")
-        gone = self.start_process([sys.executable, "-c", "pass"])
+        gone = self.start_process([sys.executable, "-P", "-c", "pass"])
         gone.wait(timeout=60)
         for text in ("", "not a pid", "0", "99999999999999999999", str(gone.pid)):
             with self.subTest(record=text):
@@ -2437,17 +2463,19 @@ class Registration(Base):
 
 
 class RegisteredCommand(unittest.TestCase):
-    def test_a_missing_hook_file_does_not_exit_2(self):
+    def test_a_missing_hook_file_leaves_a_line_and_exits_0(self):
         """Python exits 2 on a file it cannot open, a worktree emptied under a
         running session, and under `PostToolUse` that is an error after every
-        call; through `runpy` the same failure exits 1."""
-        with tempfile.TemporaryDirectory() as gone:
-            done = subprocess.run(
-                [sys.executable, *shlex.split(COMMAND)[2:]], input=b"{}", capture_output=True,
-                timeout=30, check=False, env=dict(os.environ, CLAUDE_PROJECT_DIR=gone))
+        call; the launcher leaves 0 and a line saying the refresh did not run."""
+        for event in ("PostToolUse", "SessionStart"):
+            with self.subTest(event=event), tempfile.TemporaryDirectory() as gone:
+                done = launch(event, b"{}", dict(os.environ, CLAUDE_PROJECT_DIR=gone), 30)
 
-        self.assertNotEqual(2, done.returncode, done.stderr)
-        self.assertIn(b"FileNotFoundError", done.stderr)
+                self.assertEqual(0, done.returncode, done.stderr)
+                self.assertIn(b"FileNotFoundError", done.stderr)
+                output = json.loads(done.stdout)["hookSpecificOutput"]
+                self.assertEqual(event, output["hookEventName"])
+                self.assertIn("refresh-index.py did not run", output["additionalContext"])
 
 
 class DocumentedConfiguration(unittest.TestCase):
@@ -2501,6 +2529,7 @@ class TheDetachedWorkerReallyRuns(unittest.TestCase):
     lock."""
 
     def setUp(self):
+        sign_nothing(self)
         self.base = Path(tempfile.mkdtemp())
         self.addCleanup(remove_tree, self.base)
         self.owner = self.base / "owner"
@@ -2543,10 +2572,9 @@ class TheDetachedWorkerReallyRuns(unittest.TestCase):
 
     def test_an_event_reaches_the_cli_through_the_detached_worker(self):
         event = json.dumps({"cwd": str(self.worktree), "hook_event_name": "PostToolUse"})
-        done = subprocess.run(
-            [sys.executable, *shlex.split(COMMAND)[2:]], input=event.encode("utf-8"),
-            capture_output=True, timeout=60, check=False, env=self.environment())
-        self.assertEqual(0, done.returncode, done.stderr)
+        done = launch("PostToolUse", event.encode("utf-8"), self.environment(), 60)
+        # The launcher leaves 0 on every path, so its line, not its status, says the hook did not start.
+        self.assertEqual((0, b""), (done.returncode, done.stdout), done.stderr)
 
         ran = self.worktree / "cli-ran"
         deadline = time.monotonic() + 60
@@ -2583,10 +2611,61 @@ class WhatWasPatchedIsRestored(unittest.TestCase):
         import subprocess as real_subprocess
         import sys as real_sys
 
-        self.assertFalse(isinstance(real_subprocess.Popen, mock.MagicMock))
-        self.assertFalse(isinstance(real_subprocess.run, mock.MagicMock))
-        self.assertNotIsInstance(real_os.environ, dict)
+        self.assertIs(ORIGINAL_POPEN, real_subprocess.Popen)
+        self.assertIs(ORIGINAL_RUN, real_subprocess.run)
+        # Not assertIs: its message would print every variable, a token among them, into the CI log.
+        self.assertTrue(ORIGINAL_ENVIRON is real_os.environ, "os.environ was replaced and not put back")
+        self.assertEqual(ORIGINAL_VARIABLES, {name: real_os.environ.get(name) for name in PATCHED_VARIABLES})
         self.assertTrue(hasattr(real_sys.stdin, "fileno"))
+
+    def test_every_variable_a_case_patches_is_compared(self):
+        # The comparison above covers only the names it lists, so a case patching a new one would leak unseen.
+        tree = ast.parse(Path(__file__).read_text(encoding="utf-8"))
+        names = {target.id: node.value.value for node in tree.body if isinstance(node, ast.Assign)
+                 for target in node.targets if isinstance(target, ast.Name)
+                 and isinstance(node.value, ast.Constant) and isinstance(node.value.value, str)}
+
+        def spelled(node, line):
+            if isinstance(node, ast.Constant) and isinstance(node.value, str):
+                return node.value
+            if isinstance(node, ast.Name) and node.id in names:
+                return names[node.id]
+            return f"<unreadable at line {line}>"
+
+        def environ(node):
+            return (isinstance(node, ast.Attribute) and node.attr == "environ"
+                    or isinstance(node, ast.Name) and node.id == "environ"
+                    or isinstance(node, ast.Constant) and node.value == "os.environ")
+
+        # A form whose names it cannot read is reported unreadable rather than skipped, so it fails the check.
+        patched = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+                line = node.lineno
+                if node.func.attr in ("pop", "setdefault", "__setitem__", "__delitem__") and environ(node.func.value):
+                    patched.add(spelled(node.args[0] if node.args else None, line))
+                elif node.func.attr in ("update", "clear", "popitem") and environ(node.func.value):
+                    patched.add(spelled(None, line))
+                elif node.func.attr == "dict" and node.args and environ(node.args[0]):
+                    if len(node.args) > 1:
+                        values = node.args[1]
+                        if isinstance(values, ast.Dict):
+                            patched.update(spelled(key, line) for key in values.keys)
+                        else:
+                            patched.add(spelled(None, line))
+                    for keyword in node.keywords:
+                        if keyword.arg == "clear":
+                            if not (isinstance(keyword.value, ast.Constant) and keyword.value.value is False):
+                                patched.add(spelled(None, line))
+                        else:
+                            patched.add(keyword.arg or spelled(None, line))
+            elif (isinstance(node, ast.Subscript) and isinstance(node.ctx, (ast.Store, ast.Del))
+                  and environ(node.value)):
+                patched.add(spelled(node.slice, node.lineno))
+            elif isinstance(node, ast.AugAssign) and environ(node.target):
+                patched.add(spelled(None, node.lineno))
+        self.assertTrue(patched, "the scan found no patched variable, so it is reading nothing")
+        self.assertLessEqual(patched, set(PATCHED_VARIABLES))
 
 
 if __name__ == "__main__":

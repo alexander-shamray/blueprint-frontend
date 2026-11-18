@@ -49,14 +49,27 @@ IFS=$'\t' read -r state head_branch base cross < <(printf '%s\n' "${row%$'\r'}")
 origin_pushes_where_added || exit 8
 
 # Rewriting is only safe over what origin already holds: an unpushed commit would be published by the lease, and an
-# unseen one discarded by it.
-git fetch --quiet origin main "$branch"
+# unseen one discarded by it. Both refspecs are spelled out, as git-push-force.sh's is, since a narrowed
+# remote.origin.fetch updates neither tracking ref read below.
+git fetch --quiet origin "+refs/heads/main:refs/remotes/origin/main" "+refs/heads/$branch:refs/remotes/origin/$branch"
 remote=$(git rev-parse "refs/remotes/origin/$branch")
 tip=$(git rev-parse HEAD)
-# A rewrite whose push failed leaves the same trees, commit for commit, under new messages, so origin's tip is
-# then the lease to publish against. Any other difference is work this checkout lacks or has not pushed.
+# One line per commit of `origin/main..<ref>`: a hash of its tree, author and message with this run's `PR: #<n>` line
+# dropped and the spacing it adds normalised away, so a commit differing only by that trailer hashes alike.
+commits_but_the_trailer() {
+  local sha
+  for sha in $(git rev-list --reverse "origin/main..$1"); do
+    {
+      git show -s --format='%T%n%an <%ae> %ad' "$sha"
+      git show -s --format=%B "$sha" | { grep -vxE "PR: #$pr"$'\r''?' || :; } | git stripspace
+    } | git hash-object --stdin
+  done
+}
+# A rewrite whose push failed leaves the same commits under the trailer alone, so origin's tip is then the lease to
+# publish against. Any other difference, a tree, an author or a message, is work this checkout lacks or has not
+# pushed, which the lease would replace.
 if [ "$remote" != "$tip" ]; then
-  [ "$(git log --reverse --format=%T "origin/main..$remote")" = "$(git log --reverse --format=%T origin/main..HEAD)" ] ||
+  [ "$(commits_but_the_trailer "$remote")" = "$(commits_but_the_trailer HEAD)" ] ||
     { echo "origin/$branch is $remote, not the local $tip: push or pull first" >&2; exit 4; }
 fi
 

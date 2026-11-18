@@ -23,8 +23,11 @@ from review_helpers import (
 )
 
 
-# A `gh` grant in any spelling: the bare prefix, a wildcard, a subcommand, `.exe`, any case, an env prefix.
-GH_GRANT = re.compile(r"(?:\w+=\S*\s+)*gh(?:\.exe)?(?:\s|\*|$)", re.IGNORECASE)
+# A `gh` grant in any spelling: the bare prefix, a wildcard, a subcommand, `.exe`, any case, and `gh` as a command
+# word anywhere, behind an env prefix, `env`, `command` or a path. Searched, not matched.
+GH_GRANT = re.compile(r"(?:^|[\s/])gh(?:\.exe)?(?:\s|\*|$)", re.IGNORECASE)
+# `gh` run as a command word, quoted or not, which the pull request helpers may spell only as their bounded `gh_read`.
+BARE_GH = re.compile(r"""(?<![\w-])(["']?)gh\1\s""")
 
 
 # The class map every locality case reads unless it names its own: the shape of a target's
@@ -97,10 +100,9 @@ class NoCommandReadsAPullRequestFeedUnfiltered(GhShim, unittest.TestCase):
 
     def granted_bash(self, path):
         frontmatter = path.read_text(encoding="utf-8").split("---")[1]
-        line = next(
-            (ln for ln in frontmatter.splitlines()
-             if ln.startswith("allowed-tools:")), "")
-        return re.findall(r"Bash\(([^)]*)\)", line)
+        # Every allowed-tools key, each with the indented or listed lines that continue its value.
+        value = " ".join(re.findall(r"^allowed-tools:(.*(?:\n[ \t-].*)*)", frontmatter, re.MULTILINE))
+        return re.findall(r"Bash\(([^)]*)\)", value)
 
     def test_no_command_can_fetch_a_feed_outside_the_fixed_helpers(self):
         """No command holds a `gh` grant that can fetch a feed unfiltered.
@@ -111,7 +113,7 @@ class NoCommandReadsAPullRequestFeedUnfiltered(GhShim, unittest.TestCase):
         for path in sorted(COMMANDS.glob("*.md")):
             for grant in self.granted_bash(path):
                 command = grant[:-2] if grant.endswith(":*") else grant
-                if not GH_GRANT.match(command):
+                if not GH_GRANT.search(command):
                     continue
                 with self.subTest(command=path.name, grant=grant):
                     self.assertIn(
@@ -136,12 +138,35 @@ class NoCommandReadsAPullRequestFeedUnfiltered(GhShim, unittest.TestCase):
             self.assertNotIn(banned, self.GH_GRANTS_THAT_CANNOT_REACH_A_FEED)
 
     def test_a_gh_grant_is_seen_in_every_spelling(self):
-        for grant in ("gh:*", "gh", "gh*", "gh issue:*", "gh api:*", "gh.exe:*", "GH:*", "GH_TOKEN=x gh:*"):
+        for grant in ("gh:*", "gh", "gh*", "gh issue:*", "gh api:*", "gh.exe:*", "GH:*", "GH_TOKEN=x gh:*",
+                      "env gh:*", "command gh issue:*", "/usr/bin/gh:*", "env GH_TOKEN=x gh"):
             command = grant[:-2] if grant.endswith(":*") else grant
             with self.subTest(grant=grant):
-                self.assertTrue(GH_GRANT.match(command))
+                self.assertTrue(GH_GRANT.search(command))
                 self.assertNotIn(command, self.GH_GRANTS_THAT_CANNOT_REACH_A_FEED)
-        self.assertIsNone(GH_GRANT.match("ghost"))
+        self.assertIsNone(GH_GRANT.search("ghost"))
+        self.assertIsNone(GH_GRANT.search("bash .claude/scripts/gh-pr-create.sh"))
+
+    @staticmethod
+    def code_of(helper):
+        # Comments stripped: a helper's header explains the hazard by naming
+        # the very fields it must not request, and prose cannot drift into use.
+        return [line for line in helper.read_text(encoding="utf-8").splitlines()
+                if not line.lstrip().startswith("#")]
+
+    def json_fields(self, helper):
+        """The field list after each `--json` in the helper's code, in order;
+        every `--json` must yield one, so a spelling the pattern misses fails."""
+        code = "\n".join(self.code_of(helper))
+        fields = re.findall(r"--json(?:[ \t]+|=)[\"']?([\w,]+)", code)
+        self.assertEqual(code.count("--json"), len(fields), helper.name)
+        return fields
+
+    def assert_no_feed_field(self, helper):
+        for line in self.code_of(helper):
+            with self.subTest(helper=helper.name, line=line):
+                self.assertNotIn("reviews", line)
+                self.assertNotIn("comments", line)
 
     # The payload's commands that hold each helper's grant; a target's own commands that do are held to it there.
     BRANCH_LOOKUP_COMMANDS = ("pr.md", "ship.md")
@@ -152,16 +177,12 @@ class NoCommandReadsAPullRequestFeedUnfiltered(GhShim, unittest.TestCase):
         # commands need, so one helper with a fixed field set serves them.
         helper = SCRIPTS / "pr-for-branch.sh"
         self.assertTrue(helper.exists())
-        text = helper.read_text(encoding="utf-8")
-        self.assertIn("--json number,state,url", text)
-        # Comments stripped: the helper's header explains the hazard by naming
-        # the very fields it must not request, and prose cannot drift into use.
-        code = [
-            line for line in text.splitlines() if not line.lstrip().startswith("#")
-        ]
-        for line in code:
-            self.assertNotIn("reviews", line)
-            self.assertNotIn("comments", line)
+        # The whole field list of every call, not a prefix: a field appended
+        # after the expected ones, `body` or `author`, would pass a prefix.
+        self.assertEqual(
+            ["nameWithOwner", "number,state,url,headRepository,headRefOid,baseRefName,mergeCommit"],
+            self.json_fields(helper))
+        self.assert_no_feed_field(helper)
         for name in self.BRANCH_LOOKUP_COMMANDS:
             with self.subTest(command=name):
                 frontmatter = (COMMANDS / name).read_text(
@@ -187,10 +208,13 @@ class NoCommandReadsAPullRequestFeedUnfiltered(GhShim, unittest.TestCase):
         text = (COMMANDS / "ship.md").read_text(encoding="utf-8")
         frontmatter = text.split("---")[1]
         self.assertIn("bash .claude/scripts/pr-state.sh:*", frontmatter)
-        helper = (SCRIPTS / "pr-state.sh").read_text(encoding="utf-8")
-        self.assertIn("--json state,mergeable,mergeStateStatus,headRefOid,mergeCommit",
-                      helper)
-        self.assertNotIn("$2", helper)
+        helper = SCRIPTS / "pr-state.sh"
+        # It prints gh's JSON raw, so a field appended to the list reaches the
+        # caller: the list is compared whole, and the feed scan applies here too.
+        self.assertEqual(["state,mergeable,mergeStateStatus,headRefOid,mergeCommit"],
+                         self.json_fields(helper))
+        self.assert_no_feed_field(helper)
+        self.assertNotIn("$2", helper.read_text(encoding="utf-8"))
 
     def test_the_locality_rows_go_through_the_fixed_helper(self):
         # The change contract `docs/harness-local.md` *Documents* names asks a PR body for `| Class |` and
@@ -202,10 +226,10 @@ class NoCommandReadsAPullRequestFeedUnfiltered(GhShim, unittest.TestCase):
         text = helper.read_text(encoding="utf-8")
         code = code_lines(text)
         # `gh_read` is `gh` under gh-read-bound.sh's bound, so both spellings are calls.
-        gh_calls = [line.strip() for line in code if "gh " in line or "gh_read " in line]
+        gh_calls = [line.strip() for line in code if BARE_GH.search(line) or "gh_read " in line]
         self.assertEqual(
             [
-                'body=$(gh_read pr view "$pr" --json body --jq .body)',
+                """body=$(gh_read pr view "$pr" --json body --jq '.body + "."')""",
                 'changed=$(gh_read pr view "$pr" --json changedFiles --jq .changedFiles)',
                 'files=$(gh_read api "repos/{owner}/{repo}/pulls/$pr/files" '
                 """--paginate --jq '.[] | (.filename | @json), (.previous_filename // empty | "from " + @json)')""",
@@ -291,7 +315,6 @@ class NoCommandReadsAPullRequestFeedUnfiltered(GhShim, unittest.TestCase):
         # second read spelt `gh` directly would pass it, so every call line
         # is read too, for any subcommand. Comments are skipped, since they
         # name `gh pr view`.
-        bare = re.compile(r"(?<![\w-])gh\s")
         for path in sorted(SCRIPTS.glob("pr-*.sh")):
             code = [
                 line for line in path.read_text(encoding="utf-8").splitlines()
@@ -300,7 +323,16 @@ class NoCommandReadsAPullRequestFeedUnfiltered(GhShim, unittest.TestCase):
             with self.subTest(helper=path.name):
                 self.assertIn(
                     '. "$(dirname "${BASH_SOURCE[0]}")/gh-read-bound.sh"', code)
-                self.assertEqual([], [line for line in code if bare.search(line)])
+                self.assertEqual([], [line for line in code if BARE_GH.search(line)])
+
+    def test_the_bare_gh_pattern_sees_a_quoted_gh(self):
+        # The positive control for both scans above: bash runs `"gh" pr view` as `gh pr view`.
+        for line in ("gh pr view 1", 'x=$(gh api y)', '"gh" pr view 1', "'gh' api x", "command gh pr view"):
+            with self.subTest(line=line):
+                self.assertRegex(line, BARE_GH)
+        for line in ("gh_read pr view 1", '. "$here/gh-read-bound.sh"', "sigh x", '"ghost" x'):
+            with self.subTest(line=line):
+                self.assertNotRegex(line, BARE_GH)
 
     @staticmethod
     def _gh_printing(body, files="docs/x.md\n", changed=None):
@@ -454,7 +486,7 @@ class NoCommandReadsAPullRequestFeedUnfiltered(GhShim, unittest.TestCase):
         script = (
             "case \"$*\" in *changedFiles*) echo 1 ;;\n"
             "*\"/files\"*) echo '\"docs/x.md\"' ;;\n"
-            "*) printf '| Class | D |\\r\\n| Touch set | docs/x.md |\\r\\n' ;; esac\n"
+            "*) printf '| Class | D |\\r\\n| Touch set | docs/x.md |\\r\\n.\\n' ;; esac\n"
         )
         r = self._run_locality_with_gh(script)
         self.assertEqual(0, r.returncode, r.stderr)
@@ -573,6 +605,64 @@ class NoCommandReadsAPullRequestFeedUnfiltered(GhShim, unittest.TestCase):
         self.assertEqual(0, r.returncode, r.stderr)
         self.assertEqual(["class D", "inside docs/x.md"], r.stdout.splitlines())
 
+    def test_a_row_in_a_fence_after_a_container_is_refused(self):
+        # GitHub ends a fence opened in a list item when the list ends and hides one in an HTML comment, so a fenced
+        # row after a list, block quote or HTML block may be what it shows as the table. The CI gate refuses it,
+        # in any spelling GitHub could render once the fence ends, and a verdict here would pass a body CI refuses.
+        table = "| Class | D |\n| Touch set | docs/x.md |\n"
+        example = "| Class | E |\n| Touch set | src/y.py |\n"
+        refusal = "a Class or Touch set row sits in a fenced block after a list, block quote or HTML block\n"
+        bodies = [(name, lead + table + "```\n" + example + "```\n") for name, lead in (
+            ("list item", "- note\n\n  ```\n"),
+            ("numbered item", "1. note\n\n   ```\n"),
+            ("block quote", "> note\n\n```\n"),
+            ("html comment", "<!--\n```\n-->\n"),
+            ("container long before the fence", "* note\n\ntext\n\n```\n"),
+        )]
+        bodies += [(f"row {row!r}", "- note\n\n  ```\n" + row + "\n```\n" + table)
+                   for row in (" | Class | D |", "Class | D |", "\t|Touch set| docs/x.md |")]
+        for name, body in bodies:
+            with self.subTest(name=name):
+                r = self._run_locality_with_gh(self._gh_printing(body))
+                self.assertEqual((3, "", refusal), (r.returncode, r.stdout, r.stderr))
+        # A fence after a container that holds no row hides nothing a reviewer reads as the declaration; a dash
+        # with no blank after it, or four spaces of indent, starts no list item.
+        for name, body in (
+            ("fence holds no row", "- item\n\n```\ncode\n```\n" + table),
+            ("container after the table", table + "\n- item\n\n```\ncode\n```\n"),
+            ("not a list item", "-note\n\n```\n" + example + "```\n" + table),
+            ("indented four", "    - note\n\n```\n" + example + "```\n" + table),
+        ):
+            with self.subTest(name=name):
+                r = self._run_locality_with_gh(self._gh_printing(body))
+                self.assertEqual(0, r.returncode, r.stderr)
+                self.assertEqual(["class D", "inside docs/x.md"], r.stdout.splitlines())
+
+    def test_a_lone_carriage_return_is_refused(self):
+        # A lone CR ends a line for GitHub and not for this helper, so `note` + CR + an opener fences the table on
+        # the page and not here; the CI gate refuses it, and so does the helper. CRLF endings are still read. printf
+        # makes each CR at run time, as in the CRLF case above, and ends on the `.` the helper's `--jq` appends.
+        table = "| Class | D |\n| Touch set | docs/x.md |\n"
+        example = "| Class | E |\n| Touch set | src/y.py |\n"
+
+        def printing(body):
+            escaped = body.replace("\r", "\\r").replace("\n", "\\n")
+            return f"case \"$*\" in *changedFiles*) echo 1 ;;\n*\"/files\"*) echo '\"docs/x.md\"' ;;\n*) printf '{escaped}.\\n' ;; esac\n"
+
+        for name, body in (
+            ("before an opener", "note\r```\n" + table + "```\n" + example),
+            ("inside a row", "| Class | D |\r| Touch set | docs/x.md |\n"),
+            ("at the end", table + "\r"),
+        ):
+            with self.subTest(name=name):
+                r = self._run_locality_with_gh(printing(body))
+                self.assertEqual(
+                    (3, "", "the body carries a carriage return that is not part of a CRLF line ending\n"),
+                    (r.returncode, r.stdout, r.stderr))
+        r = self._run_locality_with_gh(printing((table + "\n```\n" + example + "```\n").replace("\n", "\r\n")))
+        self.assertEqual(0, r.returncode, r.stderr)
+        self.assertEqual(["class D", "inside docs/x.md"], r.stdout.splitlines())
+
     def test_one_row_without_the_other_is_refused(self):
         # A class alone gives /ship's review no set, and a set alone gives it
         # no class to judge the set by, so the pair is required, or neither.
@@ -581,6 +671,8 @@ class NoCommandReadsAPullRequestFeedUnfiltered(GhShim, unittest.TestCase):
                 r = self._run_locality_with_gh(self._gh_printing(body))
                 self.assertEqual(3, r.returncode, r.stderr)
                 self.assertEqual("", r.stdout)
+                # Without that refusal the missing row fails as "is not one cell", also exit 3, so the message is named.
+                self.assertIn("one row without the other", r.stderr)
 
     def test_a_row_with_no_closing_pipe_is_not_one_cell(self):
         # The CI gate's `_cell` refuses a row whose cell is not closed by a `|`, so the local verdict must too.
@@ -879,7 +971,9 @@ class NoCommandReadsAPullRequestFeedUnfiltered(GhShim, unittest.TestCase):
 # What bash 3.2, /bin/bash on macOS, refuses: `mapfile` and `readarray`, an
 # associative array, and the case-changing expansions.
 BASH_4 = re.compile(
-    r"\b(?:mapfile|readarray)\b|\b(?:declare|local|typeset)\s+-[a-zA-Z]*A|\$\{\w+(?:\[[^]]*\])?(?:,|\^)")
+    r"\b(?:mapfile|readarray|coproc|globstar)\b|\b(?:declare|local|typeset)(?:\s+-[a-zA-Z]+)*?\s+-[a-zA-Z]*[An]"
+    r"|\$\{\w+(?:\[[^]]*\])?(?:,|\^|@[a-zA-Z]\})|\$\{#?\w+\[\s*-"
+    r"|(?<!\|)\|&|&>>|;;&")
 
 
 class AStalledGhReadEndsAtTheBound(GhShim, unittest.TestCase):
@@ -932,11 +1026,16 @@ class NoHelperNeedsBash4(unittest.TestCase):
     def test_the_pattern_sees_each_construct(self):
         # The positive control: a pattern that matched nothing would pass every script.
         for line in ("mapfile -d '' tree < x", "readarray -t a", "declare -A seen=()", "local -rA x",
-                     'echo "${name,,}"', 'echo "${name^^}"', 'echo "${name^}"'):
+                     "declare -g -A seen=()", "local -r -A x",
+                     'echo "${name,,}"', 'echo "${name^^}"', 'echo "${name^}"',
+                     "local -n ref=$1", "declare -rn ref=x", 'echo "${list[-1]}"', 'echo "${#list[ -1]}"',
+                     "git log |& head", "make &>> log", "  a) x ;;&", "coproc cat", "shopt -s globstar",
+                     'echo "${name@Q}"', 'echo "${list[0]@E}"'):
             with self.subTest(line=line):
                 self.assertRegex(line, BASH_4)
         for line in ('echo "${name}"', 'echo "${name:-a,b}"', "declare -a list=()", 'echo "${#list[@]}"',
-                     'echo "${name/,/;}"'):
+                     'echo "${name/,/;}"', 'echo "${list[@]}"', 'echo "${@}"', "a || b &", "x &> log",
+                     "  a) x ;;", 'echo "${list[i-1]}"', "local -r x", "declare -i n"):
             with self.subTest(line=line):
                 self.assertNotRegex(line, BASH_4)
 
