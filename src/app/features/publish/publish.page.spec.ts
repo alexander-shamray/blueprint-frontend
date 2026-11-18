@@ -960,6 +960,24 @@ describe('PublishPage', () => {
       expect(fixture.componentInstance.image()?.status).toBe('failed');
     });
 
+    it('asks nothing again into a window that opened while the sign-in was pending (#584)', async () => {
+      const window = TestBed.inject(RateLimitWindows).forPartition('authenticated');
+      signIn.mockImplementationOnce(async () =>
+        window.open({ kind: 'rateLimited', title: '', detail: null, retryAfterSeconds: 30 }),
+      );
+      picked = png();
+      await fixture.componentInstance.chooseImage();
+      controller
+        .expectOne(ISSUE)
+        .flush({ title: 'Unauthorized', status: 401 }, { status: 401, statusText: '' });
+      await fixture.whenStable();
+
+      expect(signIn).toHaveBeenCalledTimes(1);
+      controller.expectNone(ISSUE);
+      expect(fixture.componentInstance.image()?.status).toBe('failed');
+      window.close();
+    });
+
     it('asks again for nobody but the seller who was refused', async () => {
       signIn.mockImplementation(async () => {
         user.set({
@@ -1100,6 +1118,77 @@ describe('PublishPage', () => {
 
       await expect(fixture.componentInstance.chooseImage()).rejects.toThrow('a defect');
       expect(fixture.componentInstance.imagePickRefusal()).toBeNull();
+    });
+  });
+
+  it('replays once when two presses are refused with a 401 before one sign-in resolves (#533)', async () => {
+    const url = 'http://localhost:5000/api/v1/catalog/products';
+    const releases: (() => void)[] = [];
+    signIn.mockImplementation(() => new Promise<void>((resolve) => releases.push(resolve)));
+
+    fixture.componentInstance.publish();
+    fixture.componentInstance.publish();
+    const [first, second] = controller.match(url);
+    first.flush({ title: 'Unauthorized', status: 401 }, { status: 401, statusText: 'Unauthorized' });
+    second.flush({ title: 'Unauthorized', status: 401 }, { status: 401, statusText: 'Unauthorized' });
+
+    // Both refusals landed with the replay unspent; each sign-in then resolves.
+    expect(releases).toHaveLength(2);
+    releases.forEach((release) => release());
+    await fixture.whenStable();
+
+    const replays = controller.match(url);
+    expect(replays).toHaveLength(1);
+    replays[0].flush('55555555-5555-5555-5555-555555555555', { status: 200, statusText: 'OK' });
+    await fixture.whenStable();
+  });
+
+  it('a sign-in that returns into an open window sends no replay and keeps the one replay (#542, #584)', async () => {
+    const url = 'http://localhost:5000/api/v1/catalog/products';
+    const window = TestBed.inject(RateLimitWindows).forPartition('authenticated');
+    signIn.mockImplementationOnce(async () =>
+      window.open({ kind: 'rateLimited', title: 'Too many requests', detail: null, retryAfterSeconds: 30 }),
+    );
+
+    fixture.componentInstance.publish();
+    controller
+      .expectOne(url)
+      .flush({ title: 'Unauthorized', status: 401 }, { status: 401, statusText: 'Unauthorized' });
+    await fixture.whenStable();
+
+    expect(signIn).toHaveBeenCalledOnce();
+    controller.expectNone(url);
+    // The stale sign-in banner gives way to the window's own.
+    expect(fixture.componentInstance.error()).toBeNull();
+
+    // The bound was not spent on a send that never happened: once the window
+    // closes, a second refusal is still replayed.
+    window.close();
+    fixture.componentInstance.publish();
+    controller
+      .expectOne(url)
+      .flush({ title: 'Unauthorized', status: 401 }, { status: 401, statusText: 'Unauthorized' });
+    await fixture.whenStable();
+
+    expect(signIn).toHaveBeenCalledTimes(2);
+    controller.expectOne(url);
+  });
+
+  it('says it was not sent when the replay is refused by the form, the bound still owed (#610)', async () => {
+    const url = 'http://localhost:5000/api/v1/catalog/products';
+    signIn.mockImplementationOnce(async () => {
+      fixture.componentInstance.form.controls.name.setValue('');
+    });
+    fixture.componentInstance.publish();
+    controller
+      .expectOne(url)
+      .flush({ title: 'Unauthorized', status: 401 }, { status: 401, statusText: 'Unauthorized' });
+    await fixture.whenStable();
+
+    controller.expectNone(url);
+    expect(fixture.componentInstance.error()).toMatchObject({
+      kind: 'retry',
+      title: 'That was not sent.',
     });
   });
 

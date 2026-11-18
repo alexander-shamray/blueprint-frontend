@@ -482,14 +482,17 @@ export class PublishPage {
    * the page is waiting on.
    */
   private signInAndReupload(upload: number, file: File): void {
-    const replay = !this.uploadReplayedAfterSignIn;
     const refusedSubject = this.auth.user()()?.subject ?? null;
 
     this.auth.signIn().then(
       () => {
         const sameSubject =
           refusedSubject !== null && this.auth.user()()?.subject === refusedSubject;
-        if (replay && sameSubject && upload === this.uploads) {
+        // Read when the sign-in resolves, as the publish replay reads its own
+        // (#533), and not sent into a window that opened meanwhile, which
+        // leaves the replay owed (#584): Try again is disabled for the window.
+        const owed = !this.uploadReplayedAfterSignIn && !this.rateLimit.blocked();
+        if (owed && sameSubject && upload === this.uploads) {
           this.uploadReplayedAfterSignIn = true;
           this.upload(file);
         }
@@ -498,15 +501,17 @@ export class PublishPage {
     );
   }
 
-  publish(): void {
+  /** Whether the command was sent; the sign-in replay spends its bound only on true (#542). */
+  publish(): boolean {
     // (ngSubmit) is not the only way in — this method is public and directly
     // callable — so the guard the template's [disabled] binding expresses
     // must also live here, the same precedent checkout's placeOrder() sets
     // for its own non-null assertion below. Without this, value.amount!
     // would assert over a null the required validator was supposed to have
     // ruled out. An image still on its way is the same kind of refusal: the
-    // product would publish without it.
-    if (this.form.invalid || this.imageBusy()) return;
+    // product would publish without it, and an open 429 window is the
+    // binding's third.
+    if (this.form.invalid || this.imageBusy() || this.rateLimit.blocked()) return false;
 
     // Cleared at the START of every attempt, not just on the branches that
     // change it: a "Published as ..." (or already-committed) note from a
@@ -635,6 +640,7 @@ export class PublishPage {
         if (displayed.kind === 'signIn') this.signInAndReplay();
       },
     });
+    return true;
   }
 
   /**
@@ -645,7 +651,6 @@ export class PublishPage {
    * Publish.
    */
   private signInAndReplay(): void {
-    const replay = !this.replayedAfterSignIn;
     const refusedSubject = this.auth.user()()?.subject ?? null;
     const changesAtRefusal = this.subjectChanges;
 
@@ -660,18 +665,20 @@ export class PublishPage {
           this.auth.user()()?.subject === refusedSubject &&
           this.subjectChanges === changesAtRefusal;
         if (!sameSubject) return;
-        // A spent bound sends nothing, and the seller is signed in (#599).
-        // It was not sent, and the banner says so (#610); an open window's
-        // countdown speaks instead.
-        if (!replay) {
-          if (this.errorState()?.kind === 'signIn') {
-            this.errorState.set(this.rateLimit.blocked() ? null : notSentError());
-          }
+        // Read here, not when the 401 landed: two 401s pending at once would
+        // both have read it unspent and replayed twice (#533). Spent only when
+        // publish() sent, where the replay is sent (#157): a window that opened
+        // while the sign-in was pending leaves the replay owed (#542, #584).
+        if (!this.replayedAfterSignIn && this.publish()) {
+          this.replayedAfterSignIn = true;
           return;
         }
-        // Spent where the replay is sent (#157); see CheckoutPage.
-        this.replayedAfterSignIn = true;
-        this.publish();
+        // Nothing was sent, a spent bound or a refused publish, and the seller
+        // is signed in (#599): the banner says it was not sent (#610), unless
+        // an open window's countdown speaks instead.
+        if (this.errorState()?.kind === 'signIn') {
+          this.errorState.set(this.rateLimit.blocked() ? null : notSentError());
+        }
       },
       (failure: unknown) => this.errorState.set(mapError(failure)),
     );
