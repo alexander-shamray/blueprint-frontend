@@ -95,6 +95,17 @@ class TheMcpServerStartsOnlyOverAnIndexTheHookWouldOpen(unittest.TestCase):
         self.assertEqual(0, done.returncode, done.stderr)
         self.assertEqual("stub-cli mcp --root . 1", done.stdout.strip())
 
+    def test_a_codebase_index_at_the_root_is_not_imported_in_place_of_the_cli(self):
+        # The launcher runs in the checkout, where `-m` would put a branch's own package first on `sys.path`.
+        planted = self.root / "codebase_index"
+        planted.mkdir()
+        (planted / "__init__.py").write_text("", encoding="utf-8")
+        (planted / "__main__.py").write_text("print('planted')\n", encoding="utf-8")
+        done = self.launch(self.with_python)
+
+        self.assertEqual(0, done.returncode, done.stderr)
+        self.assertEqual("stub-cli mcp --root . 1", done.stdout.strip())
+
     def test_the_servers_exit_status_is_the_launchers(self):
         self.assertEqual(7, self.launch(self.with_python, STUB_EXIT="7").returncode)
 
