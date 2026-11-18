@@ -25,8 +25,9 @@ GIT = shutil.which("git")
 # that runs whatever follows it.
 ALLOWED_PROGRAMS = frozenset({"git", "gh", "ls", "wc", "rm"})
 # The subcommands that define a program, or run whatever follows them.
-GH_RUNNERS = frozenset({"alias", "extension", "extensions", "ext"})
-GIT_RUNNERS = frozenset({"config", "submodule", "bisect", "difftool", "mergetool", "filter-branch"})
+GH_RUNNERS = frozenset({"alias", "config", "extension", "extensions", "ext"})
+GIT_RUNNERS = frozenset({"config", "submodule", "bisect", "difftool", "mergetool", "filter-branch",
+                         "rebase", "grep"})
 # The suffixes Windows runs a program by: npm installs `npx.cmd` beside `npx`.
 SHIM_SUFFIXES = (".exe", ".cmd", ".bat", ".ps1")
 # `py` is the launcher `.harness/agent-rules.md` requires, so it is granted,
@@ -110,8 +111,9 @@ class TheCheckRunnerIsTheOnlyExecutor(unittest.TestCase):
                     with self.subTest(command=path.name, grant=grant):
                         self.assertFalse(
                             refused_grant(grant),
-                            f"{path.name} grants `Bash({grant})`, which runs a "
-                            "program outside ALLOWED_PROGRAMS or an unpinned py or bash")
+                            f"{path.name} grants `Bash({grant})`, which runs a program "
+                            "outside ALLOWED_PROGRAMS, an unpinned py or bash, an env "
+                            "prefix, a path, or git or gh without a safe subcommand")
         # The positive controls: an empty glob, or a parser that found no
         # grant, would satisfy every case above.
         self.assertGreater(seen, 3, "found almost no commands")
@@ -161,7 +163,8 @@ class TheCheckRunnerIsTheOnlyExecutor(unittest.TestCase):
                       "git:*", "git", "git -c x=y diff:*", "gh:*", "gh",
                       "gh alias set:*", "gh extension install:*", "gh ext:*",
                       "gh extensions:*", "git config:*", "git submodule foreach:*",
-                      "git bisect run:*", "git difftool:*",
+                      "git bisect run:*", "git difftool:*", "git rebase:*", "git grep:*",
+                      "gh config set:*",
                       # A path picks the program outright.
                       "/tmp/x/git diff:*", "/tmp/x/ls:*", "C:\\x\\git.exe diff:*"):
             with self.subTest(grant=grant):
