@@ -960,6 +960,24 @@ describe('PublishPage', () => {
       expect(fixture.componentInstance.image()?.status).toBe('failed');
     });
 
+    it('asks nothing again into a window that opened while the sign-in was pending (#584)', async () => {
+      const window = TestBed.inject(RateLimitWindows).forPartition('authenticated');
+      signIn.mockImplementationOnce(async () =>
+        window.open({ kind: 'rateLimited', title: '', detail: null, retryAfterSeconds: 30 }),
+      );
+      picked = png();
+      await fixture.componentInstance.chooseImage();
+      controller
+        .expectOne(ISSUE)
+        .flush({ title: 'Unauthorized', status: 401 }, { status: 401, statusText: '' });
+      await fixture.whenStable();
+
+      expect(signIn).toHaveBeenCalledTimes(1);
+      controller.expectNone(ISSUE);
+      expect(fixture.componentInstance.image()?.status).toBe('failed');
+      window.close();
+    });
+
     it('asks again for nobody but the seller who was refused', async () => {
       signIn.mockImplementation(async () => {
         user.set({
@@ -1154,6 +1172,24 @@ describe('PublishPage', () => {
 
     expect(signIn).toHaveBeenCalledTimes(2);
     controller.expectOne(url);
+  });
+
+  it('says it was not sent when the replay is refused by the form, the bound still owed (#610)', async () => {
+    const url = 'http://localhost:5000/api/v1/catalog/products';
+    signIn.mockImplementationOnce(async () => {
+      fixture.componentInstance.form.controls.name.setValue('');
+    });
+    fixture.componentInstance.publish();
+    controller
+      .expectOne(url)
+      .flush({ title: 'Unauthorized', status: 401 }, { status: 401, statusText: 'Unauthorized' });
+    await fixture.whenStable();
+
+    controller.expectNone(url);
+    expect(fixture.componentInstance.error()).toMatchObject({
+      kind: 'retry',
+      title: 'That was not sent.',
+    });
   });
 
   it('says it was not sent when a completed sign-in sends no replay, the bound being spent (#599, #610)', async () => {

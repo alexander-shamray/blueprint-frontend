@@ -482,14 +482,17 @@ export class PublishPage {
    * the page is waiting on.
    */
   private signInAndReupload(upload: number, file: File): void {
-    const replay = !this.uploadReplayedAfterSignIn;
     const refusedSubject = this.auth.user()()?.subject ?? null;
 
     this.auth.signIn().then(
       () => {
         const sameSubject =
           refusedSubject !== null && this.auth.user()()?.subject === refusedSubject;
-        if (replay && sameSubject && upload === this.uploads) {
+        // Read when the sign-in resolves, as the publish replay reads its own
+        // (#533), and not sent into a window that opened meanwhile, which
+        // leaves the replay owed (#584): Try again is disabled for the window.
+        const owed = !this.uploadReplayedAfterSignIn && !this.rateLimit.blocked();
+        if (owed && sameSubject && upload === this.uploads) {
           this.uploadReplayedAfterSignIn = true;
           this.upload(file);
         }
@@ -671,12 +674,10 @@ export class PublishPage {
           return;
         }
         // Nothing was sent, a spent bound or a refused publish, and the seller
-        // is signed in (#599). A spent bound says it was not sent (#610); an
-        // open window's countdown speaks instead.
+        // is signed in (#599): the banner says it was not sent (#610), unless
+        // an open window's countdown speaks instead.
         if (this.errorState()?.kind === 'signIn') {
-          this.errorState.set(
-            this.replayedAfterSignIn && !this.rateLimit.blocked() ? notSentError() : null,
-          );
+          this.errorState.set(this.rateLimit.blocked() ? null : notSentError());
         }
       },
       (failure: unknown) => this.errorState.set(mapError(failure)),
