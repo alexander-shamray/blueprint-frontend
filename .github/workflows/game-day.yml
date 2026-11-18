@@ -6,8 +6,8 @@ name: Game day
 
 on:
   # `src/**` because the suite checks that each scenario's `source` cites a line that exists;
-  # `.nvmrc`, `package.json`, which sets its module type, and the lockfile because it runs under
-  # them.
+  # `.nvmrc`, `package.json`, whose `type` field decides how its `.ts` imports load, and the
+  # lockfile because it runs under them.
   pull_request:
     paths:
       - 'e2e/game-day/**'
