@@ -66,11 +66,17 @@ class TheMcpServerStartsOnlyOverAnIndexTheHookWouldOpen(unittest.TestCase):
             directory.mkdir()
             expose(directory, NODE)
         expose(cls.with_python, PYTHON)
-        # gate-index asks git which checkout the root is in, and a git it cannot
-        # start is a refusal (#643). Windows' git.exe finds its install from its
-        # own path, so there its directory joins PATH rather than a copy.
+        # gate-index asks git which checkout the root is in, and the payload's
+        # newer gate-index refuses a git it cannot start.
+        # Windows' git.exe finds its install from its own path, so there its
+        # directory joins PATH rather than a copy, and must bring nothing else
+        # the launcher looks up by name.
         if os.name == "nt":
             cls.git = Path(GIT).parent
+            stray = [path.name for path in cls.git.iterdir()
+                     if path.stem.lower() in ("codebase-index", "py", "python3", "python")]
+            if stray:
+                raise RuntimeError(f"git's directory {cls.git} also holds {stray}")
         else:
             cls.git = base / "git-only"
             cls.git.mkdir()
@@ -117,6 +123,7 @@ class TheMcpServerStartsOnlyOverAnIndexTheHookWouldOpen(unittest.TestCase):
 
         self.assertEqual(3, done.returncode, done.stderr)
         self.assertIn("not starting the server", done.stderr)
+        self.assertIn("rollback journal", done.stderr)
         # stdout is the protocol: nothing of the launcher's, and no server.
         self.assertEqual("", done.stdout)
 
