@@ -18,6 +18,7 @@ CLAUDE = SCRIPTS.parent
 LAUNCHER = CLAUDE / "skills" / "codebase-index" / "scripts" / "mcp-launch.mjs"
 MCP_JSON = CLAUDE.parent / ".mcp.json"
 NODE = shutil.which("node")
+GIT = shutil.which("git")
 FLOOR = "import sys; sys.exit(sys.version_info < (3, 12))"
 
 
@@ -40,8 +41,9 @@ PYTHON = interpreter()
 
 def setUpModule():
     # Not a skip: a skip on a missing tool reports a pass.
-    if NODE is None or PYTHON is None:
-        raise RuntimeError("node and Python 3.12 are required on PATH: these cases run the launcher")
+    if NODE is None or PYTHON is None or GIT is None:
+        raise RuntimeError(
+            "node, git and Python 3.12 are required on PATH: these cases run the launcher")
 
 
 def expose(directory, tool):
@@ -64,6 +66,16 @@ class TheMcpServerStartsOnlyOverAnIndexTheHookWouldOpen(unittest.TestCase):
             directory.mkdir()
             expose(directory, NODE)
         expose(cls.with_python, PYTHON)
+        # gate-index asks git which checkout the root is in, and a git it cannot
+        # start is a refusal (#643). Windows' git.exe finds its install from its
+        # own path, so there its directory joins PATH rather than a copy.
+        if os.name == "nt":
+            cls.git = Path(GIT).parent
+        else:
+            cls.git = base / "git-only"
+            cls.git.mkdir()
+            expose(cls.git, GIT)
+        cls.with_git = os.pathsep.join([str(cls.with_python), str(cls.git)])
         cls.stubs = base / "stubs"
         package = cls.stubs / "codebase_index"
         package.mkdir(parents=True)
@@ -90,18 +102,18 @@ class TheMcpServerStartsOnlyOverAnIndexTheHookWouldOpen(unittest.TestCase):
                               capture_output=True, text=True, encoding="utf-8", timeout=120)
 
     def test_a_clean_root_starts_the_server_with_its_arguments_and_the_update_disabled(self):
-        done = self.launch(self.with_python)
+        done = self.launch(self.with_git)
 
         self.assertEqual(0, done.returncode, done.stderr)
         self.assertEqual("stub-cli mcp --root . 1", done.stdout.strip())
 
     def test_the_servers_exit_status_is_the_launchers(self):
-        self.assertEqual(7, self.launch(self.with_python, STUB_EXIT="7").returncode)
+        self.assertEqual(7, self.launch(self.with_git, STUB_EXIT="7").returncode)
 
     def test_a_rollback_journal_beside_the_index_stops_it_before_the_server_starts(self):
         self.cache.mkdir(parents=True)
         (self.cache / "index.sqlite-journal").write_bytes(b"branch-written")
-        done = self.launch(self.with_python)
+        done = self.launch(self.with_git)
 
         self.assertEqual(3, done.returncode, done.stderr)
         self.assertIn("not starting the server", done.stderr)
