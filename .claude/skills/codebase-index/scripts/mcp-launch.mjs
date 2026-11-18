@@ -26,8 +26,10 @@
 // the window `docs/harness-boundaries.md` records for every check here.
 
 import { spawn, spawnSync } from 'node:child_process';
-import { accessSync, constants, realpathSync, statSync } from 'node:fs';
-import { delimiter, dirname, isAbsolute, join, relative } from 'node:path';
+import { accessSync, constants, readFileSync, realpathSync, statSync } from 'node:fs';
+import {
+  basename, delimiter, dirname, isAbsolute, join, relative, resolve, sep,
+} from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -42,15 +44,37 @@ function refuse(code, message) {
 // Every program is started by the full path this finds, never by bare name:
 // Windows searches the working directory, the checkout, before PATH, where a
 // branch can plant a `py.exe` or `codebase-index.exe`. As `on_path` in
-// refresh-index.py does: absolute PATH entries only, none in the checkout, and
-// on Windows only `.exe` or `.com`. The variable covers what a child starts.
+// refresh-index.py does: absolute PATH entries only, none in this checkout or
+// the main checkout it is a worktree of, and on Windows only `.exe` or `.com`.
+// The variable covers what a child starts. `realpathSync.native` resolves as
+// `Path.resolve()` does, short names and substituted drives included.
 process.env.NoDefaultCurrentDirectoryInExePath = '1';
-const checkout = realpathSync(process.cwd());
+const real = realpathSync.native;
+const checkout = real(process.cwd());
+const fenced = [checkout, mainCheckout(checkout)].filter((tree) => tree !== null);
 const names = process.platform === 'win32' ? ['.exe', '.com'] : [''];
 
+// `main_checkout` in refresh-index.py, read from the files git writes: a
+// `gitdir:` file whose `commondir` names a `.git` directory.
+function mainCheckout(root) {
+  try {
+    const pointer = readFileSync(join(root, '.git'), 'utf8').trim();
+    if (!pointer.startsWith('gitdir:')) return null;
+    const gitDir = resolve(root, pointer.slice('gitdir:'.length).trim());
+    const named = readFileSync(join(gitDir, 'commondir'), 'utf8').trim();
+    const common = real(resolve(gitDir, named));
+    if (basename(common) !== '.git' || dirname(common) === root) return null;
+    return dirname(common);
+  } catch {
+    return null;
+  }
+}
+
 function inCheckout(path) {
-  const rest = relative(checkout, path);
-  return rest === '' || (!rest.startsWith('..') && !isAbsolute(rest));
+  return fenced.some((tree) => {
+    const rest = relative(tree, path);
+    return rest === '' || (rest !== '..' && !rest.startsWith(`..${sep}`) && !isAbsolute(rest));
+  });
 }
 
 function onPath(stem) {
@@ -58,7 +82,7 @@ function onPath(stem) {
     const entry = raw.replace(/^"|"$/g, '');
     if (!entry || !isAbsolute(entry)) continue;
     try {
-      if (inCheckout(realpathSync(entry))) continue;
+      if (inCheckout(real(entry))) continue;
     } catch {
       continue;
     }
@@ -67,7 +91,7 @@ function onPath(stem) {
       try {
         if (!statSync(candidate).isFile()) continue;
         accessSync(candidate, constants.X_OK);
-        if (!inCheckout(realpathSync(candidate))) return candidate;
+        if (!inCheckout(real(candidate))) return candidate;
       } catch {
         // Absent or not runnable: the next name, then the next entry.
       }
