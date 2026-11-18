@@ -15,7 +15,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 TREES = (".claude", ".github")
 SUBPROCESS_CALLS = {"run", "Popen", "check_output", "check_call", "call"}
-SKIPPED_PARTS = {"__pycache__", "worktrees"}
+SKIPPED_PARTS = {"__pycache__"}
+# The forked checkouts, each with a copy of the harness at its own base; a `worktrees` elsewhere is read.
+FORKED = (".claude", "worktrees")
 SWALLOWING_CLEANUPS = {"rmtree": "ignore_errors", "TemporaryDirectory": "ignore_cleanup_errors"}
 BUILDS_A_REPOSITORY = re.compile(r"\bgit\b.*\b(?:init|clone|worktree add)\b")
 MKTEMP_DIRECTORY = re.compile(r"\bmktemp -d\b")
@@ -45,7 +47,8 @@ def python_files(root: Path) -> list[Path]:
     for tree in TREES:
         for path in sorted((root / tree).rglob("*.py")):
             rel = path.relative_to(root).as_posix()
-            if SKIPPED_PARTS.intersection(path.relative_to(root).parts[:-1]) or _is_local(rel, globs):
+            parts = path.relative_to(root).parts
+            if SKIPPED_PARTS.intersection(parts[:-1]) or parts[:2] == FORKED or _is_local(rel, globs):
                 continue
             found.append(path)
     return found
@@ -132,6 +135,25 @@ def mktemp_fixture(source: str) -> list[int]:
     return [node.lineno for node in _strings(tree) if id(node) not in prose and MKTEMP_DIRECTORY.search(node.value)]
 
 
+def unsafe_dash_c(source: str) -> list[int]:
+    """Lines of an argv literal that runs `sys.executable -c` with neither `-P` nor `-I` before the `-c`.
+
+    `-c` puts the working directory first on `sys.path`, and a suite runs from the root, where a planted module
+    named after the standard library's would be imported in its place.
+    """
+    lines = []
+    for node in ast.walk(ast.parse(source)):
+        if not isinstance(node, (ast.List, ast.Tuple)) or not node.elts:
+            continue
+        head = node.elts[0]
+        if not (isinstance(head, ast.Attribute) and head.attr == "executable" and _name(head.value) == "sys"):
+            continue
+        flags = [e.value for e in node.elts[1:] if isinstance(e, ast.Constant) and isinstance(e.value, str)]
+        if "-c" in flags and not {"-P", "-I"} & set(flags[:flags.index("-c")]):
+            lines.append(node.lineno)
+    return sorted(lines)
+
+
 def offences(root: Path, check) -> list[str]:
     return [f"{path.relative_to(root).as_posix()}:{line}"
             for path in python_files(root)
@@ -169,6 +191,19 @@ class PythonHygiene(unittest.TestCase):
     def test_no_cleanup_swallows_its_errors_beside_a_repository(self) -> None:
         self.assertEqual(offences(ROOT, swallowed_cleanup), [],
                          "build on tempfile.TemporaryDirectory: its cleanup clears the bit git sets on an object")
+
+    def test_no_dash_c_child_puts_the_root_first_on_its_path(self) -> None:
+        self.assertEqual(offences(ROOT, unsafe_dash_c), [],
+                         "start a `sys.executable -c` child with `-P`: `-c` puts the working directory first")
+
+    def test_an_unsafe_dash_c_child_is_refused(self) -> None:
+        source = ("import subprocess, sys\n"
+                  "subprocess.run([sys.executable, '-c', 'pass'])\n"
+                  "subprocess.run([sys.executable, '-P', '-c', 'pass'])\n"
+                  "CHILD = (sys.executable, '-c', 'import fcntl')\n"
+                  "subprocess.run([sys.executable, '-I', '-c', 'pass'])\n"
+                  "subprocess.run([sys.executable, 'script.py', '-c'])\n")
+        self.assertEqual(unsafe_dash_c(source), [2, 4, 6])
 
     def test_no_fixture_makes_its_root_with_mktemp(self) -> None:
         self.assertEqual(offences(ROOT, mktemp_fixture), [], "take the root from review_helpers.temp_root")
@@ -233,6 +268,18 @@ class PythonHygiene(unittest.TestCase):
         self.assertEqual(mktemp_fixture("run_bash('mktemp" + " -d')\n"), [1])
         self.assertEqual(mktemp_fixture("run_bash('mktemp x.XXXXXX')\n# mktemp" + " -d in a comment\n"), [])
         self.assertEqual(mktemp_fixture('"""Not by `mktemp' + ' -d`."""\n'), [])
+
+    def test_only_the_forked_checkouts_directory_is_skipped(self) -> None:
+        # `.claude/worktrees/` holds forked checkouts; a `worktrees` directory anywhere else is the harness's own.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for rel in (".claude/worktrees/x/.claude/scripts/forked.py", ".claude/scripts/worktrees/own.py",
+                        ".github/worktrees/gate.py"):
+                planted = root / rel
+                planted.parent.mkdir(parents=True, exist_ok=True)
+                planted.write_text("import subprocess\nsubprocess.run(['git'], text=True)\n", encoding="utf-8")
+            self.assertEqual(offences(root, text_without_encoding),
+                             [".claude/scripts/worktrees/own.py:2", ".github/worktrees/gate.py:2"])
 
     def test_local_path_skipped(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

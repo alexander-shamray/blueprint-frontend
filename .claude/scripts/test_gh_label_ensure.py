@@ -110,6 +110,14 @@ class LabelHelperBehaviour(unittest.TestCase):
             "an existing label must never reach `gh label create`",
         )
 
+    def test_a_label_present_in_another_case_is_left_alone(self):
+        # GitHub's label names are unique case-insensitively, so `gh label create bug` beside `Bug` is refused.
+        s = self.stub(before=["Bug"], create_fails=True)
+        r = s.run("bug")
+        self.assertEqual(0, r.returncode, r.stderr)
+        self.assertIn("already exists", r.stdout)
+        self.assertFalse([c for c in s.calls() if "label create" in c])
+
     def test_a_missing_label_is_created_with_no_free_parameter(self):
         s = self.stub(before=[])
         r = s.run("medium")
@@ -269,13 +277,15 @@ class LabelHelperHasNoFreeParameter(unittest.TestCase):
         )
 
     def test_a_name_outside_the_vocabulary_never_reaches_gh(self):
-        # Refused by the case, before `gh repo view` is called — so this test
-        # needs no network and proves the refusal is the first thing that
-        # happens rather than a message printed after a lookup.
+        # Refused by the case, before `gh repo view` is called: a recording
+        # `gh` first on PATH shows the refusal comes before any lookup.
+        stub = LabelStub()
+        self.addCleanup(stub.cleanup)
         for name in ("nonsense", "security --force", "-R other/repo", ""):
             with self.subTest(name=name):
-                result = self.run_helper(name)
+                result = stub.run(name)
                 self.assertEqual(2, result.returncode)
+                self.assertEqual([], stub.calls())
 
     def test_it_takes_exactly_one_argument(self):
         self.assertEqual(2, self.run_helper().returncode)

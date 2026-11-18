@@ -4,6 +4,7 @@ and the CLI is not started when that refuses.
 """
 
 import errno
+import importlib.util
 import os
 import shutil
 import sqlite3
@@ -37,6 +38,14 @@ def python_312():
                 [*candidate, "-c", probe], capture_output=True).returncode == 0:
             return True
     return False
+
+
+def setUpModule():
+    # Not a skip: each is a stated prerequisite, and a skip on a missing tool reports a pass.
+    missing = [name for name, found in (("bash", _bash()), ("git", shutil.which("git")),
+                                        ("Python 3.12", python_312())) if not found]
+    if missing:
+        raise RuntimeError(f"the gate is run, not described, and this host lacks {', '.join(missing)}")
 
 
 def link_directory(link, destination):
@@ -74,8 +83,6 @@ class OnlyAHostThatGrantsNoLinkSkips(unittest.TestCase):
             self.attempt(FileNotFoundError(errno.ENOENT, "no parent"))
 
 
-@unittest.skipUnless(_bash() and shutil.which("git") and python_312(),
-                     "the gate needs bash, git and Python 3.12")
 class TheCliIsNotStartedOverAnIndexTheHookRefuses(unittest.TestCase):
     def setUp(self):
         scratch = tempfile.TemporaryDirectory()
@@ -141,6 +148,29 @@ class TheCliIsNotStartedOverAnIndexTheHookRefuses(unittest.TestCase):
 
     def test_a_directory_outside_a_checkout_is_left_to_the_cli(self):
         self.assertEqual(0, self.gate(cwd=self.scratch).returncode)
+
+    def test_a_git_that_fails_or_stalls_is_a_refusal_not_a_checkout_left_alone(self):
+        # Only git's own "not a git repository" answer means no checkout; a dead or stalled git has said nothing.
+        spec = importlib.util.spec_from_file_location("gate_index_under_test", GATE)
+        gate = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(gate)
+        failures = (
+            subprocess.TimeoutExpired(["git"], 10),
+            OSError(errno.ENOENT, "no git"),
+            subprocess.CompletedProcess(["git"], 128, "", "fatal: detected dubious ownership in repository\n"),
+        )
+        here = mock.patch.object(gate.os, "getcwd", return_value=str(self.scratch))
+        for failure in failures:
+            with self.subTest(failure=type(failure).__name__):
+                def run(*args, failure=failure, **kwargs):
+                    if isinstance(failure, BaseException):
+                        raise failure
+                    return failure
+                with mock.patch.object(gate.subprocess, "run", run), here, mock.patch("sys.stderr"):
+                    self.assertEqual(3, gate.main())
+        outside = subprocess.CompletedProcess(["git"], 128, "", "fatal: not a git repository (or any parent)\n")
+        with mock.patch.object(gate.subprocess, "run", return_value=outside), here:
+            self.assertEqual(0, gate.main())
 
     def test_a_linked_cache_directory_is_refused(self):
         elsewhere = self.scratch / "elsewhere"

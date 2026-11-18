@@ -1,8 +1,8 @@
 """Follow a Claude Code transcript (.jsonl) live, readably: the owner's window on a /dispatch executor. Ctrl+C stops.
 
 Usage: py -3.12 watch_session.py <transcript.jsonl | project directory> [--raw], the path dispatch_board.py's `result`
-or `wake` prints; a directory follows a session started up to ten minutes before the watcher, or after it. --raw
-shows each Bash command, not its description."""
+or `wake` prints; a directory follows a session started after the watcher, or up to ten minutes before it where
+the platform keeps creation times (`created`). --raw shows each Bash command, not its description."""
 
 import json
 import os
@@ -81,6 +81,34 @@ def cell_width(text):
     return width
 
 
+def wrap_cell(text, width):
+    """`textwrap.wrap` by display columns, which it counts as characters; a word wider than the cell is cut."""
+    lines, line = [], ""
+    for word in text.split():
+        while cell_width(word) > width:
+            cut = word[0]
+            for ch in word[1:]:
+                if cell_width(cut + ch) > width:
+                    break
+                cut += ch
+            if line:
+                lines.append(line)
+                line = ""
+            lines.append(cut)
+            word = word[len(cut):]
+        if not word:
+            continue
+        joined = f"{line} {word}" if line else word
+        if cell_width(joined) <= width:
+            line = joined
+        else:
+            lines.append(line)
+            line = word
+    if line or not lines:
+        lines.append(line)
+    return lines
+
+
 def pad_cell(text, width):
     return text + " " * (width - cell_width(text))
 
@@ -103,7 +131,7 @@ def render_table(rows):
         widths[widest] -= 1
     out = ["┌" + "┬".join("─" * (w + 2) for w in widths) + "┐"]
     for n, row in enumerate(cells):
-        wrapped = [textwrap.wrap(c, w) or [""] if cell_width(c) > w else [c] for c, w in zip(row, widths)]
+        wrapped = [wrap_cell(c, w) if cell_width(c) > w else [c] for c, w in zip(row, widths)]
         for k in range(max(len(w) for w in wrapped)):
             line = [pad_cell(col[k] if k < len(col) else "", w) for col, w in zip(wrapped, widths)]
             out.append("│ " + " │ ".join(line) + " │")
@@ -161,15 +189,45 @@ def show(event):
             print(f"{stamp} {RED}❌ {one_line(body, WIDTH - 14)}{RESET}")
 
 
+def created(path):
+    """When `path` was created, or None where the platform keeps no creation time or the file is gone.
+
+    Creation, not modification: a long-running session in the same directory keeps writing too. `st_ctime` is that
+    only on Windows; on Linux and macOS every append bumps it."""
+    try:
+        stat = os.stat(path)
+    except OSError:
+        return None
+    birth = getattr(stat, "st_birthtime", None)
+    if birth is not None:
+        return birth
+    return stat.st_ctime if os.name == "nt" else None
+
+
+def transcripts(directory):
+    try:
+        return [name for name in os.listdir(directory) if name.endswith(".jsonl")]
+    except OSError:
+        return []
+
+
 def newest_transcript(directory, since):
-    # A directory means "the session that starts after this watcher": wait for a .jsonl newer than the start.
+    # A directory means the session started at most LOOKBACK seconds before this watcher, or after it: wait for a
+    # .jsonl created at or after `since`. Where no creation time is kept, a name there before the watcher cannot be
+    # dated and is passed over, and a later one is dated by when the watcher first saw it.
+    before = set(transcripts(directory))
+    seen = {}
     while True:
-        found = [os.path.join(directory, n) for n in os.listdir(directory) if n.endswith(".jsonl")] \
-            if os.path.isdir(directory) else []
-        # Creation time, not modification: a long-running session in the same directory keeps writing too.
-        found = [f for f in found if os.path.getctime(f) >= since]
-        if found:
-            return max(found, key=os.path.getctime)
+        dated = {}
+        for name in transcripts(directory):
+            path = os.path.join(directory, name)
+            birth = created(path)
+            if birth is None and name not in before and os.path.isfile(path):
+                birth = seen.setdefault(name, time.time())
+            if birth is not None and birth >= since:
+                dated[path] = birth
+        if dated:
+            return max(dated, key=dated.get)
         time.sleep(2)
 
 
@@ -178,12 +236,19 @@ def main(path):
         print(f"{DIM}waiting for a session under {path}{RESET}")
         path = newest_transcript(path, time.time() - LOOKBACK)
         print(f"{DIM}following {path}{RESET}")
-    with open(path, encoding="utf-8", errors="replace") as handle:
+    # Bytes, decoded a whole line at a time: a line the writer has not finished is held until its newline arrives,
+    # and a text read would have decoded a character it split as two replacement characters first.
+    with open(path, "rb") as handle:
+        pending = b""
         while True:
             line = handle.readline()
             if not line:
                 time.sleep(1)
                 continue
+            pending += line
+            if not pending.endswith(b"\n"):
+                continue
+            line, pending = pending.decode("utf-8", errors="replace"), b""
             try:
                 show(json.loads(line))
             except (json.JSONDecodeError, KeyError, TypeError):
