@@ -70,7 +70,8 @@ class TheMcpServerStartsOnlyOverAnIndexTheHookWouldOpen(unittest.TestCase):
         (package / "__init__.py").write_text("", encoding="utf-8")
         (package / "__main__.py").write_text(
             "import os, sys\n"
-            "print('stub-cli', *sys.argv[1:], os.environ.get('CBX_NO_SKILL_AUTO_UPDATE'))\n"
+            "print('stub-cli', *sys.argv[1:], os.environ.get('CBX_NO_SKILL_AUTO_UPDATE'),\n"
+            "      os.environ.get('PYTHONSAFEPATH'))\n"
             "sys.exit(int(os.environ.get('STUB_EXIT', '0')))\n", encoding="utf-8")
 
     @classmethod
@@ -86,6 +87,8 @@ class TheMcpServerStartsOnlyOverAnIndexTheHookWouldOpen(unittest.TestCase):
     def launch(self, path, **extra):
         env = {**os.environ, "PATH": str(path), "PYTHONPATH": str(self.stubs), **extra}
         env.pop("CBX_NO_SKILL_AUTO_UPDATE", None)
+        # The launcher's to set: a runner that already has it would pass the root-module case unexamined.
+        env.pop("PYTHONSAFEPATH", None)
         return subprocess.run([NODE, str(LAUNCHER)], cwd=self.root, env=env, stdin=subprocess.DEVNULL,
                               capture_output=True, text=True, encoding="utf-8", timeout=120)
 
@@ -93,7 +96,7 @@ class TheMcpServerStartsOnlyOverAnIndexTheHookWouldOpen(unittest.TestCase):
         done = self.launch(self.with_python)
 
         self.assertEqual(0, done.returncode, done.stderr)
-        self.assertEqual("stub-cli mcp --root . 1", done.stdout.strip())
+        self.assertEqual("stub-cli mcp --root . 1 1", done.stdout.strip())
 
     def test_a_codebase_index_at_the_root_is_not_imported_in_place_of_the_cli(self):
         # The launcher runs in the checkout, where `-m` would put a branch's own package first on `sys.path`.
@@ -104,7 +107,7 @@ class TheMcpServerStartsOnlyOverAnIndexTheHookWouldOpen(unittest.TestCase):
         done = self.launch(self.with_python)
 
         self.assertEqual(0, done.returncode, done.stderr)
-        self.assertEqual("stub-cli mcp --root . 1", done.stdout.strip())
+        self.assertEqual("stub-cli mcp --root . 1 1", done.stdout.strip())
 
     def test_the_servers_exit_status_is_the_launchers(self):
         self.assertEqual(7, self.launch(self.with_python, STUB_EXIT="7").returncode)
