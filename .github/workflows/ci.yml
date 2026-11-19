@@ -194,7 +194,7 @@ jobs:
           cache: npm
       - run: npm ci
       # The browsers are cached under the version of Playwright that fixes their revisions, so a
-      # hit downloads none of them; the system packages are not, and `--with-deps` installs those
+      # hit downloads none of them; the system packages are not, and `install-deps` installs those
       # on every run.
       - name: Playwright's version, the browser cache's key
         id: playwright
@@ -205,13 +205,18 @@ jobs:
         with:
           path: ~/.cache/ms-playwright
           key: ${{ runner.os }}-playwright-${{ steps.playwright.outputs.version }}
+      # Once, bounded by the step: `timeout` would kill npx and leave its apt-get holding the
+      # dpkg lock, so a retry here fails on the lock and never on the mirror.
+      - name: Install the browsers' system packages
+        timeout-minutes: 20
+        run: npx playwright install-deps chromium webkit
       # Retried, and bounded per attempt and by the step, so a download that hangs on runner
       # DNS fails in minutes and is tried again instead of holding the job to its cancel.
-      - name: Install the browsers and their system packages
+      - name: Install the browsers
         timeout-minutes: 20
         run: |
           for attempt in 1 2 3; do
-            timeout 6m npx playwright install --with-deps chromium webkit && exit 0
+            timeout 6m npx playwright install chromium webkit && exit 0
             echo "playwright install failed (attempt $attempt)." >&2
             sleep 10
           done

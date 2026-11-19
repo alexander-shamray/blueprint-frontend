@@ -101,11 +101,16 @@ jobs:
           cache: npm
       - run: npm ci
 
-      - name: Install Chromium and its system packages
+      # Apart from the retried download, as in ci.yml's e2e job: a `timeout` that kills npx
+      # leaves its apt-get holding the dpkg lock, and every retry then fails on the lock.
+      - name: Install Chromium's system packages
+        timeout-minutes: 20
+        run: npx playwright install-deps chromium
+      - name: Install Chromium
         timeout-minutes: 20
         run: |
           for attempt in 1 2 3; do
-            timeout 6m npx playwright install --with-deps chromium && exit 0
+            timeout 6m npx playwright install chromium && exit 0
             echo "playwright install failed (attempt $attempt)." >&2
             sleep 10
           done
