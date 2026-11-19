@@ -42,8 +42,8 @@ export const BFF_URL = 'http://localhost:5200';
 export const BFF_PREFIX = 'Web.Bff/';
 
 /**
- * Every exported interface in `types.ts` is in this table or cites a BFF
- * file. The spec's "checked or cites a BFF file" test fails on any other interface,
+ * Every exported interface or object-shaped alias in `types.ts` is in this
+ * table or cites a BFF file. The spec's "checked or cites a BFF file" test fails on any other one,
  * including one with no citation, which is the point: the next type added is
  * not silently uncovered.
  */
@@ -165,12 +165,24 @@ function fieldOf(member: ts.PropertySignature, names: Names): WireField | null {
   };
 }
 
-/** Every exported interface in the file, with its citation and its own (not inherited) fields. */
+/**
+ * Every exported interface and object-shaped alias in the file, with its
+ * citation and its own (not inherited) fields.
+ */
 export function parseWireTypes(source: string): WireType[] {
   const file = ts.createSourceFile('types.ts', source, ts.ScriptTarget.Latest, true);
   const types: WireType[] = [];
+  // An object-shaped alias, `type X = { ... }`, is a wire type as an
+  // interface is: left out, it would be compared against nothing and never
+  // reported uncovered.
+  const objectAliases = file.statements
+    .filter(ts.isTypeAliasDeclaration)
+    .filter((s) => !s.typeParameters && ts.isTypeLiteralNode(s.type));
   const names: Names = {
-    interfaces: new Set(file.statements.filter(ts.isInterfaceDeclaration).map((s) => s.name.text)),
+    interfaces: new Set([
+      ...file.statements.filter(ts.isInterfaceDeclaration).map((s) => s.name.text),
+      ...objectAliases.map((s) => s.name.text),
+    ]),
     aliases: new Map(
       file.statements
         .filter(ts.isTypeAliasDeclaration)
@@ -179,16 +191,23 @@ export function parseWireTypes(source: string): WireType[] {
     ),
   };
 
-  for (const statement of file.statements) {
-    if (!ts.isInterfaceDeclaration(statement)) continue;
+  const declared: (ts.InterfaceDeclaration | ts.TypeAliasDeclaration)[] = [
+    ...file.statements.filter(ts.isInterfaceDeclaration),
+    ...objectAliases,
+  ].sort((a, b) => a.pos - b.pos);
+
+  for (const statement of declared) {
     if (!statement.modifiers?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword)) continue;
+    const members = ts.isInterfaceDeclaration(statement)
+      ? statement.members
+      : (statement.type as ts.TypeLiteralNode).members;
 
     const leading = ts.getLeadingCommentRanges(file.text, statement.getFullStart()) ?? [];
     const comment = leading.map((r) => file.text.slice(r.pos, r.end)).join('\n');
     const cited = CITATION.exec(comment);
 
     const fields = new Map<string, WireField>();
-    for (const member of statement.members) {
+    for (const member of members) {
       if (!ts.isPropertySignature(member) || !ts.isIdentifier(member.name)) continue;
       const field = fieldOf(member, names);
       if (field) fields.set(member.name.text, field);

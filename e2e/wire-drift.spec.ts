@@ -38,6 +38,20 @@ test.describe('what the check looks at', () => {
 
 const sample = (body: string) => parseWireTypes(body).filter((t) => t.name === 'Wire')[0];
 
+test('an exported object-shaped alias is a wire type, so one nothing checks is uncovered', () => {
+  const types = parseWireTypes(`
+    export type Loose = { readonly id: string; readonly note?: string };
+    export type Code = 'a' | 'b';
+    type Private = { readonly x: number };
+    export interface Holder {
+      readonly loose: Loose;
+    }`);
+  expect(types.map((t) => t.name)).toEqual(['Loose', 'Holder']);
+  expect(types[0].fields.get('note')).toEqual({ optional: true, nullable: false, kind: 'string' });
+  expect(types[1].fields.get('loose')?.kind).toBe('object');
+  expect(uncovered(types)).toEqual(['Loose', 'Holder']);
+});
+
 const read: Checked = { direction: 'read', service: 'catalog', schema: 'S' };
 const sent: Checked = { ...read, direction: 'sent' };
 const document = (schema: object): OpenApiDocument => ({ components: { schemas: { S: schema } } });
