@@ -64,9 +64,11 @@ export const CHECKED: Readonly<Record<string, Checked>> = {
 };
 
 /**
- * `unknown` is a reference to something other than an exported interface (a
- * type alias, say), and is never compared. A union is judged by its first
- * non-null member, so `'a' | 'b'` is a string.
+ * `unknown` is a reference the parser cannot follow — neither an interface
+ * nor a type alias it can resolve to one of the others — and is never
+ * compared. A union is judged by its first non-null member, so `'a' | 'b'` is
+ * a string. An alias declared in the same file is followed, and so is
+ * `Extract<T, U>`, read as its `U` (#666).
  */
 export type Kind = 'string' | 'number' | 'boolean' | 'array' | 'object' | 'unknown';
 
@@ -74,6 +76,8 @@ export interface WireField {
   readonly optional: boolean;
   readonly nullable: boolean;
   readonly kind: Kind;
+  /** The string values a literal union allows, where every member is one; absent otherwise. */
+  readonly literals?: readonly string[];
 }
 
 export interface WireType {
@@ -85,41 +89,76 @@ export interface WireType {
 
 const CITATION = /([\w.]+\/[\w./]+\.cs)\s+—\s+`([^`]+)`/;
 
-function kindOf(node: ts.TypeNode, interfaces: ReadonlySet<string>): Kind {
-  if (ts.isTypeOperatorNode(node)) return kindOf(node.type, interfaces);
-  if (ts.isArrayTypeNode(node)) return 'array';
+/** What the parser can see of the file's names: its interfaces, and its type aliases' bodies. */
+interface Names {
+  readonly interfaces: ReadonlySet<string>;
+  readonly aliases: ReadonlyMap<string, ts.TypeNode>;
+}
+
+interface Resolved {
+  readonly kind: Kind;
+  readonly literals: readonly string[] | null;
+}
+
+const UNKNOWN: Resolved = { kind: 'unknown', literals: null };
+
+/** Bounds alias chains, so an alias that names itself cannot loop. */
+const ALIAS_DEPTH = 8;
+
+function resolveType(node: ts.TypeNode, names: Names, depth = 0): Resolved {
+  if (depth > ALIAS_DEPTH) return UNKNOWN;
+  if (ts.isParenthesizedTypeNode(node)) return resolveType(node.type, names, depth);
+  if (ts.isTypeOperatorNode(node)) return resolveType(node.type, names, depth);
+  if (ts.isArrayTypeNode(node)) return { kind: 'array', literals: null };
+  if (ts.isUnionTypeNode(node)) return resolveUnion(node.types, names, depth);
   if (ts.isTypeReferenceNode(node)) {
-    return interfaces.has(node.typeName.getText()) ? 'object' : 'unknown';
+    const name = node.typeName.getText();
+    if (names.interfaces.has(name)) return { kind: 'object', literals: null };
+    const args = node.typeArguments ?? [];
+    // `Extract<T, U>` is at most `U`, and `U` is what the client writes.
+    if (name === 'Extract' && args.length === 2) return resolveType(args[1], names, depth + 1);
+    const alias = names.aliases.get(name);
+    return alias && args.length === 0 ? resolveType(alias, names, depth + 1) : UNKNOWN;
   }
   if (ts.isLiteralTypeNode(node)) {
-    return ts.isStringLiteral(node.literal)
-      ? 'string'
-      : ts.isNumericLiteral(node.literal)
-        ? 'number'
-        : 'unknown';
+    if (ts.isStringLiteral(node.literal)) return { kind: 'string', literals: [node.literal.text] };
+    return ts.isNumericLiteral(node.literal) ? { kind: 'number', literals: null } : UNKNOWN;
   }
   switch (node.kind) {
     case ts.SyntaxKind.StringKeyword:
-      return 'string';
+      return { kind: 'string', literals: null };
     case ts.SyntaxKind.NumberKeyword:
-      return 'number';
+      return { kind: 'number', literals: null };
     case ts.SyntaxKind.BooleanKeyword:
-      return 'boolean';
+      return { kind: 'boolean', literals: null };
     default:
-      return 'unknown';
+      return UNKNOWN;
   }
 }
 
-function fieldOf(member: ts.PropertySignature, interfaces: ReadonlySet<string>): WireField | null {
+function resolveUnion(members: readonly ts.TypeNode[], names: Names, depth: number): Resolved {
+  const resolved = members.map((m) => resolveType(m, names, depth));
+  if (resolved.length === 0) return UNKNOWN;
+  const literals = resolved.every((r) => r.literals)
+    ? resolved.flatMap((r) => r.literals ?? [])
+    : null;
+  return { kind: resolved[0].kind, literals };
+}
+
+function fieldOf(member: ts.PropertySignature, names: Names): WireField | null {
   if (!member.type) return null;
   const members = ts.isUnionTypeNode(member.type) ? member.type.types : [member.type];
   const isNull = (t: ts.TypeNode) =>
     ts.isLiteralTypeNode(t) && t.literal.kind === ts.SyntaxKind.NullKeyword;
   const rest = members.filter((t) => !isNull(t));
+  const { kind, literals } = rest.length
+    ? resolveUnion(rest, names, 0)
+    : resolveType(member.type, names);
   return {
     optional: member.questionToken !== undefined,
     nullable: rest.length !== members.length,
-    kind: kindOf(rest[0] ?? member.type, interfaces),
+    kind,
+    ...(literals ? { literals } : {}),
   };
 }
 
@@ -127,9 +166,15 @@ function fieldOf(member: ts.PropertySignature, interfaces: ReadonlySet<string>):
 export function parseWireTypes(source: string): WireType[] {
   const file = ts.createSourceFile('types.ts', source, ts.ScriptTarget.Latest, true);
   const types: WireType[] = [];
-  const interfaces = new Set(
-    file.statements.filter(ts.isInterfaceDeclaration).map((s) => s.name.text),
-  );
+  const names: Names = {
+    interfaces: new Set(file.statements.filter(ts.isInterfaceDeclaration).map((s) => s.name.text)),
+    aliases: new Map(
+      file.statements
+        .filter(ts.isTypeAliasDeclaration)
+        .filter((s) => !s.typeParameters)
+        .map((s) => [s.name.text, s.type]),
+    ),
+  };
 
   for (const statement of file.statements) {
     if (!ts.isInterfaceDeclaration(statement)) continue;
@@ -142,7 +187,7 @@ export function parseWireTypes(source: string): WireType[] {
     const fields = new Map<string, WireField>();
     for (const member of statement.members) {
       if (!ts.isPropertySignature(member) || !ts.isIdentifier(member.name)) continue;
-      const field = fieldOf(member, interfaces);
+      const field = fieldOf(member, names);
       if (field) fields.set(member.name.text, field);
     }
     types.push({
@@ -177,7 +222,7 @@ export function stale(types: readonly WireType[]): string[] {
 
 interface Schema {
   readonly type?: string | string[];
-  readonly enum?: string[];
+  readonly enum?: readonly unknown[];
   readonly $ref?: string;
   readonly oneOf?: Schema[];
   readonly anyOf?: Schema[];
@@ -189,17 +234,21 @@ export interface OpenApiDocument {
   readonly components?: { readonly schemas?: Record<string, Schema> };
 }
 
-function shapeOf(
-  schema: Schema,
-  document: OpenApiDocument,
-  depth = 0,
-): { nullable: boolean; kind: Kind | null } {
+interface Shape {
+  readonly nullable: boolean;
+  readonly kind: Kind | null;
+  /** The values an `enum` allows, null where the schema names none. */
+  readonly values: readonly string[] | null;
+}
+
+function shapeOf(schema: Schema, document: OpenApiDocument, depth = 0): Shape {
   const alternatives = schema.oneOf ?? schema.anyOf;
   if (alternatives) {
     const shapes = alternatives.map((a) => shapeOf(a, document, depth));
     return {
       nullable: shapes.some((s) => s.nullable),
       kind: shapes.find((s) => s.kind)?.kind ?? null,
+      values: shapes.find((s) => s.values)?.values ?? null,
     };
   }
   if (schema.$ref) {
@@ -207,7 +256,7 @@ function shapeOf(
     // object; only a target with properties (or none we can find) is one.
     const target = document.components?.schemas?.[schema.$ref.split('/').pop() ?? ''];
     if (target && !target.properties && depth < 4) return shapeOf(target, document, depth + 1);
-    return { nullable: false, kind: 'object' };
+    return { nullable: false, kind: 'object', values: null };
   }
 
   const types = Array.isArray(schema.type) ? schema.type : schema.type ? [schema.type] : [];
@@ -226,7 +275,8 @@ function shapeOf(
           : kinds[0] === 'object'
             ? 'object'
             : null;
-  return { nullable: types.includes('null'), kind };
+  const values = schema.enum?.filter((v): v is string => typeof v === 'string') ?? null;
+  return { nullable: types.includes('null'), kind, values };
 }
 
 /**
@@ -273,6 +323,13 @@ export function compareShape(
     }
     if (checked.direction === 'sent' && !shape.nullable && field.nullable) {
       problems.push(`${where}: \`${name}\` is never null in the document and can be here`);
+    }
+    // A value the client sends that the schema's enum does not list is a 400
+    // however the field is typed. The reverse, for a read, is not checked.
+    if (checked.direction === 'sent' && field.literals && shape.values) {
+      for (const value of field.literals.filter((v) => !shape.values?.includes(v))) {
+        problems.push(`${where}: \`${name}\` sends '${value}', which the document's enum lacks`);
+      }
     }
     if (checked.direction === 'read' && !required.has(name) && !field.optional) {
       problems.push(`${where}: \`${name}\` is optional in the document and required here`);

@@ -167,6 +167,60 @@ test.describe('the comparison', () => {
     );
   });
 
+  test('a field typed by an alias or Extract is held to its kind and its literals (#666)', () => {
+    const aliased = sample(`
+      export type Reason = 'a' | 'b';
+      export type Narrow = Extract<Reason, 'b'>;
+      /** Catalog.Api/X.cs — \`S\`. */
+      export interface Wire {
+        readonly reason: Narrow;
+        readonly either: Reason;
+      }`);
+    expect(aliased.fields.get('reason')).toEqual({
+      optional: false,
+      nullable: false,
+      kind: 'string',
+      literals: ['b'],
+    });
+    expect(aliased.fields.get('either')?.literals).toEqual(['a', 'b']);
+
+    const schema = (reason: object) =>
+      document({
+        required: ['reason', 'either'],
+        properties: { reason, either: { type: 'string' } },
+      });
+    expect(compareShape(aliased, sent, schema({ type: 'string' }))).toEqual([]);
+    expect(compareShape(aliased, sent, schema({ type: 'string', enum: ['a', 'b'] }))).toEqual([]);
+    expect(compareShape(aliased, sent, schema({ type: 'integer' }))[0]).toContain(
+      '`reason` is number in the document and string here',
+    );
+    expect(compareShape(aliased, sent, schema({ type: 'string', enum: ['a', 'c'] }))).toEqual([
+      expect.stringContaining("`reason` sends 'b', which the document's enum lacks"),
+    ]);
+  });
+
+  test('an alias the parser cannot follow stays unknown and is not compared', () => {
+    const opaque = sample(`
+      const CODES = ['a'] as const;
+      export type Code = (typeof CODES)[number];
+      /** Catalog.Api/X.cs — \`S\`. */
+      export interface Wire {
+        readonly code: Code;
+      }`);
+    expect(opaque.fields.get('code')).toEqual({
+      optional: false,
+      nullable: false,
+      kind: 'unknown',
+    });
+    expect(
+      compareShape(
+        opaque,
+        sent,
+        document({ required: ['code'], properties: { code: { type: 'integer' } } }),
+      ),
+    ).toEqual([]);
+  });
+
   test('a document without the schema fails rather than passing on nothing', () => {
     expect(compareShape(wire, read, {})[0]).toContain('no schema by that name');
   });
