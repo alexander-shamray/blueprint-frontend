@@ -1,5 +1,5 @@
 import { TestBed } from '@angular/core/testing';
-import { OAuthService } from 'angular-oauth2-oidc';
+import { OAuthErrorEvent, OAuthService } from 'angular-oauth2-oidc';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { HybridOAuthStorage, TRANSIENT_STORAGE_KEYS, WebAuthStrategy } from './web-auth.strategy';
 
@@ -97,15 +97,77 @@ describe('WebAuthStrategy', () => {
     expect(oauth.silentRefresh).toHaveBeenCalledOnce();
   });
 
+  // What silentRefresh() rejects with (angular-oauth2-oidc.mjs, silentRefresh
+  // and tryLoginCodeFlow): the callback's own error event, wrapped.
+  const answered = (error: string) =>
+    new OAuthErrorEvent(
+      'silent_refresh_error',
+      new OAuthErrorEvent('code_error', {}, { error }),
+    );
+
   it('signs the user out when Keycloak answers login_required', async () => {
     oauth.token = jwt({ preferred_username: 'demo', sub: 's', exp: Math.floor(Date.now() / 1000) + 300 });
     await strategy.initialize();
 
-    oauth.silentRefresh.mockRejectedValueOnce(new Error('login_required'));
+    oauth.silentRefresh.mockRejectedValueOnce(answered('login_required'));
     await vi.advanceTimersByTimeAsync(225_000);
 
     expect(strategy.accessToken()).toBeNull();
     expect(strategy.user()()).toBeNull();
+  });
+
+  it('signs the user out when Keycloak answers interaction_required', async () => {
+    oauth.token = jwt({ preferred_username: 'demo', sub: 's', exp: Math.floor(Date.now() / 1000) + 300 });
+    await strategy.initialize();
+
+    oauth.silentRefresh.mockRejectedValueOnce(answered('interaction_required'));
+    await vi.advanceTimersByTimeAsync(225_000);
+
+    expect(strategy.accessToken()).toBeNull();
+  });
+
+  it('keeps a still-valid token through a renewal that timed out, and tries again (#661)', async () => {
+    const token = jwt({ preferred_username: 'demo', sub: 's', exp: Math.floor(Date.now() / 1000) + 300 });
+    oauth.token = token;
+    await strategy.initialize();
+
+    oauth.silentRefresh.mockRejectedValueOnce(new OAuthErrorEvent('silent_refresh_timeout', {}));
+    await vi.advanceTimersByTimeAsync(225_000);
+
+    expect(oauth.silentRefresh).toHaveBeenCalledOnce();
+    expect(strategy.accessToken()).toBe(token);
+    expect(strategy.user()()?.username).toBe('demo');
+
+    // 75% of the 75s left.
+    await vi.advanceTimersByTimeAsync(56_250);
+    expect(oauth.silentRefresh).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps a still-valid token through a failed code exchange', async () => {
+    const token = jwt({ preferred_username: 'demo', sub: 's', exp: Math.floor(Date.now() / 1000) + 300 });
+    oauth.token = token;
+    await strategy.initialize();
+
+    oauth.silentRefresh.mockRejectedValueOnce(
+      new OAuthErrorEvent('silent_refresh_error', new OAuthErrorEvent('token_error', new Error('offline'))),
+    );
+    await vi.advanceTimersByTimeAsync(225_000);
+
+    expect(strategy.accessToken()).toBe(token);
+  });
+
+  it('drops the token once a renewal fails with no life left to keep', async () => {
+    oauth.token = jwt({ preferred_username: 'demo', sub: 's', exp: Math.floor(Date.now() / 1000) + 300 });
+    await strategy.initialize();
+
+    // The round trip outlives the token: by the time it fails, exp has passed.
+    oauth.silentRefresh.mockImplementationOnce(async () => {
+      vi.setSystemTime(Date.now() + 100_000);
+      throw new OAuthErrorEvent('silent_refresh_timeout', {});
+    });
+    await vi.advanceTimersByTimeAsync(225_000);
+
+    expect(strategy.accessToken()).toBeNull();
   });
 
   it('ends the Keycloak session on sign-out, not just the local one', async () => {

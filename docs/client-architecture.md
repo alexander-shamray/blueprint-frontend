@@ -120,7 +120,10 @@ to time out and sign the user out. `refreshToken()` would perform a grant
 this realm never issues. The schedule comes from the token's own
 `exp` claim, at 75% of its remaining life (`WebAuthStrategy.RENEW_AT`), so
 moving `accessTokenLifespan` in the realm moves the client's schedule without a
-client release — the number 300 appears nowhere in this repository.
+client release — the number 300 appears nowhere in this repository. Only a
+`prompt=none` refusal such as `login_required` drops the token; a timeout or a
+failed exchange keeps a still-valid one and tries again at 75% of the life left,
+as the native strategy does for an unreachable realm (#661).
 
 *A reload signs you out, and the account page says so.* `AccountPage.tokenPosture`
 renders "Session ends on reload, no refresh token." from
