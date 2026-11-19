@@ -282,8 +282,16 @@ export function compareShape(
   if (checked.direction === 'sent') {
     for (const name of required) {
       const shape = shapeOf(schema.properties[name] ?? {}, document);
-      if (!type.fields.has(name) && !shape.nullable) {
+      if (shape.nullable) continue;
+      // An optional field is one the client may leave out, which a required
+      // non-null field cannot be (#665).
+      const field = type.fields.get(name);
+      if (!field) {
         problems.push(`${where}: the document requires \`${name}\` and this type does not send it`);
+      } else if (field.optional) {
+        problems.push(
+          `${where}: the document requires \`${name}\` and this type may leave it out`,
+        );
       }
     }
   }

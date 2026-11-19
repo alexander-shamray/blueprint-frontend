@@ -127,6 +127,18 @@ test.describe('the comparison', () => {
     });
     expect(compareShape(wire, sent, nullableAdded)).toEqual([]);
 
+    // A field the client declares but may leave out is not sent either (#665).
+    const optionalRequired = document({ ...base, required: [...base.required, 'note'] });
+    expect(compareShape(wire, sent, optionalRequired)).toEqual([
+      expect.stringContaining('requires `note` and this type may leave it out'),
+    ]);
+    const optionalNullable = document({
+      ...base,
+      required: [...base.required, 'note'],
+      properties: { ...base.properties, note: { type: ['null', 'string'] } },
+    });
+    expect(compareShape(wire, sent, optionalNullable)).toEqual([]);
+
     const neverNull = document({
       ...base,
       properties: { ...base.properties, quantity: { type: 'integer' } },
