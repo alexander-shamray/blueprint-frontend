@@ -97,10 +97,9 @@ jobs:
 
   # The production tree at `high` and the whole tree at every severity, in a job of its
   # own, and `npm ci` must print no `npm warn deprecated`: docs/client-architecture.md §14
-  # owns the argument and how a finding closes. An `ALLOWED` row is
-  # `<GHSA id> <YYYY-MM-DD expiry> <reason>`, and a row in any other shape fails the job.
-  # `npm audit` failing to answer is not a clean tree, so a document with no `metadata` fails
-  # the job.
+  # owns the argument and how a finding closes. An `ALLOWED` row is exactly
+  # `<GHSA id> <YYYY-MM-DD expiry> <reason>`, or the job fails. `npm audit` failing to answer
+  # is not a clean tree, so a document with no `metadata` fails the job.
   audit:
     runs-on: ubuntu-latest
     # Bounds a step that never exits, which would otherwise hold the runner
@@ -152,7 +151,7 @@ jobs:
           failed=0
           # Every row, matched or not, before any is trusted: the expiry is compared as a string,
           # so a word, or a day-first date such as 31/12/2026, can sort after today's and never
-          # expire (#663).
+          # expire.
           shape='^GHSA-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4} [0-9]{4}-[0-9]{2}-[0-9]{2} [^ ].*$'
           while IFS= read -r line; do
             [ -n "$line" ] || continue
