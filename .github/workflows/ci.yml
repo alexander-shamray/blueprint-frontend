@@ -151,13 +151,15 @@ jobs:
           found=$(printf '%s\n%s\n' "$high" "$every" | sort -u)
           failed=0
           # Every row, matched or not, before any is trusted: the expiry is compared as a string,
-          # so a day-first date or a word sorts after today's and would never expire (#663).
+          # so a word, or a day-first date such as 31/12/2026, can sort after today's and never
+          # expire (#663).
+          shape='^GHSA-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4} [0-9]{4}-[0-9]{2}-[0-9]{2} [^ ].*$'
           while IFS= read -r line; do
             [ -n "$line" ] || continue
             expiry=$(printf '%s' "$line" | cut -d' ' -f2)
-            if ! [[ $expiry =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] \
+            if ! [[ $line =~ $shape ]] \
               || [ "$(date -u -d "$expiry" +%F 2>/dev/null)" != "$expiry" ]; then
-              echo "::error::ALLOWED row has no real YYYY-MM-DD expiry after one space: $line"
+              echo "::error::ALLOWED row is not '<GHSA id> <real YYYY-MM-DD> <reason>': $line"
               failed=1
             fi
           done <<< "$ALLOWED"
