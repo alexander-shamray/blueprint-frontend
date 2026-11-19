@@ -58,8 +58,11 @@ describe('hydrated', () => {
     let done = false;
 
     const waiting = hydrated(root, 1_000).then(() => (done = true));
-    await Promise.resolve();
-    await Promise.resolve();
+    // A macrotask, not a couple of microtasks: the ready host's chain takes
+    // several hops to settle, so only after a turn of the event loop does
+    // `done` still being false mean the helper is waiting on ion-b, and a
+    // combinator that settled on the first host would show here (#664).
+    await new Promise((resolve) => setTimeout(resolve, 0));
     expect(done).toBe(false);
 
     later();
