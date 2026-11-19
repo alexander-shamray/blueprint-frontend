@@ -335,6 +335,34 @@ describe('OrderDetailPage', () => {
     expect(mounted.fixture.componentInstance.cancelled()).toBe(true);
   });
 
+  it('replays the cancellation only after sign-in has completed, not merely been started', async () => {
+    // The stub resolves at once, so a page that only started the sign-in
+    // would pass the case above. Here the sign-in stays pending until the
+    // case settles it, and nothing may be on the wire before then (#659).
+    const mounted = await mountWith(order());
+    controller = mounted.controller;
+    let finishSignIn: () => void = () => undefined;
+    signIn.mockImplementation(() => new Promise<void>((resolve) => (finishSignIn = resolve)));
+
+    mounted.fixture.componentInstance.cancel();
+    controller
+      .expectOne((r) => r.url.endsWith('/cancel'))
+      .flush({ title: 'Unauthorized', status: 401 }, { status: 401, statusText: 'Unauthorized' });
+    await mounted.fixture.whenStable();
+
+    expect(signIn).toHaveBeenCalledOnce();
+    controller.expectNone((r) => r.url.endsWith('/cancel'));
+
+    finishSignIn();
+    await mounted.fixture.whenStable();
+
+    const replay = controller.expectOne((r) => r.url.endsWith('/cancel'));
+    expect(replay.request.url).toContain(GUID_A);
+    replay.flush(null, { status: 204, statusText: 'No Content' });
+    controller.expectOne(`${READ}${GUID_A}`).flush(order());
+    expect(mounted.fixture.componentInstance.cancelled()).toBe(true);
+  });
+
   it('keeps the one replay when an earlier sign-in was dismissed and sent nothing (#157)', async () => {
     const mounted = await mountWith(order());
     controller = mounted.controller;
