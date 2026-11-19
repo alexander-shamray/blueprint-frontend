@@ -90,7 +90,10 @@ export interface WireType {
 
 const CITATION = /([\w.]+\/[\w./]+\.cs)\s+—\s+`([^`]+)`/;
 
-/** What the parser can see of the file's names: its interfaces, and its type aliases' bodies. */
+/**
+ * What the parser can see of the file's names: those that resolve to an
+ * object (interfaces and object-shaped aliases), and its type aliases' bodies.
+ */
 interface Names {
   readonly interfaces: ReadonlySet<string>;
   readonly aliases: ReadonlyMap<string, ts.TypeNode>;
