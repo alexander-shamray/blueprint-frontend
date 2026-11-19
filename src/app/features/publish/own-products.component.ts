@@ -81,7 +81,7 @@ function splitAmountErrors(fields: Readonly<Record<string, readonly string[]>> |
 
     @if (isEmpty()) {
       <app-empty-state heading="Nothing published yet" i18n-heading="@@products.emptyHeading"
-        icon="cube-outline" message="Products you publish from this account appear here."
+        icon="cloud-upload-outline" message="Products you publish from this account appear here."
         i18n-message="@@own.emptyMessage" />
     }
 
