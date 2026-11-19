@@ -271,15 +271,13 @@ describe('CheckoutPage', () => {
     // resolve the moment the system browser opened — so this page replayed
     // the order while still holding the token the edge had just refused.
     //
-    // Here signIn resolves only once a token is in place, and the assertion
-    // is on the ORDER of those two events: the replay must not be in flight
-    // before the sign-in it is waiting on has finished.
-    let signedIn = false;
-    signIn.mockImplementation(async () => {
-      // The replay must not have gone out yet at this point.
-      controller.expectNone('http://localhost:5000/api/v1/orders');
-      signedIn = true;
-    });
+    // Here signIn stays pending until the test settles it by hand, and the
+    // assertion is on the ORDER of those two events: the replay must not be
+    // in flight before the sign-in it is waiting on has finished. A mock
+    // whose body runs at once would start and finish the sign-in in the same
+    // instant, so a page that only started it would pass too (#659).
+    let finishSignIn: () => void = () => undefined;
+    signIn.mockImplementation(() => new Promise<void>((resolve) => (finishSignIn = resolve)));
 
     fixture.componentInstance.placeOrder();
     const first = controller.expectOne('http://localhost:5000/api/v1/orders');
@@ -288,7 +286,12 @@ describe('CheckoutPage', () => {
     first.flush({ title: 'Unauthorized', status: 401 }, { status: 401, statusText: 'Unauthorized' });
     await fixture.whenStable();
 
-    expect(signedIn).toBe(true);
+    expect(signIn).toHaveBeenCalledOnce();
+    controller.expectNone('http://localhost:5000/api/v1/orders');
+
+    finishSignIn();
+    await fixture.whenStable();
+
     const replay = controller.expectOne('http://localhost:5000/api/v1/orders');
     expect(replay.request.body.commandId).toBe(firstId);
 
