@@ -1,5 +1,5 @@
 import { Injectable, Signal, computed, inject, signal } from '@angular/core';
-import { AuthConfig, OAuthService, OAuthStorage } from 'angular-oauth2-oidc';
+import { AuthConfig, OAuthErrorEvent, OAuthService, OAuthStorage } from 'angular-oauth2-oidc';
 import { environment } from '@core/config/environment';
 import { AuthService, CurrentUser } from './auth.service';
 import { decodeUser } from './current-user';
@@ -308,12 +308,48 @@ export class WebAuthStrategy extends AuthService {
       await this.oauth.silentRefresh();
       const token = this.oauth.getAccessToken();
       if (token) this.adopt(token);
-    } catch {
-      // Keycloak answered login_required: the SSO session is gone. Drop the
-      // token rather than retrying — the next protected action prompts an
-      // interactive sign-in, which is the only thing that can help.
+    } catch (failure: unknown) {
+      if (WebAuthStrategy.refusedByRealm(failure)) {
+        // Keycloak answered login_required, or another prompt=none refusal:
+        // the SSO session is gone. Drop the token rather than retrying — the
+        // next protected action prompts an interactive sign-in, which is the
+        // only thing that can help.
+        this.token.set(null);
+        return;
+      }
+      // A timeout or a failed exchange, not a refusal: the token still in
+      // memory is not known to be bad, and a quarter of its life is ahead.
+      // Keep it and try again; `scheduleRenewal` recomputes from `exp`, so
+      // the retry comes at 75% of whatever life remains, as
+      // `NativeAuthStrategy.renew()` does for an unreachable realm (#661).
+      const user = this.currentUser();
+      if (user && user.expiresAt * 1000 > Date.now()) {
+        this.scheduleRenewal();
+        return;
+      }
       this.token.set(null);
     }
+  }
+
+  /**
+   * The answers to a `prompt=none` request that mean only an interactive
+   * sign-in can help (OpenID Connect Core 1.0 §3.1.2.6). `silentRefresh()`
+   * rejects with a `silent_refresh_error` whose `reason` is the callback's
+   * own `OAuthErrorEvent`, carrying Keycloak's response in `params`; a
+   * timeout is a `silent_refresh_timeout` with no such reason.
+   */
+  private static readonly REFUSALS: ReadonlySet<string> = new Set([
+    'login_required',
+    'interaction_required',
+    'consent_required',
+    'account_selection_required',
+  ]);
+
+  private static refusedByRealm(failure: unknown): boolean {
+    if (!(failure instanceof OAuthErrorEvent)) return false;
+    const answer = failure.reason instanceof OAuthErrorEvent ? failure.reason : failure;
+    const error = (answer.params as { error?: unknown } | null)?.error;
+    return typeof error === 'string' && WebAuthStrategy.REFUSALS.has(error);
   }
 
   private clearRenewal(): void {
