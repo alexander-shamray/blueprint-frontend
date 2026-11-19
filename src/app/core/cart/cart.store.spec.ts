@@ -189,6 +189,25 @@ describe('CartStore', () => {
     expect(restored.count()).toBe(4);
   });
 
+  it('restores an empty cart, and boots, when storage refuses the read (#660)', async () => {
+    // `restore()` is an app initializer, so a rejection here would abandon
+    // bootstrap. The real persistence, over a storage that throws.
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({ providers: [CartStore, CartPersistence] });
+    const getItem = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new Error('unavailable');
+    });
+
+    const restored = TestBed.inject(CartStore);
+    try {
+      await expect(restored.restore()).resolves.toBeUndefined();
+    } finally {
+      getItem.mockRestore();
+    }
+
+    expect(restored.lines()).toEqual([]);
+  });
+
   it('restoring does not write back what it just read', async () => {
     const stored = [{ productId: 'p9', name: 'Restored', amount: 3, currency: 'GBP', quantity: 4 }];
     TestBed.resetTestingModule();
