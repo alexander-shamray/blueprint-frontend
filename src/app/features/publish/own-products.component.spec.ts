@@ -100,9 +100,10 @@ describe('OwnProductsComponent', () => {
     expect(page().isEmpty()).toBe(true);
     expect(fixture.nativeElement.querySelector('app-empty-state')).not.toBeNull();
     // One `main.ts` registers: an unregistered name renders nothing (#668).
-    expect(fixture.nativeElement.querySelector('app-empty-state ion-icon')?.getAttribute('name')).toBe(
-      'cloud-upload-outline',
-    );
+    // The property Angular binds, not the attribute Stencil reflects later.
+    const icon: { name?: string } | null =
+      fixture.nativeElement.querySelector('app-empty-state ion-icon');
+    expect(icon?.name).toBe('cloud-upload-outline');
   });
 
   it('pages on with the cursor the last page gave', async () => {
