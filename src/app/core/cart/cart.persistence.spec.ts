@@ -1,6 +1,6 @@
 import { TestBed } from '@angular/core/testing';
 import { Preferences } from '@capacitor/preferences';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CartLine } from './cart.store';
 import { CartPersistence } from './cart.persistence';
 
@@ -100,6 +100,21 @@ describe('CartPersistence', () => {
     await Preferences.set({ key: STORED_KEY, value: '{ not json' });
 
     await expect(persistence.read()).resolves.toEqual([]);
+  });
+
+  it('treats a storage that refuses the read as an empty cart rather than throwing', async () => {
+    // On the web Preferences is localStorage, so a storage that refuses is
+    // how it fails: blocked site storage throws on access (#660).
+    await persistence.write([line('p1')]);
+    const getItem = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new Error('unavailable');
+    });
+
+    try {
+      await expect(persistence.read()).resolves.toEqual([]);
+    } finally {
+      getItem.mockRestore();
+    }
   });
 
   it('treats stored JSON that is not an array as an empty cart', async () => {

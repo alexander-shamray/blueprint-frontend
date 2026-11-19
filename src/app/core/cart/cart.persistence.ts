@@ -50,7 +50,17 @@ export class CartPersistence {
   private static readonly KEY = 'blueprint.cart';
 
   async read(): Promise<readonly CartLine[]> {
-    const { value } = await Preferences.get({ key: CartPersistence.KEY });
+    let value: string | null;
+    try {
+      ({ value } = await Preferences.get({ key: CartPersistence.KEY }));
+    } catch {
+      // A storage that refuses the read is an empty cart too, for the same
+      // reason as the corrupt entry below: `CartStore.restore()` is an app
+      // initializer, so a rejection here is a shell that never boots. The
+      // empty cart is the restore's own echo, so nothing is written over
+      // whatever storage holds.
+      return [];
+    }
     if (!value) return [];
 
     try {
