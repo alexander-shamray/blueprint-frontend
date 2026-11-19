@@ -1480,8 +1480,11 @@ of the app (#662).
 a refusal. On an unreachable realm it keeps a still-valid access token and
 retries at 75% of its remaining life; with none left, as at launch, it signs
 out in memory and retries on a backoff that starts at the request timeout and
-doubles to `RETRY_CEILING_MS`, until a renewal is adopted or a sign-out clears
-the timer with the credential. Spec §4.2's renewal bullet is left as written.
+doubles to `RETRY_CEILING_MS`. A retry that finds an interactive sign-in under
+way waits for the next interval rather than redeem beneath it. The retries stop
+when a renewal or a sign-in is adopted, when the realm refuses the grant, when
+the secure store refuses the read, or when a sign-out clears the timer with the
+credential. Spec §4.2's renewal bullet is left as written.
 
 ## 13. The bundle budget is set above the bundle, not at it
 
