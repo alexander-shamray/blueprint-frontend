@@ -293,6 +293,9 @@ export class NativeAuthStrategy extends AuthService {
    * customer's order on it, which under the old timing meant replaying with
    * the same expired token and collecting a second 401.
    *
+   * Resolves without opening the browser when a session other than the one at
+   * the call was adopted while the flow waited its turn (#675).
+   *
    * Rejects when the exchange fails, the user dismisses the browser or a
    * sign-out abandons the flow, so a caller's failure path runs instead of its
    * success path. It never leaves the promise unsettled.
@@ -320,6 +323,7 @@ export class NativeAuthStrategy extends AuthService {
       stage: 'opening',
     };
     this.pending = flow;
+    const tokenAtCall = this.token();
 
     void this.serialize(async () => {
       try {
@@ -327,6 +331,17 @@ export class NativeAuthStrategy extends AuthService {
         // Abandoned while it waited its turn or its digest (#8). Opening now
         // would put a dead flow's login page over whatever came after it.
         if (this.pending !== flow) return;
+        // A session adopted while this waited its turn — a renewal or a retry
+        // of the stored credential already in flight when Sign in was
+        // pressed — is the sign-in asked for. Opening the login page over it would
+        // fail its caller on a dismissal, or overwrite the token it holds
+        // (#675).
+        const now = this.token();
+        if (now !== null && now !== tokenAtCall) {
+          this.release(flow);
+          resolve();
+          return;
+        }
 
         const params = new URLSearchParams({
           client_id: environment.auth.nativeClientId,
