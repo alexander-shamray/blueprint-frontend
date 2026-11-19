@@ -960,6 +960,30 @@ describe('PublishPage', () => {
       expect(fixture.componentInstance.image()?.status).toBe('failed');
     });
 
+    it('asks again only once the sign-in has completed, not merely been started', async () => {
+      // The stub settles at once, so a page that only started the sign-in
+      // would pass the case above; here it stays pending until settled (#659).
+      let finishSignIn: () => void = () => undefined;
+      signIn.mockImplementation(() => new Promise<void>((resolve) => (finishSignIn = resolve)));
+      picked = png();
+      await fixture.componentInstance.chooseImage();
+      controller
+        .expectOne(ISSUE)
+        .flush({ title: 'Unauthorized', status: 401 }, { status: 401, statusText: '' });
+      await fixture.whenStable();
+
+      expect(signIn).toHaveBeenCalledOnce();
+      controller.expectNone(ISSUE);
+
+      finishSignIn();
+      await fixture.whenStable();
+
+      const again = controller.expectOne(ISSUE);
+      expect(again.request.body).toEqual({ contentType: 'image/png', sizeBytes: 4 });
+      again.flush({ title: 'Unauthorized', status: 401 }, { status: 401, statusText: '' });
+      await fixture.whenStable();
+    });
+
     it('asks again for nobody but the seller who was refused', async () => {
       signIn.mockImplementation(async () => {
         user.set({
