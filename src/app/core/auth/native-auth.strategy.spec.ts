@@ -847,6 +847,60 @@ describe('NativeAuthStrategy', () => {
     expect(secure.remove).not.toHaveBeenCalled();
   });
 
+  it('redeems the stored token once the realm is back, after a launch that could not reach it (#662)', async () => {
+    store.set(REFRESH_TOKEN_KEY, 'refresh-1');
+    fetchMock.mockRejectedValue(new TypeError('Failed to fetch'));
+
+    await strategy.initialize();
+    expect(strategy.accessToken()).toBeNull();
+    expect(fetchMock).toHaveBeenCalledOnce();
+
+    // Nothing in memory to time a retry by, so the backoff does: 15 s, then
+    // 30 s. Before #662 nothing ever asked again.
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(30_000 - 1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    fetchMock.mockResolvedValue(tokenResponse('refresh-2'));
+    await vi.advanceTimersByTimeAsync(1);
+
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(strategy.accessToken()).not.toBeNull();
+    expect(store.get(REFRESH_TOKEN_KEY)).toBe('refresh-2');
+  });
+
+  it('caps the backoff at a quarter of an hour', async () => {
+    store.set(REFRESH_TOKEN_KEY, 'refresh-1');
+    fetchMock.mockRejectedValue(new TypeError('Failed to fetch'));
+    await strategy.renewNow();
+
+    // 15 s, 30 s, 1, 2, 4 and 8 minutes, then 15 minutes for good.
+    await vi.advanceTimersByTimeAsync(15_000 + 30_000 + (1 + 2 + 4 + 8) * 60_000);
+    expect(fetchMock).toHaveBeenCalledTimes(7);
+    await vi.advanceTimersByTimeAsync(15 * 60_000);
+    expect(fetchMock).toHaveBeenCalledTimes(8);
+    await vi.advanceTimersByTimeAsync(15 * 60_000);
+    expect(fetchMock).toHaveBeenCalledTimes(9);
+  });
+
+  it('stops retrying a launch that could not reach the realm once the user signs out', async () => {
+    store.set(REFRESH_TOKEN_KEY, 'refresh-1');
+    fetchMock.mockRejectedValue(new TypeError('Failed to fetch'));
+    await strategy.initialize();
+
+    fetchMock.mockReset();
+    fetchMock.mockResolvedValue({ ok: true, status: 204, json: async () => ({}) });
+    await strategy.signOut();
+    const afterSignOut = fetchMock.mock.calls.length;
+
+    fetchMock.mockResolvedValue(tokenResponse('refresh-2'));
+    await vi.advanceTimersByTimeAsync(60 * 60_000);
+
+    expect(fetchMock.mock.calls.length).toBe(afterSignOut);
+    expect(strategy.accessToken()).toBeNull();
+  });
+
   it('ends the realm session at Keycloak before clearing storage (#640)', async () => {
     store.set(REFRESH_TOKEN_KEY, 'refresh-1');
     // Keycloak answers a logout with 204 and no body.

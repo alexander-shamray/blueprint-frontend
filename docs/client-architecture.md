@@ -1460,6 +1460,26 @@ browser was not built: it needs a post-logout redirect URI the realm's
 `mobile-app` client does not register, and it opens a browser over the app to
 sign out. Spec §4.2's sign-out bullet is left as written.
 
+### A native renewal that cannot reach the realm keeps the credential and asks again
+
+*The claim.* Spec §4.2: "on a refresh failure, clear both tokens and require
+an interactive sign-in."
+
+*What is true.* Only a refusal of the grant says the refresh token is dead.
+A network that blinked, a 5xx, a 429 or the request timeout says nothing about
+it, and clearing it there turns a minute at the identity provider into a
+login the realm never asked for. Keeping it was not enough either: at launch
+nothing is in memory to time a retry by, so a launch that could not reach the
+realm left the stored credential unused and the user signed out for the life
+of the app (#662).
+
+*Where it shows.* `NativeAuthStrategy.renew()` drops the stored token only on
+a refusal. On an unreachable realm it keeps a still-valid access token and
+retries at 75% of its remaining life; with none left, as at launch, it signs
+out in memory and retries on a backoff that starts at the request timeout and
+doubles to `RETRY_CEILING_MS`, until a renewal is adopted or a sign-out clears
+the timer with the credential. Spec §4.2's renewal bullet is left as written.
+
 ## 13. The bundle budget is set above the bundle, not at it
 
 `npm run build` was failing before this work could ship, and the failure was the
