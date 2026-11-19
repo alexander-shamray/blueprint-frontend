@@ -3,7 +3,17 @@
  * README.md beside this file owns how the set was chosen and what each proves.
  */
 import type { Locator, Page } from '@playwright/test';
-import { APP, GATEWAY, KEYCLOAK, type Observation, type Scenario, type World } from './harness.ts';
+import { randomUUID } from 'node:crypto';
+import {
+  APP,
+  GATEWAY,
+  GameDayError,
+  KEYCLOAK,
+  waitUntil,
+  type Observation,
+  type Scenario,
+  type World,
+} from './harness.ts';
 
 const CATALOG = `${GATEWAY}/api/v1/catalog/products?limit=1`;
 const DISCOVERY = `${KEYCLOAK}/realms/commerce/.well-known/openid-configuration`;
@@ -168,6 +178,58 @@ const keycloakDown: Scenario = {
   },
 };
 
+/**
+ * One product in the listing, published through the gateway as `demo` when
+ * the catalogue is empty, as a fresh stack's is: the stale line is promised
+ * only over rows, so without one the offline check could not fail on it.
+ * `demo` holds `catalog:write` (`helpers.ts`, `publishProduct`).
+ */
+async function ensureListed(): Promise<void> {
+  const listing = await fetch(`${GATEWAY}/api/v1/catalog/products?limit=1`);
+  if (!listing.ok) throw new GameDayError(`the listing answered ${listing.status}`);
+  const { items } = (await listing.json()) as { items: readonly unknown[] };
+  if (items.length > 0) return;
+
+  const grant = await fetch(`${KEYCLOAK}/realms/commerce/protocol/openid-connect/token`, {
+    method: 'POST',
+    body: new URLSearchParams({
+      grant_type: 'password',
+      client_id: 'web-app',
+      username: 'demo',
+      password: 'demo',
+    }),
+  });
+  if (!grant.ok) throw new GameDayError(`Keycloak refused demo a token: ${grant.status}`);
+  const { access_token: token } = (await grant.json()) as { access_token: string };
+
+  const published = await fetch(`${GATEWAY}/api/v1/catalog/products`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+    body: JSON.stringify({
+      commandId: randomUUID(),
+      name: `Game day ${Date.now()}`,
+      amount: 1,
+      currency: 'EUR',
+    }),
+  });
+  if (!published.ok) throw new GameDayError(`the publish answered ${published.status}`);
+}
+
+/** The product list, open and showing rows, reloaded until the listing has caught up. */
+async function openProductsWithRows(world: World): Promise<void> {
+  await ensureListed();
+  await openProducts(world);
+  await waitUntil(
+    async () => {
+      const rows = await world.page.locator('app-products ion-list ion-item').count();
+      if (rows === 0) await world.page.reload();
+      return [rows > 0, `${rows} rows`];
+    },
+    60,
+    'the product list showing a row before the cause',
+  );
+}
+
 const offline: Scenario = {
   name: 'offline',
   impact: 'browser',
@@ -177,7 +239,7 @@ const offline: Scenario = {
   services: [],
   deadlineSeconds: 15,
   settleSeconds: 15,
-  prepare: openProducts,
+  prepare: openProductsWithRows,
   async cause(world) {
     await world.context.setOffline(true);
     world.say('the browser context is offline');
@@ -186,10 +248,11 @@ const offline: Scenario = {
     const shown = await world.page.locator('[data-testid="offline-banner"]').count();
     const rows = await world.page.locator('app-products ion-list ion-item').count();
     const stale = await world.page.locator('app-products [data-testid="stale-list"]').count();
-    // The stale line is promised only over a list that holds rows
-    // (products.page.ts's `stale`), and a fresh stack's catalogue is empty.
-    const staleHolds = rows === 0 || stale > 0;
-    return [shown > 0 && staleHolds, `offline banner ${shown}, rows ${rows}, stale line ${stale}`];
+    // `prepare` put rows on the list, so the stale line is owed outright.
+    return [
+      shown > 0 && rows > 0 && stale > 0,
+      `offline banner ${shown}, rows ${rows}, stale line ${stale}`,
+    ];
   },
   async restore(world) {
     await world.context.setOffline(false);

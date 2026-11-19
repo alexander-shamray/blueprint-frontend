@@ -77,12 +77,14 @@ half-way included.
 | `catalog-down` | `stop catalog-api`, then reload | show a banner for the gateway's 5xx: `unavailable` for a 503, `retry` for any other | *Try again* loads the list |
 | `catalog-slow` | `pause catalog-api`, then reload | show the `retry` banner for the gateway's 504 at its route deadline, rather than hang | *Try again* loads the list |
 | `keycloak-down` | `stop keycloak`, then open the Account tab and press *Sign in* | stay in the app and show an error banner, rather than a button that does nothing | *Sign in* reaches Keycloak |
-| `offline` | the browser context goes offline | show the offline banner, and the stale line over a list that holds rows | both go when it is online again |
+| `offline` | the browser context goes offline, over a list holding a row | show the offline banner and the stale line | both go when it is online again |
 
 `catalog-down` accepts either banner because which 5xx the gateway answers for
 a stopped service is the gateway's to choose, and the client's promise covers
-both. `offline` asks for the stale line only over rows, because that is when
-`products.page.ts` promises it and a fresh stack's catalogue is empty.
+both. `products.page.ts` promises the stale line only over rows, and a fresh
+stack's catalogue is empty, so `offline` first publishes one product as `demo`
+through the gateway when the listing holds none, and waits for a row before the
+cause; the check then asks for the banner and the stale line both.
 
 ## What it does not cause
 
