@@ -1092,6 +1092,9 @@ describe('OwnProductsComponent', () => {
       first.flush({ title: 'Unauthorized', status: 401 }, { status: 401, statusText: '' });
       await settle();
 
+      // Nothing is replayed while the sign-in is out (#659).
+      controller.expectNone(priceOf('a'));
+
       // While the sign-in is out, the seller opens another row and types there.
       page().askToReprice(page().products()[1]);
       type(77);
