@@ -68,7 +68,8 @@ export const CHECKED: Readonly<Record<string, Checked>> = {
  * nor a type alias it can resolve to one of the others — and is never
  * compared. A union is judged by its first non-null member, so `'a' | 'b'` is
  * a string. An alias declared in the same file is followed, and so is
- * `Extract<T, U>`, read as its `U` (#666).
+ * `Extract<T, U>`, read as its `U` (#666). Nullability is read from the
+ * field's own union only: a `null` inside an alias is skipped, not reported.
  */
 export type Kind = 'string' | 'number' | 'boolean' | 'array' | 'object' | 'unknown';
 
@@ -136,8 +137,12 @@ function resolveType(node: ts.TypeNode, names: Names, depth = 0): Resolved {
   }
 }
 
+function isNull(node: ts.TypeNode): boolean {
+  return ts.isLiteralTypeNode(node) && node.literal.kind === ts.SyntaxKind.NullKeyword;
+}
+
 function resolveUnion(members: readonly ts.TypeNode[], names: Names, depth: number): Resolved {
-  const resolved = members.map((m) => resolveType(m, names, depth));
+  const resolved = members.filter((m) => !isNull(m)).map((m) => resolveType(m, names, depth));
   if (resolved.length === 0) return UNKNOWN;
   const literals = resolved.every((r) => r.literals)
     ? resolved.flatMap((r) => r.literals ?? [])
@@ -148,8 +153,6 @@ function resolveUnion(members: readonly ts.TypeNode[], names: Names, depth: numb
 function fieldOf(member: ts.PropertySignature, names: Names): WireField | null {
   if (!member.type) return null;
   const members = ts.isUnionTypeNode(member.type) ? member.type.types : [member.type];
-  const isNull = (t: ts.TypeNode) =>
-    ts.isLiteralTypeNode(t) && t.literal.kind === ts.SyntaxKind.NullKeyword;
   const rest = members.filter((t) => !isNull(t));
   const { kind, literals } = rest.length
     ? resolveUnion(rest, names, 0)

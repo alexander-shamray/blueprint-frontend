@@ -171,10 +171,12 @@ test.describe('the comparison', () => {
     const aliased = sample(`
       export type Reason = 'a' | 'b';
       export type Narrow = Extract<Reason, 'b'>;
+      export type Maybe = null | 'c';
       /** Catalog.Api/X.cs — \`S\`. */
       export interface Wire {
         readonly reason: Narrow;
         readonly either: Reason;
+        readonly maybe: Maybe;
       }`);
     expect(aliased.fields.get('reason')).toEqual({
       optional: false,
@@ -183,11 +185,13 @@ test.describe('the comparison', () => {
       literals: ['b'],
     });
     expect(aliased.fields.get('either')?.literals).toEqual(['a', 'b']);
+    // A null inside an alias is skipped for the kind and literals.
+    expect(aliased.fields.get('maybe')).toMatchObject({ kind: 'string', literals: ['c'] });
 
     const schema = (reason: object) =>
       document({
         required: ['reason', 'either'],
-        properties: { reason, either: { type: 'string' } },
+        properties: { reason, either: { type: 'string' }, maybe: { type: 'string' } },
       });
     expect(compareShape(aliased, sent, schema({ type: 'string' }))).toEqual([]);
     expect(compareShape(aliased, sent, schema({ type: 'string', enum: ['a', 'b'] }))).toEqual([]);
