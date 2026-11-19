@@ -178,6 +178,9 @@ const keycloakDown: Scenario = {
   },
 };
 
+/** Each of `ensureListed`'s requests, bounded as `probe`'s is. */
+const REQUEST_MS = 10_000;
+
 /**
  * One product in the listing, published through the gateway as `demo` when
  * the catalogue is empty, as a fresh stack's is: the stale line is promised
@@ -185,13 +188,16 @@ const keycloakDown: Scenario = {
  * `demo` holds `catalog:write` (`helpers.ts`, `publishProduct`).
  */
 async function ensureListed(): Promise<void> {
-  const listing = await fetch(`${GATEWAY}/api/v1/catalog/products?limit=1`);
+  const listing = await fetch(`${GATEWAY}/api/v1/catalog/products?limit=1`, {
+    signal: AbortSignal.timeout(REQUEST_MS),
+  });
   if (!listing.ok) throw new GameDayError(`the listing answered ${listing.status}`);
   const { items } = (await listing.json()) as { items: readonly unknown[] };
   if (items.length > 0) return;
 
   const grant = await fetch(`${KEYCLOAK}/realms/commerce/protocol/openid-connect/token`, {
     method: 'POST',
+    signal: AbortSignal.timeout(REQUEST_MS),
     body: new URLSearchParams({
       grant_type: 'password',
       client_id: 'web-app',
@@ -204,6 +210,7 @@ async function ensureListed(): Promise<void> {
 
   const published = await fetch(`${GATEWAY}/api/v1/catalog/products`, {
     method: 'POST',
+    signal: AbortSignal.timeout(REQUEST_MS),
     headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
     body: JSON.stringify({
       commandId: randomUUID(),
@@ -222,8 +229,11 @@ async function openProductsWithRows(world: World): Promise<void> {
   await waitUntil(
     async () => {
       const rows = await world.page.locator('app-products ion-list ion-item').count();
-      if (rows === 0) await world.page.reload();
-      return [rows > 0, `${rows} rows`];
+      // Reloaded only once the list has settled empty: a reload while the
+      // listing is still in flight would throw that render away.
+      const empty = await world.page.locator('app-products app-empty-state').count();
+      if (rows === 0 && empty > 0) await world.page.reload();
+      return [rows > 0, `${rows} rows, ${empty} empty states`];
     },
     60,
     'the product list showing a row before the cause',
