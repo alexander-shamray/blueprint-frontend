@@ -202,6 +202,11 @@ application asks which platform it is on.
 > `docs/client-architecture.md` §12, *Native sign-out ends the realm session,
 > and a native sign-in always asks*: revoking the refresh token left the SSO
 > session alive in the system browser. The bullet is kept as written.
+>
+> **Superseded in part on 2026-11-19.** The renewal bullet is overtaken by
+> `docs/client-architecture.md` §12, *A native renewal that cannot reach the
+> realm keeps the credential and asks again*: only a refusal of the grant
+> clears the stored token. The bullet is kept as written.
 
 ### 4.3 Shared
 

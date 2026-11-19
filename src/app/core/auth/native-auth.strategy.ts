@@ -245,6 +245,18 @@ export class NativeAuthStrategy extends AuthService {
    */
   private static readonly REQUEST_TIMEOUT_MS = 15_000;
 
+  /**
+   * The retry after a renewal that could not reach the realm with no live
+   * token left to time it by — at launch, or once the token expired while
+   * the realm was away (#662). It starts at one request's own bound and
+   * doubles to a ceiling, so a realm that stays away costs a request every
+   * quarter of an hour, and one that comes back is found within the
+   * interval reached by then.
+   */
+  private static readonly RETRY_FIRST_MS = NativeAuthStrategy.REQUEST_TIMEOUT_MS;
+  private static readonly RETRY_CEILING_MS = 15 * 60_000;
+  private retryDelayMs = 0;
+
   async initialize(): Promise<void> {
     try {
       // Registered before the stored credential is read, so a callback that
@@ -618,7 +630,24 @@ export class NativeAuthStrategy extends AuthService {
       return;
     }
 
+    // No life left to time a retry by: at launch nothing is in memory yet,
+    // and later the token may have expired while the realm was away. The
+    // stored credential is still not known to be bad, so signed out now, but
+    // try it again on a backoff rather than leave it for a login the realm
+    // never asked for (#662). A sign-out clears the timer with the credential.
     this.endInMemory();
+    this.scheduleRetry();
+  }
+
+  private scheduleRetry(): void {
+    this.retryDelayMs = this.retryDelayMs
+      ? Math.min(this.retryDelayMs * 2, NativeAuthStrategy.RETRY_CEILING_MS)
+      : NativeAuthStrategy.RETRY_FIRST_MS;
+    // Swallowed for the reason `scheduleRenewal`'s timer gives.
+    this.renewalTimer = setTimeout(
+      () => void this.renewNow().catch(() => undefined),
+      this.retryDelayMs,
+    );
   }
 
   /**
@@ -628,6 +657,7 @@ export class NativeAuthStrategy extends AuthService {
    */
   private async adopt(tokens: TokenResponse): Promise<void> {
     this.token.set(tokens.access_token ?? null);
+    this.retryDelayMs = 0;
 
     // Replace, because rotation is on: the token just redeemed is dead and
     // keeping it would break the next renewal. Absent rather than new is not
