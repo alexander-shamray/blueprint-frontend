@@ -643,11 +643,30 @@ export class NativeAuthStrategy extends AuthService {
     this.retryDelayMs = this.retryDelayMs
       ? Math.min(this.retryDelayMs * 2, NativeAuthStrategy.RETRY_CEILING_MS)
       : NativeAuthStrategy.RETRY_FIRST_MS;
-    // Swallowed for the reason `scheduleRenewal`'s timer gives.
-    this.renewalTimer = setTimeout(
-      () => void this.renewNow().catch(() => undefined),
-      this.retryDelayMs,
-    );
+    this.renewalTimer = setTimeout(() => void this.retryStored(), this.retryDelayMs);
+  }
+
+  /**
+   * One retry, in its turn. An interactive sign-in under way is left alone:
+   * redeeming the stored credential beneath it would sign the user in while
+   * the login page still stands over the app, and its own outcome would then
+   * overwrite or contradict this one. The retry waits for the next interval
+   * instead; a sign-in that completes clears it in `adopt`.
+   */
+  private retryStored(): Promise<void> {
+    return this.serialize(async () => {
+      if (this.pending) {
+        this.scheduleRetry();
+        return;
+      }
+      try {
+        await this.renew();
+      } catch {
+        // `renewNow`'s catch, without its rethrow: nothing awaits a timer, so
+        // a rejection here would be unhandled.
+        this.endInMemory();
+      }
+    });
   }
 
   /**

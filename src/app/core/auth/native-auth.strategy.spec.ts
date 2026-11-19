@@ -870,6 +870,29 @@ describe('NativeAuthStrategy', () => {
     expect(store.get(REFRESH_TOKEN_KEY)).toBe('refresh-2');
   });
 
+  it('does not redeem the stored token beneath an interactive sign-in, and retries once it is dismissed', async () => {
+    store.set(REFRESH_TOKEN_KEY, 'refresh-1');
+    fetchMock.mockRejectedValue(new TypeError('Failed to fetch'));
+    await strategy.initialize();
+
+    const { flow } = await startSignIn();
+    fetchMock.mockReset();
+    fetchMock.mockResolvedValue(tokenResponse('refresh-2'));
+
+    // The retry falls due while the login page stands over the app.
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(strategy.accessToken()).toBeNull();
+
+    browser.finished?.();
+    await expect(flow).rejects.toThrow();
+
+    // The next interval, 30 s, finds no sign-in under way and redeems.
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(strategy.accessToken()).not.toBeNull();
+  });
+
   it('caps the backoff at a quarter of an hour', async () => {
     store.set(REFRESH_TOKEN_KEY, 'refresh-1');
     fetchMock.mockRejectedValue(new TypeError('Failed to fetch'));
