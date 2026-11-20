@@ -50,6 +50,28 @@ class _TallyingList(list):
             yield item
 
 
+class _TallyingView:
+    """A list seen through, not copied, that records each element read:
+    `heredoc_spans` appends to the list it hands `_quoting` while the scan
+    runs, so the instrument there shares it."""
+
+    def __init__(self, items, tally):
+        self.items = items
+        self.tally = tally
+
+    def __len__(self):
+        return len(self.items)
+
+    def __getitem__(self, index):
+        self.tally[0] += 1
+        return self.items[index]
+
+    def __iter__(self):
+        for item in self.items:
+            self.tally[0] += 1
+            yield item
+
+
 class TheGitArgvGuard(unittest.TestCase):
     """Two holes a permission rule cannot close, closed at argv.
 
@@ -423,6 +445,21 @@ class TheGitArgvGuard(unittest.TestCase):
                         "git branch --list push", "git checkout push"):
             with self.subTest(command=command):
                 self.assertAdmitted(command)
+
+    def test_a_valueless_global_does_not_hide_the_subcommand(self):
+        # `--no-pager` takes no value, so the word after it is the subcommand,
+        # and a `push` further on is that subcommand's argument; a flag
+        # carrying its value after `=` takes nothing from the next word.
+        for command in ("git --no-pager grep push", "git -P stash push -m wip",
+                        "git --no-pager log push", "git -p grep -n push",
+                        "git --git-dir=.git grep push",
+                        "git --no-pager grep push | tail -1 && echo ok"):
+            with self.subTest(command=command):
+                self.assertAdmitted(command)
+        for command in ("git --no-pager push origin +HEAD:main",
+                        "git --bare --no-pager push origin --mirror"):
+            with self.subTest(command=command):
+                self.assertRefused(command)
 
     def test_a_global_option_does_not_hide_the_subcommand(self):
         # A check reading `segment[0] != "push"` is a complete bypass, because
@@ -885,6 +922,7 @@ class TheGitArgvGuard(unittest.TestCase):
             with self.subTest(nest=nest[-8:]):
                 searches.clear()
                 guard.heredoc_spans(nest)
+                self.assertGreater(len(searches), 0, "the count never saw a search")
                 self.assertLess(len(searches), 5)
 
     def test_the_fallback_scan_also_treats_a_heredoc_body_as_data(self):
@@ -2022,6 +2060,16 @@ class TheGitArgvGuard(unittest.TestCase):
         self.assertRefused(
             'git status $"a\\"\'x" ; git $\'push\' origin +HEAD:main')
 
+        # Every `$"…"` is refused as a translated string whatever its span,
+        # so the verdicts above hold under a plain `find` too; the spans are
+        # what only the escape-aware closer gets right.
+        guard = self.guard_module()
+        self.assertEqual(
+            [(2, 8, False), (15, 22, True)],
+            guard.dollar_quotes(': $"\\"\'" ; git $\'push\' origin +HEAD:main'))
+        self.assertEqual([(2, 9, True), (14, 18, True)],
+                         guard.dollar_quotes("x $'a\\'b' ; y $'c'"))
+
     def test_a_parameter_expansion_glued_into_a_word_joins_it(self):
         # `${x}` on an unset name expands to nothing, so the neighbours join —
         # the argument `without_substitutions` makes for `git $( )`. No
@@ -2090,16 +2138,16 @@ class TheGitArgvGuard(unittest.TestCase):
         self.assertAdmitted("git commit -m \"built at $(date)\"")
 
     def test_a_dollar_quote_inside_double_quotes_is_not_one(self):
-        # Neither form is a quoting form inside double quotes. Decoding
-        # `"$'\\x22'"` and re-emitting it as a single-quoted word inside the
-        # surrounding double quotes unbalances the line, sends it to the
-        # `ValueError` path and lets the command beside it through, while
-        # `"a$"` closes on the wrong quote and swallows the rest of the line
-        # into one word.
-        self.assertRefused(
-            'git log "$\'\\x22\'" ; git p\'\'ush origin +HEAD:main')
-        self.assertRefused(
-            'git log "a$" ; git push origin +HEAD:main ; echo "b"')
+        # Neither form is a quoting form inside double quotes. Misread, `"$'\\x22'"` unbalances the line into the
+        # untokenisable refusal and `"a$"` opens a `$"…"` refused as a translated string, so the verdict alone passes
+        # either way; the reason is asserted, since only a correct read reaches the push's `+` refspec.
+        for command in (
+            'git log "$\'\\x22\'" ; git p\'\'ush origin +HEAD:main',
+            'git log "a$" ; git push origin +HEAD:main ; echo "b"',
+        ):
+            with self.subTest(command=command):
+                self.assertIn("a `+` refspec is a force push",
+                              self.assertRefused(command))
 
         # And the over-refusal half: to bash this is an ordinary message about
         # a regex, not an undecodable escape.
@@ -2613,6 +2661,23 @@ class TheGitArgvGuard(unittest.TestCase):
         self.assertAdmitted("echo hello | grep bash")
         self.assertAdmitted("git log --oneline -5 | grep bash")
 
+    def test_a_reader_naming_a_shell_is_not_one(self):
+        # A run led by a reader takes a shell's name as a pattern or a file and
+        # runs nothing, so a formatting printer feeding it is text; a shell
+        # later in the same pipeline still reads the stream as a script.
+        guard = self.guard_module()
+        self.assertFalse(guard.reads_stdin_as_script(["grep", "bash"]))
+        self.assertTrue(guard.reads_stdin_as_script(["timeout", "5", "bash"]))
+        for command in ("printf '%s\\n' one two | grep bash",
+                        "echo -e 'a\\tb' | grep -c sh",
+                        "printf '%d\\n' 3 | tail -n 1 | grep -v zsh"):
+            with self.subTest(command=command):
+                self.assertAdmitted(command)
+        for command in ("printf 'git p%ssh origin +HEAD:main' u | grep git | bash",
+                        "echo -e 'git\\x20push origin +HEAD:main' | grep -v bash | sh"):
+            with self.subTest(command=command):
+                self.assertRefused(command)
+
     def test_a_sigil_quoted_delimiter_refuses_a_backslash_in_either_form(self):
         # `<<$"E\"OF"` names `E"OF` to bash, where `word.index` finds the
         # escaped quote and derives `E\OF` — a delimiter matching nothing, so
@@ -2736,26 +2801,37 @@ class TheGitArgvGuard(unittest.TestCase):
         guard = self.guard_module()
         body = "cat > f.md <<'EOF'\nplain\nEOF\n"
         original = guard.heredoc_spans
-        reads = {}
+        scanner = guard._quoting
+        reads = {"passes": {}, "scanner": {}}
         try:
             for count in (100, 200, 400):
-                tally = [0]
+                passes, scans = [0], [0]
                 guard.heredoc_spans = (
-                    lambda command, *args, _o=original, _t=tally, **kwargs:
+                    lambda command, *args, _o=original, _t=passes, **kwargs:
                     _TallyingList(_o(command, *args, **kwargs), _t))
+                # `_quoting` reads each pass's spans, often a copy, by index: a
+                # search per character there is the same defect a level down.
+                # Its own tally, since its linear reads per character would
+                # drown a quadratic pass in the list's.
+                guard._quoting = (
+                    lambda command, *args, data=(), _o=scanner, _t=scans, **kwargs:
+                    _o(command, *args, data=_TallyingView(data, _t), **kwargs))
                 # A distinct trailing comment per size, because `offence`
                 # memoises its verdict per string.
                 guard.offence(body * count + "# " + str(count))
-                reads[count] = tally[0]
+                reads["passes"][count] = passes[0]
+                reads["scanner"][count] = scans[0]
         finally:
             guard.heredoc_spans = original
+            guard._quoting = scanner
 
-        self.assertGreater(reads[100], 0, "the instrument saw the list at all")
-        for smaller, larger in ((100, 200), (200, 400)):
-            with self.subTest(sizes=(smaller, larger)):
-                self.assertLess(
-                    reads[larger], reads[smaller] * 2.5,
-                    "twice the heredocs is twice the reads, not four times")
+        for instrument, tallies in reads.items():
+            self.assertGreater(tallies[100], 0, f"the {instrument} instrument saw its list at all")
+            for smaller, larger in ((100, 200), (200, 400)):
+                with self.subTest(instrument=instrument, sizes=(smaller, larger)):
+                    self.assertLess(
+                        tallies[larger], tallies[smaller] * 2.5,
+                        "twice the heredocs is twice the reads, not four times")
 
     def test_a_wrappers_own_option_is_not_the_shells_script_flag(self):
         # `ionice -c 2 bash` runs bash on its stdin — `-c` there is the
@@ -3188,18 +3264,25 @@ class TheGitArgvGuard(unittest.TestCase):
                         "pwsh -EncodedCommand ZwBpAHQAIABzAHQAYQB0AHUAcwA=", "cmd /c run.bat"):
             with self.subTest(command=command):
                 self.assertRefused(command, tool="PowerShell")
-        for command in ("Write-Output done", "Get-ChildItem -Path docs/backend-architecture"):
+        for command in ("Write-Output done", "Get-ChildItem -Path docs/backend-architecture",
+                        "Get-Content C:\\dev\\x\\README.md", "Test-Path src\\app"):
             with self.subTest(command=command):
                 self.assertIsNone(self.judge(command, tool="PowerShell"))
+        # A backslash path still names git where it does.
+        self.assertRefused("Get-Content C:\\git\\x", tool="PowerShell")
 
     def test_a_malformed_event_does_not_take_the_session_down(self):
         # The one deliberate fail-OPEN, and it is argued rather than assumed:
         # refusing every Bash call because this file cannot read its own input
         # would turn a defect here into a dead session. It says so on stderr.
-        result = subprocess.run(
-            [sys.executable, str(HOOK)],
-            input="not json at all", capture_output=True, text=True, encoding="utf-8",
-        )
+        try:
+            result = subprocess.run(
+                [sys.executable, str(HOOK)],
+                input="not json at all", capture_output=True, text=True, encoding="utf-8",
+                timeout=HOOK_TIMEOUT,
+            )
+        except subprocess.TimeoutExpired:
+            self.fail(f"no verdict on a malformed event within {HOOK_TIMEOUT}s")
         self.assertEqual(0, result.returncode)
         self.assertEqual("", result.stdout.strip())
         self.assertIn("guard-git-argv", result.stderr)
@@ -3322,7 +3405,7 @@ class TheGitArgvGuard(unittest.TestCase):
         # will call it at all.
         settings = json.loads(SETTINGS.read_text(encoding="utf-8"))
         entries = settings.get("hooks", {}).get("PreToolUse", [])
-        matched = [e for e in entries if e.get("matcher") == "Bash"]
+        matched = [e for e in entries if "Bash" in (e.get("matcher") or "").split("|")]
         self.assertTrue(matched, "no PreToolUse hook is registered for Bash")
         commands = [
             h.get("command", "")
@@ -3846,18 +3929,80 @@ class AWriteIntoWhatTheTargetDenies(unittest.TestCase):
         result = subprocess.run(
             [sys.executable, str(hook)], input=json.dumps(event),
             capture_output=True, text=True, encoding="utf-8",
-            timeout=HOOK_TIMEOUT, env={**os.environ, **(env or {})},
+            # A `/dispatch` executor runs this suite with the variable set, which only `env` may set here.
+            timeout=HOOK_TIMEOUT, env={**{name: value for name, value in os.environ.items()
+                                          if name != "HARNESS_DISPATCHED"}, **(env or {})},
         )
         self.assertEqual(0, result.returncode, result.stderr)
         if not result.stdout.strip():
             return None
-        return json.loads(result.stdout)["hookSpecificOutput"]["permissionDecisionReason"]
+        decision = json.loads(result.stdout)["hookSpecificOutput"]
+        self.assertEqual("deny", decision["permissionDecision"])
+        return decision["permissionDecisionReason"]
 
     def assertRefused(self, command, **kwargs):
         reason = self.judge(command, **kwargs)
         self.assertIsNotNone(reason, f"admitted: {command}")
         self.assertNotIn("crashed the guard", reason)
         return reason
+
+    def test_a_dispatched_session_writes_no_dispatch_state_in_main(self):
+        # Each run's `state.json` and `handbacks.json` decide what the dispatcher launches.
+        worktree = os.path.join(self.root, ".claude", "worktrees", "executor")
+        os.makedirs(worktree)
+        with open(os.path.join(worktree, ".git"), "w", encoding="utf-8") as handle:
+            handle.write("gitdir: " + os.path.join(self.root, ".git", "worktrees", "executor") + "\n")
+        state = self.spelled("artifacts", "dispatch")
+        dispatched = {"HARNESS_DISPATCHED": "1"}
+        writes = (f"ls > {state}/handbacks.json", f"echo x | tee {state}/20261117-152904/state.json",
+                  "cp /tmp/a ../../../artifacts/dispatch/handbacks.json",
+                  f"touch {state}/handbacks.json", f"rm -rf {self.spelled('artifacts')}",
+                  f"mv {state}/handbacks.json /tmp/b")
+        # Each by this rule's message, not another layer's refusal.
+        def this_rule(*commands):
+            for command in commands:
+                with self.subTest(command=command):
+                    self.assertIn("dispatcher's own state", self.assertRefused(command, cwd=worktree, env=dispatched))
+        this_rule(*writes)
+        # A `.git` made inside the state is not a checkout of its own that hides it.
+        os.makedirs(os.path.join(self.root, "artifacts", "dispatch", "r", ".git"))
+        with open(os.path.join(self.root, "artifacts", ".git"), "w", encoding="utf-8") as handle:
+            handle.write("gitdir: /elsewhere\n")
+        this_rule(f"ls > {state}/r/state.json", f"ls > {state}/handbacks.json")
+        self.admitted("ls > artifacts/dispatch/20261117-152904/G1.json",
+                      f"ls > {self.spelled('artifacts', 'review', 'x.diff')}",
+                      f"ls > {self.spelled('artifacts', 'dispatched')}/x", cwd=worktree, env=dispatched)
+        self.admitted(*writes[:4], cwd=worktree)
+
+    def test_a_build_loads_nothing_written_above_the_checkout(self):
+        # The .NET SDK and NuGet read these names from every directory above a project.
+        writes = ("echo x > ../Directory.Build.targets", "ls > ../NuGet.Config", "ls >> ../nuget.config",
+                  "echo x | tee ../NUGET.CONFIG", "cp /tmp/a ../global.json", "ln -s /tmp/a ../Directory.Build.rsp",
+                  "touch ../../Directory.Packages.props", "mv /tmp/a ../Directory.Solution.props",
+                  f"echo x > {self.spelled('..')}/Directory.Solution.targets",
+                  "cp /tmp/Directory.Build.props ..", "echo x > '../global.json.'",
+                  "echo x > '../NuGet.Config '", "echo x > ../NuGet.Config:x",
+                  "echo x >> ../nuget.conf?g", "sed -i s/a/b/ ../NuGet.Conf*")
+        for command in writes:
+            with self.subTest(command=command):
+                self.assertIn("loads from a directory above", self.assertRefused(command))
+        self.admitted("echo x > Directory.Build.props", "echo x > notes/nuget.config",
+                      "echo x > ../sibling/NuGet.Config", "echo x > ../notes.md")
+        # A glob, a brace or a `.` lands under names not known: refused where it can be a build's.
+        for command in ("mv * ..", "cp /tmp/x/*.config ..", "cp -r /tmp/x/. ..", "cp /tmp/{a,b} ..",
+                        "mv /tmp/x/?uget.config ../", "cp -rT /tmp/x ..", "cp /tmp/x/[^x]uget.config ..",
+                        "cp /tmp/x/[[:alpha:]]uget.config ..", "cp $X ..", "cp /tmp/x/nuget.c*:s ..",
+                        "cp /tmp/x/nuget.confi[g]. .."):
+            with self.subTest(command=command):
+                self.assertIn("may be one the .NET SDK", self.assertRefused(command))
+        self.admitted("mv *.md ..", "cp /tmp/x/*.txt ..", "cp -r /tmp/x/. notes", "mv * ../sibling")
+        # A worktree's build walks up through its main checkout, whose root is above it.
+        worktree = os.path.join(self.root, ".claude", "worktrees", "w")
+        os.makedirs(worktree)
+        with open(os.path.join(worktree, ".git"), "w", encoding="utf-8") as handle:
+            handle.write("gitdir: elsewhere\n")
+        self.assertIn("loads from a directory above", self.assertRefused(
+            "echo x > ../../../Directory.Build.props", cwd=worktree))
 
     def assertAdmitted(self, command, **kwargs):
         self.assertIsNone(self.judge(command, **kwargs), f"refused: {command}")
@@ -3889,6 +4034,7 @@ class AWriteIntoWhatTheTargetDenies(unittest.TestCase):
         owner = temp_root(self)
         os.makedirs(os.path.join(owner, ".claude", "hooks"))
         hook = shutil.copy(HOOK, os.path.join(owner, ".claude", "hooks"))
+        shutil.copy(HOOK.parent / "path_grammar.py", os.path.join(owner, ".claude", "hooks"))
         with open(os.path.join(owner, ".claude", "settings.json"), "w", encoding="utf-8") as handle:
             json.dump({"permissions": {"deny": [f"Edit({rule})" for rule in denies]}}, handle)
         return hook
@@ -4179,7 +4325,95 @@ class AWriteIntoWhatTheTargetDenies(unittest.TestCase):
         for command in ("ls > ~/.gitconfig", "git show HEAD:x > ~/.gitconfig", "echo x >> ~/.bashrc",
                         "ls > $HOME/.zshrc", 'ls > "$HOME/.profile"', "ls > ~/.ssh/authorized_keys",
                         "tee ~/.gitconfig", "cp a ~/.bash_profile", "rm ~/.ssh/config",
-                        f"ls > {Path(home, '.gitconfig').as_posix()}"):
+                        f"ls > {Path(home, '.gitconfig').as_posix()}",
+                        # git's XDG config runs as `.gitconfig` does, and so does its removal's parent.
+                        "ls > ~/.config/git/config", 'echo x >> "$HOME/.config/git/config"',
+                        "tee ~/.config/git/config", "cp a ~/.config/git/config", "rm -rf ~/.config/git",
+                        "rm -rf ~/.config", "mv ~/.config/git /tmp/x",
+                        # A link where the directory goes puts the link's `config` where git reads it.
+                        "ln -s staged ~/.config/git", "ln -s staged ~/.config", "ln -sfn staged ~/.config/git",
+                        "ln -sfh staged ~/.config/git",
+                        # `-n` links inside a real directory still, so what lands there is judged too.
+                        "ln -sn /tmp/evil/.bashrc ~/", "ln --no-dereference -s /tmp/evil/.gitconfig ~",
+                        # npm's user config: its `script-shell` and `node-options` run under each npm script.
+                        "echo script-shell=/tmp/x >> ~/.npmrc", 'ls > "$HOME/.npmrc"', "tee ~/.npmrc",
+                        "cp a ~/.npmrc", "mv /tmp/a ~/.npmrc", "rm ~/.npmrc", "ln -s /tmp/a ~/.npmrc"):
+            with self.subTest(command=command):
+                self.assertIn("No rule judges a shell write", self.assertRefused(command, env=env))
+
+    def test_git_reads_its_xdg_config_where_the_variable_moves_it(self):
+        # git reads `$XDG_CONFIG_HOME/git/config` when the variable is set, wherever it points.
+        _, env = self.real_home()
+        holder = Path(temp_root(self)).as_posix()
+        moved = os.path.join(holder, "a", "b")
+        spelled = Path(moved).as_posix()
+        env = {**env, "XDG_CONFIG_HOME": moved}
+        # A directory holding it, which a move or a copy puts in place whole, as `~/.config` is.
+        for command in (f"ls > {spelled}/git/config", 'echo x >> "$XDG_CONFIG_HOME/git/config"',
+                        "tee ${XDG_CONFIG_HOME}/git/config", f"cp a {spelled}/git/config",
+                        f"rm -rf {spelled}/git", f"rm -rf {spelled}", f"mv {spelled}/git /tmp/x",
+                        f"mv staged {holder}/a", f"cp -r staged {holder}/a", f"rm -rf {holder}",
+                        f"ln -s staged {spelled}/git", f"ln -s staged {spelled}", 'ln -s staged "$XDG_CONFIG_HOME"',
+                        f"ln -s staged {holder}/a"):
+            with self.subTest(command=command):
+                self.assertIn("$XDG_CONFIG_HOME/git/config", self.assertRefused(command, env=env))
+        self.admitted(f"ls > {spelled}/git/ignore", f"ls > {spelled}/other/config",
+                      'ls > "$XDG_CONFIG_HOME/git/ignore"', f"cat {spelled}/git/config",
+                      f"mv staged {holder}/c", f"ln -s staged {holder}/c", env=env)
+        self.admitted(f"ls > {spelled}/git/config", env={**env, "XDG_CONFIG_HOME": ""})
+
+    def test_npm_reads_its_user_config_where_the_variable_moves_it(self):
+        # npm reads `$NPM_CONFIG_USERCONFIG`, in either spelling, in place of `~/.npmrc`.
+        _, env = self.real_home()
+        holder = Path(temp_root(self)).as_posix()
+        moved = f"{holder}/a/userrc"
+        # Windows holds one variable whatever its case, so the two spellings are two only elsewhere.
+        names = ("NPM_CONFIG_USERCONFIG",) if os.name == "nt" else ("NPM_CONFIG_USERCONFIG", "npm_config_userconfig")
+        cleared = {**env, **{name: "" for name in names}}
+        for name in names:
+            named = {**cleared, name: moved}
+            for command in (f"ls > {moved}", f'echo x >> "${name}"', f"tee ${{{name}}}", f"cp a {moved}",
+                            f"rm {moved}", f"ln -s staged {moved}", f"mv staged {holder}/a"):
+                with self.subTest(variable=name, command=command):
+                    self.assertRegex(self.assertRefused(command, env=named), r"\$(?i:npm_config_userconfig)")
+            self.admitted(f"ls > {holder}/a/other", f"cat {moved}", env=named)
+        self.admitted(f"ls > {moved}", env=cleared)
+
+    def test_npms_user_config_variable_is_read_in_any_case_and_from_the_home(self):
+        # npm matches `npm_config_` case-insensitively and expands a leading `~/` against the home.
+        home, env = self.real_home()
+        holder = Path(temp_root(self)).as_posix()
+        names = ("NPM_CONFIG_USERCONFIG",) if os.name == "nt" else ("NPM_CONFIG_USERCONFIG", "npm_config_userconfig")
+        cleared = {**env, **{name: "" for name in names}}
+        if os.name != "nt":
+            with self.subTest(spelling="mixed"):
+                self.assertRegex(self.assertRefused(f"ls > {holder}/userrc",
+                                                    env={**cleared, "NPM_CONFIG_userconfig": f"{holder}/userrc"}),
+                                 r"\$NPM_CONFIG_userconfig")
+        with self.subTest(spelling="home"):
+            named = {**cleared, "USERPROFILE": home, "NPM_CONFIG_USERCONFIG": "~/custom-npmrc"}
+            for command in ("ls > ~/custom-npmrc", f"ls > {Path(home, 'custom-npmrc').as_posix()}"):
+                with self.subTest(command=command):
+                    self.assertRegex(self.assertRefused(command, env=named), r"\$NPM_CONFIG_USERCONFIG")
+        with self.subTest(spelling="bare ~"):
+            # npm expands only `~/`; a bare `~` is the file `~` in the working directory.
+            self.assertRegex(self.assertRefused("ls > ./~", env={**cleared, "NPM_CONFIG_USERCONFIG": "~"}),
+                             r"\$NPM_CONFIG_USERCONFIG")
+
+    def test_npms_windows_global_config_below_the_home_is_refused(self):
+        # npm's default prefix on Windows is `%APPDATA%\npm`, so its global config sits below the home.
+        _, env = self.real_home()
+        for command in ("ls > ~/AppData/Roaming/npm/etc/npmrc", "echo x >> ~/appdata/roaming/npm/etc/npmrc",
+                        "rm -rf ~/AppData/Roaming/npm/etc"):
+            with self.subTest(command=command):
+                self.assertIn("No rule judges a shell write", self.assertRefused(command, env=env))
+        self.admitted("ls > ~/AppData/Roaming/npm/etc/other", env=env)
+
+    def test_the_claude_code_user_state_is_refused_in_a_home_that_is_no_checkout(self):
+        # `~/.claude.json` sits beside `~/.claude`, and its MCP servers start with every later session.
+        _, env = self.real_home()
+        for command in ("ls > ~/.claude.json", 'echo x > "$HOME/.claude.json"', "tee ~/.claude.json",
+                        "cp a ~/.claude.json", "mv /tmp/a ~/.claude.json", "rm ~/.claude.json"):
             with self.subTest(command=command):
                 self.assertIn("No rule judges a shell write", self.assertRefused(command, env=env))
 
@@ -4194,7 +4428,10 @@ class AWriteIntoWhatTheTargetDenies(unittest.TestCase):
                         "echo x > $HOME/.claude/output-styles/a.md",
                         "tee ~/.claude/output-styles/a.md", "rm ~/.claude/output-styles/a.md",
                         "rm -rf ~/.claude", "rm -rf ~/.claude/*", "mv ~/.claude /tmp/x",
-                        "find ~/.claude/projects -delete"):
+                        "find ~/.claude/projects -delete",
+                        # The owner's rules, which the writing commands deny their editing tools too.
+                        "ls > ~/.claude/CLAUDE.md", 'echo x >> "$HOME/.claude/CLAUDE.md"',
+                        "tee -a ~/.claude/CLAUDE.md", "cp a ~/.claude/CLAUDE.md", "rm ~/.claude/CLAUDE.md"):
             with self.subTest(command=command):
                 self.assertIn("No rule judges a shell write", self.assertRefused(command, env=env))
 
@@ -4222,23 +4459,52 @@ class AWriteIntoWhatTheTargetDenies(unittest.TestCase):
     def test_the_rest_of_the_home_stays_admitted(self):
         _, env = self.real_home()
         self.admitted("ls > ~/notes.md", "ls > ~/projects/.bashrc", "ls > ~/.ssh-notes",
-                      "ls > ~/.claude/CLAUDE.md", "ls > ~/.claude/scratch/x", "ls > ~/.claude/.last",
+                      "ls > ~/.claude/x/CLAUDE.md", "ls > ~/.claude/scratch/x", "ls > ~/.claude/.last",
+                      "cat ~/.claude/CLAUDE.md",
                       "rm ~/.claude/scratch/x", "ls > '~/.gitconfig'", "ls ~/.ssh", "cat ~/.gitconfig",
-                      "ls > $HOME/.claude/scratch/x", env=env)
+                      "ls > $HOME/.claude/scratch/x", "ls > ~/.config/other/config", "ls > ~/.config/git/ignore",
+                      "ls > ~/.claude.json.bak", "cat ~/.claude.json", "cat ~/.config/git/config",
+                      "cat ~/.npmrc", "ls > ~/projects/.npmrc", "ls > ~/.npmrc.bak", env=env)
 
-    def test_a_home_the_session_stands_in_is_left_to_its_denies(self):
-        # As the edit guard's anchors leave it: a checkout at `~/.claude/plugins/p`
-        # is the project there, and its own files are not the control surface.
+    def test_a_checkout_inside_a_home_place_is_not_left_to_its_denies(self):
+        # As the edit guard's `home_offence` asks it: a checkout at
+        # `~/.claude/plugins/p` contains its files without owning them, and its
+        # denies, anchored at its own root, name nothing the home protects.
         home, env = self.real_home()
         plugin = os.path.join(home, ".claude", "plugins", "p")
         os.makedirs(os.path.join(plugin, ".git"))
-        self.assertAdmitted("ls > notes.md", cwd=plugin, env=env)
-        self.assertIn("No rule judges a shell write", self.assertRefused("ls > ~/.gitconfig", cwd=plugin, env=env))
-        # Reached through a link, as macOS's `/var` is `/private/var`, it is still
-        # the session's: the write's resolution is judged, so the checkout's is too.
+        for command in ("ls > notes.md", "ls > ~/.gitconfig"):
+            with self.subTest(command=command):
+                self.assertIn("No rule judges a shell write",
+                              self.assertRefused(command, cwd=plugin, env=env))
+        # Reached through a link, as macOS's `/var` is `/private/var`, the
+        # write's resolution is judged, and it lands in the same place.
         reached = os.path.join(self.root, "notes", "plugin")
         self.link(plugin, reached)
-        self.assertAdmitted("ls > notes.md", cwd=reached, env=env)
+        self.assertIn("No rule judges a shell write",
+                      self.assertRefused("ls > notes.md", cwd=reached, env=env))
+
+    def test_a_dotfiles_checkout_at_the_home_claude_is_not_left_to_its_denies(self):
+        # No anchor holds the home, so a skip that cleared only for one at `~`
+        # would admit a write to the settings this checkout applies.
+        home, env = self.real_home()
+        control = os.path.join(home, ".claude")
+        os.makedirs(os.path.join(control, ".git"))
+        os.makedirs(os.path.join(control, "notes"))
+        keys = os.path.join(home, ".ssh")
+        os.makedirs(os.path.join(keys, ".git"))
+        settings = Path(control, "settings.json").as_posix()
+        for cwd, command in ((os.path.join(control, "notes"), f"echo x > {settings}"),
+                             (control, "echo x > settings.json"),
+                             (control, "ls > hooks/x.py"),
+                             (control, "echo x > ~/.claude/settings.local.json"),
+                             # The owner's rules, by the name this checkout gives them.
+                             (control, "ls > CLAUDE.md"),
+                             (keys, "ls >> authorized_keys")):
+            with self.subTest(cwd=cwd, command=command):
+                self.assertIn("No rule judges a shell write",
+                              self.assertRefused(command, cwd=cwd, env=env))
+        self.admitted("ls > notes/todo.md", "ls > notes/CLAUDE.md", cwd=control, env=env)
 
     def test_a_dotfiles_checkout_at_the_home_is_not_left_to_its_denies(self):
         # Its denies name none of these, as the edit guard's home anchor does not.
@@ -4328,8 +4594,12 @@ class AWriteIntoWhatTheTargetDenies(unittest.TestCase):
         self.refused("rm -rf .claude", "rm -r ./.claude/", "mv .claude /tmp/x",
                      "cp -r /tmp/hooks .claude/", "rmdir .claude", "shred -u .claude",
                      "install -d /tmp/a .claude", "cp -rt .claude /tmp/hooks",
-                     "mv /tmp/hooks .CLAUDE")
+                     "mv /tmp/hooks .CLAUDE", "ln -sT /tmp/evil .claude", "ln -s /tmp/hooks .claude/",
+                     # `-n` replaces a link to a directory, which reads as the directory.
+                     "ln -sfn /tmp/evil .claude", "ln --no-dereference -sf /tmp/evil .claude",
+                     "ln -sfh /tmp/evil .claude")
         self.admitted("rm -rf .claude/worktrees/x", "rm -rf artifacts", "rm -rf .",
+                      "ln -s /tmp/notes.md .claude/", "ln -s .claude notes/alias",
                       "rm -rf .claude/cache", "cp -r .claude /tmp/backup",
                       "ls > .claude/notes.md", "touch .claude/notes.md",
                       "rm -rf notes", "mv notes /tmp/x")
@@ -4442,7 +4712,9 @@ class TheListsTheGuardReads(unittest.TestCase):
         rules = [rule for path in commands
                  for rule in self.command_edit_paths(path.read_text(encoding="utf-8"))]
         denied = [rule for rule in rules if not rule.startswith("~/")]
-        for rule in [*module.edit_denies(), *denied]:
+        # The commands' rules alone: `edit_denies()` is what `denied_path` reads, so asking it about its own
+        # rules matches each glob against itself and can fail on nothing.
+        for rule in denied:
             with self.subTest(rule=rule):
                 path = rule.removeprefix("./").removesuffix("/**")
                 self.assertIsNotNone(module.denied_path(path + "/x" if rule.endswith("/**") else path))
@@ -4451,7 +4723,9 @@ class TheListsTheGuardReads(unittest.TestCase):
         home = temp_root(self)
         for rule in home_rules:
             with self.subTest(rule=rule):
-                path = os.path.join(home, *rule[2:].removesuffix("/**").split("/"), "x")
+                # A tree's rule is asked of a file in it, and a file's of the file itself, as the repository's are.
+                path = os.path.join(home, *rule[2:].removesuffix("/**").split("/"),
+                                    *(["x"] if rule.endswith("/**") else []))
                 with mock.patch.dict(os.environ, {"HOME": home}):
                     self.assertIsNotNone(module.home_target(path, home, ""), rule)
 

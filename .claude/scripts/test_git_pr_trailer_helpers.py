@@ -159,6 +159,22 @@ class TrailerHelper(Fixture):
         out = self.run_helper(TRAILER)
         self.assertEqual(4, out.returncode, out.stderr)
 
+    def test_a_remote_with_the_same_trees_under_another_message_or_author_refuses(self):
+        # Equal trees are not equal commits: the lease would replace origin's message or author with the local one.
+        for change in (("--message", "docs: two, reworded"), ("--author", "Other <other@example.com>"),
+                       ("--message", "docs: two\n\nPR: #99")):
+            with self.subTest(change=change):
+                self.git("checkout", "-q", "main")
+                self.git("branch", "-q", "-D", "feat/x", check=False)
+                self.git("push", "-q", "origin", "--delete", "feat/x", check=False)
+                self.two_commit_branch()
+                self.git("commit", "-q", "--amend", "--no-edit", *change)
+                remote = self.git("rev-parse", "origin/feat/x")
+                out = self.run_helper(TRAILER)
+                self.assertEqual(4, out.returncode, out.stderr)
+                self.assertIn("push or pull first", out.stderr)
+                self.assertEqual(remote, self.git("ls-remote", "origin", "feat/x").split()[0])
+
     def test_a_second_run_changes_nothing_and_publishes_nothing(self):
         self.two_commit_branch()
         self.assertEqual(0, self.run_helper(TRAILER).returncode)
@@ -198,7 +214,11 @@ class TrailerHelper(Fixture):
         self.assertEqual(3, self.run_helper(TRAILER, row="MERGED\tfeat/x\tmain\tfalse").returncode)
 
     def test_main_refuses(self):
-        self.assertEqual(3, self.run_helper(TRAILER).returncode)
+        # A row naming `main` as the head, so the head-branch check passes and
+        # only the refusal to rewrite `main` can exit.
+        out = self.run_helper(TRAILER, row="OPEN\tmain\tmain\tfalse")
+        self.assertEqual(3, out.returncode, out.stderr)
+        self.assertIn("refusing to rewrite main", out.stderr)
 
     def test_a_dirty_tree_refuses(self):
         self.two_commit_branch()

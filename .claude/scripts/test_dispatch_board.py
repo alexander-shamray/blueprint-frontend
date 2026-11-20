@@ -206,6 +206,50 @@ class ReadyTests(unittest.TestCase):
         self.assertFalse(ok)
         self.assertIn("cannot judge", why)
 
+    def test_a_label_is_read_whatever_its_case(self):
+        # GitHub's label names are case-insensitive, so a hand-made `Question` is the label `question`.
+        for labels, why in (("Question, low", "waits on a human"), ("Paused", "labelled paused"),
+                            ("code, TRACKING", "labelled tracking")):
+            with self.subTest(labels=labels):
+                self.assertEqual((False, why), self.ready(line(labels=labels)))
+
+    def test_a_one_digit_issue_after_a_hash_is_an_issue(self):
+        self.assertEqual((False, "depends on open #7"), self.ready(line(depends="after #7"), {7}))
+        self.assertEqual((True, ""), self.ready(line(depends="#7"), {70}))
+
+    def test_another_repositorys_issue_in_depends_on_is_text_the_helper_cannot_judge(self):
+        # Only this repository's issues are listed, so a `<repo>#n` read as a local #n would pass as closed.
+        why = (False, "depends on text the helper cannot judge")
+        for text in ("after blueprint-backend#857", "alexander-shamray/blueprint-backend#857", "backend#857's fix",
+                     "#1440 and blueprint-backend#857"):
+            with self.subTest(text=text):
+                self.assertEqual(why, self.ready(line(depends=text), {99}))
+        self.assertEqual((False, "depends on open #857"), self.ready(line(depends="after #857"), {857}))
+        self.assertEqual((True, ""), self.ready(line(depends="#857's fix, (#1440)"), {99}))
+
+    def test_a_local_issue_after_a_slash_is_still_read(self):
+        # A `/` before a #n ends no repository name, so `#n/#m` names two of this repository's issues.
+        for text in ("after #1440/#1441", "#1440/#1441"):
+            with self.subTest(text=text):
+                self.assertEqual((False, "depends on open #1441"), self.ready(line(depends=text), {1441}))
+                self.assertEqual((True, ""), self.ready(line(depends=text), {99}))
+
+    def test_a_range_of_issues_is_text_the_helper_cannot_judge(self):
+        # Its two ends are not every issue it names, so a range read as two would pass with one between them open.
+        self.assertEqual((False, "depends on text the helper cannot judge"),
+                         self.ready(line(depends="#1440-#1442"), {1441}))
+
+    def test_a_depends_on_number_the_issue_list_does_not_hold_is_not_ready(self):
+        # gh-issue-list.sh lists issues alone, so a pull request's number is as unknown as a typo or a deleted issue.
+        listed = json.dumps([{"number": 1440, "title": "x", "state": "OPEN", "labels": []},
+                             {"number": 99, "title": "y", "state": "CLOSED", "labels": []}])
+        with mock.patch.object(db, "helper", return_value=listed):
+            issues = db.open_issues(".")
+        for text, verdict in (("after #1441", (False, "depends on #1441, which no issue in the list holds")),
+                              ("after #99", (True, "")), ("after #1440", (False, "depends on open #1440"))):
+            with self.subTest(text=text):
+                self.assertEqual(verdict, db.ready(group_of(line(depends=text)), issues, TODAY))
+
     def test_a_question_label_or_an_owed_row_is_not_ready(self):
         self.assertEqual((False, "waits on a human"), self.ready(line(labels="question, low")))
         owed = line().replace("| 1700 |", "| owed (not filed) |")
@@ -291,6 +335,14 @@ class BerserkTests(unittest.TestCase):
         self.assertEqual((False, "depends on an impossible date 2026-13-01"),
                          self.ready(line(depends="OWNER; 2026-13-01")))
 
+    def test_berserk_holds_a_row_that_waits_on_another_repositorys_issue(self):
+        # The cell a --berserk run once released as unblocked while the other repository's issue was open.
+        cell = "OWNER: after blueprint-backend#857, paused until its #845 exits (owner, 2026-11-10)"
+        after = date(2026, 11, 14)
+        self.assertEqual((False, "waits on a human"), self.ready(line(depends=cell), today=after, berserk=False))
+        self.assertEqual((False, "depends on text the helper cannot judge"),
+                         self.ready(line(depends=cell), today=after))
+
     def test_without_the_flag_every_blocker_stands(self):
         for row, opened, why in ((line(labels="question"), (), "waits on a human"),
                                  (line(depends="OWNER"), (), "waits on a human"),
@@ -348,7 +400,8 @@ class PathTests(unittest.TestCase):
 
     # The directories a case's dotless tokens are judged against, laid out as a checkout of its own: the walk is the
     # subject, and the checkout this suite sits in is a different tree in every target.
-    CHECKOUT = ("src/Services/Ordering", "src/Services/Catalog", "deploy/rabbitmq", "tools/quality-sets", "docs")
+    CHECKOUT = ("src/Services/Ordering", "src/Services/Catalog", "deploy/rabbitmq", "tools/quality-sets", "docs",
+                "android/app")
 
     def in_checkout(self):
         tmp = tempfile.TemporaryDirectory()
@@ -419,6 +472,61 @@ class PathTests(unittest.TestCase):
         self.assertFalse(a.unknown or b.unknown)
         self.assertTrue(db.overlaps(a, "Z1", {1700}, b, "Z2", {1701}))
 
+    def test_a_frontend_file_type_claims_like_a_backend_one(self):
+        self.in_checkout()
+        found = db.extract_paths("Edit src/app/core/api/client.ts and `app.component.html`, then theme.scss.")
+        self.assertEqual({"src/app/core/api/client.ts", "app.component.html", "theme.scss"}, found)
+        for name in ("a.tsx", "src/a.js", "src/a.mjs", "src/a.cjs", "a.css", "a.xml", "a.gradle", "a.kts", "a.kt", "a.java",
+                     "a.swift", "a.plist", "gradle.properties", "project.pbxproj", "debug.xcconfig", "main.storyboard"):
+            with self.subTest(name=name):
+                self.assertEqual({name}, db.extract_paths(f"see {name} here"))
+
+    def test_a_product_named_like_a_script_is_not_a_claim(self):
+        self.in_checkout()
+        found = db.extract_paths("bump Node.js to 24, `Vue.js` with Chart.js, and drop `zone.js` and main.mjs")
+        self.assertEqual(frozenset(), found)
+        claim = db.group_claim(group_of(line(task="it installs no `zone.js`")), {1700: "Node.js 24 is out"})
+        self.assertTrue(claim.unknown)
+        self.assertEqual({"src/node.js", "tools/main.mjs"}, db.extract_paths("edit `src/Node.js` and tools/main.mjs"))
+
+    def test_a_slashed_product_name_in_prose_claims_nothing(self):
+        self.in_checkout()
+        # Neither `npm` nor `react.js` names a directory of the checkout, so each pair stays an unknown claim.
+        self.assertEqual(frozenset(), db.extract_paths("built on npm/Node.js, React/Next.js and React.js/Next.js"))
+        self.assertEqual(frozenset(), db.extract_paths("built on zone.js/Angular.js"))
+        # A checkout that cannot be walked claims the pair, erring towards exclusive as `_slash_path` does.
+        with mock.patch.object(db, "_directory_names", lambda: None):
+            self.assertEqual({"npm/node.js"}, db.extract_paths("built on npm/Node.js"))
+
+    def test_a_script_path_beside_the_product_rule_still_claims(self):
+        self.in_checkout()
+        found = db.extract_paths("add scripts/check.mjs, newpkg/src/index.js, /repo/src/main.js and C:\\repo\\app.js")
+        self.assertEqual({"scripts/check.mjs", "newpkg/src/index.js", "/repo/src/main.js", "/repo/app.js"}, found)
+        self.assertEqual({"src/main.js"}, db.extract_paths("edit src/Main.js"))
+        # A new lower-case directory is no product, an absolute path names a file, and so does a deeper one, though
+        # each holds a capitalised script under a segment no directory in the checkout has.
+        self.assertEqual({"widgets/header.js"}, db.extract_paths("add widgets/Header.js"))
+        self.assertEqual({"/main.js"}, db.extract_paths("edit /Main.js"))
+        self.assertIn("lib/node.js/main.js", db.extract_paths("edit Lib/Node.js/Main.js"))
+
+    def test_two_names_joined_by_a_slash_each_claim(self):
+        self.in_checkout()
+        found = db.extract_paths("see README.md/client.ts")
+        self.assertEqual({"readme.md", "client.ts", "readme.md/client.ts"}, found)
+        self.assertTrue(any(db._touch(path, "docs/readme.md") for path in found))
+        self.assertTrue(any(db._touch(path, "src/api/client.ts") for path in found))
+
+    def test_a_top_level_directory_claims_everything_under_it(self):
+        self.in_checkout()
+        self.assertEqual({"android"}, db.extract_paths("touches `android/` only"))
+        for spelling in ("`android/,`", "`android/.`", "(`android/)`", "`android\\`"):
+            with self.subTest(spelling=spelling):
+                self.assertEqual({"android"}, db.extract_paths(f"touches {spelling} only"))
+        top, inside = self.claim({"android"}), self.claim({"android/app/src/main/androidmanifest.xml"})
+        self.assertTrue(self.over(top, inside))
+        self.assertTrue(self.over(inside, top))
+        self.assertFalse(self.over(top, self.claim({"src/androidx/a.kt"})))
+
     def test_paths_are_normalised_case_slashes_and_dot_prefix(self):
         found = db.extract_paths(r"`.\Src\Gateway\Program.cs` and `./Docs/A.MD`")
         self.assertEqual({"src/gateway/program.cs", "docs/a.md"}, found)
@@ -461,6 +569,22 @@ class PathTests(unittest.TestCase):
         other = self.claim({"elsewhere/b.cs"})
         self.assertTrue(self.over(claim, other, b_issues={1682}))
         self.assertFalse(self.over(claim, other, b_issues={1999}))
+
+    def test_a_conflicts_cell_naming_a_one_digit_issue_after_a_hash_claims_it(self):
+        claim = db.group_claim(group_of(line(conflicts="with #7: same files")), {1700: "a.cs"})
+        self.assertEqual({7}, claim.issues)
+        self.assertTrue(self.over(claim, self.claim({"elsewhere/b.cs"}), b_issues={7}))
+        # Without the hash one digit is a count, as two were before.
+        self.assertEqual(frozenset(), db.group_claim(group_of(line(conflicts="with 7 others")), {1700: "a.cs"}).issues)
+
+    def test_a_conflicts_cell_naming_another_repositorys_issue_claims_no_local_one(self):
+        # A `<repo>#n` is no local #n, so it claims no overlap with the group that holds one.
+        for cell in ("with blueprint-backend#857", "with alexander-shamray/blueprint-backend#857"):
+            with self.subTest(cell=cell):
+                claim = db.group_claim(group_of(line(conflicts=cell)), {1700: "a.cs"})
+                self.assertEqual(frozenset(), claim.issues)
+        both = db.group_claim(group_of(line(conflicts="with #1682 and blueprint-backend#857")), {1700: "a.cs"})
+        self.assertEqual({1682}, both.issues)
 
     def test_a_dateless_conflicts_cell_names_no_issue(self):
         claim = db.group_claim(group_of(line(conflicts="not inside Window B 2026-11-08")), {1700: "a.cs"})
@@ -512,13 +636,14 @@ class PathTests(unittest.TestCase):
 
         def fake(root, *args):
             calls.append(args)
-            if args[2] == "origin/main...fix/other":
+            if args[4] == "origin/main...fix/other":
                 raise db.Refusal("unknown revision")
-            return "src/Gateway/Program.cs\ndocs/A.md\n\n"
+            return "src/Gateway/Program.cs\0docs/A.md\0\0"
         with mock.patch.object(db, "git", fake):
             self.assertEqual({"src/gateway/program.cs", "docs/a.md"}, db.branch_paths(".", "fix/other"))
-        self.assertEqual([("diff", "--name-only", "origin/main...fix/other", "--"),
-                          ("diff", "--name-only", "origin/main...origin/fix/other", "--")], calls)
+        self.assertEqual([("diff", "--name-only", "--no-renames", "-z", "origin/main...fix/other", "--"),
+                          ("diff", "--name-only", "--no-renames", "-z", "origin/main...origin/fix/other", "--")],
+                         calls)
         with mock.patch.object(db, "git", side_effect=db.Refusal("no such ref")):
             self.assertEqual(frozenset(), db.branch_paths(".", "fix/other"))
         with mock.patch.object(db, "git", side_effect=AssertionError("git was asked")):
@@ -570,6 +695,11 @@ class WriteTests(unittest.TestCase):
         self.dir = Path(self.tmp.name)
         self.path = self.dir / "todo.md"
         self.run_dir = self.dir / "artifacts" / "dispatch" / RUN
+        # A dispatched executor runs this suite too, and its marker would refuse every run written here.
+        environment = mock.patch.dict(os.environ)
+        environment.start()
+        self.addCleanup(environment.stop)
+        os.environ.pop(db.DISPATCHED, None)
 
     def write(self, text):
         with open(self.path, "w", encoding="utf-8", newline="") as handle:
@@ -690,7 +820,14 @@ class WriteTests(unittest.TestCase):
         self.start()
         before = (self.run_dir / "state.json").read_bytes()
         self.write(FIXTURE)
-        with mock.patch.object(db.os, "replace", side_effect=PermissionError("held open")):
+        real_replace = os.replace
+
+        def refuse_the_list(source, destination):
+            # The list alone, so the state write before it lands and the undo after it runs.
+            if Path(destination).name == "todo.md":
+                raise PermissionError("held open")
+            real_replace(source, destination)
+        with mock.patch.object(db.os, "replace", side_effect=refuse_the_list):
             code, err = self.cli("move", "S1")
         self.assertEqual(2, code)
         self.assertIn("refused: could not write", err)
@@ -757,12 +894,17 @@ class WriteTests(unittest.TestCase):
         self.assertIn("does not record S1", err)
 
     def test_a_group_id_that_is_not_a_letter_and_number_is_refused(self):
+        # A started run, so an unguarded id would have a directory to write under; the whole tree,
+        # the task list included, must come out as it went in.
         self.write(FIXTURE)
+        dr.save_state(self.run_dir, {"groups": {}})
+        tree = lambda: {p: p.read_bytes() for p in self.dir.rglob("*") if p.is_file()}
+        before = tree()
         for bad in ("../x", "s1", "S1/../../y"):
             code, err = self.cli("move", bad)
             self.assertEqual(2, code, bad)
             self.assertIn("is not a group id", err)
-        self.assertFalse((self.dir / "x.json").exists())
+        self.assertEqual(before, tree())
 
     def test_place_refuses_a_group_an_in_progress_row_holds(self):
         moved = db.move_to_in_progress(FIXTURE, self.s1(), "b", "w", TODAY)
@@ -1274,9 +1416,11 @@ class DayTests(unittest.TestCase):
 
     def test_a_crlf_list_stays_crlf(self):
         self.write(FIXTURE.replace("\n", "\r\n"))
-        self.start(1683)
-        self.cli("state", "1683", "PR open")
-        self.cli("back", "1683")
+        # Each step must land, or an unchanged file is what three refusals leave too.
+        self.assertEqual(0, self.start(1683)[0])
+        self.assertNotEqual(FIXTURE.replace("\n", "\r\n"), self.read())
+        self.assertEqual(0, self.cli("state", "1683", "PR open")[0])
+        self.assertEqual(0, self.cli("back", "1683")[0])
         self.assertEqual(FIXTURE.replace("\n", "\r\n"), self.read())
 
 
@@ -1348,6 +1492,18 @@ class EventTests(unittest.TestCase):
                          (self.find(1700).section, *self.find(1700).cells[1:2], *self.find(1700).cells[3:]))
         self.assertEqual(("Tracking", None, "none"), (self.find(1701).section, None if self.find(1701).group == "—"
                                                        else self.find(1701).group, self.find(1701).cells[5]))
+        self.assertEqual("OWNER; " + db.UNPLACED, self.find(1702).cells[5])
+        self.readable()
+
+    def test_a_capitalised_label_files_a_row_as_its_lowercase_name(self):
+        # Through issues_from, which reads gh-issue-list.sh's JSON, as `tasks` reads it.
+        listed = [(1700, "Parked", ["bug", "Paused"]), (1701, "Measured", ["enhancement", "Tracking"]),
+                  (1702, "Ask", ["QUESTION"])]
+        self.issues = db.issues_from([{"number": n, "title": t, "state": "OPEN", "labels": [{"name": x} for x in names]}
+                                      for n, t, names in listed])
+        for n in (1700, 1701, 1702):
+            self.assertEqual(0, self.cli("place", str(n))[0])
+        self.assertEqual(("Paused", "Tracking", "Remaining"), tuple(self.find(n).section for n in (1700, 1701, 1702)))
         self.assertEqual("OWNER; " + db.UNPLACED, self.find(1702).cells[5])
         self.readable()
 
@@ -1516,6 +1672,23 @@ class EventTests(unittest.TestCase):
                 code, out = self.cli(*args)
                 self.assertEqual((2, dashed), (code, self.read()))
                 self.assertIn("names no issue number", out)
+
+    def test_a_dispatched_executor_writes_no_run(self):
+        # `--root` could name the main checkout, whose run state decides what the dispatcher launches.
+        run = self.dir / "artifacts" / "dispatch" / RUN
+        run.mkdir(parents=True)
+        (run / "state.json").write_text("{}", encoding="utf-8")
+        with mock.patch.dict(os.environ, {db.DISPATCHED: ""}):
+            for args in (("back", "S1"), ("done", "S1"), ("place", "1", "S3", "1700"), ("rewrite", "--from", "x")):
+                with self.subTest(args=args):
+                    err = io.StringIO()
+                    with contextlib.redirect_stderr(err):
+                        code = db.main(["tasks", args[0], "--tasks", str(self.path), "--root", str(self.dir),
+                                        "--run", RUN, *args[1:]])
+                    self.assertEqual(2, code)
+                    self.assertIn("writes no run", err.getvalue())
+        self.assertEqual(["state.json"], [p.name for p in run.iterdir()])
+        self.assertEqual(FIXTURE, self.read())
 
     def test_a_dispatched_executor_writes_no_list(self):
         self.issues = {1700: issue(1700)}
