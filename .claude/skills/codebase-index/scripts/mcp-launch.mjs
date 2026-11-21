@@ -60,7 +60,10 @@ if (gate.status !== 0) {
   refuse(gate.status ?? 1, 'the index failed its check; not starting the server');
 }
 
-const env = { ...process.env, CBX_NO_SKILL_AUTO_UPDATE: '1' };
+// `-m` in the checkout would import a branch's own `codebase_index` before the
+// installed one, as cbx and refresh-index.py say; PYTHONSAFEPATH holds that for
+// any Python the CLI starts too.
+const env = { ...process.env, CBX_NO_SKILL_AUTO_UPDATE: '1', PYTHONSAFEPATH: '1' };
 const args = ['mcp', '--root', '.'];
 
 function start(command, argv, onMissing) {
@@ -76,4 +79,4 @@ function start(command, argv, onMissing) {
 }
 
 start('codebase-index', args, () =>
-  start(python[0], [...python.slice(1), '-m', 'codebase_index', ...args], null));
+  start(python[0], [...python.slice(1), '-P', '-m', 'codebase_index', ...args], null));
