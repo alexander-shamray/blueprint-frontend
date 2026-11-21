@@ -83,10 +83,11 @@ class TheMcpServerStartsOnlyOverAnIndexTheHookWouldOpen(unittest.TestCase):
         self.root = Path(self._root.name)
         self.cache = self.root / ".claude" / "cache" / "codebase-index"
 
-    def launch(self, path, **extra):
+    def launch(self, path, cwd=None, **extra):
         env = {**os.environ, "PATH": str(path), "PYTHONPATH": str(self.stubs), **extra}
         env.pop("CBX_NO_SKILL_AUTO_UPDATE", None)
-        return subprocess.run([NODE, str(LAUNCHER)], cwd=self.root, env=env, stdin=subprocess.DEVNULL,
+        return subprocess.run([NODE, str(LAUNCHER)], cwd=cwd or self.root, env=env,
+                              stdin=subprocess.DEVNULL,
                               capture_output=True, text=True, encoding="utf-8", timeout=120)
 
     def test_a_clean_root_starts_the_server_with_its_arguments_and_the_update_disabled(self):
@@ -97,6 +98,41 @@ class TheMcpServerStartsOnlyOverAnIndexTheHookWouldOpen(unittest.TestCase):
 
     def test_the_servers_exit_status_is_the_launchers(self):
         self.assertEqual(7, self.launch(self.with_python, STUB_EXIT="7").returncode)
+
+    def test_a_program_planted_in_the_checkout_is_not_started_for_a_bare_name(self):
+        # Windows searches the working directory before PATH, and elsewhere a
+        # relative or in-checkout PATH entry does the same. The plant is
+        # node, which cannot run `mcp`, so only the stand-in CLI prints its line.
+        planted = "codebase-index.exe" if os.name == "nt" else "codebase-index"
+        shutil.copyfile(NODE, self.root / planted)
+        os.chmod(self.root / planted, 0o755)
+        path = os.pathsep.join([".", str(self.root), str(self.with_python)])
+        done = self.launch(path)
+
+        self.assertEqual(0, done.returncode, done.stderr)
+        self.assertEqual("stub-cli mcp --root . 1", done.stdout.strip())
+
+    def test_a_program_planted_in_the_main_checkout_is_not_started_from_a_worktree(self):
+        # A session in a linked worktree fences the main checkout too, as
+        # refresh-index.py's `on_path` does.
+        git = shutil.which("git")
+        self.assertIsNotNone(git, "git is required: this case builds a worktree")
+        main, linked = self.root / "main", self.root / "linked"
+        identity = ["-c", "user.name=t", "-c", "user.email=t@example.invalid"]
+        subprocess.run([git, "init", "-q", str(main)], check=True)
+        subprocess.run(
+            [git, *identity, "-C", str(main), "commit", "-q", "--allow-empty", "-m", "x"],
+            check=True)
+        subprocess.run([git, "-C", str(main), "worktree", "add", "-q", str(linked)], check=True)
+        planted = main / "bin" / ("codebase-index.exe" if os.name == "nt" else "codebase-index")
+        planted.parent.mkdir()
+        shutil.copyfile(NODE, planted)
+        os.chmod(planted, 0o755)
+        path = os.pathsep.join([str(planted.parent), str(self.with_python)])
+        done = self.launch(path, cwd=linked)
+
+        self.assertEqual(0, done.returncode, done.stderr)
+        self.assertEqual("stub-cli mcp --root . 1", done.stdout.strip())
 
     def test_a_rollback_journal_beside_the_index_stops_it_before_the_server_starts(self):
         self.cache.mkdir(parents=True)

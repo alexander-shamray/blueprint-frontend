@@ -244,8 +244,9 @@ nothing was listening would be worse than none: the `e2e` job runs it, and
 under real Node. The stand-in is a `codebase_index` package on `PYTHONPATH`,
 reached through the launcher's `python -m codebase_index` fallback, because a
 stand-in for the binary would have to be an `.exe` on Windows. The `PATH` the
-launcher sees holds only Node and the interpreter launcher, so no real
-`codebase-index` shadows the fallback.
+launcher sees holds no real `codebase-index`, so none shadows the fallback;
+the cases that plant one, a copy of Node, plant it where the launcher must
+refuse it.
 
 **`test_root_ignore_coverage.py` holds the disagreement between git and the code
 index, not either tool** (blueprint-frontend#53, which owns the measurement).

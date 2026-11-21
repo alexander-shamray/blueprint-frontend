@@ -26,7 +26,10 @@
 // the window `docs/harness-boundaries.md` records for every check here.
 
 import { spawn, spawnSync } from 'node:child_process';
-import { dirname, join } from 'node:path';
+import { accessSync, constants, readFileSync, realpathSync, statSync } from 'node:fs';
+import {
+  basename, delimiter, dirname, isAbsolute, join, relative, resolve, sep,
+} from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -38,10 +41,71 @@ function refuse(code, message) {
   process.exit(code);
 }
 
+// Every program is started by the full path this finds, never by bare name:
+// Windows searches the working directory, the checkout, before PATH, where a
+// branch can plant a `py.exe` or `codebase-index.exe`. As `on_path` in
+// refresh-index.py does: absolute PATH entries only, none in this checkout or
+// the main checkout it is a worktree of, and on Windows only `.exe` or `.com`.
+// The variable covers what a child starts. `realpathSync.native` resolves as
+// `Path.resolve()` does, short names and substituted drives included.
+process.env.NoDefaultCurrentDirectoryInExePath = '1';
+const real = realpathSync.native;
+const checkout = real(process.cwd());
+const fenced = [checkout, mainCheckout(checkout)].filter((tree) => tree !== null);
+const names = process.platform === 'win32' ? ['.exe', '.com'] : [''];
+
+// `main_checkout` in refresh-index.py, read from the files git writes: a
+// `gitdir:` file whose `commondir` names a `.git` directory.
+function mainCheckout(root) {
+  try {
+    const pointer = readFileSync(join(root, '.git'), 'utf8').trim();
+    if (!pointer.startsWith('gitdir:')) return null;
+    const gitDir = resolve(root, pointer.slice('gitdir:'.length).trim());
+    const named = readFileSync(join(gitDir, 'commondir'), 'utf8').trim();
+    const common = real(resolve(gitDir, named));
+    if (basename(common) !== '.git' || dirname(common) === root) return null;
+    return dirname(common);
+  } catch {
+    return null;
+  }
+}
+
+function inCheckout(path) {
+  return fenced.some((tree) => {
+    const rest = relative(tree, path);
+    return rest === '' || (rest !== '..' && !rest.startsWith(`..${sep}`) && !isAbsolute(rest));
+  });
+}
+
+function onPath(stem) {
+  for (const raw of (process.env.PATH ?? '').split(delimiter)) {
+    const entry = raw.replace(/^"|"$/g, '');
+    if (!entry || !isAbsolute(entry)) continue;
+    try {
+      if (inCheckout(real(entry))) continue;
+    } catch {
+      continue;
+    }
+    for (const suffix of names) {
+      const candidate = join(entry, stem + suffix);
+      try {
+        if (!statSync(candidate).isFile()) continue;
+        accessSync(candidate, constants.X_OK);
+        if (!inCheckout(real(candidate))) return candidate;
+      } catch {
+        // Absent or not runnable: the next name, then the next entry.
+      }
+    }
+  }
+  return null;
+}
+
 // The first interpreter meeting the hooks' floor, probed as `run-guard.sh`
 // probes it: `python3` on Windows can be the Store alias, which fails here.
 function interpreter() {
-  for (const [command, ...rest] of candidates) {
+  for (const [name, ...rest] of candidates) {
+    const command = onPath(name);
+    if (command === null) continue;
     const probe = spawnSync(command, [...rest, '-c', floor], { stdio: 'ignore' });
     if (probe.status === 0) return [command, ...rest];
   }
@@ -61,6 +125,7 @@ if (gate.status !== 0) {
 }
 
 const env = { ...process.env, CBX_NO_SKILL_AUTO_UPDATE: '1' };
+const cli = onPath('codebase-index');
 const args = ['mcp', '--root', '.'];
 
 function start(command, argv, onMissing) {
@@ -75,5 +140,7 @@ function start(command, argv, onMissing) {
   }
 }
 
-start('codebase-index', args, () =>
-  start(python[0], [...python.slice(1), '-m', 'codebase_index', ...args], null));
+const fallback = () =>
+  start(python[0], [...python.slice(1), '-m', 'codebase_index', ...args], null);
+if (cli === null) fallback();
+else start(cli, args, fallback);
