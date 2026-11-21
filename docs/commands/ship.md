@@ -949,14 +949,15 @@ mergeable does not become less so because the reviewer had more to say.
 Report the state plainly — findings per round and whether the rate was
 still flat when the budget ran out is the useful signal — and merge.
 
-**Of the four reads in the runbook's step 6 gate block, `pr-state.sh` and `gh pr
-checks` read the remote, and `git status --short` and `git log
-<headRefOid>..HEAD` read the workspace.** `headRefOid`, the checks and
-`--match-head-commit` all agree happily about a head this checkout has since
-moved past: a commit made after the last review, or an edit made while the
-review ran, is invisible to all three. The merge would then succeed for the
-older head and the teardown remove the worktree, stranding the newer work on a
-merged branch — step 0's whole argument, arriving at the other end of the run.
+**Of the five reads in the runbook's step 6 gate block, `pr-state.sh`, `gh pr
+checks` and `main-red-open.sh` read the remote, and `git status --short
+--untracked-files=all` and `git log <headRefOid>..HEAD` read the workspace.**
+`headRefOid`, the checks and `--match-head-commit` all agree happily about a
+head this checkout has since moved past: a commit made after the last review, or
+an edit made while the review ran, is invisible to all three. The merge would
+then succeed for the older head and the teardown remove the worktree, stranding
+the newer work on a merged branch — step 0's whole argument, arriving at the
+other end of the run.
 
 **`git log <headRefOid>..HEAD` is the read rather than an equality**, and
 the asymmetry is deliberate: a HEAD carrying anything the remote lacks is
@@ -1599,6 +1600,22 @@ The runbook shows the shape as a skeleton rather than prose, and each ending
 as a table row, because `test_ship_dispatched.py` parses both: it holds the
 keys and alternatives equal to the validator's and runs a result built from
 every row through the validator, so the two cannot drift.
+
+**A hand-back on a denied edit leaves what resumes it.** The owner's script
+is their only step: after it, nothing used to continue the group, since its
+row read as sent back, and a later night would fork a fresh worktree from
+`main` beside the one holding the applied edit (blueprint-harness#602). The
+worktree is what survives into the next night, and the run's `state.json`
+is not, so the record goes there, under the gitignored
+`artifacts/handoff/`, with the script itself: the scratchpad is the
+executor's temp directory, which `dispatch_run.py` removes when it exits.
+The tree is committed clean first and the record names the `head` and the
+`paths`, because the dispatcher records the hand-back only from a clean
+tree at that head and resumes only that head plus exactly those edits;
+anything else is work it cannot account for. The record is the
+executor's word and lifts nothing alone: `tasks back` keeps its own copy,
+checked against the run's state, and that is what a later night reads
+(`docs/commands/dispatch.md`, *Resume*).
 
 **The path comes from the prompt, not from a convention.** The group is the
 argument's leading `#<group>-<n>[+<n>]` tag, which the launcher builds, and

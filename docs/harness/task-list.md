@@ -69,8 +69,11 @@ work that ends with its issue open, which `/ship` step 6 runs.
   an *In progress* row still carries.
 - **`Depends on`** is `none`, issue references (`#n`, `after n`,
   `waits on n`), ISO dates, or `OWNER` for an owner's decision. An issue
-  labelled `question` carries `OWNER`. Other free text holds the row: the
-  board cannot judge it.
+  labelled `question` carries `OWNER`, in any case GitHub spells the
+  label. Other free text holds the row: the board cannot judge it, and so
+  does a number no issue in the list holds, such as a typo or a pull
+  request's, and another repository's issue, `<repo>#n`, which the list
+  never holds.
 - **`Model`** is the session's: `Opus` where an error is a silent miss (a
   test that cannot fail, harness guards, locking, erasure, cross-cutting
   CI), `Sonnet` where a gate, a test or a mutation proof catches it.
@@ -129,10 +132,10 @@ another session changed it in between.
   from `sync_pr.py list`, and it lives for minutes; `/ship sync #<n>` writes
   nothing to the list.
 - **A `/dispatch` executor writes no list.** The dispatcher sets
-  `HARNESS_DISPATCHED` in each executor's environment, every run-less write
-  refuses under it, and a filing helper files and places nothing; the
-  dispatcher places what the result's `filed` names, through
-  `tasks place --run`.
+  `HARNESS_DISPATCHED` in each executor's environment, every `tasks` write,
+  run-less or `--run`, refuses under it (#604), and a filing helper files
+  and places nothing; the dispatcher places what the result's `filed`
+  names, through `tasks place --run`.
 - **A filing that cannot place its row still files.** The helper says so on
   stderr with the call that repairs it and exits 0, since a non-zero exit
   would read as a failed filing and file it twice.
