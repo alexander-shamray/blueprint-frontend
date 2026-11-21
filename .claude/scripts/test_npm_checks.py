@@ -18,12 +18,16 @@ COMMANDS = SCRIPTS.parent / "commands"
 BASH = shutil.which("bash")
 GIT = shutil.which("git")
 
-# The programs a command may be granted, and no other: none is a package
-# runner, an interpreter, a shell or a wrapper that runs whatever follows it.
-# A list of forbidden programs passes every one it does not name, so a
-# program missing here is refused until it is added knowingly; `py` and
-# `bash` are granted only pinned, below.
+# The programs a command may be granted, and no other; a forbidden list passes
+# every one it does not name. `git` and `gh` run a program through an alias,
+# so each needs a subcommand word, and `py` and `bash` are granted only pinned.
+# None of the rest is a package runner, an interpreter, a shell or a wrapper
+# that runs whatever follows it.
 ALLOWED_PROGRAMS = frozenset({"git", "gh", "ls", "wc", "rm"})
+# The subcommands that define a program, or run whatever follows them.
+GH_RUNNERS = frozenset({"alias", "config", "extension", "extensions", "ext"})
+GIT_RUNNERS = frozenset({"config", "submodule", "bisect", "difftool", "mergetool", "filter-branch",
+                         "rebase", "grep"})
 # The suffixes Windows runs a program by: npm installs `npx.cmd` beside `npx`.
 SHIM_SUFFIXES = (".exe", ".cmd", ".bat", ".ps1")
 # `py` is the launcher `.harness/agent-rules.md` requires, so it is granted,
@@ -56,8 +60,16 @@ def program_word(grant):
 
 def refused_grant(grant):
     """Whether a `Bash(...)` grant runs anything but an allowed program, a
-    pinned `py` or a pinned `bash`."""
+    pinned `py` or a pinned `bash`. An env prefix is refused whatever follows:
+    `PATH` or `GIT_EXTERNAL_DIFF` picks the program an allowed one runs, as a
+    path does for the program itself."""
+    if re.match(r"\s*\w+=", grant) or re.match(r"\s*(?:[A-Za-z]:)?[^\s:*]*[\\/]", grant):
+        return True
     word = program_word(grant)
+    if word in ("git", "gh"):
+        subcommand = re.match(r"\S+ ([a-z][a-z-]*)(?=[\s:*]|$)", grant.strip())
+        runners = GH_RUNNERS if word == "gh" else GIT_RUNNERS
+        return subcommand is None or subcommand.group(1) in runners
     if word == "py":
         return not PINNED_PY.fullmatch(grant.strip())
     if word == "bash":
@@ -99,8 +111,9 @@ class TheCheckRunnerIsTheOnlyExecutor(unittest.TestCase):
                     with self.subTest(command=path.name, grant=grant):
                         self.assertFalse(
                             refused_grant(grant),
-                            f"{path.name} grants `Bash({grant})`, which runs a "
-                            "program outside ALLOWED_PROGRAMS or an unpinned py or bash")
+                            f"{path.name} grants `Bash({grant})`, which runs a program "
+                            "outside ALLOWED_PROGRAMS, an unpinned py or bash, an env "
+                            "prefix, a path, or git or gh without a safe subcommand")
         # The positive controls: an empty glob, or a parser that found no
         # grant, would satisfy every case above.
         self.assertGreater(seen, 3, "found almost no commands")
@@ -141,15 +154,28 @@ class TheCheckRunnerIsTheOnlyExecutor(unittest.TestCase):
                       "sudo npm:*", 'FOO="a b" npx:*', "FOO='a b' npx:*",
                       "jq:*", "env git:*",
                       # BASH_ENV names a file bash runs before the script.
-                      "BASH_ENV=/tmp/x bash .claude/scripts/npm-checks.sh:*"):
+                      "BASH_ENV=/tmp/x bash .claude/scripts/npm-checks.sh:*",
+                      # An env prefix picks what an allowed program runs.
+                      "PATH=/tmp/x git diff:*", "GIT_EXTERNAL_DIFF=x git diff:*",
+                      "CI=1 git diff:*",
+                      # `git` and `gh` without a subcommand, or with one that
+                      # defines a program, run whatever they are told to.
+                      "git:*", "git", "git -c x=y diff:*", "gh:*", "gh",
+                      "gh alias set:*", "gh extension install:*", "gh ext:*",
+                      "gh extensions:*", "git config:*", "git submodule foreach:*",
+                      "git bisect run:*", "git difftool:*", "git rebase:*", "git grep:*",
+                      "gh config set:*",
+                      # A path picks the program outright.
+                      "/tmp/x/git diff:*", "/tmp/x/ls:*", "C:\\x\\git.exe diff:*"):
             with self.subTest(grant=grant):
                 self.assertTrue(refused_grant(grant))
-        # And the grants the commands do hold, which a word match must spare.
+        # And the grants the commands hold, with spellings of them a word
+        # match must spare.
         for grant in ("bash .claude/scripts/npm-checks.sh:*",
                       "bash .claude/scripts/pr-state.sh",
                       "bash .claude/skills/codebase-index/scripts/cbx diff-impact:*",
                       "GIT.exe diff:*",
-                      "gh:*", "wc:*", "rm suggestions.md",
+                      "wc:*", "rm suggestions.md",
                       "py -3.12 .claude/scripts/sync_pr.py:*",
                       "py -3.12 .claude/scripts/dispatch_board.py tasks start:*",
                       "py -3.12 .claude/scripts/dispatch_board.py tasks back:*",
