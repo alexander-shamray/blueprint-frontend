@@ -203,7 +203,10 @@ is the anti-goal it prevents (spec §2).
 
 The earliest wave goes first and table order breaks a tie; a later wave's
 group runs beside an earlier one when it is ready and free, since the wave
-is an order and the dependency is the rule (spec §6.1).
+is an order and the dependency is the rule (spec §6.1). A group the
+owner's script resumed (*Resume*) goes before every other, whatever its
+wave: its work is all but done, and its worktree holds an uncommitted edit
+that only its own executor can carry to a merge.
 
 ## The berserk token
 
@@ -335,7 +338,8 @@ balance is too low*.
 On every wake it absorbs the result, verifies a merge, places what was
 filed, then asks `wake` what to launch; the outcome table is the spec's
 §6.4. A hand-back or a stop goes back into its wave marked `OWNER` and is
-not retried (spec §2); a crash is relaunched once (spec §6.4).
+not retried (spec §2), but once the owner has run its script (*Resume*); a
+crash is relaunched once (spec §6.4).
 
 A crash that merged is not one. An executor that wrote no result, or none
 valid, and whose worktree meets `/ship` step 0's finished predicate — clean,
@@ -364,12 +368,32 @@ on a group whose
 status is a relaunch's, reads the worktree — commits ahead of
 `origin/main`, an uncommitted tree, and an `OPEN` row from
 `pr-for-branch.sh` — and adds what it found to the task as one clause
-saying to resume from there and to end the turn only on the result. Each
+saying to resume from there and to end the turn only on the result. Where
+it found something and the PR read lists no PR at all, the clause says no
+PR is open, so the relaunch resumes at the push and `/pr` rather than
+reading for a review (blueprint-harness#549); a `CLOSED` or `MERGED` row
+adds nothing, since `/ship`'s own read stops or hands back on it. Each
 read is best effort: one that fails drops its part, and `/ship`'s own state
 read still decides what is owed, so a missing clause costs only the hint.
 A sync's relaunch carries none, since its tree is held to its proved head
 and never committed to, and the clause is built from the branch name, a
 commit count and a PR number, never issue text.
+
+A session that wrote no result, met a denial, and was refused neither by a
+limit nor by the API's account check is a hand-back, since a relaunch would
+meet the deny again — unless every denial it met is the index hint's.
+`index-search-hint.py` refuses a session's first search for a named symbol
+once, and the same call rerun passes, so that refusal ended
+nothing: on blueprint-frontend's night 20261114-130647, A11 met it, ended
+its turn on `/commit`'s report for another reason, and was handed back with
+two commits unpushed (blueprint-harness#549). `result` matches each denial's
+`tool_use_id`, from the envelope the CLI writes, to the refused result the
+transcript the envelope's session id names holds for that id, a hook's
+refusal ending on the hint's own last sentence; where every denial matches,
+the session is a crash, relaunched once and handed back on a second, and its
+reason says the refusal was advisory. A denial with no id, a transcript
+that cannot be read or is not named, or one unmatched denial leaves the
+hand-back as it was.
 
 A `Model` cell `launch` would refuse holds its group at `board` and `wake`,
 since `launch` comes after the fork and `tasks move`, and a refusal there
@@ -400,7 +424,11 @@ the group would again hold its slot all night. `run` names both refusals
 on its exit line, which the runbook hands to `result` as `--refused` after
 every exit 2; `result` reads it only when it finds no marker from this
 launch and no session record it has not already read. `run` removes an
-earlier pid file before its launch checks: with none, `result` records
+earlier pid file before its launch checks and writes its own pid there
+until the executor's replaces it, so a `resume` in between reads the group
+as running rather than relaunching beside it; a refusal removes it again,
+and a pid file that cannot be read is refused rather than read as none.
+With no pid file, `result` records
 `crashed-before-launch`; with one whose process has ended,
 `crash-hand-back`, since the executor ran and may have merged and only its
 worktree says so; with one still alive, it refuses. A refusal before that
@@ -651,6 +679,69 @@ its rows are listed, the report naming it under *Needs a human* so the
 owner can clear them. A list `start` cannot read keeps the run open and
 says why, since closing on a guess could leave rows to no run. The resumed
 night writes `report.md` again, over the first.
+
+**A group handed back on a denied edit resumes once the owner has run its
+script**, so the script is the owner's only step (blueprint-harness#602).
+The executor leaves `artifacts/handoff/resume.json` in its worktree beside
+the script (`docs/commands/ship.md`, *Dispatched: the one token /dispatch
+passes*), but nothing the executor writes lifts a hold by itself: an
+executor can write a record, a receipt reading `applied` and an edit of
+its own, so trusting them would let a session release its own hand-back
+and relaunch itself every wake. The record that counts is the
+dispatcher's. `tasks back`, the list's one writer, run after the executor
+exited, reads `resume.json` and keeps it in
+`artifacts/dispatch/handbacks.json` in the main checkout, printing
+`resume recorded <g>: …`, only when the worktree, branch and issues are
+the ones this run's `state.json` gave the group and the tree is clean at
+the recorded head; it keeps the script's digest and each row's *Depends
+on* before and after its marks. Otherwise it prints `resume not recorded
+<g>: <why>`, and the group waits on the owner as any hand-back does; a
+back drops the worktree's earlier record first, so a refusal leaves none.
+
+`board` and every `wake` then lift a recorded group's hold only when all
+of these hold, and otherwise `board` prints `resume held <worktree>:
+<why>`:
+
+- the receipt's last line is `applied`, and its `head` line is the
+  record's (`docs/harness/working-rules.md`, *Hand-back scripts*);
+- the record's own run still holds the group as sent back from that
+  worktree on that branch, so a record written beside the run's
+  `state.json` has to forge both;
+- the script is the one recorded, by digest;
+- the worktree is on the recorded branch at that head, and `git status`
+  names exactly the script's paths, outside `artifacts/handoff/`: the
+  tree was clean when the executor exited, so these edits came after it;
+- one group in *Remaining* holds exactly the recorded issues.
+
+The lift puts *Depends on* back as it read before the marks, on either
+kind of night, while the row still reads as `tasks back` wrote it; once
+someone has edited it, their cell stands, less only the `sent back under
+--berserk` words, so any `OWNER` the edit left is a question still open
+and an answer that removed one is kept. It changes nothing else: a date, an open
+issue, a label, the `.claude/` reach and the owner's authorship gate hold
+as they did, and so does an `OWNER` the row carried before it launched,
+which a flagged night lifted and a plain night asks about again: `board`
+prints the `resumed` line only for a group that is ready, and `resume held
+<worktree>: <g> is not ready: <why>` for one that is not, so the interview
+asks about one a restored question holds. The owner's script answers the
+question the hand-back asked and no other.
+
+The record outlives a move of its group in the same run, since `tasks
+move` keeps where a back sent the group from, so a script the owner runs
+mid-night resumes at the next wake. A resumed group handed back again is
+recorded against the cell the lift left on each row, an answer given since
+the first back included, which its launch carried, not the marked rows it
+was moved with.
+
+`launch --resumed` reuses the worktree rather than forking one from
+`main`, which would stand beside the applied edit, and checks the record
+again in code whatever `wake` printed, as it re-reads a red `main`. Any
+launch of the worktree removes the record, and a resumed one tells the
+executor in its prompt that the edits are the owner's to commit: an
+executor that ends again before committing leaves the tree as the script
+left it, which a kept record would resume on every wake. Nothing loops:
+a review finding that lands in a denied path again is a fresh hand-back
+with a fresh record, sent back as any other.
 
 ## Grants
 

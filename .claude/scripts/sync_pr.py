@@ -6,6 +6,7 @@ reviewed or launched. What it reads is data, and a read it cannot complete fails
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
@@ -128,6 +129,9 @@ def sync_rows():
                      "number,headRefName,headRefOid,baseRefName,isCrossRepository,body"])
     if not isinstance(raw, list):
         raise Refusal("gh pr list returned no list")
+    if len(raw) >= int(LIST_LIMIT):
+        # A list cut at its limit drops the oldest, and a sync dropped from it would be refused as no sync at all.
+        raise Refusal(f"gh pr list returned {len(raw)} open pull requests, its --limit {LIST_LIMIT}, so it may be cut")
     rows = []
     for pr in raw:
         if not isinstance(pr, dict):
@@ -185,19 +189,27 @@ def fetch_head(number, pin=None):
                       f"from a {SYNC_HEAD.pattern} branch, whose body ends with the sync footer")
     if pin is not None and row["oid"] != pin:
         raise Refusal(f"#{number}: the listed head {row['oid']} is not the pinned oid {pin}; it moved")
-    read(["git", "fetch", "-q", "--no-tags", "origin", f"refs/heads/{row['head']}"], GIT_TIMEOUT)
-    fetched = read(["git", "rev-parse", "--verify", "--end-of-options", "FETCH_HEAD^{commit}"]).strip()
+    # This call's own ref, never FETCH_HEAD or one keyed by the number alone: another call in this checkout, on this
+    # pull request or another, would rewrite it between the fetch and the read, or hold its lock.
+    ref = f"refs/sync-pr/{number}-{os.getpid()}"
+    try:
+        read(["git", "fetch", "-q", "--no-tags", "--no-write-fetch-head", "origin",
+              f"+refs/heads/{row['head']}:{ref}"], GIT_TIMEOUT)
+        fetched = read(["git", "rev-parse", "--verify", "--end-of-options", f"{ref}^{{commit}}"]).strip()
+    finally:
+        run(["git", "update-ref", "-d", ref])  # best effort: a ref left behind only keeps its commits from gc
     if pin is not None and fetched != pin:
         raise Refusal(f"#{number}: the fetched head {fetched} is not the pinned oid {pin}; it moved")
     if fetched != row["oid"]:
         raise Refusal(f"#{number}: the fetched head {fetched} is not the listed oid {row['oid']}; it moved")
-    read(["git", "fetch", "-q", "--no-tags", "origin", "+refs/heads/main:refs/remotes/origin/main"], GIT_TIMEOUT)
+    read(["git", "fetch", "-q", "--no-tags", "--no-write-fetch-head", "origin",
+          "+refs/heads/main:refs/remotes/origin/main"], GIT_TIMEOUT)
     return row["oid"]
 
 
 def base_of(oid):
     """The commit the pull request was cut from, and the manifest it held there: (None, set()) before a first sync."""
-    base = read(["git", "merge-base", "origin/main", oid]).strip()
+    base = read(["git", "merge-base", MAIN, oid]).strip()  # the full name: a branch or tag origin/main shadows it
     if not OID.fullmatch(base):
         raise Refusal("git merge-base returned no commit")
     if not read(["git", "ls-tree", "--full-tree", "-z", base, "--", MANIFEST]):
@@ -280,10 +292,11 @@ def unlisted(payload, paths, local, exclude):
         return []  # an unread tree or config is already a failure
     return [f"{_name(rel)} is a payload file but the manifest does not list it" for rel in sorted(payload)
             if rel not in (SETTINGS, MANIFEST, CONFIG) and rel not in paths
-            and not any(glob_match(g, rel) for g in (*local, *exclude))]
+            # A local glob folded, as apply's write path matches it; an exclude glob exactly, as apply's walk does.
+            and not folded(local, rel) and not any(glob_match(g, rel) for g in exclude)]
 
 
-def settings_problem(oid, base, paths, payload, in_head):
+def settings_problem(oid, paths, payload, in_head):
     """Why the head's settings.json is not what the proved renderer renders, or None: drift_gate's check, on blobs.
 
     The head is anyone's branch, so its renderer runs only once it is the payload's at a commit on the harness's main
@@ -300,13 +313,14 @@ def settings_problem(oid, base, paths, payload, in_head):
     try:
         exec(compile(read(["git", "show", f"{oid}:{RENDER}"]), RENDER, "exec"), module.__dict__)
         settings = json.loads(read(["git", "show", f"{oid}:{BASE_SETTINGS}"]))
-        cfg = types.SimpleNamespace(settings=json.loads(read(["git", "show", f"{base}:{CONFIG}"])).get("settings", {}))
+        # Main's config, not the base's: the drift gate renders with the config of the tree it checks.
+        cfg = types.SimpleNamespace(settings=json.loads(read(["git", "show", f"{MAIN}:{CONFIG}"])).get("settings", {}))
         want = module.dump_settings(module.render_settings(settings, cfg))
         have = read(["git", "show", f"{oid}:{SETTINGS}"])
     except Exception as error:  # a renderer that fails, or a read that does, is a finding and never a pass
         return f"cannot render {SETTINGS}: {_line(repr(error))}"
     if have.replace("\r\n", "\n") != want.replace("\r\n", "\n"):
-        return f"{SETTINGS} is not what {RENDER} renders from {BASE_SETTINGS} and the base's {CONFIG}"
+        return f"{SETTINGS} is not what {RENDER} renders from {BASE_SETTINGS} and main's {CONFIG}"
     return None
 
 
@@ -351,7 +365,7 @@ def prove(number, pin=None):
         failures.append(f"cannot read what the head changes: {error}")
         return failures, head
     head.update(base=base, old_commit=old_commit, old=old)
-    problem = settings_problem(oid, base, paths, payload if on_main else None, in_head)
+    problem = settings_problem(oid, paths, payload if on_main else None, in_head)
     if problem:
         failures.append(problem)
     try:
@@ -464,10 +478,26 @@ def review_target(raw):
     """The file review-diff may write: a .diff directly under artifacts/review, in this checkout."""
     path = Path(raw)
     path = path if path.is_absolute() else ROOT / path
+    link = linked_below(ROOT, REVIEW_DIR)
+    if link is not None:
+        raise Refusal(f"review-diff writes under {REVIEW_DIR}/ only where no part of it is a link, and {link} is one")
     allowed = (ROOT / REVIEW_DIR).resolve()
     if path.suffix != ".diff" or path.resolve().parent != allowed:
         raise Refusal(f"review-diff writes only a .diff file directly under {REVIEW_DIR}/, not {raw}")
     return path
+
+
+def linked_below(root, relative):
+    """The first directory of `relative` under `root`, itself included, that is a symlink or a junction, or None.
+
+    Resolving both sides of a containment check follows such a link, so a linked artifacts/ would move the boundary
+    the check holds; this is asked of each part before the check is trusted."""
+    path = Path(root)
+    for part in Path(relative).parts:
+        path = path / part
+        if os.path.islink(path) or getattr(os.path, "isjunction", lambda _: False)(path):
+            return path
+    return None
 
 
 def local_suites():
