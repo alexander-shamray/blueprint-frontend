@@ -5,7 +5,12 @@
 """
 from __future__ import annotations
 
+import contextlib
+import io
 import json
+import os
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -202,8 +207,20 @@ class IssueFormGateTests(unittest.TestCase):
         self.write("finding.yml", form().replace("      options:\n        - critical\n        - high\n"
                                                  "        - medium\n        - low\n",
                                                  "      options: [critical, high, medium, low]\n"))
-        with self.assertRaisesRegex(gate.InputRefused, "dropdown severity has no options"):
+        with self.assertRaisesRegex(gate.InputRefused, "line 21: options is not in the one shape"):
             self.check()
+
+    def test_a_field_key_in_another_spelling_is_refused(self) -> None:
+        # YAML reads `type: "dropdown"` as `type: dropdown`, so a dropdown spelled so would escape every check.
+        extra = ('  - type: "dropdown"\n    id: priority\n    attributes:\n      label: priority\n'
+                 "      options:\n        - Not A Label\n")
+        flow = extra.replace("      options:\n        - Not A Label\n", "      options: [Not A Label]\n")
+        for spelled in (extra, flow, flow.replace('"dropdown"', "'dropdown'"),
+                        flow.replace('  - type: "dropdown"', '  - "type": dropdown')):
+            with self.subTest(spelled=spelled):
+                self.write("finding.yml", form(extra=spelled))
+                with self.assertRaises(gate.InputRefused):
+                    self.check()
 
     def test_an_option_that_is_not_a_bare_name_is_refused(self) -> None:
         self.write("finding.yml", form().replace("        - low\n", "        - 'low'\n"))
@@ -235,7 +252,11 @@ class IssueFormGateTests(unittest.TestCase):
             self.check()
 
     def test_main_refuses_an_empty_label_list(self) -> None:
-        self.assertEqual(1, self.main("[]"))
+        # An empty set also fails every "option is not a label" check with exit 1, so the refusal is named.
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            self.assertEqual(1, self.main("[]"))
+        self.assertIn("stdin holds no label", stderr.getvalue())
 
     def test_main_refuses_stdin_that_is_not_json(self) -> None:
         self.assertEqual(1, self.main(""))
@@ -249,6 +270,27 @@ class IssueFormGateTests(unittest.TestCase):
     def main(self, stdin: str) -> int:
         return gate.main(["--templates", str(self.templates), "--helper", str(self.helper),
                           "--rules", str(self.rules)], stdin=stdin)
+
+    def run_gate(self, data: bytes) -> subprocess.CompletedProcess:
+        # cp1252 is what a Windows console hands Python, and it has no
+        # character for 0x9D, the last byte of a right double quote.
+        env = {**os.environ, "PYTHONIOENCODING": "cp1252", "PYTHONUTF8": "0"}
+        return subprocess.run(
+            [sys.executable, str(Path(gate.__file__)), "--templates", str(self.templates),
+             "--helper", str(self.helper), "--rules", str(self.rules)],
+            input=data, capture_output=True, env=env)
+
+    def test_utf8_on_stdin_is_read_as_utf8_whatever_the_locale(self) -> None:
+        labels = json.dumps([{"name": name} for name in [*LABELS, "“quoted”"]],
+                            ensure_ascii=False)
+        result = self.run_gate(labels.encode("utf-8"))
+        self.assertEqual(0, result.returncode, result.stderr.decode("utf-8", "replace"))
+
+    def test_stdin_that_is_not_utf8_is_refused_with_a_verdict(self) -> None:
+        result = self.run_gate(b'[{"name": "\xff"}]')
+        self.assertEqual(1, result.returncode)
+        self.assertIn(b"not UTF-8", result.stderr)
+        self.assertNotIn(b"Traceback", result.stderr)
 
 
 class ThisRepositoryTests(unittest.TestCase):
